@@ -114,6 +114,25 @@ export default function DiagnosticsPage() {
     return Array.from(kinds.entries()).sort((a, b) => b[1] - a[1]);
   }, [rows]);
 
+  // Personalization readout from feed_first_paint payloads. Sprint 2
+  // attaches a small `personalization` object so we can verify, per
+  // session, whether the mixer had viewer signals to differentiate on.
+  const personalizationLatest = useMemo(() => {
+    for (const r of rows) {
+      if (r.event_name !== "feed_first_paint") continue;
+      const p = (r.payload as Record<string, unknown> | null)?.personalization;
+      if (p && typeof p === "object") {
+        return p as {
+          enabled?: boolean;
+          has_role?: boolean;
+          following_count?: number;
+          liked_count?: number;
+        };
+      }
+    }
+    return null;
+  }, [rows]);
+
   const activationCounts = useMemo(() => {
     const m = new Map<string, number>();
     for (const name of ACTIVATION_EVENTS) m.set(name, 0);
@@ -191,9 +210,18 @@ export default function DiagnosticsPage() {
               </p>
             )}
             {feedClickByKind.length > 0 && (
-              <p className="mb-6 text-xs text-zinc-600">
+              <p className="mb-3 text-xs text-zinc-600">
                 <span className="font-medium">{t("diagnostics.feedSurface.byKind")}</span>{" "}
                 {feedClickByKind.map(([k, v]) => `${k}:${v}`).join(" · ")}
+              </p>
+            )}
+            {personalizationLatest && (
+              <p className="mb-6 text-xs text-zinc-600">
+                <span className="font-medium">{t("diagnostics.personalization.title")}</span>{" "}
+                enabled:{personalizationLatest.enabled ? "yes" : "no"} ·{" "}
+                role:{personalizationLatest.has_role ? "known" : "unknown"} ·{" "}
+                following:{personalizationLatest.following_count ?? 0} ·{" "}
+                liked:{personalizationLatest.liked_count ?? 0}
               </p>
             )}
           </>

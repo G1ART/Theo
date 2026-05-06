@@ -15,6 +15,7 @@
     "test:website-import": "tsx tests/website-import.test.ts",
     "test:feed-living-salon": "tsx tests/feed-living-salon.test.ts",
     "test:feed-telemetry": "tsx tests/feed-telemetry.test.ts",
+    "test:feed-personalization": "tsx tests/feed-personalization.test.ts",
     "test:people-reason": "tsx tests/people-reason.test.ts"
   },
   "dependencies": {

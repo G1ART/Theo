@@ -2,6 +2,188 @@
 
 Last updated: 2026-05-05
 
+## 2026-05-05 — Sprint 2: Personalized Salon Mixer & Taste Signals
+
+Opus Sprint Pack 의 두 번째 스프린트. **결정론적 personalization layer 도입.** Sprint 1 의 Living Salon 시각 안정화 + 측정 토대 위에, 같은 입력에 대해 결정론적이고, 같은 viewer 에 대해 안정적이며, 다른 viewer 에 대해 의미 있는 차이를 만드는 ranking 레이어를 추가. **런타임 AI 호출 없음, 광고 없음, 외부 모델 호출 없음.**
+
+베이스라인: Sprint 1 commit `9dc3398` (= `release: Sprint 1 — Feed face stabilization + measurement foundation`).
+
+### 변경 요약
+
+#### A. Sprint 1 Audit Gap Fix (선행 작업)
+
+1. **`FEED_LAYOUT_VERSION` SSOT 통합** — `FeedContent.tsx` 에 local const 로 중복되어 있던 `FEED_LAYOUT_VERSION = "living_salon_v1.7_incremental"` 를 제거하고, **`@/lib/feed/telemetry` 의 export 만 사용**. dashboard split-brain 위험 영구 제거.
+2. **`FeedContent.tsx` 의 직접 `logBetaEvent("feed_loaded" | "feed_first_paint" | "feed_load_more")` 5 호출** → **`logFeedEvent` 헬퍼로 마이그레이션**. 이로써 모든 feed-surface 이벤트가 동일한 envelope (`surface: "feed"` + `session_id` + `layout_version`) 를 공유.
+3. **untracked 중복 파일 정리** — `src/lib/feed/telemetry 2.ts`, `tests/feed-telemetry.test 2.ts` (macOS 동기화 흔적) 삭제.
+4. **Sprint 1 audit B-3, B-4, B-5 verify** — `PeopleCarouselStrip → FollowButton`, `FeedArtworkCard → LikeButton` 의 `surface={feedContext ? "feed" : undefined}` + `feedContext={feedContext}` 전달이 이미 코드에 적용되어 있음을 grep 으로 확인. `setFeedSource` 도 artwork / exhibition / person 세 surface 모두에서 fire 됨을 확인.
+
+#### B. Personalization Layer (이번 스프린트의 척추)
+
+5. **`src/lib/feed/feedSeed.ts` 신설** — non-cryptographic stable hash + PRNG.
+   - **`fnv1a32(input)`** — FNV-1a 32-bit 해시. 식별자/저장 키 절대 사용 금지, **seed 용도 한정**.
+   - **`createRngFromSeed(seed)`** — public-domain Mulberry32 PRNG. 같은 seed → 같은 [0, 1) 시퀀스.
+   - **`seedFromViewer({ userId, tab, sort })`** — `v1:${userKey}:${tab}:${sort}` 의 FNV 해시. anonymous viewer 는 단일 bucket. **freshness day-bucket 의도적 미포함** (refresh stable).
+   - **`jitterForItem(viewerSeed, itemKey)`** — XOR + Mulberry32 mixing step 으로 강한 avalanche. *주의: FNV-1a 만으로 `${seed}:${itemKey}` 를 해싱하면 인접 itemKey ("art-a0" vs "art-a1") 가 거의 동일한 jitter 를 만들어 viewer 간 차이가 안 생김 — initial 구현에서 발견하고 수정함.* 출력 ∈ (-1, 1).
+
+6. **`src/lib/feed/feedSignals.ts` 신설** — viewer 신호 정의 + sessionStorage helper.
+   - **`ViewerSignals`** 타입: `userId`, `tab`, `sort`, `followingIds`, `likedArtworkIds`, `viewerRole?`, `seenItemKeys?`. 모두 cheap-to-compute (Set / string).
+   - **`readSeenItemKeys()`** — Sprint 1 의 `IMPRESSION_DEDUP_KEY` (sessionStorage) 에서 `${tab}:${sort}:${itemKey}` 튜플을 파싱해 **bare item key** Set 으로 반환. tab/sort scoping 은 dedup-fire 에는 유지하되 personalization 의 already-seen 판정은 broader (탭 전환 후에도 본 것 기억). SSR-safe (storage 미접근 시 빈 Set).
+   - **`deriveLikedArtistIds(likedArtworkIds, artworkIdToArtistId)`** — feed entries 에서 직접 도출 가능한 affinity helper. extra fetch 없음.
+
+7. **`src/lib/feed/feedScoring.ts` 신설 — named WEIGHTS + pure scorer.**
+   - **`BASE_POSITION_WEIGHT = 10_000`** — 한 position 차이가 어떤 single bonus 보다도 크게 calibrate.
+   - **`WEIGHTS`** (모두 named export, magic number 산재 금지):
+     - `followedArtist: 9_500` — 팔로우한 artist 의 작품. ~1 position 상승.
+     - `likedArtistAffinity: 6_500` — 본인이 좋아요 누른 artist 의 다른 작품. follow 보다 약함 (취향은 follow 보다 빨리 흐름).
+     - `viewerRoleAffinity: 2_500` — 매우 작은 role 기반 nudge.
+     - `inquiryAvailable: 2_000` × **role multiplier** (collector 1.0 / gallerist 0.5 / curator 0.25 / artist 0.0) — pricing_mode = "inquire" 작품의 collector-친화 boost.
+     - `alreadySeenPenalty: 4_000` — 같은 세션에 impressed 된 작품.
+     - `jitterAmplitude: 5_500` — viewer-stable per-item jitter 의 진폭. peak-to-peak 11_000 으로 인접 1자리 swap 까지만 허용 (work order §3.3 "vary first screens, not randomize the whole feed" 충족).
+   - **`scoreArtworkEntry(...)`** — pure function. base position 점수 + signal boost/penalty + jitter. 반환값에 `reasons: ScoreReason[]` 첨부 — 향후 quiet hint UI 에 활용 가능, 빈 배열이면 "no clean reason → no hint" (work order §3.6 hallucination 금지 원칙).
+   - **same-artist run penalty 는 여기 *없음*.** 이미 `livingSalon.ts` 의 `softenSameArtistRuns` 가 personalize 다음 단계인 builder 에서 동작하므로, 동일 제약을 두 곳에 두면 calibration drift 위험. canonical home 한 곳으로 통일.
+
+8. **`src/lib/feed/personalizedSalon.ts` 신설** — `personalizeFeedEntries(entries, viewer): { entries, reasonsByArtworkId, topDebug }`.
+   - **순수 함수**. 같은 입력 → 같은 출력. 시계/Math.random/Supabase 미접근.
+   - artwork entries 만 reorder, exhibition entries 는 input position 유지 (cadence 는 builder 가 owner).
+   - **anonymous viewer (userId == null) 는 personalization 자체를 skip** — entries.slice() 그대로 반환. degrade-gracefully 분기.
+   - score desc + originalIndex tie-break stable sort. 최종 `out` 배열은 entries 의 *position* 을 유지하면서 artwork 슬롯만 새 순서로 채움 — exhibition cadence 100% 보존.
+   - `topDebug` (12개 cap) 로 diagnostics 페이지에서 ranking 결과 inspect 가능.
+
+9. **`src/lib/feed/viewerRole.ts` 신설** — `main_role` 만 가벼운 fetch + 10분 cache.
+   - module-level `Map<userId, {role, fetchedAt}>` cache + inflight promise dedupe.
+   - 실패는 silently null 처리. mixer 가 role==null 에서도 동작.
+   - 기존 `getMyProfile()` 은 PROFILE_ME_SELECT 로 30+ 컬럼 fetch — main_role 한 글자에 그건 과함. 이 helper 는 `select main_role` 단일 컬럼만.
+
+10. **`FeedContent.tsx` 통합** — `viewerRole` state + `livingSalonItems` useMemo 가 personalize → builder 순으로 흐름.
+    - `readSeenItemKeys()` 를 useMemo 안에서 호출 — feed list 변경마다 최신 impression set 으로 알리아싱 정확.
+    - useMemo deps: `feedEntries`, `discoveryData`, `userId`, `tab`, `sort`, `followingIds`, `likedIds`, `viewerRole` (모두 referential 안정).
+    - `feed_first_paint` payload 에 `personalization: { enabled, has_role, following_count, liked_count }` 첨부 — dashboard 가 user_id 역추적 없이 personalized vs anonymous split 가능.
+
+#### C. Diagnostics
+
+11. **`/my/diagnostics`** — feed surface 섹션에 **"Personalization (last paint)"** 한 줄 추가. `feed_first_paint` payload 의 `personalization` 메타에서 가장 최신 한 건을 표시 (`enabled:yes/no · role:known/unknown · following:N · liked:N`). i18n 키 추가: `diagnostics.personalization.title` (en/ko).
+
+#### D. Tests
+
+12. **`tests/feed-personalization.test.ts` 신설** (`npm run test:feed-personalization`) — 11개 invariants:
+    1. **same viewer + same input ⇒ identical output**.
+    2. **다른 userId 는 적어도 한 pair 에서 다른 ordering** (boost 로 base 차이가 거의 상쇄된 인접 두 tile 시나리오).
+    3. **followed-artist boost 가 tile 을 ~1 position 끌어올림** (절대 top 으로 leapfrog 하지 않음).
+    4. **liked-artist affinity 는 mild** (≥ 3 position 깊이의 tile 은 2 position 이상 못 올라감).
+    5. **anonymous viewer ⇒ entries 무수정 반환** (degrade branch).
+    6. **mixer 는 entry 추가/제거 안 함, mutation 없음** (private/orphan filter 위임 보존).
+    7. **single signal 로 깊게 묻힌 tile (idx 9) 이 idx 7 위로 못 올라감** (latest base 보존).
+    8. **calibration invariants** — `WEIGHTS.followedArtist < BASE_POSITION_WEIGHT` 등.
+    9. **`scoreArtworkEntry` 순수성** (같은 입력 두 번 호출 → 같은 score, 같은 reasons).
+    10. **FNV-1a / Mulberry32 결정론**.
+    11. **`alreadySeenPenalty` 정확히 configured weight 만큼 적용**.
+
+### 검증 결과
+
+| 명령                          | 결과 | 비고                                                                  |
+|-------------------------------|------|----------------------------------------------------------------------|
+| `npm run test:feed-personalization` | **PASS** | 11 invariants 모두 통과                                                |
+| `npm run test:feed-living-salon`    | **PASS** | Sprint 1 builder invariants 보존                                       |
+| `npm run test:feed-telemetry`       | **PASS** | Sprint 1 telemetry helpers 보존                                        |
+| `npm run test:people-reason`        | **PASS** | people 추천 reason 보존                                                 |
+| `npm run build`                     | **PASS** | Next.js production build 통과                                          |
+| `npm run lint`                      | baseline 동일 (34 errors / 50 warnings — 새 파일에는 0 lint 문제) | error 들 모두 baseline pre-existing (`useT.ts` setState in effect, `artworks.ts` no-explicit-any 등) |
+| `npm run test:ai-safety`            | baseline 동일 — Sprint 2 가 도입한 regression 없음 | `IntroMessageAssist` auto-fire / hardcoded "ko" 는 별도 영역, Sprint 1 에서도 동일 |
+| `npm run test:onboarding-smoke`     | baseline 동일 — Sprint 2 가 도입한 regression 없음 | `src/app/page.tsx` 가 ONBOARDING_PATH 대신 LOGIN_PATH 로 redirect — 별도 영역 |
+
+### Personalization 아키텍처 한눈에
+
+```
+raw RPC entries (latest desc / popular desc, RPC 가 결정)
+  │
+  ▼
+personalizeFeedEntries(entries, viewer)        ← 순수, 결정론적, 이번 스프린트
+  │  - artwork entries 만 score-based reorder
+  │  - exhibition entries 는 position 유지
+  │  - anonymous viewer 면 무수정 통과
+  ▼
+buildLivingSalonItems(entries, …)              ← Sprint 1, 무수정
+  │  - rhythm / cadence / anchor / persona-cluster
+  │  - softenSameArtistRuns
+  ▼
+LivingSalonItem[]  →  <LivingSalonGrid />      ← Sprint 1, 무수정
+```
+
+### 결정론 보장은 어떻게?
+
+- **시계/Math.random 미사용** — scoring/seed/sort 의 모든 step 이 input 에 대한 순수 함수.
+- **stable sort + originalIndex tie-break** — Array.prototype.sort 가 ES2019 부터 stable 하지만 belt-and-suspenders.
+- **seed 는 (userId, tab, sort) 의 함수** — refresh 마다 변하지 않음. day-bucket 같은 freshness 차원 의도적 미포함 (Sprint 3 lever).
+- **scoreArtworkEntry 의 모든 인자가 input** — `(artwork, position, listLength, viewer, likedArtistIds, jitter)` 외부 의존성 0.
+
+### 고의적으로 personalize 하지 않은 영역
+
+- **exhibition strip 순서 / 배치** — builder 의 cadence (`CONTEXT_MIN_GAP` / `EXHIBITION_MIN_COVERS`) 가 owner. mixer 가 건드리면 rhythm 파이프라인 두 번 빌드.
+- **people carousel 내부 순서** — `LIVING_SALON_PERSONAS` 가 owner. v1 personalize 미적용.
+- **sort 자체** — `latest` / `popular` 의 RPC sort 는 그대로. mixer 는 그 위 nudge 만.
+- **persona / role 기반 hint UI** — `reasonsByArtworkId` 가 준비되어 있으나 v1 에서는 *카드 표면에 hint 를 띄우지 않음*. work order §3.6 의 "If no clean reason exists, show no reason" 보수 원칙 + 노이즈 회피. Sprint 3 의 quiet hint UI 후보.
+
+### Manual QA 권장 시나리오
+
+- `/feed?tab=all&sort=latest` — 다른 두 본인 계정으로 첫 화면 차이 비교 (followed/liked 분포 다른 계정).
+- `/feed?tab=all&sort=popular` — popular sort 의미 보존 검증 (같은 viewer 에서 likes_count desc 전반적 유지).
+- `/feed?tab=following` — relationship-first 톤 유지.
+- 로그아웃 + `/feed` — 모든 시나리오에서 RPC 순서 그대로 (anonymous 분기 검증).
+- `/feed` → 작품 클릭 → "Ask price" → `feed_item_inquiry_click` 발화 (Sprint 1 attribution 보존 확인).
+- `/my/diagnostics` — `Personalization (last paint)` 줄에 viewer 본인의 last paint 메타가 노출되는지 확인.
+
+### 알려진 제약 & Sprint 3 추천
+
+- **viewerRole fetch 의 first-paint race** — first paint 시점에 role 이 아직 도착 안 했으면 `viewerRole = null` 로 score. boost 가 `viewerRoleAffinity = 2_500` (≤ ¼ position step) 이라 시각 변화 없음. 그럼에도 SSR / server component 단계에서 role 을 미리 inject 하면 더 깔끔. → Sprint 3 candidate.
+- **seenItemKeys 는 sessionStorage 한정** — 새 탭/세션에서는 history 0. cross-session memory 가 필요하면 long-term storage 또는 supabase RPC 가 필요하지만, work order §3.4 가 명시적으로 금지 ("do not query large analytics history from Supabase on every feed load in this sprint"). Sprint 3 에서 *batched* 야간 집계로 풀 수 있음.
+- **quiet hint UI** — `reasonsByArtworkId` 가 카드까지 흐르도록 prop drilling 만 하면 됨. Sprint 3 에서 "From artists you follow" 같은 1-line hint 를 first paint 에서 1-2 카드만 표시하는 식으로 추가 권장 (UI 노이즈 회피).
+- **exhibition / people 의 personalize** — 데이터 양이 늘어나면 의미가 생김. Sprint 3 candidate.
+
+### 환경 변수
+
+- 이번 스프린트에서 추가/변경된 환경 변수 **없음**.
+
+### Supabase SQL
+
+- 이번 스프린트에서 추가/변경된 마이그레이션 **없음**. 기존 `beta_analytics_events` 테이블 (Sprint 0 에서 생성) 만 사용.
+
+### 운영자 추천 SQL — personalization 효과 sanity check
+
+```sql
+-- Sprint 2 후 personalized vs anonymous first-paint 분포
+select
+  (payload->'personalization'->>'enabled')::boolean as personalized,
+  count(*) as paints,
+  avg((payload->>'item_count')::int) as avg_items,
+  avg((payload->>'data_ms')::int) as avg_data_ms
+from public.beta_analytics_events
+where event_name = 'feed_first_paint'
+  and created_at >= now() - interval '7 days'
+group by 1
+order by 1 desc;
+
+-- 본인 viewerRole 분포 (운영자 슬랙 공유 전, role 다양성 확인)
+select
+  coalesce(payload->'personalization'->>'has_role', '?') as has_role,
+  count(*)
+from public.beta_analytics_events
+where event_name = 'feed_first_paint'
+  and created_at >= now() - interval '30 days'
+group by 1;
+
+-- followed_count 분포 - 누가 personalize 의 혜택을 가장 많이 받는가
+select
+  width_bucket((payload->'personalization'->>'following_count')::int, 0, 50, 10) as bucket,
+  count(*) paints
+from public.beta_analytics_events
+where event_name = 'feed_first_paint'
+  and created_at >= now() - interval '7 days'
+group by 1
+order by 1;
+```
+
+---
+
 ## 2026-05-05 — Sprint 1: Feed Face & Measurement Foundation
 
 Opus Sprint Pack 의 첫 번째 스프린트. **Living Salon 피드의 시각 안정화 + 측정 토대 구축.** Sprint 2 (Personalized Salon Mixer) 가 사용할 신호 파이프라인을 깔되, 이번 패치에서는 personalization / ranking / AI 호출 *모두 미터치*.

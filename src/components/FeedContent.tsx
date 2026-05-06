@@ -4,13 +4,16 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
-import { logBetaEvent } from "@/lib/beta/logEvent";
 import { markFeedPerf, readFeedPerf } from "@/lib/feed/feedPerf";
 import {
   buildLivingSalonItems,
   summarizeFirstView,
   summarizeLivingSalonMix,
 } from "@/lib/feed/livingSalon";
+import { personalizeFeedEntries } from "@/lib/feed/personalizedSalon";
+import { readSeenItemKeys, type ViewerSignals } from "@/lib/feed/feedSignals";
+import { getViewerRoleCached } from "@/lib/feed/viewerRole";
+import { FEED_LAYOUT_VERSION, logFeedEvent } from "@/lib/feed/telemetry";
 import type { DiscoveryDatum, FeedEntry } from "@/lib/feed/types";
 import {
   type ArtworkWithLikes,
@@ -56,7 +59,6 @@ const DISCOVERY_BLOCKS_MAX = 24;
  * smaller page size, so subsequent rows arrive as the user scrolls.
  */
 const FEED_PAGE_SIZE = 24;
-const FEED_LAYOUT_VERSION = "living_salon_v1.7_incremental";
 
 /**
  * Dedupe by id while *preserving* the order in which entries arrived. The
@@ -265,13 +267,12 @@ export function FeedContent({
         }
 
         const elapsed = Math.round(performance.now() - dataLoadStartedRef.current);
-        void logBetaEvent("feed_loaded", {
+        logFeedEvent("feed_loaded", {
           tab,
           sort,
           duration_ms: elapsed,
           source,
           item_count: entries.length,
-          layout_version: FEED_LAYOUT_VERSION,
         });
         markFeedPerf("feed_data_loaded_ms", String(elapsed));
 
@@ -332,13 +333,12 @@ export function FeedContent({
       }
 
       const elapsed = Math.round(performance.now() - dataLoadStartedRef.current);
-      void logBetaEvent("feed_loaded", {
+      logFeedEvent("feed_loaded", {
         tab,
         sort,
         duration_ms: elapsed,
         source,
         item_count: entries.length,
-        layout_version: FEED_LAYOUT_VERSION,
       });
       markFeedPerf("feed_data_loaded_ms", String(elapsed));
 
@@ -414,12 +414,12 @@ export function FeedContent({
           setFeedEntries((prev) => dedupePreservingOrder([...prev, ...newEntries]));
         }
         const ms = Math.round(performance.now() - t0);
-        void logBetaEvent("feed_load_more", {
+        logFeedEvent("feed_load_more", {
           tab,
+          sort,
           duration_ms: ms,
           item_count: newEntries.length,
           source: "load_more",
-          layout_version: FEED_LAYOUT_VERSION,
         });
         setLoadMoreCalls((c) => c + 1);
         setLastLoadMoreFetched({
@@ -482,13 +482,12 @@ export function FeedContent({
         setFeedEntries((prev) => dedupePreservingOrder([...prev, ...newEntries]));
       }
       const ms = Math.round(performance.now() - t0);
-      void logBetaEvent("feed_load_more", {
+      logFeedEvent("feed_load_more", {
         tab,
         sort,
         duration_ms: ms,
         item_count: newEntries.length,
         source: "load_more",
-        layout_version: FEED_LAYOUT_VERSION,
       });
       setLoadMoreCalls((c) => c + 1);
       setLastLoadMoreFetched({
@@ -597,14 +596,56 @@ export function FeedContent({
     void fetchArtworks({ force: true, source: "manual" });
   }, [fetchArtworks]);
 
-  const livingSalonItems = useMemo(
-    () =>
-      buildLivingSalonItems({
-        entries: feedEntries,
-        discoveryData,
-      }),
-    [feedEntries, discoveryData]
-  );
+  // Viewer's main_role for the personalization layer. Lives in its own
+  // state so the mixer can degrade to "role unknown" while the fetch is
+  // in flight — the role boost is small (≤ 25% of one position step), so
+  // first paint never visibly changes when the role lands.
+  const [viewerRole, setViewerRole] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getViewerRoleCached(userId).then((role) => {
+      if (!cancelled) setViewerRole(role);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Re-read seen item keys whenever the feed list changes, so load-more
+  // arrivals can be down-weighted if the viewer already impressed them
+  // earlier this session. The read is a tiny sessionStorage parse — far
+  // cheaper than a Supabase round-trip — and is intentionally re-run
+  // inside the same useMemo as personalization so the mixer's input set
+  // stays consistent.
+  const livingSalonItems = useMemo(() => {
+    const seenItemKeys = readSeenItemKeys();
+    const viewer: ViewerSignals = {
+      userId,
+      tab,
+      sort,
+      followingIds,
+      likedArtworkIds: likedIds,
+      viewerRole,
+      seenItemKeys,
+    };
+    const personalized = personalizeFeedEntries(feedEntries, viewer);
+    return buildLivingSalonItems({
+      entries: personalized.entries,
+      discoveryData,
+    });
+    // `likedIds` and `followingIds` change identity on every Set mutation
+    // we do (we always create a new Set in setState), so referential
+    // equality is sufficient as a dep.
+  }, [
+    feedEntries,
+    discoveryData,
+    userId,
+    tab,
+    sort,
+    followingIds,
+    likedIds,
+    viewerRole,
+  ]);
 
   useEffect(() => {
     if (loading) return;
@@ -613,22 +654,40 @@ export function FeedContent({
       markFeedPerf("feed_first_paint");
       const mix = summarizeLivingSalonMix(livingSalonItems);
       const firstView = summarizeFirstView(livingSalonItems);
-      void logBetaEvent("feed_first_paint", {
+      logFeedEvent("feed_first_paint", {
         tab,
         sort,
         data_ms: readFeedPerf("feed_data_loaded_ms"),
         item_count: feedEntries.length,
         source: "initial",
-        layout_version: FEED_LAYOUT_VERSION,
         item_mix: {
           artworks: mix.artworks,
           exhibitions: mix.exhibitions,
           people_clusters: mix.people_clusters,
         },
         first_view_estimate: firstView,
+        // Whether the personalization layer had a viewer to differentiate
+        // on. Lets dashboards split feed_first_paint by personalized vs
+        // anonymous without needing user_id reverse-lookup.
+        personalization: {
+          enabled: userId != null,
+          has_role: viewerRole != null,
+          following_count: followingIds.size,
+          liked_count: likedIds.size,
+        },
       });
     }
-  }, [loading, tab, sort, feedEntries.length, livingSalonItems]);
+  }, [
+    loading,
+    tab,
+    sort,
+    feedEntries.length,
+    livingSalonItems,
+    userId,
+    viewerRole,
+    followingIds,
+    likedIds,
+  ]);
 
   const isEmpty = feedEntries.length === 0 && discoveryData.length === 0;
   const isFollowingEmpty = tab === "following" && isEmpty;
