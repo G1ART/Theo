@@ -34,6 +34,9 @@ import { InquiryReplyAssist } from "@/components/ai/InquiryReplyAssist";
 import { markAiAccepted } from "@/lib/ai/accept";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import type { InquirySourceSurface } from "@/lib/supabase/priceInquiries";
+import { listAccessRequestsForMe } from "@/lib/supabase/relationshipAccess";
+import { requireSessionUid } from "@/lib/supabase/requireSessionUid";
+import { supabase as supabaseClient } from "@/lib/supabase/client";
 
 export default function MyInquiriesPage() {
   const { t, locale } = useT();
@@ -64,6 +67,30 @@ export default function MyInquiriesPage() {
   const [notesByInquiry, setNotesByInquiry] = useState<Record<string, InquiryNoteRow[]>>({});
   const [noteText, setNoteText] = useState<Record<string, string>>({});
   const [loadingMessages, setLoadingMessages] = useState<string | null>(null);
+  const [pendingAccessRequests, setPendingAccessRequests] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let uid: string | null = null;
+      try {
+        uid = await requireSessionUid(supabaseClient);
+      } catch {
+        uid = null;
+      }
+      if (cancelled || !uid) return;
+      const { data } = await listAccessRequestsForMe({
+        ownerProfileId: uid,
+        status: "pending",
+        limit: 50,
+      });
+      if (cancelled) return;
+      setPendingAccessRequests(data.length);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const tmr = setTimeout(() => setSearchDebounced(search.trim()), 350);
@@ -281,6 +308,18 @@ export default function MyInquiriesPage() {
         />
 
         <ActingAsChip mode="replying" />
+
+        {pendingAccessRequests !== null && pendingAccessRequests > 0 && (
+          <Link
+            href="/my/access-requests"
+            className="mt-3 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-3 py-1 text-[11px] font-medium text-white hover:bg-zinc-800"
+          >
+            {t("inquiries.accessRequestsChip").replace(
+              "{n}",
+              String(pendingAccessRequests)
+            )}
+          </Link>
+        )}
 
         {/* Filter rail — calmer than the previous select trio. status is
             a 5-option lane (all + 4), source is a 6-option lane, search

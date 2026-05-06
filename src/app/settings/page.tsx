@@ -1348,6 +1348,22 @@ export default function SettingsPage() {
                   className="mt-1 h-4 w-4 rounded"
                 />
               </label>
+              <Link
+                href="/my/visibility"
+                className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-3 text-sm hover:bg-zinc-50"
+              >
+                <span className="flex flex-col">
+                  <span className="font-medium text-zinc-900">
+                    {t("nav.visibility")} · {t("visibility.page.title")}
+                  </span>
+                  <span className="mt-1 text-xs text-zinc-500">
+                    {t("visibility.page.subtitle")}
+                  </span>
+                </span>
+                <span aria-hidden className="text-zinc-400">
+                  →
+                </span>
+              </Link>
             </section>
 
             <div>

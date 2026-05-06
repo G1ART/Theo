@@ -174,10 +174,33 @@ export async function follow(
   });
   if (error) return { data: null, error };
   const value = (data as string | null) ?? "accepted";
-  if (value === "accepted" || value === "pending") {
-    return { data: value, error: null };
+  const status: FollowStatus = value === "pending" ? "pending" : "accepted";
+  // Sprint 5 — when an accepted edge lands AND the target was already
+  // following us, the relationship just turned mutual. We fire the event
+  // here (the single fire-site) so analytics see one row per
+  // freshly-formed mutual connection. No payload identifiers leak (we
+  // pass only target_profile_id, which is already the URL the viewer is
+  // standing on).
+  if (status === "accepted") {
+    try {
+      const { data: backRow } = await supabase
+        .from("follows")
+        .select("status")
+        .eq("follower_id", targetId)
+        .eq("following_id", session.user.id)
+        .maybeSingle();
+      if (backRow && (backRow as { status?: string }).status === "accepted") {
+        const { logBetaEventSync } = await import("@/lib/beta/logEvent");
+        logBetaEventSync("mutual_connection_created", {
+          target_profile_id: targetId,
+          surface: "follow",
+        });
+      }
+    } catch {
+      // Telemetry fire-and-forget; never block the user-facing follow.
+    }
   }
-  return { data: "accepted", error: null };
+  return { data: status, error: null };
 }
 
 /**

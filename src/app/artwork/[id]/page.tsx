@@ -64,6 +64,15 @@ import { markAiAccepted } from "@/lib/ai/accept";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ArtworkPassportHeader } from "@/components/artwork/ArtworkPassportHeader";
 import { ArtworkImageStage } from "@/components/artwork/ArtworkImageStage";
+import { GatedField } from "@/components/visibility/GatedField";
+import {
+  getViewerRelationshipContext,
+  resolveVisibilityForViewer,
+} from "@/lib/supabase/relationshipAccess";
+import type {
+  ViewerRelationshipContext,
+  VisibilityResolution,
+} from "@/lib/visibility/types";
 
 
 function ArtworkDetailContent() {
@@ -115,6 +124,17 @@ function ArtworkDetailContent() {
   const [exhibitionsForWork, setExhibitionsForWork] = useState<ExhibitionWithCredits[]>([]);
   const [delegatedProjectIds, setDelegatedProjectIds] = useState<Set<string>>(new Set());
   const [shortlistOpen, setShortlistOpen] = useState(false);
+  // Sprint 5 — viewer-side relationship/visibility state. The page calls
+  // resolve_visibility_for_viewer for each first-class field after the
+  // artwork loads; client never assembles `requiredAudience` itself.
+  const [viewerRelationship, setViewerRelationship] =
+    useState<ViewerRelationshipContext | null>(null);
+  const [priceResolution, setPriceResolution] =
+    useState<VisibilityResolution | null>(null);
+  const [availabilityResolution, setAvailabilityResolution] =
+    useState<VisibilityResolution | null>(null);
+  const [descriptionResolution, setDescriptionResolution] =
+    useState<VisibilityResolution | null>(null);
   const claimDropdownRef = useRef<HTMLDivElement>(null);
   const VIEW_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -344,6 +364,48 @@ function ArtworkDetailContent() {
     });
     return () => cancelAnimationFrame(t);
   }, [id, showArtistInquiryBlock]);
+
+  // Sprint 5 — Resolve viewer-side visibility for the price/availability/
+  // description fields. Each call goes server-side; the client never builds
+  // a `requiredAudience` itself. If the artwork or owner is missing, we
+  // skip and let the page render in its existing form (back-compat).
+  useEffect(() => {
+    if (!artwork?.id || !artwork.artist_id) return;
+    let cancelled = false;
+    const owner = artwork.artist_id;
+    const subjectId = artwork.id;
+    (async () => {
+      const [ctxRes, priceRes, availRes, descRes] = await Promise.all([
+        getViewerRelationshipContext(owner),
+        resolveVisibilityForViewer({
+          ownerProfileId: owner,
+          subjectType: "artwork",
+          subjectId,
+          fieldKey: "price",
+        }),
+        resolveVisibilityForViewer({
+          ownerProfileId: owner,
+          subjectType: "artwork",
+          subjectId,
+          fieldKey: "availability",
+        }),
+        resolveVisibilityForViewer({
+          ownerProfileId: owner,
+          subjectType: "artwork",
+          subjectId,
+          fieldKey: "description",
+        }),
+      ]);
+      if (cancelled) return;
+      if (ctxRes.data) setViewerRelationship(ctxRes.data);
+      if (priceRes.data) setPriceResolution(priceRes.data);
+      if (availRes.data) setAvailabilityResolution(availRes.data);
+      if (descRes.data) setDescriptionResolution(descRes.data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [artwork?.id, artwork?.artist_id]);
 
   /**
    * Decide where this inquiry was attributed from. Priority (most
@@ -660,13 +722,57 @@ function ArtworkDetailContent() {
             )}
             {(() => {
               const label = ownershipStatusLabel(artwork.ownership_status, t);
-              return label ? (
+              if (!label) return null;
+              const wrapped = (
                 <p className="mt-2 font-medium text-zinc-700">{label}</p>
-              ) : null;
+              );
+              if (!availabilityResolution || availabilityResolution.canView) {
+                return wrapped;
+              }
+              return (
+                <div className="mt-2">
+                  <GatedField
+                    ownerProfileId={artwork.artist_id}
+                    subjectType="artwork"
+                    subjectId={artwork.id}
+                    fieldKey="availability"
+                    resolution={availabilityResolution}
+                    viewerRelationship={viewerRelationship}
+                    ownerLabel={getArtworkArtistLabel(artwork).label}
+                    surface="artwork_passport"
+                  >
+                    {wrapped}
+                  </GatedField>
+                </div>
+              );
             })()}
-            <p className="mt-2 text-sm text-zinc-600">
-              {getArtworkPriceDisplay(artwork, t)}
-            </p>
+            {(() => {
+              const wrapped = (
+                <p className="mt-2 text-sm text-zinc-600">
+                  {getArtworkPriceDisplay(artwork, t)}
+                </p>
+              );
+              if (!priceResolution || priceResolution.canView) {
+                return wrapped;
+              }
+              return (
+                <div className="mt-2">
+                  <GatedField
+                    ownerProfileId={artwork.artist_id}
+                    subjectType="artwork"
+                    subjectId={artwork.id}
+                    fieldKey="price"
+                    resolution={priceResolution}
+                    viewerRelationship={viewerRelationship}
+                    ownerLabel={getArtworkArtistLabel(artwork).label}
+                    surface="artwork_passport"
+                    onAskAboutWork={() => setShowInquiryForm(true)}
+                  >
+                    {wrapped}
+                  </GatedField>
+                </div>
+              );
+            })()}
             {showPriceInquiryBlock && (
               <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
                 {priceInquiryLoading ? (
@@ -1174,9 +1280,29 @@ function ArtworkDetailContent() {
           onConfirm={handleDelete}
           onCancel={() => setShowDeleteConfirm(false)}
         />
-        {artwork.story && (
-          <p className="text-sm text-zinc-600">{artwork.story}</p>
-        )}
+        {artwork.story &&
+          (() => {
+            const wrapped = (
+              <p className="text-sm text-zinc-600">{artwork.story}</p>
+            );
+            if (!descriptionResolution || descriptionResolution.canView) {
+              return wrapped;
+            }
+            return (
+              <GatedField
+                ownerProfileId={artwork.artist_id}
+                subjectType="artwork"
+                subjectId={artwork.id}
+                fieldKey="description"
+                resolution={descriptionResolution}
+                viewerRelationship={viewerRelationship}
+                ownerLabel={getArtworkArtistLabel(artwork).label}
+                surface="artwork_passport"
+              >
+                {wrapped}
+              </GatedField>
+            );
+          })()}
       </div>
       <SaveToShortlistModal artworkId={artwork.id} open={shortlistOpen} onClose={() => setShortlistOpen(false)} />
     </main>

@@ -18,7 +18,10 @@
     "test:feed-personalization": "tsx tests/feed-personalization.test.ts",
     "test:inquiry-source": "tsx tests/inquiry-source.test.ts",
     "test:privacy-token-audit": "tsx tests/privacy-token-audit.test.ts",
-    "test:people-reason": "tsx tests/people-reason.test.ts"
+    "test:people-reason": "tsx tests/people-reason.test.ts",
+    "test:visibility-copy": "tsx tests/visibility-copy.test.ts",
+    "test:relationship-access": "tsx tests/relationship-access.test.ts",
+    "test:access-request": "tsx tests/access-request.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

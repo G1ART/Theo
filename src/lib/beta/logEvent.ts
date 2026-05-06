@@ -44,7 +44,23 @@ export type BetaEventName =
   | "tour_step_advanced"
   | "tour_skipped"
   | "tour_completed"
-  | "tour_reopened";
+  | "tour_reopened"
+  // ─── Sprint 5 — Relationship Access Layer (15 events) ───
+  | "visibility_policy_changed"
+  | "visibility_preset_changed"
+  | "visibility_gate_seen"
+  | "visibility_gate_cta_clicked"
+  | "follow_request_from_visibility_gate"
+  | "mutual_connection_created"
+  | "approved_viewer_added"
+  | "artwork_sensitive_field_viewed"
+  | "price_inquiry_from_gate"
+  | "room_access_requested"
+  | "vip_access_requested"
+  | "preview_as_used"
+  | "access_request_created"
+  | "access_request_resolved"
+  | "access_grant_created";
 
 /**
  * Best-effort first-party analytics for beta (RLS: insert own user_id only).

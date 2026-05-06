@@ -16,6 +16,15 @@ import { useT } from "@/lib/i18n/useT";
 import { setRoomSource } from "@/lib/room/source";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
+import { GatedField } from "@/components/visibility/GatedField";
+import {
+  getViewerRelationshipContext,
+  resolveVisibilityForViewer,
+} from "@/lib/supabase/relationshipAccess";
+import type {
+  ViewerRelationshipContext,
+  VisibilityResolution,
+} from "@/lib/visibility/types";
 
 /**
  * Sprint 4 — Private Room v1.1.
@@ -53,6 +62,10 @@ export default function RoomPage() {
   const [items, setItems] = useState<RoomItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [roomResolution, setRoomResolution] =
+    useState<VisibilityResolution | null>(null);
+  const [viewerRelationship, setViewerRelationship] =
+    useState<ViewerRelationshipContext | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -80,6 +93,32 @@ export default function RoomPage() {
     });
     return () => cancelAnimationFrame(timer);
   }, [load]);
+
+  // Sprint 5 — resolve room visibility server-side once we know the
+  // owner. Token-bearing viewers still pass through whenever the owner's
+  // policy resolves to a public-equivalent audience (default), so this
+  // is a strict additive gate, not a regression.
+  useEffect(() => {
+    if (!meta?.owner_id || !meta?.id) return;
+    let cancelled = false;
+    (async () => {
+      const [ctxRes, resRes] = await Promise.all([
+        getViewerRelationshipContext(meta.owner_id),
+        resolveVisibilityForViewer({
+          ownerProfileId: meta.owner_id,
+          subjectType: "room",
+          subjectId: meta.id,
+          fieldKey: "*",
+        }),
+      ]);
+      if (cancelled) return;
+      if (ctxRes.data) setViewerRelationship(ctxRes.data);
+      if (resRes.data) setRoomResolution(resRes.data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [meta?.owner_id, meta?.id]);
 
   const handleArtworkClick = useCallback(
     (artworkId: string) => {
@@ -150,7 +189,20 @@ export default function RoomPage() {
         </p>
       </div>
 
-      {items.length === 0 ? (
+      {roomResolution && !roomResolution.canView ? (
+        <GatedField
+          ownerProfileId={meta.owner_id}
+          subjectType="room"
+          subjectId={meta.id}
+          fieldKey="*"
+          resolution={roomResolution}
+          viewerRelationship={viewerRelationship}
+          ownerLabel={ownerLabel}
+          surface="room"
+        >
+          <></>
+        </GatedField>
+      ) : items.length === 0 ? (
         <p className="text-center text-sm text-zinc-500">{t("room.empty")}</p>
       ) : (
         <ul className="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">

@@ -28,6 +28,7 @@ import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { formatSupabaseError } from "@/lib/errors/supabase";
+import { ArtworkFieldVisibilityPanel } from "@/components/visibility/ArtworkFieldVisibilityPanel";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -788,6 +789,13 @@ function EditArtworkContent() {
           </button>
         </div>
       </form>
+
+      {artwork && userId && artwork.artist_id === userId && (
+        <ArtworkFieldVisibilityPanel
+          ownerProfileId={userId}
+          artworkId={artwork.id}
+        />
+      )}
     </main>
   );
 }

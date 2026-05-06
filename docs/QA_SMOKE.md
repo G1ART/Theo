@@ -4,13 +4,85 @@ Run after deploying or before a beta cut. Supabase: apply `p0_beta_hardening_wav
 
 ## Pre-deploy SQL checklist (read this BEFORE shipping)
 
-Sprint 3 introduced inquiry source attribution that depends on schema columns
-added by the migration below. If any of these are missing, the affected feature
-will fail at insert time.
+Sprint 3+ introduced schema/RPC additions. If any of these are missing, the
+affected feature will fail at insert / RPC time. **Apply migrations in order**.
 
 | Required migration | Why | Fail mode if missing |
 |---|---|---|
 | `supabase/migrations/20260605000000_price_inquiry_source_attribution.sql` | Adds `source_*` columns + `price_inquiries_source_surface_chk` CHECK + `idx_price_inquiries_source_room` partial index | `createPriceInquiry` insert fails (PostgREST 42703 — unknown column `source_surface`) → "Ask about this work" silently breaks for any user arriving via feed/room |
+| `supabase/migrations/20260606000000_relationship_access_layer.sql` (Sprint 5) | Adds 6 tables (`visibility_owner_settings` / `visibility_policies` / `access_requests` / `access_grants` / `audience_lists` / `audience_list_members`) + 8 RPCs (`get_viewer_relationship_context`, `resolve_visibility_for_viewer`, `can_view_by_relationship`, `can_view_by_relationship_dryrun`, `upsert_visibility_policy`, `set_visibility_preset`, `create_access_request`, `resolve_access_request`) + null-safe partial unique indexes + RLS | `/my/visibility` and `/my/access-requests` 500 (`relation does not exist`); GatedField RPC calls `function does not exist`; viewer pages still render content (resolver returns null → fallback to children, but no enforcement) |
+
+### Sprint 5 — section-by-section apply (REQUIRED)
+
+`20260606000000_relationship_access_layer.sql` contains **multiple PL/pgSQL
+function bodies** in a single file. Per `.cursor/rules/release-workflow.mdc §1-1`
+the Supabase Dashboard SQL Editor splits pasted text on `;` client-side and can
+mis-tokenize dollar-quoted bodies when there are 2+ functions in one paste.
+**Do NOT paste the whole file at once.** Instead:
+
+1. Open the file in your editor.
+2. For each `-- == SECTION N == ...` banner, highlight everything from that
+   banner up to (but not including) the next banner.
+3. Paste the highlighted block into the SQL Editor and press **Run**.
+4. Repeat for all 12 sections.
+
+If a section fails, fix and re-run only that section — every CREATE / ALTER is
+guarded with `IF NOT EXISTS` or `CREATE OR REPLACE` so re-runs are safe.
+
+### Sprint 5 verification SQL
+
+```sql
+-- 6 new tables present?
+select count(*) as ok from pg_tables
+where schemaname='public'
+  and tablename in (
+    'visibility_owner_settings','visibility_policies',
+    'access_requests','access_grants',
+    'audience_lists','audience_list_members'
+  );
+-- Expect: 6
+
+-- 8 new RPCs present?
+select count(*) as ok from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'get_viewer_relationship_context','resolve_visibility_for_viewer',
+    'can_view_by_relationship','can_view_by_relationship_dryrun',
+    'upsert_visibility_policy','set_visibility_preset',
+    'create_access_request','resolve_access_request'
+  );
+-- Expect: 8
+
+-- Null-safe partial unique indexes (should be 6 total: 2 per protected table)
+select indexname from pg_indexes
+where schemaname='public'
+  and indexname in (
+    'visibility_policies_subject_keyed_uniq','visibility_policies_subject_null_uniq',
+    'access_requests_pending_subject_keyed_uniq','access_requests_pending_subject_null_uniq',
+    'access_grants_subject_keyed_uniq','access_grants_subject_null_uniq'
+  )
+order by indexname;
+-- Expect: 6 rows.
+
+-- RLS enabled on every new table?
+select relname, relrowsecurity from pg_class
+where relname in (
+  'visibility_owner_settings','visibility_policies','access_requests',
+  'access_grants','audience_lists','audience_list_members'
+);
+-- Expect: every relrowsecurity = true.
+```
+
+### Sprint 5 smoke flow (manual)
+
+1. Sign in as artist A. Open `/my/visibility` → save preset `mutual_first` → confirm toast.
+2. Use **Preview as → Public visitor** → confirm `price`/`availability`/`description` all show "Cannot see this field"; toggle to `Mutual` → all flip to "Can see".
+3. Open `/artwork/<an artwork>/edit` → expand Field visibility → set `price` to `approved` + `request_mode = access_request` → confirm save (no error).
+4. Sign in as viewer B (no follow relationship). Open `/artwork/<that artwork>` → confirm price section shows GatedField with "Request access" CTA. Click it → submit a short message.
+5. Back as artist A → `/my/access-requests` → confirm pending request appears. Approve.
+6. As viewer B (refresh) → confirm price now visible.
+7. As artist A → `/my/inquiries` → confirm chip "Access requests · 0 pending" disappears (or absent).
 
 Verify each migration is applied before deploy:
 

@@ -1,6 +1,98 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-05-05
+Last updated: 2026-05-06
+
+## 2026-05-06 — Sprint 5: Relationship Access Layer & Subscription-Ready Hospitality
+
+Sprint 1–4 가 만든 가치 루프 (Feed → Artwork Passport → Private Room / Inquiry → Artist follow-up) 위에, **관계 기반 정보 공개·취득 권한 레이어** 를 깔았다. 새 marketplace UI 0개, paywall vocabulary 0개. 작가는 한 화면에서 큰 그림 (preset) 을 정하고, 필요할 때 항목·작품·룸 단위로 미세조정한다. 관람자는 잠긴 항목에서 paywall 이 아니라 *친절한 다음 동작* (Follow / Ask about this work / Request access) 을 본다.
+
+베이스라인: Sprint 4 commit `223034e` (= `release: Sprint 4 — Minimalist Consolidation, Privacy Hardening, Official Records Readiness`).
+
+### Supabase SQL — 반드시 적용 필요
+
+**`supabase/migrations/20260606000000_relationship_access_layer.sql`** — 6 tables (`visibility_owner_settings`, `visibility_policies`, `access_requests`, `access_grants`, `audience_lists`, `audience_list_members`) + 8 RPCs + null-safe partial unique indexes + RLS. 파일에 `-- == SECTION N == ...` 배너로 12개 섹션 분할. **Supabase Dashboard SQL Editor 에서 섹션 단위로 highlight → Run** (한꺼번에 paste 금지 — release-workflow §1-1 참조).
+
+### 1. 데이터 모델 / 권한
+
+- **`visibility_owner_settings`** — owner-scope 1행. 4개 preset (`open_studio` · `follower_aware` · `mutual_first` · `private_studio`). 행이 없으면 `open_studio` fallback (기존 owner zero-friction).
+- **`visibility_policies`** — generic subject (`profile_section / artwork / artwork_field / exhibition / room`) × `field_key` (예: `price`, `availability`, `description`, `studio_note`, `*`) × `audience` (`public / signed_in / followers / following / mutuals / approved / delegates / owner_only`) + 선택적 `request_mode` (null = audience-based, 또는 `inquiry / access_request / none`).
+  - **null-safe partial unique idx 2개** — `subject_id is not null` (subject-keyed 행) 와 `subject_id is null` (owner-wide default) 를 분리해 dedupe. 단일 UNIQUE 로는 NULL 다중 insert 가 통과해 logical uniqueness 위반.
+- **`access_requests` / `access_grants`** — 요청-승인 트랙. `access_requests` 는 `pending` 상태에서만 dedupe (subject keyed/null 두 줄 partial uniq). `access_grants` 는 `(owner, grantee, subject_type, subject_id, field_key)` 양변 partial uniq.
+- **`audience_lists` / `audience_list_members`** — VIP 리스트 schema-only skeleton. 멤버는 자기 멤버십 행을 SELECT 못 함 (VIP 누설 방지).
+- **RLS** — 모든 새 테이블 owner / delegate-writer 만 manage. `access_grants` 의 grantee 는 *자기* 행만 SELECT (siblings 노출 X).
+
+### 2. RPC (8개)
+
+- `get_viewer_relationship_context(target)` — 관람자 ↔ owner 의 coarse 신호 (`is_self`, `viewer_follows_target`, `target_follows_viewer`, `is_mutual`, `follow_status`, `target_is_public`, `is_delegate`, `has_any_approved_access`). **`approved_audience_ids` 절대 반환 X** (Sprint 5 amendment 2 — 리스트 ID 누설 방지).
+- `resolve_visibility_for_viewer(owner, subject_type, subject_id, field_key)` — 관람자 surface 의 **유일한** visibility entry. server-side 정책 lookup → audience 결정 → `can_view` 판정. `{ can_view, required_audience, request_mode, reason }` 반환. UI 는 절대 `requiredAudience` 를 client-supply 하지 않는다 (Sprint 5 amendment 1 — spoofing 방지).
+- `can_view_by_relationship(...)` — 내부 helper (다른 RPC 가 호출). UI 직접 호출 금지.
+- `can_view_by_relationship_dryrun(...)` — owner/delegate-writer 의 preview-as. fake state 받아 시뮬레이션. 정책 변경 X.
+- `upsert_visibility_policy(...)` — owner/delegate-writer 만. subject ownership (artwork.artist_id, shortlists.owner_id) 검증. `request_mode` enum lock (`'request'` 거부).
+- `set_visibility_preset(owner, preset)` — `visibility_owner_settings` 만 update. **explicit subject/field policies 절대 덮어쓰지 않음** (Sprint 5 amendment 6).
+- `create_access_request(...)` — 관람자 → owner. message 1000자 cap, `source_payload` 에서 token-shaped 키 strip + 2KB cap (서버측 belt-and-suspenders). 같은 (requester, subject, field, type) 의 pending 행 idempotent return.
+- `resolve_access_request(id, action)` — owner/delegate-writer. approve 시 자동 `access_grants` insert (`grant_type='request_approved'`). status `pending` 만 처리.
+
+### 3. UI surface
+
+- **`/my/visibility`** (신규) — Studio operator hub. PageShell `studio` 폭. 3 FloorPanel:
+  - **Visibility preset** — `VisibilityPresetSelector` (LaneChips), Save preset.
+  - **Preview as** — `PreviewAsBar` (sort-tone LaneChips, audience 선택), 선택 시 검은 banner + 첫급 필드별 server-side dry-run 결과 (✓ / × pill).
+  - **Advanced visibility** — collapse 기본. 펼치면 `AdvancedVisibilityPanel` (작품 25개 list + 첫급 3 필드 (`price` / `availability` / `description`) × audience pill + per-field `RequestModeSelect`).
+- **`/my` 와 `/settings`** — calm entry link 추가. `/my` 는 StudioOperationGrid 아래 muted text-link 한 줄. `/settings` 는 visibility section 안에 hub 로 가는 row.
+- **`/artwork/[id]/edit`** — `ArtworkFieldVisibilityPanel` (작품 owner 본인일 때만). 첫급 3 필드 audience pill + request_mode select. collapse 기본.
+- **`/my/shortlists/[id]`** — header 아래 `RoomVisibilityPill` (room audience + request_mode).
+- **`/artwork/[id]`** — viewer side. `priceResolution`, `availabilityResolution`, `descriptionResolution` 을 mount 시 server-side resolve. `canView=false` 면 `<GatedField>` 가 항목을 친절한 카피 + CTA (Follow / Ask about this work / Request access) 로 wrap. Owner 본인은 server 가 자동 통과하므로 깜빡임 없음.
+- **`/room/[token]`** — viewer side. 같은 패턴 (`subject_type='room', subject_id=meta.id, field_key='*'`). owner 가 룸을 잠그면 token 보유자도 grid 대신 GatedField 만 봄.
+- **`/my/access-requests`** (신규) — owner 의 inbox. PageShell `narrow`. LaneChips (All / Pending / Resolved). 행 collapse 기본 — 펼치면 message + Approve / Decline. 상단 chip 으로 `/my/inquiries` 에 pending count 노출 (`inquiries.accessRequestsChip` — 0이면 안 보임).
+
+### 4. 카피·디자인 가드
+
+- `src/lib/visibility/copy.ts` — 모든 GatedField 카피 single source. **forbidden 구절** (`pay to unlock`, `upgrade to see`, `locked`, `subscribe to view price`) 적발 helper + `tests/visibility-copy.test.ts` 가 audience × field 전수 검사.
+- 모든 카피는 hospitality 톤 (`shares` / `공개합니다`). owner_only 만 `keeps private for now` / `비공개로 두었습니다`.
+- DS primitives (`PageShell`, `PageHeader`, `FloorPanel`, `LaneChips`, `Chip`, `EmptyState`, `SectionLabel`) 만 사용. hand-rolled 박스 0건.
+
+### 5. Telemetry (15 events)
+
+`src/lib/beta/logEvent.ts` 의 `BetaEventName` 에 15개 이름 추가:
+`visibility_policy_changed`, `visibility_preset_changed`, `visibility_gate_seen`, `visibility_gate_cta_clicked`, `follow_request_from_visibility_gate`, `mutual_connection_created`, `approved_viewer_added`, `artwork_sensitive_field_viewed`, `price_inquiry_from_gate`, `room_access_requested`, `vip_access_requested`, `preview_as_used`, `access_request_created`, `access_request_resolved`, `access_grant_created`.
+
+- payload 화이트리스트 — `subject_type, subject_id (UUID), field_key, audience, preset_key, request_type, status, surface, target_profile_id`. message body / token / share_token / raw URL **절대 금지**. `tests/privacy-token-audit.test.ts` 가 정적으로 강제.
+- `mutual_connection_created` 는 `src/lib/supabase/follows.ts` 의 `follow()` 안에서, 새 accepted 가 들어오고 target → viewer 도 이미 accepted 인 경우에만 한 번 fire (idempotent guard).
+
+### 6. 신규 테스트 (3개)
+
+- `npm run test:visibility-copy` — forbidden 구절 0건, hospitality 톤 보장, preset×field 매트릭스 audience 도출.
+- `npm run test:relationship-access` — 15 invariant: canView 우선, owner override CTA, audience-default CTA, price-field add-on, 보조 inquiry CTA, **`ViewerRelationshipContext` 에 `approved_audience_ids` 부재 확인**, sanitizer 가 token-shape 차단, oversized payload 거부, preset 4개 enum lock, request_mode 유니온 lock.
+- `npm run test:access-request` — sanitizer 단위 (token-shape, oversized, array reject, secret regex 매칭).
+
+baseline regression 5개 (`privacy-token-audit`, `inquiry-source`, `feed-personalization`, `feed-living-salon`, `feed-telemetry`, `people-reason`, `website-import`) 모두 green.
+
+### 7. 위험·리스크 매트릭스 (요약)
+
+| 위험 | 차단 |
+| --- | --- |
+| Client 가 `requiredAudience` spoof | `resolveVisibilityForViewer` server-only entry. UI 는 `VisibilityResolution` 만 받아 표시. `can_view_by_relationship` 은 internal helper로 격리. |
+| 정책 preset 이 explicit override 덮어씀 | `set_visibility_preset` 는 `visibility_owner_settings` 만 update. resolver 가 fallback 으로만 preset 적용. |
+| VIP 리스트 ID 누설 | `get_viewer_relationship_context` 에서 `approved_audience_ids` 제거. 대신 `has_any_approved_access` boolean. |
+| `subject_id IS NULL` 중복 행 | `visibility_policies / access_requests / access_grants` 모두 partial unique idx 2벌. |
+| Telemetry 에 message body / token | `logBetaEvent` payload 화이트리스트 + `privacy-token-audit` 정적 검사. |
+| Pending follow 이 follower audience 통과 | resolver 의 `accepted` 만 인정. 카피도 "shares with followers" 만. |
+
+### 8. Verified
+
+- `npm run test:privacy-token-audit` ✅ (69 sites scanned across 327 files)
+- `npm run test:inquiry-source` ✅
+- `npm run test:feed-personalization / feed-living-salon / feed-telemetry / people-reason / website-import` ✅
+- `npm run test:visibility-copy / relationship-access / access-request` ✅
+- `npx tsc --noEmit` ✅ (clean)
+- `npm run lint` — 34 errors / 49 warnings (모두 pre-existing; Sprint 5 변경분에서 introduced 0건. baseline 36 errors → 34 errors, 2 errors fixed).
+- `npm run build` ✅ (`/my/visibility`, `/my/access-requests` 모두 prerendered).
+
+### 9. 환경 변수
+
+추가/변경 없음. 기존 Supabase 스키마에 새 테이블만 추가.
+
+---
 
 ## 2026-05-05 — Sprint 4: Minimalist Consolidation, Privacy Hardening, Official Records Readiness
 

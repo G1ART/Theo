@@ -27,6 +27,7 @@ import {
   type ShortlistItemRow,
   type ShortlistCollaboratorRow,
 } from "@/lib/supabase/shortlists";
+import { RoomVisibilityPill } from "@/components/visibility/RoomVisibilityPill";
 
 function ShortlistDetailContent() {
   const { t } = useT();
@@ -187,6 +188,12 @@ function ShortlistDetailContent() {
             {itemsLabel}
             {collaborators.length > 0 ? ` · ${collaborators.length}` : ""}
           </p>
+          <div className="mt-3">
+            <RoomVisibilityPill
+              ownerProfileId={shortlist.owner_id}
+              roomId={shortlist.id}
+            />
+          </div>
         </div>
       )}
 

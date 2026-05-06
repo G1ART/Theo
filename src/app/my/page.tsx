@@ -436,6 +436,20 @@ export default function MyPage() {
               rail={<StudioNextStepsRail actions={studioActions} />}
             />
             <StudioOperationGrid tiles={operationTiles} />
+            <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+              <a
+                href="/my/visibility"
+                className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                {t("nav.visibility")} · {t("visibility.page.title")}
+              </a>
+              <a
+                href="/my/access-requests"
+                className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                {t("nav.accessRequests")}
+              </a>
+            </div>
             {/* Profile materials — Statement + CV. Artist persona only;
                 non-artist studios stay calm without the panel. The two
                 cards back the public-profile surface modals (P5). */}
