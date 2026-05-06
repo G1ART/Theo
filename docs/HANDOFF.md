@@ -2,6 +2,206 @@
 
 Last updated: 2026-05-05
 
+## 2026-05-05 — Sprint 3: Artwork Passport + Private Room + Inquiry Loop
+
+Opus Sprint Pack 의 세 번째 스프린트. **Living Salon 위에 첫 번째 진정한 가치 루프 — Feed → Artwork Passport → Save / Private Room / Inquiry → Artist 후속조치 — 의 골격 구축.** 결제·체크아웃·자동 발송 AI 일체 미도입.
+
+베이스라인: Sprint 2 commit `b395922` (= `release: Sprint 2 — Personalized Salon Mixer & Taste Signals`).
+
+### 변경 요약
+
+#### A. Sprint 2 Hardening (preflight)
+
+1. **§2.1 load-more 안정성 — `personalizeFeedEntries` 에 `frozenHeadCount` 옵션 도입.** Sprint 2 의 `alreadySeenPenalty(-4000)` + `jitter(±5500)` 조합이 base step(10000)을 인접 swap 한도 안에서 깰 수 있어, load-more 시 화면에 이미 있던 tile 이 미세하게 흔들릴 수 있었다. 이번 패치는:
+   - `personalizedSalon.ts` 에 `PersonalizeOptions { frozenHeadCount? }` 추가. head 는 input 순서로 그대로 emit, tail 만 score → sort → emit.
+   - `FeedContent.tsx` 에 `personalizedHeadLenRef` ref 추가. 매 paint 후 `feedEntries.length` 로 업데이트, **tab/sort 변경 시 reset**. force refresh 도 fetch 시작 시점에 reset (tab/sort effect 가 잡음).
+   - `frozenHeadCount > entries.length` (예: tab 전환 직후 ref 가 stale) 인 경우 `Math.min` 으로 안전 bound. 새 invariant test 12, 13 추가 (head byte-identical 보존, oversized freeze 처리).
+2. **§2.2 liked-artist affinity scope** — 현재 candidate set 의 liked artwork ids 만으로 derive. 큰 supabase analytics scan 명시적 금지 (work order §3.4). 더 풍부한 viewer-level liked artist map 은 Sprint 4 의 cached read model 후보로 HANDOFF 명시. v1 한계 그대로 유지.
+3. **§2.3 viewer role first-paint race** — boost 가 ≤ ¼ position step 이라 시각 변화 없음. defer (Sprint 2 HANDOFF 의 알려진 제약 그대로).
+4. **§2.4 jitter docstring 정합성** — `feedScoring.ts` 의 calibration philosophy 주석을 실제 상수 (`jitterAmplitude = 5_500`) 와 정확히 일치하도록 재작성. "no single signal can leapfrog more than ~1 position", "peak-to-peak just over one position step" 같이 실측-기반 표현으로 갱신.
+
+#### B. Inquiry Source Attribution Spine (Sprint 3 의 척추)
+
+5. **신규 migration `supabase/migrations/20260605000000_price_inquiry_source_attribution.sql`** — `price_inquiries` 에 7 nullable 컬럼 추가:
+   - `source_surface text` — closed set CHECK (`feed | room | artwork | exhibition | profile | direct`).
+   - `source_artwork_id uuid → artworks(id) on delete set null`
+   - `source_exhibition_id uuid` — 외래키 없음 (exhibitions 스키마와 결합 회피, attribution 정보용).
+   - `source_room_id uuid` — **share-token 이 아닌 resolved shortlist UUID 만**. 가벼운 partial index `idx_price_inquiries_source_room`.
+   - `source_feed_session_id text` — Sprint 1 telemetry session id (auth session 아님).
+   - `source_feed_item_key text` — 예: `art-<artwork.id>`.
+   - `source_payload jsonb` — 1 KiB 이내 작은 구조적 hint (tab/sort/position 등).
+   - **RLS 무수정**, RPC/trigger 추가 없음. 순수 additive schema 변경.
+   - 모든 컬럼에 `comment on column` — privacy intent 가 schema 수준에 명시적.
+
+6. **`createPriceInquiry` 시그니처 확장** — 세 번째 인자 `source?: InquirySource` 추가, **backward-compat**.
+   - `InquirySource` 타입: `surface`, `artworkId`, `exhibitionId`, `roomId`, `feedSessionId`, `feedItemKey`, `payload`. 모두 optional.
+   - `sanitizeInquirySource()` privacy gate:
+     - unknown surface 는 silently drop (CHECK 와 defense-in-depth).
+     - payload 에서 `token` / `password` / `secret` / `*_token` 키 제거 (regex 매칭).
+     - nested object / array 제거 (v1 keep flat).
+     - JSON 직렬화 1 KiB 초과 시 payload 통째로 drop.
+   - 기존 호출자 무영향 — 두 번째 인자 (`message`)까지만 사용해도 정상 동작.
+   - `inquiry_created` event payload 에 `source_surface` echo (없으면 `"direct"`) — dashboard 가 attribution column 조인 없이 funnel split 가능.
+
+7. **`PriceInquiryRow` 에 source 필드 노출** + `INQUIRY_SELECT` / `INQUIRY_LIST_SELECT` 에 7개 컬럼 포함 + `normalizeInquiry` 도 source 필드를 안전하게 캐스팅.
+
+#### C. Room → Artwork → Inquiry 흐름
+
+8. **`src/lib/room/source.ts` 신설** — `setRoomSource` / `peekRoomSource` / `consumeRoomSource` (`feed/telemetry.ts` 패턴 차용).
+   - **room TOKEN 절대 저장 안 함**. resolved shortlist UUID (`room_id`) 만.
+   - 30분 TTL (feed source 와 동일).
+   - SSR-safe.
+
+9. **`src/app/room/[token]/page.tsx` 시각 업그레이드 (Sprint 3 §4.2)** — Living Salon 톤으로 전면 재작성.
+   - `max-w-3xl` → `max-w-5xl`, breath 더 넉넉. uppercase tracking-[0.18em] 의 "CURATED BY" caption.
+   - 4:5 portrait 카드 (`object-contain` 으로 작품 무결성 보존 — 살롱과 동일 톤).
+   - Card hover transition 도 Sprint 1 톤 일치 (`opacity-95`, 부드러운 300ms).
+   - Loading / not-found / empty 모두 i18n (`room.loading` / `room.notFound` / `room.empty`). owner 가 username 있으면 `/u/<username>` 링크.
+   - Exhibition row 도 같은 4:5 ratio 의 muted placeholder 로 톤 통일.
+   - artwork link 클릭 시 **synchronous setRoomSource** — 다음 페이지 (artwork detail) 가 mount 시점에 이미 breadcrumb 보유.
+
+10. **`src/app/artwork/[id]/page.tsx` Passport tone refinement (Sprint 3 §3, surgical).**
+    - **breadcrumb header 정비** — "ARTWORK RECORD" uppercase tracking caption 으로 페이지 장르를 ecommerce 가 아닌 official record 로 명료화. `?fromRoom=` 일 때 "Back to room" 이 primary, generic back 은 secondary 로 시각 우선순위 변경.
+    - hardcoded `"Loading..." / "Artwork not found" / "No image" / "Untitled" / "Back to room"` → 모두 i18n keys 로 마이그레이션 (`common.loading`, `common.untitled`, `artwork.notFound`, `artwork.noImage`, `artwork.backToRoom`).
+    - `?fromRoom=token` mount 시 `getRoomByToken` 으로 token → roomId resolve. **resolved id 만** sessionStorage 에 저장 (token 은 URL 에만 잔류). 실패는 silently degrade (attribution 없음).
+    - `handleAskPrice` 가 source 결정 함수 `buildInquirySource()` 호출. 우선순위: 명시 `?fromRoom=` resolved → live `peekRoomSource()` → live `peekFeedSource()` (artwork id 일치 검증) → fallback `artwork`. token 은 어떤 경우에도 attribution payload 에 들어가지 않음.
+    - **큰 component split 은 의도적 보류**. 1160줄 monolith 를 surgical refactor 하는 것보다 in-place 톤 정리가 risk-effective. work order §3.2 도 "extraction pragmatic, do not over-engineer" 명시. Sprint 4 후보.
+
+11. **`/my/inquiries` source chip** — list row header 에 small uppercase muted chip (`From feed` / `From room` / `From artwork` / `From exhibition` / `From profile` / `Direct`).
+    - `inquiry.source.<surface>` i18n keys 6개 (en/ko 양쪽).
+    - `source_surface` 가 null 인 legacy row / direct 방문은 chip 미노출 (silent fallthrough).
+    - 다른 inquiry 기능 (status / pipeline / search / message thread / notes / next action / assignee / AI reply assist preview-only / acting-as chip) **무수정**.
+
+#### D. AI Reply Assist guardrails (Sprint 3 §5.6 verify)
+
+12. `InquiryReplyAssist` 의 preview-first 패턴 유지 verify. 자동 발송 코드 경로 0. `markAiAccepted` 는 reply 가 실제로 발송된 후에만 호출 (기존 동작). Sprint 3 변경 없음.
+
+### 검증 결과
+
+| 명령 | 결과 | 비고 |
+|------|------|------|
+| `npm run test:feed-personalization` | **PASS** | 13 invariants (Sprint 2 의 11 + Sprint 3 §2.1 의 frozenHeadCount 2개) |
+| `npm run test:feed-living-salon` | **PASS** | Sprint 1 builder invariants 보존 |
+| `npm run test:feed-telemetry` | **PASS** | Sprint 1 telemetry helpers 보존 |
+| `npm run test:people-reason` | **PASS** | people 추천 reason 보존 |
+| `npm run test:inquiry-source` | **PASS** | 7 cases — sanitizer privacy invariants |
+| `npm run build` | **PASS** | Next.js production build |
+| `npm run lint` | baseline 동일 (34 errors / 50 warnings) — Sprint 3 신규 lint 회귀 0. 새 파일 모두 깨끗함 |
+| `npm run test:ai-safety` | baseline 동일 — Sprint 3 신규 회귀 0. (`IntroMessageAssist` auto-fire / hardcoded "ko" 는 별도 영역) |
+| `npm run test:onboarding-smoke` | baseline 동일 — Sprint 3 신규 회귀 0. (`src/app/page.tsx` 의 LOGIN_PATH redirect 별도 영역) |
+
+### Privacy / RLS 검토
+
+- **room TOKEN 보호** — 어떤 attribution column / payload 에도 token 이 들어가지 않음. `setRoomSource` 시그니처 자체가 `room_id` 만 받음. `sanitizeInquirySource` 는 `*token` / `password` / `secret` 키를 regex 로 strip (defense-in-depth).
+- **RLS 무수정** — 이번 마이그레이션은 ALTER TABLE ADD COLUMN + CHECK + INDEX + COMMENT 만. 기존 `price_inquiries_*_*` 정책 그대로.
+- **attribution 은 informational only** — 서버 권한과 무관. column 값으로 access grant 발생 가능성 없음.
+- **payload 1 KiB cap** — analytics 행 폭주 방지. nested object/array 도 v1 에서 제거하여 형태 단순.
+- **inquiry_created event payload 의 source_surface echo** — 절대 token 이 아닌 surface 라벨만.
+
+### Manual QA 권장 시나리오
+
+#### Feed regression
+- `/feed?tab=all&sort=latest` — load-more 시 화면 위 tile 이 흔들리지 않는지 (Sprint 3 §2.1 핵심).
+- `/feed?tab=all&sort=popular` — popular sort 의미 보존.
+- `/feed?tab=following` — relationship-first 톤.
+- `/my/diagnostics` — "Personalization (last paint)" 줄 표시.
+
+#### Artwork Passport
+- 이미지 있는 작품 / 없는 작품.
+- 다중 이미지 작품.
+- exhibition 연결된 작품.
+- price public / inquire mode.
+- owner / delegate / non-owner / logged-out 각 시나리오에서 action rail.
+- `?fromRoom=<token>` 진입 시 "Back to room" 이 primary, generic back 이 secondary.
+- mobile viewport (max-w-2xl 절제 유지).
+
+#### Room
+- 유효 token / 만료 token / empty room / 작품 있는 room.
+- room → artwork → "Back to room" 동작.
+- room → artwork → inquiry → `/my/inquiries` 에서 "From room" chip 노출 (artist/delegate 시점).
+
+#### Inquiry
+- artwork 직접 → inquiry → chip "From artwork" (또는 chip 없음).
+- feed → artwork → inquiry → chip "From feed".
+- room → artwork → inquiry → chip "From room".
+- 기존 reply / notes / status / pipeline / AI reply assist preview-only.
+
+### 알려진 제약 & Sprint 4 추천
+
+- **artwork detail 의 component split** — 1160 줄 monolith 그대로. 향후 `ArtworkPassportShell` / `ArtworkActionRail` / `ArtworkInquiryPanel` 등으로 깔끔하게 쪼개면 유지보수 효율 상승. risk: 기존 동작 회귀, 그래서 Sprint 3 에서는 surgical refactor 만.
+- **liked-artist viewer-level read model** — Sprint 2 audit §2.2. 현재 candidate set 한정. cached read model 신규 (예: `viewer_liked_artists` materialized view, 일배치 refresh) → 매 feed load Supabase scan 없이 풀어낼 수 있음.
+- **viewer role SSR inject** — Sprint 2 §2.3. 시각 영향 미미하지만 깔끔함.
+- **room 가 cart 처럼 보이지 않게 추가 디테일** — exhibition card 의 thumbnail 수확 (lookup_exhibition_thumb), owner 의 short bio 노출 등.
+- **inquiry inbox 의 source 기반 필터/정렬** — chip 만 표시 중. 나중에 "From feed" / "From room" 만 필터링 가능하게 하면 conversion 분석 강해짐.
+- **AI auto-classification of inquiry intent** — preview-first 유지. 현재 InquiryReplyAssist 의 triage chip 만 활용. 자동 발송은 영원히 금지.
+
+### 환경 변수
+
+이번 스프린트에서 추가/변경된 환경 변수 **없음**.
+
+### Supabase SQL — 수동 실행 필수
+
+**1개 신규 마이그레이션**: `supabase/migrations/20260605000000_price_inquiry_source_attribution.sql`
+
+- ALTER TABLE ADD COLUMN 7개 + CHECK 1개 + partial INDEX 1개 + COMMENT 4개 만 포함. PL/pgSQL 함수 추가 없음.
+- Supabase Dashboard SQL Editor 에서 **파일 전체를 한 번에 paste & Run** 가능 (workspace rule §1-1 의 "PL/pgSQL 함수 다수 포함 시 섹션별 실행" 케이스 아님).
+- 실행 후 sanity check:
+  ```sql
+  -- 컬럼 추가 확인
+  select column_name, data_type, is_nullable
+  from information_schema.columns
+  where table_schema='public' and table_name='price_inquiries' and column_name like 'source_%'
+  order by column_name;
+
+  -- CHECK 적용 확인
+  select pg_get_constraintdef(oid)
+  from pg_constraint
+  where conname = 'price_inquiries_source_surface_chk';
+
+  -- partial index 확인
+  select indexname, indexdef
+  from pg_indexes
+  where tablename = 'price_inquiries' and indexname = 'idx_price_inquiries_source_room';
+  ```
+
+### 운영자 SQL — 첫 7일 funnel sanity check
+
+```sql
+-- inquiry surface 분포 (chip 가 의미를 가진 시점부터)
+select
+  coalesce(source_surface, 'legacy_or_direct') as surface,
+  count(*) as inquiries
+from public.price_inquiries
+where created_at >= now() - interval '7 days'
+group by 1
+order by 2 desc;
+
+-- room → inquiry conversion (room 별, attribution 가능한 row 만)
+select
+  s.id as room_id,
+  s.title as room_title,
+  count(pi.id) as attributed_inquiries
+from public.price_inquiries pi
+join public.shortlists s on s.id = pi.source_room_id
+where pi.created_at >= now() - interval '30 days'
+group by s.id, s.title
+order by attributed_inquiries desc
+limit 20;
+
+-- feed → inquiry funnel (feed source 가 있는 inquiry 의 tab/sort 분포)
+select
+  coalesce(source_payload->>'tab', '?') as tab,
+  coalesce(source_payload->>'sort', '?') as sort,
+  count(*) inquiries
+from public.price_inquiries
+where created_at >= now() - interval '30 days'
+  and source_surface = 'feed'
+group by 1, 2
+order by 3 desc;
+```
+
+---
+
 ## 2026-05-05 — Sprint 2: Personalized Salon Mixer & Taste Signals
 
 Opus Sprint Pack 의 두 번째 스프린트. **결정론적 personalization layer 도입.** Sprint 1 의 Living Salon 시각 안정화 + 측정 토대 위에, 같은 입력에 대해 결정론적이고, 같은 viewer 에 대해 안정적이며, 다른 viewer 에 대해 의미 있는 차이를 만드는 ranking 레이어를 추가. **런타임 AI 호출 없음, 광고 없음, 외부 모델 호출 없음.**

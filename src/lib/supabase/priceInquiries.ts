@@ -7,6 +7,43 @@ import { recordActingContextEvent } from "@/lib/delegation/actingContext";
 export type InquiryStatus = "new" | "open" | "replied" | "closed";
 export type PipelineStage = "new" | "contacted" | "in_discussion" | "offer_sent" | "closed_won" | "closed_lost";
 
+/**
+ * Source surfaces an inquiry can be attributed to. Mirrors the
+ * `price_inquiries_source_surface_chk` CHECK constraint added in
+ * `20260605000000_price_inquiry_source_attribution.sql`.
+ */
+export type InquirySourceSurface =
+  | "feed"
+  | "room"
+  | "artwork"
+  | "exhibition"
+  | "profile"
+  | "direct";
+
+/**
+ * Source attribution payload. All fields are optional; an empty input
+ * means "no attribution context", which is treated as `direct` on the
+ * client (a deliberate user choice not to forward source data is also
+ * `direct`).
+ *
+ * Privacy invariants — read before extending:
+ *   - Never include the room TOKEN here. Resolve it to a `roomId` first.
+ *   - Never include free-form titles / messages / image URLs / auth
+ *     secrets in `payload`. Keep payload to small structural hints
+ *     (feed tab/sort/position, exhibition slug, etc.).
+ */
+export type InquirySource = {
+  surface?: InquirySourceSurface;
+  artworkId?: string | null;
+  exhibitionId?: string | null;
+  /** Resolved shortlist UUID, NOT the share-token. */
+  roomId?: string | null;
+  feedSessionId?: string | null;
+  feedItemKey?: string | null;
+  /** Tiny extra structural hints. Kept ≤ 1 KiB by convention. */
+  payload?: Record<string, unknown> | null;
+};
+
 export type PriceInquiryRow = {
   id: string;
   artwork_id: string;
@@ -24,6 +61,13 @@ export type PriceInquiryRow = {
   assignee_id?: string | null;
   next_action_date?: string | null;
   last_contact_date?: string | null;
+  source_surface?: InquirySourceSurface | null;
+  source_artwork_id?: string | null;
+  source_exhibition_id?: string | null;
+  source_room_id?: string | null;
+  source_feed_session_id?: string | null;
+  source_feed_item_key?: string | null;
+  source_payload?: Record<string, unknown> | null;
   artwork?: { id: string; title: string | null; artist_id: string } | null;
   inquirer?: { username: string | null; display_name: string | null } | null;
 };
@@ -61,6 +105,13 @@ const INQUIRY_SELECT = `
   assignee_id,
   next_action_date,
   last_contact_date,
+  source_surface,
+  source_artwork_id,
+  source_exhibition_id,
+  source_room_id,
+  source_feed_session_id,
+  source_feed_item_key,
+  source_payload,
   artworks!artwork_id(id, title, artist_id),
   profiles!inquirer_id(username, display_name)
 `;
@@ -83,6 +134,13 @@ const INQUIRY_LIST_SELECT = `
   assignee_id,
   next_action_date,
   last_contact_date,
+  source_surface,
+  source_artwork_id,
+  source_exhibition_id,
+  source_room_id,
+  source_feed_session_id,
+  source_feed_item_key,
+  source_payload,
   artworks!artwork_id!inner(id, title, artist_id),
   profiles!inquirer_id(username, display_name)
 `;
@@ -132,20 +190,110 @@ function normalizeInquiry(row: Record<string, unknown>): PriceInquiryRow {
     assignee_id: (row.assignee_id as string) ?? null,
     next_action_date: (row.next_action_date as string) ?? null,
     last_contact_date: (row.last_contact_date as string) ?? null,
+    source_surface: (row.source_surface as InquirySourceSurface) ?? null,
+    source_artwork_id: (row.source_artwork_id as string) ?? null,
+    source_exhibition_id: (row.source_exhibition_id as string) ?? null,
+    source_room_id: (row.source_room_id as string) ?? null,
+    source_feed_session_id: (row.source_feed_session_id as string) ?? null,
+    source_feed_item_key: (row.source_feed_item_key as string) ?? null,
+    source_payload:
+      row.source_payload && typeof row.source_payload === "object" && !Array.isArray(row.source_payload)
+        ? (row.source_payload as Record<string, unknown>)
+        : null,
     artwork: artwork ?? null,
     inquirer: inquirer ?? null,
   };
 }
 
-/** Create a price inquiry for an artwork (caller = inquirer). */
+/**
+ * Sanitize a client-supplied source attribution payload before persisting.
+ * Strips fields the schema CHECK would reject and tiny privacy hazards we
+ * never want in long-lived analytics rows.
+ *
+ * Specifically:
+ *   - Caps `source_payload` at 1 KiB JSON to keep rows compact.
+ *   - Drops obviously-secret-looking keys (`token`, `password`, `secret`,
+ *     anything ending in `_token`). Defense-in-depth — the call sites are
+ *     supposed to never pass these in, but the safety net is cheap.
+ *   - Coerces nullish to nulls so the SQL `null` defaults kick in cleanly.
+ */
+function sanitizeInquirySource(input: InquirySource): {
+  source_surface: InquirySourceSurface | null;
+  source_artwork_id: string | null;
+  source_exhibition_id: string | null;
+  source_room_id: string | null;
+  source_feed_session_id: string | null;
+  source_feed_item_key: string | null;
+  source_payload: Record<string, unknown> | null;
+} {
+  const surface = input.surface ?? null;
+  const allowed: InquirySourceSurface[] = ["feed", "room", "artwork", "exhibition", "profile", "direct"];
+  const safeSurface = surface && allowed.includes(surface) ? surface : null;
+
+  let safePayload: Record<string, unknown> | null = null;
+  if (input.payload && typeof input.payload === "object" && !Array.isArray(input.payload)) {
+    const cleaned: Record<string, unknown> = {};
+    const SECRET_KEY_RE = /(token|password|secret)$|_(token|password|secret)$/i;
+    for (const [k, v] of Object.entries(input.payload)) {
+      if (SECRET_KEY_RE.test(k)) continue;
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean" || v == null) {
+        cleaned[k] = v;
+      }
+      // Skip nested objects/arrays for the v1 — they're not needed for
+      // any current consumer and they're the most common way to bloat
+      // analytics rows accidentally.
+    }
+    try {
+      const json = JSON.stringify(cleaned);
+      if (json.length <= 1024) {
+        safePayload = cleaned;
+      }
+    } catch {
+      safePayload = null;
+    }
+    if (safePayload && Object.keys(safePayload).length === 0) safePayload = null;
+  }
+
+  return {
+    source_surface: safeSurface,
+    source_artwork_id: input.artworkId ?? null,
+    source_exhibition_id: input.exhibitionId ?? null,
+    source_room_id: input.roomId ?? null,
+    source_feed_session_id: input.feedSessionId ?? null,
+    source_feed_item_key: input.feedItemKey ?? null,
+    source_payload: safePayload,
+  };
+}
+
+/** Exposed for unit tests. */
+export const _testing = { sanitizeInquirySource };
+
+/**
+ * Create a price inquiry for an artwork (caller = inquirer).
+ *
+ * Sprint 3: optional `source` argument carries attribution context (where
+ * the inquirer came from — feed / room / artwork / exhibition / profile).
+ * Attribution is informational only — RLS and server-side checks are
+ * unchanged. See `InquirySource` and `sanitizeInquirySource` for the
+ * privacy invariants.
+ *
+ * Backward-compatible: existing call sites that pass only
+ * `(artworkId, message?)` keep working unchanged. The third argument is
+ * fully optional and defaults to "no attribution" (which is treated as
+ * `source_surface = null` in storage; the inbox UI renders that as
+ * "Direct").
+ */
 export async function createPriceInquiry(
   artworkId: string,
-  message?: string | null
+  message?: string | null,
+  source?: InquirySource
 ): Promise<{ data: { id: string } | null; error: unknown }> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.user?.id) return { data: null, error: new Error("Not authenticated") };
+
+  const sourceColumns = source ? sanitizeInquirySource(source) : null;
 
   const { data, error } = await supabase
     .from("price_inquiries")
@@ -153,6 +301,7 @@ export async function createPriceInquiry(
       artwork_id: artworkId,
       inquirer_id: session.user.id,
       message: message?.trim() || null,
+      ...(sourceColumns ?? {}),
     })
     .select("id")
     .single();
@@ -168,7 +317,14 @@ export async function createPriceInquiry(
     });
     if (msgErr) return { data: row, error: msgErr };
   }
-  logBetaEventSync("inquiry_created", { artwork_id: artworkId, inquiry_id: row.id });
+  logBetaEventSync("inquiry_created", {
+    artwork_id: artworkId,
+    inquiry_id: row.id,
+    // Echo the resolved source surface (NOT the room token) so analytics
+    // can split inquiry funnel by entrypoint without joining back to the
+    // attribution columns.
+    source_surface: sourceColumns?.source_surface ?? "direct",
+  });
   return { data: row, error: null };
 }
 

@@ -69,6 +69,27 @@ export type PersonalizationResult = {
 
 const TOP_DEBUG_LIMIT = 12;
 
+export type PersonalizeOptions = {
+  /**
+   * Sprint 3 hardening (audit §2.1). When set, the *first* `frozenHeadCount`
+   * entries are emitted in their input order and never re-scored. Only
+   * the remaining tail is personalized.
+   *
+   * Use this on infinite-scroll / load-more renders so already-painted
+   * tiles cannot visibly jump when the new viewer signals (e.g. a freshly
+   * impressed `seenItemKeys` entry, or a like that just landed) shift
+   * scores. The work-order pins this as a non-negotiable acceptance
+   * criterion: "Existing rendered items must not visibly jump on
+   * load-more."
+   *
+   * The caller (FeedContent) increments this value to
+   * `entries.length` after every successful paint, so each subsequent
+   * paint freezes everything that was already on screen and only the
+   * fresh tail moves.
+   */
+  frozenHeadCount?: number;
+};
+
 /**
  * Reorder a FeedEntry list using viewer signals. Pure function: same
  * inputs always produce the same outputs.
@@ -80,7 +101,8 @@ const TOP_DEBUG_LIMIT = 12;
  */
 export function personalizeFeedEntries(
   entries: FeedEntry[],
-  viewer: ViewerSignals
+  viewer: ViewerSignals,
+  opts: PersonalizeOptions = {}
 ): PersonalizationResult {
   // Build the artwork-id → artist-id map from the candidate set itself,
   // so we never need an extra fetch to derive liked-artist affinity.
@@ -107,6 +129,12 @@ export function personalizeFeedEntries(
     };
   }
 
+  // Bound the freeze so callers cannot accidentally pass a stale value
+  // larger than the current candidate set (e.g. after a tab switch the
+  // ref might still hold the previous tab's larger length).
+  const requestedFreeze = Math.max(0, opts.frozenHeadCount ?? 0);
+  const frozenHeadCount = Math.min(requestedFreeze, entries.length);
+
   const seed = seedFromViewer({
     userId: viewer.userId,
     tab: viewer.tab,
@@ -117,13 +145,20 @@ export function personalizeFeedEntries(
   // dominates everything else) preserves the underlying `latest` /
   // `popular` order. We collect artwork entries first to know
   // `listLength`, then score them in place.
+  //
+  // The `frozenHeadCount` audit-§2.1 guard works at the *artwork-slot*
+  // level: any artwork whose original entry index is within the frozen
+  // head is skipped from re-ranking. We still accumulate it as a "pinned"
+  // slot so its contribution to `listLength` (and therefore everyone
+  // else's base score normalization) stays stable.
   const artworkSlots: Array<{
     originalIndex: number;
     artwork: ArtworkWithLikes;
     score: number;
     reasons: ScoreReason[];
+    /** When true, this artwork must stay at its original position. */
+    pinned: boolean;
   }> = [];
-  let artworkCounter = 0;
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     if (e.type !== "artwork") continue;
@@ -132,18 +167,19 @@ export function personalizeFeedEntries(
       artwork: e.artwork,
       score: 0,
       reasons: [],
+      pinned: i < frozenHeadCount,
     });
-    artworkCounter += 1;
   }
 
-  const listLength = artworkCounter;
+  const listLength = artworkSlots.length;
   for (let i = 0; i < artworkSlots.length; i++) {
     const slot = artworkSlots[i];
+    if (slot.pinned) continue;
     const itemKey = `art-${slot.artwork.id}`;
     const jitter = jitterForItem(seed, itemKey);
     const result = scoreArtworkEntry(
       slot.artwork,
-      i, // position in the source list (artwork-only ordering)
+      i,
       listLength,
       viewer,
       likedArtistIds,
@@ -153,28 +189,30 @@ export function personalizeFeedEntries(
     slot.reasons = result.reasons;
   }
 
-  // Stable sort by score desc, with original index as tie-break so two
-  // tiles with identical score never swap places between renders. The
-  // ECMAScript spec guarantees `Array.prototype.sort` is stable since
-  // ES2019, so the explicit tie-break is belt-and-suspenders.
-  artworkSlots.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return a.originalIndex - b.originalIndex;
-  });
+  // Sort only the unpinned tail. Pinned slots stay in their input order;
+  // we splice the sorted tail back into the artwork slot stream so the
+  // re-emit pass below can keep using a single linear cursor.
+  const pinnedSlots = artworkSlots.filter((s) => s.pinned);
+  const tailSlots = artworkSlots
+    .filter((s) => !s.pinned)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.originalIndex - b.originalIndex;
+    });
+  const orderedSlots = pinnedSlots.concat(tailSlots);
 
   // Re-emit the entries array: walk the original `entries` in order,
   // and whenever we hit an artwork slot, pull the *next* slot from the
-  // sorted list. This preserves the *positions* of non-artwork entries
+  // ordered list. This preserves the *positions* of non-artwork entries
   // (so the builder still sees exhibitions in their original order)
   // while replacing artwork entries with the personalized order.
   const out: FeedEntry[] = new Array(entries.length);
-  let sortedCursor = 0;
+  let cursor = 0;
   for (let i = 0; i < entries.length; i++) {
     const orig = entries[i];
     if (orig.type === "artwork") {
-      const slot = artworkSlots[sortedCursor++];
+      const slot = orderedSlots[cursor++];
       const matching = entries[slot.originalIndex];
-      // Sanity guard — should always hold by construction, but cheap.
       if (matching && matching.type === "artwork") {
         out[i] = matching;
       } else {
@@ -191,7 +229,10 @@ export function personalizeFeedEntries(
       reasonsByArtworkId.set(slot.artwork.id, slot.reasons);
     }
   }
-  const topDebug = artworkSlots.slice(0, TOP_DEBUG_LIMIT).map((s) => ({
+  // For the diagnostic, use the post-sort tail (most informative) capped
+  // to the limit. Pinned head contributions are by definition stable so
+  // they're less useful for "did the mixer do anything" inspection.
+  const topDebug = tailSlots.slice(0, TOP_DEBUG_LIMIT).map((s) => ({
     artwork_id: s.artwork.id,
     score: Math.round(s.score),
     reasons: s.reasons,

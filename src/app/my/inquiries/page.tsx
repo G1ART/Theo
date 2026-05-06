@@ -300,6 +300,20 @@ export default function MyInquiriesPage() {
                     {row.artist_unread && (
                       <Chip tone="warning">{t("priceInquiry.unread")}</Chip>
                     )}
+                    {/* Sprint 3 — quiet source chip. Mapped via i18n key
+                        to avoid hardcoding visible English/Korean. Falls
+                        through silently when no attribution was recorded
+                        (legacy rows + direct page visits). */}
+                    {(() => {
+                      const surface = row.source_surface;
+                      if (!surface) return null;
+                      const key = `inquiry.source.${surface}` as const;
+                      return (
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                          {t(key)}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
                     {(() => {

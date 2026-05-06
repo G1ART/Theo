@@ -14,20 +14,28 @@
  *
  *   base = (LIST_LEN - position) * BASE_POSITION_WEIGHT
  *
- * `BASE_POSITION_WEIGHT` is set so that a one-position swap requires a
- * boost roughly an order of magnitude smaller than the position step
- * itself. In practice this means:
+ * `BASE_POSITION_WEIGHT` is set so that no single signal can leapfrog
+ * a tile by more than ~1 position. In practice this means:
  *
- *   - a "followed artist" bonus can promote a work by ~1–2 positions;
- *   - "same-artist run" penalty can demote a work by ~1 position;
- *   - "already seen this session" penalty is the same scale;
- *   - per-viewer jitter is at most ±1/4 of a position;
+ *   - a "followed artist" bonus can promote a work by ~1 position;
+ *   - "liked-artist affinity" by less than that;
+ *   - "already seen this session" penalty demotes by ~1/2 position;
+ *   - per-viewer jitter peak-to-peak is *just over* one position step
+ *     (5_500 × 2 = 11_000 vs base step 10_000), so two viewers can swap
+ *     two adjacent tiles when the base scores differ by exactly one
+ *     position step — but never more than one.
  *
- * → so the resulting order *looks like* the RPC's `latest` or `popular`
+ * → the resulting order *looks like* the RPC's `latest` or `popular`
  *   with a sprinkle of viewer-aware nudges, never a wholesale shuffle.
  *
+ * Same-artist run softening lives in `livingSalon.ts`'s
+ * `softenSameArtistRuns` (it runs *after* this layer in the builder),
+ * so the same constraint isn't doubled up here where calibration could
+ * silently drift.
+ *
  * If you change `BASE_POSITION_WEIGHT`, re-derive the bonus/penalty
- * constants below to keep the same proportional headroom.
+ * constants below to keep the same proportional headroom and re-run
+ * `tests/feed-personalization.test.ts`.
  *
  * ## Pure / deterministic
  *

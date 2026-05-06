@@ -337,4 +337,84 @@ function makeBaseViewer(over: Partial<ViewerSignals> = {}): ViewerSignals {
   assert.equal(order.length, 2);
 }
 
+// ── 12. frozenHeadCount preserves head order on append (Sprint 3 §2.1) ─
+//
+// Pin: when a load-more append adds new entries, the *previously rendered*
+// head must not visibly jump even if the new viewer signals (e.g. a fresh
+// `seenItemKeys` entry, or a like that just landed) would otherwise shift
+// scores.
+{
+  // 6 distinct-artist artworks, viewer has neither follows nor likes.
+  const initial = Array.from({ length: 6 }, (_, i) =>
+    asEntry(makeArtwork(`a${i}`, `artist${i}`))
+  );
+  const viewer = makeBaseViewer();
+
+  // First paint: no freeze, mixer can sort freely.
+  const firstPaint = personalizeFeedEntries(initial, viewer);
+  const firstOrder = firstPaint.entries.map((e) =>
+    e.type === "artwork" ? e.artwork.id : ""
+  );
+
+  // Append three more entries and re-personalize WITH the freeze set to
+  // the post-paint length. The first 6 emitted ids must equal the first
+  // paint ids in identical order, no exceptions.
+  const appended = [
+    ...initial,
+    asEntry(makeArtwork("a6", "artist6")),
+    asEntry(makeArtwork("a7", "artist7")),
+    asEntry(makeArtwork("a8", "artist8")),
+  ];
+
+  // Switch the viewer signals so we can prove the head still doesn't move
+  // even when the mixer has new reasons to want to re-rank it.
+  const viewerWithSignals = makeBaseViewer({
+    followingIds: new Set(["artist0", "artist3"]),
+    likedArtworkIds: new Set(["a4"]),
+    seenItemKeys: new Set([`art-${firstOrder[0]}`, `art-${firstOrder[1]}`]),
+  });
+
+  const secondPaint = personalizeFeedEntries(appended, viewerWithSignals, {
+    frozenHeadCount: initial.length,
+  });
+  const secondHead = secondPaint.entries
+    .slice(0, initial.length)
+    .map((e) => (e.type === "artwork" ? e.artwork.id : ""));
+
+  assert.deepEqual(
+    secondHead,
+    firstOrder,
+    "frozen head must be byte-identical to the previous paint"
+  );
+
+  // The new tail (3 entries) is allowed to be in any sensible order — but
+  // the entries themselves must come from the appended-only set.
+  const tailIds = secondPaint.entries
+    .slice(initial.length)
+    .map((e) => (e.type === "artwork" ? e.artwork.id : ""));
+  for (const id of tailIds) {
+    assert.ok(["a6", "a7", "a8"].includes(id), `tail id ${id} must come from new append`);
+  }
+}
+
+// ── 13. frozenHeadCount > entries.length is bounded (sanity) ─────────
+//
+// FeedContent's ref might lag behind a tab switch — pass a freeze that's
+// larger than the current candidate set and assert nothing crashes and
+// the entire list is treated as frozen (== input order).
+{
+  const arts = Array.from({ length: 4 }, (_, i) =>
+    asEntry(makeArtwork(`a${i}`, `artist${i}`))
+  );
+  const result = personalizeFeedEntries(
+    arts,
+    makeBaseViewer({ followingIds: new Set(["artist3"]) }),
+    { frozenHeadCount: 9999 }
+  );
+  const order = result.entries.map((e) =>
+    e.type === "artwork" ? e.artwork.id : ""
+  );
+  assert.deepEqual(order, ["a0", "a1", "a2", "a3"], "over-sized freeze pins everything");
+}
+
 console.log("feed-personalization.test.ts: ok");

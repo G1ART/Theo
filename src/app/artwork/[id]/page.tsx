@@ -53,6 +53,9 @@ import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { useT } from "@/lib/i18n/useT";
 import { logFeedEvent, peekFeedSource } from "@/lib/feed/telemetry";
+import { peekRoomSource, setRoomSource } from "@/lib/room/source";
+import { getRoomByToken } from "@/lib/supabase/shortlists";
+import type { InquirySource } from "@/lib/supabase/priceInquiries";
 import { ownershipStatusLabel } from "@/lib/artworks/labels";
 import { formatSizeForLocale } from "@/lib/size/format";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
@@ -207,6 +210,27 @@ function ArtworkDetailContent() {
     listExhibitionsForWork(id).then(({ data }) => setExhibitionsForWork(data ?? []));
   }, [id]);
 
+  // Sprint 3 §4.3 — when the user arrives via `?fromRoom=token`, resolve
+  // the share-token to the underlying shortlist UUID and stash the
+  // *resolved id* (not the token) as a session-scoped breadcrumb. The
+  // breadcrumb later flows into inquiry source attribution; the token
+  // itself stays in the URL only and never enters long-lived analytics
+  // rows. Failure to resolve is silently fine — attribution simply
+  // degrades to "no room context".
+  const [resolvedRoomId, setResolvedRoomId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fromRoom || !id) return;
+    let cancelled = false;
+    void getRoomByToken(fromRoom).then(({ data }) => {
+      if (cancelled || !data?.id) return;
+      setResolvedRoomId(data.id);
+      setRoomSource({ room_id: data.id, artwork_id: id });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fromRoom, id]);
+
   useEffect(() => {
     getSession().then(({ data: { session } }) => {
       setUserId(session?.user?.id ?? null);
@@ -321,10 +345,51 @@ function ArtworkDetailContent() {
     return () => cancelAnimationFrame(t);
   }, [id, showArtistInquiryBlock]);
 
+  /**
+   * Decide where this inquiry was attributed from. Priority (most
+   * specific → least): explicit `?fromRoom=` resolved → live `roomSource`
+   * breadcrumb (e.g. clicked from a room earlier in the same session) →
+   * live `feedSource` breadcrumb → fallback `artwork`. Privacy: the
+   * room TOKEN is *never* forwarded to inquiry attribution; only the
+   * resolved `roomId` is.
+   */
+  function buildInquirySource(): InquirySource {
+    const room = resolvedRoomId ? { room_id: resolvedRoomId, artwork_id: id, ts: Date.now() } : peekRoomSource();
+    if (room?.room_id) {
+      return {
+        surface: "room",
+        roomId: room.room_id,
+        artworkId: id,
+      };
+    }
+    const feed = peekFeedSource();
+    if (feed && feed.item_kind === "artwork" && feed.item_id === id) {
+      return {
+        surface: "feed",
+        artworkId: id,
+        feedItemKey: `art-${feed.item_id}`,
+        payload: {
+          tab: feed.tab,
+          sort: feed.sort ?? null,
+          position: feed.position,
+        },
+      };
+    }
+    return {
+      surface: "artwork",
+      artworkId: id,
+    };
+  }
+
   async function handleAskPrice() {
     if (!id || !artwork || priceInquirySubmitting) return;
     setPriceInquirySubmitting(true);
-    const { data, error } = await createPriceInquiry(id, priceInquiryMessage || undefined);
+    const source = buildInquirySource();
+    const { data, error } = await createPriceInquiry(
+      id,
+      priceInquiryMessage || undefined,
+      source
+    );
     setPriceInquirySubmitting(false);
     setShowInquiryForm(false);
     setPriceInquiryMessage("");
@@ -498,7 +563,7 @@ function ArtworkDetailContent() {
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <p className="text-zinc-600">Loading...</p>
+        <p className="text-sm text-zinc-500">{t("common.loading")}</p>
       </div>
     );
   }
@@ -506,7 +571,7 @@ function ArtworkDetailContent() {
   if (error || !artwork) {
     return (
       <div className="py-12 text-center">
-        <p className="text-red-600">{error ? String(error) : "Artwork not found"}</p>
+        <p className="text-sm text-zinc-700">{error ? String(error) : t("artwork.notFound")}</p>
       </div>
     );
   }
@@ -527,18 +592,38 @@ function ArtworkDetailContent() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <Link href={backPath} className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← {t(backLabelKey)}
-        </Link>
-        {fromRoom && (
-          <>
-            <span className="text-zinc-300">|</span>
-            <Link href={`/room/${fromRoom}`} className="text-sm text-zinc-600 hover:text-zinc-900">
-              ← Back to room
+      {/* Sprint 3 — Artwork Passport breadcrumb header.
+          - Quiet uppercase "Artwork record" caption announces page genre
+            without ecommerce framing ("Product details" → never).
+          - Back chain stays muted; "Back to room" is the more specific
+            affordance when the user arrived via ?fromRoom=, so it gets
+            primary visual weight relative to the generic back link. */}
+      <div className="mb-6 flex flex-col gap-1.5">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">
+          {t("artwork.recordTitle")}
+        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          {fromRoom ? (
+            <Link
+              href={`/room/${encodeURIComponent(fromRoom)}`}
+              className="text-zinc-700 hover:text-zinc-900"
+            >
+              ← {t("artwork.backToRoom")}
             </Link>
-          </>
-        )}
+          ) : (
+            <Link href={backPath} className="text-zinc-600 hover:text-zinc-900">
+              ← {t(backLabelKey)}
+            </Link>
+          )}
+          {fromRoom && (
+            <>
+              <span className="text-zinc-300">·</span>
+              <Link href={backPath} className="text-zinc-500 hover:text-zinc-800">
+                {t(backLabelKey)}
+              </Link>
+            </>
+          )}
+        </div>
       </div>
       <div className="space-y-6">
         <div className="grid gap-6 sm:grid-cols-2">
@@ -560,8 +645,8 @@ function ArtworkDetailContent() {
                 className="h-full w-full object-contain"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-zinc-400">
-                No image
+              <div className="flex h-full w-full items-center justify-center text-sm text-zinc-400">
+                {t("artwork.noImage")}
               </div>
             )}
           </div>
@@ -583,7 +668,7 @@ function ArtworkDetailContent() {
           )}
           <div>
             <h1 className="text-xl font-semibold text-zinc-900">
-              {artwork.title ?? "Untitled"}
+              {artwork.title ?? t("common.untitled")}
             </h1>
             {(() => {
               const identity = formatIdentityPair(artist ?? null);

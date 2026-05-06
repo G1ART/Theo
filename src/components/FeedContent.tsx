@@ -611,6 +611,23 @@ export function FeedContent({
     };
   }, [userId]);
 
+  // Sprint 3 §2.1 hardening — already-painted tiles must never visibly
+  // jump on a load-more append. We freeze the head at every successful
+  // paint and only re-rank the tail. The ref is updated inside an effect
+  // *after* paint (see useEffect below) so the freeze always reflects
+  // what the user actually saw.
+  //
+  // Reset to 0 whenever a control changes meaning entirely: tab toggle,
+  // sort change, or force refresh (= dataLoadStartedRef nonce). Without
+  // these resets the user would be locked into the first-paint head when
+  // they're trying to ask for something different.
+  const personalizedHeadLenRef = useRef(0);
+  useEffect(() => {
+    // Tab/sort changed → freeze must reset; the next personalize pass
+    // sees an empty head and can re-rank the entire window from scratch.
+    personalizedHeadLenRef.current = 0;
+  }, [tab, sort]);
+
   // Re-read seen item keys whenever the feed list changes, so load-more
   // arrivals can be down-weighted if the viewer already impressed them
   // earlier this session. The read is a tiny sessionStorage parse — far
@@ -628,7 +645,9 @@ export function FeedContent({
       viewerRole,
       seenItemKeys,
     };
-    const personalized = personalizeFeedEntries(feedEntries, viewer);
+    const personalized = personalizeFeedEntries(feedEntries, viewer, {
+      frozenHeadCount: personalizedHeadLenRef.current,
+    });
     return buildLivingSalonItems({
       entries: personalized.entries,
       discoveryData,
@@ -646,6 +665,17 @@ export function FeedContent({
     likedIds,
     viewerRole,
   ]);
+
+  // Update freeze AFTER paint completes, so the next personalize pass
+  // (caused by a load-more append, viewer-signal change, etc.) treats
+  // every tile that was just shown as immutable. This effect runs once
+  // per `feedEntries` length change → cheap and predictable.
+  useEffect(() => {
+    if (loading) return;
+    if (feedEntries.length > personalizedHeadLenRef.current) {
+      personalizedHeadLenRef.current = feedEntries.length;
+    }
+  }, [loading, feedEntries.length]);
 
   useEffect(() => {
     if (loading) return;
