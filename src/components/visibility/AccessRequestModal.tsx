@@ -98,7 +98,7 @@ export function AccessRequestModal({
     setSubmitting(true);
     setStatusMessage(null);
     setStatusKind(null);
-    const { data, error } = await createAccessRequest({
+    const { data, duplicate, error } = await createAccessRequest({
       ownerProfileId,
       subjectType,
       subjectId,
@@ -143,8 +143,10 @@ export function AccessRequestModal({
         status: data.status,
       });
     }
-    if (data.status === "pending" && data.created_at !== data.updated_at) {
-      // RPC returned an existing pending row (idempotent). Treat as duplicate.
+    // Sprint 5.2 — duplicate signal now comes from the RPC explicitly.
+    // The previous timestamp-comparison heuristic was unreliable for
+    // freshly-defaulted rows (created_at == updated_at).
+    if (duplicate) {
       setStatusKind("duplicate");
       setStatusMessage(t("accessRequest.duplicatePending"));
       return;

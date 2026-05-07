@@ -5,23 +5,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
-import {
-  getRoomByToken,
-  getRoomItemsByToken,
-  logRoomAction,
-  type RoomItem,
-  type RoomMeta,
-} from "@/lib/supabase/shortlists";
+import { logRoomAction } from "@/lib/supabase/shortlists";
 import { useT } from "@/lib/i18n/useT";
 import { setRoomSource } from "@/lib/room/source";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { GatedField } from "@/components/visibility/GatedField";
-import {
-  getViewerRelationshipContext,
-  resolveVisibilityForViewer,
-} from "@/lib/supabase/relationshipAccess";
+import { getRoomForViewerByToken } from "@/lib/supabase/relationshipAccess";
 import type {
+  RoomItemForViewer,
+  RoomMetaForViewer,
   ViewerRelationshipContext,
   VisibilityResolution,
 } from "@/lib/visibility/types";
@@ -54,12 +47,22 @@ import type {
  * `room_viewed` analytics payload — the bearer-secret never enters
  * long-lived telemetry. `tests/privacy-token-audit.test.ts` pins this.
  */
+// Sprint 5.2 — fail-closed default. The room and its items render only
+// after the redacted RPC sets a positive `canView` decision. Used as
+// the seed value so a missing RPC payload falls back to "owner_only".
+const PENDING_ROOM_RESOLUTION: VisibilityResolution = {
+  canView: false,
+  requiredAudience: "owner_only",
+  requestMode: null,
+  reason: "pending",
+};
+
 export default function RoomPage() {
   const params = useParams();
   const { t } = useT();
   const token = typeof params.token === "string" ? params.token : "";
-  const [meta, setMeta] = useState<RoomMeta | null>(null);
-  const [items, setItems] = useState<RoomItem[]>([]);
+  const [meta, setMeta] = useState<RoomMetaForViewer | null>(null);
+  const [items, setItems] = useState<RoomItemForViewer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [roomResolution, setRoomResolution] =
@@ -67,24 +70,30 @@ export default function RoomPage() {
   const [viewerRelationship, setViewerRelationship] =
     useState<ViewerRelationshipContext | null>(null);
 
+  // Sprint 5.2 — single redacted RPC. The server resolves room
+  // visibility, returns items ONLY when the viewer can see the room,
+  // and never echoes the token back. Replaces the parallel
+  // `getRoomByToken` + `getRoomItemsByToken` pair which leaked items
+  // before the gate landed.
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const [{ data: m, error: me }, { data: it, error: ie }] = await Promise.all([
-      getRoomByToken(token),
-      getRoomItemsByToken(token),
-    ]);
-    if (me || ie || !m) setError(t("room.notFound"));
-    setMeta(m);
-    setItems(it);
+    const { data, error: err } = await getRoomForViewerByToken(token);
     setLoading(false);
-    if (m) {
-      logBetaEventSync("room_viewed", {
-        shortlist_id: m.id,
-        item_count: it?.length ?? 0,
-        has_description: Boolean(m.description),
-      });
+    if (err || !data) {
+      setError(t("room.notFound"));
+      return;
     }
+    setMeta(data.room);
+    setItems(data.items);
+    setRoomResolution(data.visibility);
+    setViewerRelationship(data.relationship);
+    logBetaEventSync("room_viewed", {
+      shortlist_id: data.room.id,
+      // Only count items that actually came back (gated rooms return []).
+      item_count: data.canView ? data.items.length : 0,
+      has_description: Boolean(data.room.description),
+    });
   }, [token, t]);
 
   useEffect(() => {
@@ -93,32 +102,6 @@ export default function RoomPage() {
     });
     return () => cancelAnimationFrame(timer);
   }, [load]);
-
-  // Sprint 5 — resolve room visibility server-side once we know the
-  // owner. Token-bearing viewers still pass through whenever the owner's
-  // policy resolves to a public-equivalent audience (default), so this
-  // is a strict additive gate, not a regression.
-  useEffect(() => {
-    if (!meta?.owner_id || !meta?.id) return;
-    let cancelled = false;
-    (async () => {
-      const [ctxRes, resRes] = await Promise.all([
-        getViewerRelationshipContext(meta.owner_id),
-        resolveVisibilityForViewer({
-          ownerProfileId: meta.owner_id,
-          subjectType: "room",
-          subjectId: meta.id,
-          fieldKey: "*",
-        }),
-      ]);
-      if (cancelled) return;
-      if (ctxRes.data) setViewerRelationship(ctxRes.data);
-      if (resRes.data) setRoomResolution(resRes.data);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [meta?.owner_id, meta?.id]);
 
   const handleArtworkClick = useCallback(
     (artworkId: string) => {
@@ -189,22 +172,34 @@ export default function RoomPage() {
         </p>
       </div>
 
-      {roomResolution && !roomResolution.canView ? (
-        <GatedField
-          ownerProfileId={meta.owner_id}
-          subjectType="room"
-          subjectId={meta.id}
-          fieldKey="*"
-          resolution={roomResolution}
-          viewerRelationship={viewerRelationship}
-          ownerLabel={ownerLabel}
-          surface="room"
-        >
-          <></>
-        </GatedField>
-      ) : items.length === 0 ? (
+      {(() => {
+        // Sprint 5.2 — fail-closed: until the server confirms
+        // `canView=true` we never render the items grid. Defensive
+        // sentinel covers the (shouldn't-happen) case of a missing
+        // resolution payload.
+        const eff = roomResolution ?? PENDING_ROOM_RESOLUTION;
+        if (!eff.canView) {
+          return (
+            <GatedField
+              ownerProfileId={meta.owner_id}
+              subjectType="room"
+              subjectId={meta.id}
+              fieldKey="*"
+              resolution={eff}
+              viewerRelationship={viewerRelationship}
+              ownerLabel={ownerLabel}
+              surface="room"
+              onAfterFollow={() => void load()}
+            >
+              <></>
+            </GatedField>
+          );
+        }
+        return null;
+      })()}
+      {roomResolution?.canView && items.length === 0 ? (
         <p className="text-center text-sm text-zinc-500">{t("room.empty")}</p>
-      ) : (
+      ) : roomResolution?.canView ? (
         <ul className="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => {
             if (item.artwork_id) {
@@ -305,7 +300,7 @@ export default function RoomPage() {
             return null;
           })}
         </ul>
-      )}
+      ) : null}
     </PageShell>
   );
 }

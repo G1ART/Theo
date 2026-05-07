@@ -162,3 +162,116 @@ export const FIRST_CLASS_ARTWORK_FIELDS = [
   "description",
 ] as const;
 export type FirstClassArtworkField = (typeof FIRST_CLASS_ARTWORK_FIELDS)[number];
+
+// ─── Sprint 5.2 — redacted view-model types ──────────────────────────
+//
+// These shapes correspond to the jsonb returned by
+// `get_artwork_passport_for_viewer` and `get_room_for_viewer_by_token`.
+// The TS client never *constructs* a redacted shape — it only consumes
+// what the server already redacted. All sensitive fields are nullable
+// because the server returns `null` whenever the viewer can't see them.
+
+/**
+ * Artwork view model returned by `get_artwork_passport_for_viewer`.
+ *
+ * Sensitive fields (`pricing_mode`, `is_price_public`, `price_*`,
+ * `fx_*`, `ownership_status`, `story`) are nullable because the server
+ * returns `null` for them whenever the viewer's resolution for the
+ * matching field is `can_view=false`. The non-sensitive structural
+ * fields are kept identical to `ArtworkWithLikes` so existing UI
+ * helpers (`getArtworkPriceDisplay`, `getArtworkArtistLabel`, etc.)
+ * continue to work without branching.
+ */
+export type RedactedArtworkPassport = {
+  id: string;
+  title: string | null;
+  year: number | null;
+  medium: string | null;
+  size: string | null;
+  size_unit: "cm" | "in" | null;
+  visibility: string | null;
+  created_by: string | null;
+  artist_id: string;
+  artist_sort_order: number | null;
+  created_at: string;
+  provenance_visible: boolean | null;
+  // Redacted-when-gated:
+  ownership_status: string | null;
+  pricing_mode: string | null;
+  is_price_public: boolean | null;
+  price_usd: number | null;
+  price_input_amount: number | null;
+  price_input_currency: string | null;
+  fx_rate_to_usd: number | null;
+  fx_date: string | null;
+  story: string | null;
+  // Joined collections (never gated at the row level):
+  artwork_images:
+    | { storage_path: string; sort_order?: number | null }[]
+    | null;
+  profiles: {
+    id: string;
+    username: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+    bio: string | null;
+    main_role: string | null;
+    roles: string[] | null;
+    is_public: boolean | null;
+  } | null;
+  artwork_likes: { count: number }[] | null;
+  claims: unknown[] | null;
+};
+
+/** Pre-redaction "value exists" booleans per first-class field. Used by
+ *  the UI to distinguish "owner hides this from you" (render gate) from
+ *  "no value set on this work" (render nothing). Booleans only — never
+ *  the underlying values. */
+export type ArtworkFieldPresence = {
+  price: boolean;
+  availability: boolean;
+  description: boolean;
+};
+
+export type ArtworkPassportForViewer = {
+  artwork: RedactedArtworkPassport;
+  visibility: {
+    price: VisibilityResolution;
+    availability: VisibilityResolution;
+    description: VisibilityResolution;
+  };
+  presence: ArtworkFieldPresence;
+  relationship: ViewerRelationshipContext;
+};
+
+/** Item shape returned inside `get_room_for_viewer_by_token`. Mirrors
+ *  the legacy `RoomItem` from `src/lib/supabase/shortlists.ts` so the
+ *  existing UI grid renders unchanged. */
+export type RoomItemForViewer = {
+  item_id: string;
+  artwork_id: string | null;
+  exhibition_id: string | null;
+  note: string | null;
+  position: number;
+  artwork_title: string | null;
+  artwork_image_path: string | null;
+  artwork_artist_name: string | null;
+  exhibition_title: string | null;
+};
+
+export type RoomMetaForViewer = {
+  id: string;
+  title: string;
+  description: string | null;
+  owner_id: string;
+  owner_username: string | null;
+  owner_display_name: string | null;
+};
+
+export type RoomForViewer = {
+  room: RoomMetaForViewer;
+  items: RoomItemForViewer[];
+  visibility: VisibilityResolution;
+  relationship: ViewerRelationshipContext;
+  canView: boolean;
+};

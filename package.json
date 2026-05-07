@@ -21,7 +21,9 @@
     "test:people-reason": "tsx tests/people-reason.test.ts",
     "test:visibility-copy": "tsx tests/visibility-copy.test.ts",
     "test:relationship-access": "tsx tests/relationship-access.test.ts",
-    "test:access-request": "tsx tests/access-request.test.ts"
+    "test:access-request": "tsx tests/access-request.test.ts",
+    "test:access-enforcement": "tsx tests/access-enforcement.test.ts",
+    "test:visibility-sql-contract": "tsx tests/visibility-sql-contract.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

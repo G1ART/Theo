@@ -12,14 +12,13 @@ import { supabase } from "@/lib/supabase/client";
 import {
   getMyOwnerVisibilitySettings,
   setVisibilityPreset,
-  canViewByRelationshipDryRun,
+  resolveVisibilityForPreview,
 } from "@/lib/supabase/relationshipAccess";
 import {
   type RelationshipAudience,
   type VisibilityPresetKey,
   FIRST_CLASS_ARTWORK_FIELDS,
 } from "@/lib/visibility/types";
-import { defaultAudienceForField } from "@/lib/visibility/presets";
 import { VisibilityPresetSelector } from "@/components/visibility/VisibilityPresetSelector";
 import { PreviewAsBar } from "@/components/visibility/PreviewAsBar";
 import { AdvancedVisibilityPanel } from "@/components/visibility/AdvancedVisibilityPanel";
@@ -129,22 +128,21 @@ function VisibilityPageInner() {
       });
       const fakeState = FAKE_STATE_BY_AUDIENCE[previewAudience];
       const fields: Record<string, boolean> = {};
-      // Use the owner-wide default audience for each first-class field
-      // as the "what would the viewer be tested against" query — this is
-      // the calmest signal for the v1 page-level preview-as without
-      // requiring the user to pick a specific artwork.
+      // Sprint 5.2 — switch to `resolve_visibility_for_preview` so the
+      // dry-run walks the real effective-policy ladder (owner-wide
+      // explicit policies > preset fallback) instead of the preset-only
+      // default. v1 still queries owner-wide (`subject_id: null`), so
+      // this is honestly labelled in the UI as "Preset preview".
       for (const field of FIRST_CLASS_ARTWORK_FIELDS) {
-        const audience = defaultAudienceForField(presetKey, field);
-        const { canView } = await canViewByRelationshipDryRun({
+        const { data: res } = await resolveVisibilityForPreview({
           ownerProfileId: ownerId,
           subjectType: "artwork",
           subjectId: null,
           fieldKey: field,
-          requiredAudience: audience,
           fakeState,
         });
         if (cancelled) return;
-        fields[field] = canView;
+        fields[field] = !!res?.canView;
       }
       if (cancelled) return;
       setPreviewState({ audience: previewAudience, loading: false, fields });
@@ -210,6 +208,10 @@ function VisibilityPageInner() {
                   {t("visibility.previewAs.simulating")}
                 </p>
               ) : (
+                <>
+                <p className="mb-3 text-[11px] text-zinc-500">
+                  {t("visibility.previewAs.scopeNote")}
+                </p>
                 <ul className="flex flex-col gap-2">
                   {FIRST_CLASS_ARTWORK_FIELDS.map((field) => {
                     const can = previewState.fields[field];
@@ -236,6 +238,7 @@ function VisibilityPageInner() {
                     );
                   })}
                 </ul>
+                </>
               )}
             </div>
           )}

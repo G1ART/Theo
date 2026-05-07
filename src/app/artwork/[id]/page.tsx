@@ -13,7 +13,6 @@ import {
   canEditArtwork,
   canViewProvenance,
   deleteArtworkCascade,
-  getArtworkById,
   getMyClaim,
   getProvenanceClaims,
   recordArtworkView,
@@ -65,14 +64,23 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { ArtworkPassportHeader } from "@/components/artwork/ArtworkPassportHeader";
 import { ArtworkImageStage } from "@/components/artwork/ArtworkImageStage";
 import { GatedField } from "@/components/visibility/GatedField";
-import {
-  getViewerRelationshipContext,
-  resolveVisibilityForViewer,
-} from "@/lib/supabase/relationshipAccess";
+import { getArtworkPassportForViewer } from "@/lib/supabase/relationshipAccess";
 import type {
+  ArtworkFieldPresence,
   ViewerRelationshipContext,
   VisibilityResolution,
 } from "@/lib/visibility/types";
+
+// Sprint 5.2 — fail-closed sentinel. Used when a render path could
+// somehow run before resolutions arrive (defensive only — the redacted
+// RPC sets visibility, presence, and artwork in the same setState
+// batch, so this should never actually be observed).
+const PENDING_RESOLUTION: VisibilityResolution = {
+  canView: false,
+  requiredAudience: "owner_only",
+  requestMode: null,
+  reason: "pending",
+};
 
 
 function ArtworkDetailContent() {
@@ -135,6 +143,12 @@ function ArtworkDetailContent() {
     useState<VisibilityResolution | null>(null);
   const [descriptionResolution, setDescriptionResolution] =
     useState<VisibilityResolution | null>(null);
+  // Sprint 5.2 — pre-redaction "value exists" signal per first-class
+  // field. Booleans only; comes from the same RPC. Lets us tell apart
+  // "owner hides this from you" (render gate) from "no value set on
+  // this work" (render nothing).
+  const [fieldPresence, setFieldPresence] =
+    useState<ArtworkFieldPresence | null>(null);
   const claimDropdownRef = useRef<HTMLDivElement>(null);
   const VIEW_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -209,9 +223,40 @@ function ArtworkDetailContent() {
     localStorage.setItem(key, Date.now().toString());
   }, [id]);
 
+  // Sprint 5.2 — fetch the artwork via the redacted-passport RPC. The
+  // server resolves price / availability / description visibility and
+  // returns raw values ONLY when the viewer can see them. Setting the
+  // resolutions in the SAME batch as the artwork eliminates the prior
+  // "fail-open while pending" flash where sensitive fields rendered
+  // for one paint before the gate landed.
+  const refreshPassport = useCallback(async () => {
+    if (!id) return;
+    const { data, error: err } = await getArtworkPassportForViewer(id);
+    if (err) {
+      const msg =
+        (err as { message?: string })?.message ??
+        (err as { error?: { message?: string } })?.error?.message ??
+        (typeof err === "string" ? err : JSON.stringify(err));
+      setError(msg);
+      return;
+    }
+    if (!data) {
+      setArtwork(null);
+      return;
+    }
+    setArtwork(data.artwork as unknown as ArtworkWithLikes);
+    setPriceResolution(data.visibility.price);
+    setAvailabilityResolution(data.visibility.availability);
+    setDescriptionResolution(data.visibility.description);
+    setFieldPresence(data.presence);
+    setViewerRelationship(data.relationship);
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
-    getArtworkById(id).then(({ data, error: err }) => {
+    let cancelled = false;
+    void getArtworkPassportForViewer(id).then(({ data, error: err }) => {
+      if (cancelled) return;
       setLoading(false);
       if (err) {
         const msg =
@@ -221,8 +266,24 @@ function ArtworkDetailContent() {
         setError(msg);
         return;
       }
-      setArtwork(data as ArtworkWithLikes | null);
+      if (!data) {
+        setArtwork(null);
+        return;
+      }
+      // RedactedArtworkPassport mirrors Artwork shape with sensitive
+      // fields nullable; cast is safe at runtime because all consumers
+      // (`getArtworkPriceDisplay`, `ownershipStatusLabel`, etc.) treat
+      // those fields as already-nullable.
+      setArtwork(data.artwork as unknown as ArtworkWithLikes);
+      setPriceResolution(data.visibility.price);
+      setAvailabilityResolution(data.visibility.availability);
+      setDescriptionResolution(data.visibility.description);
+      setFieldPresence(data.presence);
+      setViewerRelationship(data.relationship);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   useEffect(() => {
@@ -365,47 +426,12 @@ function ArtworkDetailContent() {
     return () => cancelAnimationFrame(t);
   }, [id, showArtistInquiryBlock]);
 
-  // Sprint 5 — Resolve viewer-side visibility for the price/availability/
-  // description fields. Each call goes server-side; the client never builds
-  // a `requiredAudience` itself. If the artwork or owner is missing, we
-  // skip and let the page render in its existing form (back-compat).
-  useEffect(() => {
-    if (!artwork?.id || !artwork.artist_id) return;
-    let cancelled = false;
-    const owner = artwork.artist_id;
-    const subjectId = artwork.id;
-    (async () => {
-      const [ctxRes, priceRes, availRes, descRes] = await Promise.all([
-        getViewerRelationshipContext(owner),
-        resolveVisibilityForViewer({
-          ownerProfileId: owner,
-          subjectType: "artwork",
-          subjectId,
-          fieldKey: "price",
-        }),
-        resolveVisibilityForViewer({
-          ownerProfileId: owner,
-          subjectType: "artwork",
-          subjectId,
-          fieldKey: "availability",
-        }),
-        resolveVisibilityForViewer({
-          ownerProfileId: owner,
-          subjectType: "artwork",
-          subjectId,
-          fieldKey: "description",
-        }),
-      ]);
-      if (cancelled) return;
-      if (ctxRes.data) setViewerRelationship(ctxRes.data);
-      if (priceRes.data) setPriceResolution(priceRes.data);
-      if (availRes.data) setAvailabilityResolution(availRes.data);
-      if (descRes.data) setDescriptionResolution(descRes.data);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [artwork?.id, artwork?.artist_id]);
+  // Sprint 5.2 — viewer-side visibility now arrives in the same payload
+  // as the artwork (see `getArtworkPassportForViewer` above), so the
+  // separate `resolveVisibilityForViewer` per-field effect was removed.
+  // The page renders fields with the resolutions already in state, so
+  // there is no fail-open flash and the client never builds a
+  // `requiredAudience` itself.
 
   /**
    * Decide where this inquiry was attributed from. Priority (most
@@ -574,8 +600,10 @@ function ArtworkDetailContent() {
       setError(formatSupabaseError(error, t, "errors.failedRequestClaim"));
       return;
     }
-    const { data: refreshed } = await getArtworkById(id);
-    setArtwork(refreshed as ArtworkWithLikes | null);
+    // Sprint 5.2 — refresh through the redacted-passport RPC so visibility
+    // resolutions stay coherent with the new claim state. Owner sees full
+    // data via the same call (resolver auto-passes the artwork owner).
+    await refreshPassport();
   }
 
   async function handleConfirm(
@@ -593,8 +621,7 @@ function ArtworkDetailContent() {
     }
     setPendingClaims((prev) => prev.filter((c) => c.id !== claimId));
     if (id) {
-      const { data } = await getArtworkById(id);
-      setArtwork(data as ArtworkWithLikes | null);
+      await refreshPassport();
     }
   }
 
@@ -721,14 +748,18 @@ function ArtworkDetailContent() {
               <p className="mt-1 text-sm text-zinc-600">{sizeDisplay}</p>
             )}
             {(() => {
+              // Sprint 5.2 — fail-closed availability render. The server
+              // nullifies `ownership_status` when the viewer can't see
+              // it; `presence.availability` tells us whether a value
+              // *would* have existed pre-redaction so we can choose
+              // between "show gate" and "render nothing".
+              const eff = availabilityResolution ?? PENDING_RESOLUTION;
               const label = ownershipStatusLabel(artwork.ownership_status, t);
-              if (!label) return null;
-              const wrapped = (
-                <p className="mt-2 font-medium text-zinc-700">{label}</p>
-              );
-              if (!availabilityResolution || availabilityResolution.canView) {
-                return wrapped;
+              if (eff.canView) {
+                if (!label) return null;
+                return <p className="mt-2 font-medium text-zinc-700">{label}</p>;
               }
+              if (!fieldPresence?.availability) return null;
               return (
                 <div className="mt-2">
                   <GatedField
@@ -736,24 +767,29 @@ function ArtworkDetailContent() {
                     subjectType="artwork"
                     subjectId={artwork.id}
                     fieldKey="availability"
-                    resolution={availabilityResolution}
+                    resolution={eff}
                     viewerRelationship={viewerRelationship}
                     ownerLabel={getArtworkArtistLabel(artwork).label}
                     surface="artwork_passport"
+                    onAfterFollow={() => void refreshPassport()}
                   >
-                    {wrapped}
+                    <></>
                   </GatedField>
                 </div>
               );
             })()}
             {(() => {
-              const wrapped = (
-                <p className="mt-2 text-sm text-zinc-600">
-                  {getArtworkPriceDisplay(artwork, t)}
-                </p>
-              );
-              if (!priceResolution || priceResolution.canView) {
-                return wrapped;
+              // Sprint 5.2 — fail-closed price render. Unlike availability/
+              // description, price always surfaces *something* (display or
+              // gate) because price hospitality is the canonical entry
+              // point for a price inquiry conversation.
+              const eff = priceResolution ?? PENDING_RESOLUTION;
+              if (eff.canView) {
+                return (
+                  <p className="mt-2 text-sm text-zinc-600">
+                    {getArtworkPriceDisplay(artwork, t)}
+                  </p>
+                );
               }
               return (
                 <div className="mt-2">
@@ -762,13 +798,14 @@ function ArtworkDetailContent() {
                     subjectType="artwork"
                     subjectId={artwork.id}
                     fieldKey="price"
-                    resolution={priceResolution}
+                    resolution={eff}
                     viewerRelationship={viewerRelationship}
                     ownerLabel={getArtworkArtistLabel(artwork).label}
                     surface="artwork_passport"
                     onAskAboutWork={() => setShowInquiryForm(true)}
+                    onAfterFollow={() => void refreshPassport()}
                   >
-                    {wrapped}
+                    <></>
                   </GatedField>
                 </div>
               );
@@ -1280,29 +1317,32 @@ function ArtworkDetailContent() {
           onConfirm={handleDelete}
           onCancel={() => setShowDeleteConfirm(false)}
         />
-        {artwork.story &&
-          (() => {
-            const wrapped = (
-              <p className="text-sm text-zinc-600">{artwork.story}</p>
-            );
-            if (!descriptionResolution || descriptionResolution.canView) {
-              return wrapped;
-            }
-            return (
-              <GatedField
-                ownerProfileId={artwork.artist_id}
-                subjectType="artwork"
-                subjectId={artwork.id}
-                fieldKey="description"
-                resolution={descriptionResolution}
-                viewerRelationship={viewerRelationship}
-                ownerLabel={getArtworkArtistLabel(artwork).label}
-                surface="artwork_passport"
-              >
-                {wrapped}
-              </GatedField>
-            );
-          })()}
+        {(() => {
+          // Sprint 5.2 — fail-closed description render. The server
+          // nullifies `story` when the viewer can't see it; presence
+          // tells us whether a story would have existed pre-redaction.
+          const eff = descriptionResolution ?? PENDING_RESOLUTION;
+          if (eff.canView) {
+            if (!artwork.story) return null;
+            return <p className="text-sm text-zinc-600">{artwork.story}</p>;
+          }
+          if (!fieldPresence?.description) return null;
+          return (
+            <GatedField
+              ownerProfileId={artwork.artist_id}
+              subjectType="artwork"
+              subjectId={artwork.id}
+              fieldKey="description"
+              resolution={eff}
+              viewerRelationship={viewerRelationship}
+              ownerLabel={getArtworkArtistLabel(artwork).label}
+              surface="artwork_passport"
+              onAfterFollow={() => void refreshPassport()}
+            >
+              <></>
+            </GatedField>
+          );
+        })()}
       </div>
       <SaveToShortlistModal artworkId={artwork.id} open={shortlistOpen} onClose={() => setShortlistOpen(false)} />
     </main>

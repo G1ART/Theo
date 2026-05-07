@@ -18,7 +18,13 @@ import type {
   AccessRequest,
   AccessRequestStatus,
   AccessRequestType,
+  ArtworkFieldPresence,
+  ArtworkPassportForViewer,
+  RedactedArtworkPassport,
   RelationshipAudience,
+  RoomForViewer,
+  RoomItemForViewer,
+  RoomMetaForViewer,
   ViewerRelationshipContext,
   VisibilityOwnerSettings,
   VisibilityPolicy,
@@ -27,6 +33,49 @@ import type {
   VisibilityResolution,
   VisibilitySubjectType,
 } from "@/lib/visibility/types";
+
+type ResolutionRow = {
+  can_view?: boolean | null;
+  required_audience?: RelationshipAudience | null;
+  request_mode?: VisibilityRequestMode;
+  reason?: string | null;
+};
+
+function normalizeResolution(
+  row: ResolutionRow | null | undefined
+): VisibilityResolution {
+  // Defensive normalizer used by the redacted RPCs. Any missing field
+  // becomes a fail-closed default so the UI never accidentally shows
+  // gated content because of a malformed payload.
+  return {
+    canView: !!row?.can_view,
+    requiredAudience:
+      (row?.required_audience as RelationshipAudience) ?? "owner_only",
+    requestMode: row?.request_mode ?? null,
+    reason: row?.reason ?? "",
+  };
+}
+
+function normalizeRelationship(
+  row: Partial<ViewerRelationshipContext> | null | undefined,
+  fallbackTarget: string
+): ViewerRelationshipContext {
+  return {
+    viewer_id: row?.viewer_id ?? null,
+    target_profile_id: row?.target_profile_id ?? fallbackTarget,
+    is_self: !!row?.is_self,
+    viewer_follows_target: !!row?.viewer_follows_target,
+    target_follows_viewer: !!row?.target_follows_viewer,
+    is_mutual: !!row?.is_mutual,
+    follow_status:
+      (row?.follow_status as ViewerRelationshipContext["follow_status"]) ??
+      "none",
+    target_is_public: row?.target_is_public ?? true,
+    viewer_role: row?.viewer_role ?? null,
+    is_delegate: !!row?.is_delegate,
+    has_any_approved_access: !!row?.has_any_approved_access,
+  };
+}
 
 // Forbidden secret-shaped keys for source_payload. Matches the Sprint 4
 // expansion in src/lib/supabase/priceInquiries.ts so we have a single
@@ -110,6 +159,80 @@ export async function resolveVisibilityForViewer(
   };
 }
 
+// ─── Sprint 5.2 — Redacted viewer-facing RPCs ────────────────────────
+//
+// These wrappers replace ad-hoc client-side fetches on the artwork detail
+// and room pages. The server already redacts sensitive fields and gates
+// room items, so the client just consumes the result.
+
+export async function getArtworkPassportForViewer(
+  artworkId: string
+): Promise<{ data: ArtworkPassportForViewer | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc(
+    "get_artwork_passport_for_viewer",
+    { p_artwork_id: artworkId }
+  );
+  if (error) return { data: null, error };
+  if (!data) return { data: null, error: null };
+  const obj = data as {
+    artwork: RedactedArtworkPassport | null;
+    visibility?: {
+      price?: ResolutionRow | null;
+      availability?: ResolutionRow | null;
+      description?: ResolutionRow | null;
+    } | null;
+    presence?: Partial<ArtworkFieldPresence> | null;
+    relationship?: Partial<ViewerRelationshipContext> | null;
+  };
+  if (!obj.artwork) return { data: null, error: null };
+  const owner = obj.artwork.artist_id;
+  return {
+    data: {
+      artwork: obj.artwork,
+      visibility: {
+        price: normalizeResolution(obj.visibility?.price),
+        availability: normalizeResolution(obj.visibility?.availability),
+        description: normalizeResolution(obj.visibility?.description),
+      },
+      presence: {
+        price: !!obj.presence?.price,
+        availability: !!obj.presence?.availability,
+        description: !!obj.presence?.description,
+      },
+      relationship: normalizeRelationship(obj.relationship, owner),
+    },
+    error: null,
+  };
+}
+
+export async function getRoomForViewerByToken(
+  token: string
+): Promise<{ data: RoomForViewer | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc("get_room_for_viewer_by_token", {
+    p_token: token,
+  });
+  if (error) return { data: null, error };
+  if (!data) return { data: null, error: null };
+  const obj = data as {
+    room: RoomMetaForViewer | null;
+    items?: RoomItemForViewer[] | null;
+    visibility?: ResolutionRow | null;
+    relationship?: Partial<ViewerRelationshipContext> | null;
+    can_view?: boolean | null;
+  };
+  if (!obj.room) return { data: null, error: null };
+  return {
+    data: {
+      room: obj.room,
+      items: Array.isArray(obj.items) ? obj.items : [],
+      visibility: normalizeResolution(obj.visibility),
+      relationship: normalizeRelationship(obj.relationship, obj.room.owner_id),
+      canView: !!obj.can_view,
+    },
+    error: null,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Owner / delegate-writer surface
 // ─────────────────────────────────────────────────────────────────────
@@ -142,6 +265,32 @@ export async function canViewByRelationshipDryRun(args: {
   });
   if (error) return { canView: false, error };
   return { canView: !!data, error: null };
+}
+
+/**
+ * Sprint 5.2 — owner/delegate-only effective preview. Walks the same
+ * policy ladder as `resolve_visibility_for_viewer` (so explicit
+ * per-artwork/per-field overrides are honored), then evaluates the
+ * audience against `fakeState` (instead of `auth.uid()`). Replaces the
+ * preset-only dry-run path on `/my/visibility`.
+ */
+export async function resolveVisibilityForPreview(args: {
+  ownerProfileId: string;
+  subjectType: VisibilitySubjectType;
+  subjectId: string | null;
+  fieldKey: string;
+  fakeState?: PreviewAsFakeState;
+}): Promise<{ data: VisibilityResolution | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc("resolve_visibility_for_preview", {
+    p_owner: args.ownerProfileId,
+    p_subject_type: args.subjectType,
+    p_subject_id: args.subjectId,
+    p_field_key: args.fieldKey,
+    p_fake_state: (args.fakeState ?? {}) as Record<string, unknown>,
+  });
+  if (error) return { data: null, error };
+  if (!data) return { data: null, error: null };
+  return { data: normalizeResolution(data as ResolutionRow), error: null };
 }
 
 export async function setVisibilityPreset(args: {
@@ -268,9 +417,20 @@ export type CreateAccessRequestArgs = {
   sourcePayload?: Record<string, unknown> | null;
 };
 
+/**
+ * Sprint 5.2 — `create_access_request` now returns
+ * `{ request, duplicate }` jsonb so the client never has to compare
+ * `created_at !== updated_at` to guess whether the row is new. The
+ * wrapper preserves the legacy `data` field (the access_request row)
+ * and adds an explicit `duplicate` boolean.
+ */
 export async function createAccessRequest(
   args: CreateAccessRequestArgs
-): Promise<{ data: AccessRequest | null; error: Error | null }> {
+): Promise<{
+  data: AccessRequest | null;
+  duplicate: boolean;
+  error: Error | null;
+}> {
   const sanitizedPayload = sanitizeAccessSourcePayload(args.sourcePayload ?? null);
   const { data, error } = await supabase.rpc("create_access_request", {
     p_owner: args.ownerProfileId,
@@ -282,8 +442,20 @@ export async function createAccessRequest(
     p_source_surface: args.sourceSurface ?? null,
     p_source_payload: sanitizedPayload,
   });
-  if (error) return { data: null, error };
-  return { data: (data ?? null) as AccessRequest | null, error: null };
+  if (error) return { data: null, duplicate: false, error };
+  if (!data) return { data: null, duplicate: false, error: null };
+  // The new RPC returns { request, duplicate }. Be defensive against
+  // legacy rollouts (server still returning the bare row): when the
+  // payload looks like a row, treat it as a fresh insert.
+  const obj = data as { request?: AccessRequest | null; duplicate?: boolean };
+  if (obj && typeof obj === "object" && "request" in obj) {
+    return {
+      data: (obj.request ?? null) as AccessRequest | null,
+      duplicate: !!obj.duplicate,
+      error: null,
+    };
+  }
+  return { data: data as AccessRequest, duplicate: false, error: null };
 }
 
 export async function listMyAccessRequests(
@@ -300,15 +472,20 @@ export async function listMyAccessRequests(
   return { data: (data ?? []) as AccessRequest[], error: null };
 }
 
+/**
+ * Sprint 5.2 — cancellation is now RPC-only. The direct requester
+ * UPDATE policy on `access_requests` was dropped in
+ * `20260607000000_relationship_access_enforcement_hardening.sql`; the
+ * RPC enforces requester-only + pending-only + status/updated_at-only.
+ */
 export async function cancelAccessRequest(
   requestId: string
-): Promise<{ error: Error | null }> {
-  const { error } = await supabase
-    .from("access_requests")
-    .update({ status: "cancelled", updated_at: new Date().toISOString() })
-    .eq("id", requestId)
-    .eq("status", "pending");
-  return { error };
+): Promise<{ data: AccessRequest | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc("cancel_access_request", {
+    p_request_id: requestId,
+  });
+  if (error) return { data: null, error };
+  return { data: (data ?? null) as AccessRequest | null, error: null };
 }
 
 // Exposed for tests.

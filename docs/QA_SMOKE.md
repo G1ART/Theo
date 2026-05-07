@@ -11,6 +11,78 @@ affected feature will fail at insert / RPC time. **Apply migrations in order**.
 |---|---|---|
 | `supabase/migrations/20260605000000_price_inquiry_source_attribution.sql` | Adds `source_*` columns + `price_inquiries_source_surface_chk` CHECK + `idx_price_inquiries_source_room` partial index | `createPriceInquiry` insert fails (PostgREST 42703 — unknown column `source_surface`) → "Ask about this work" silently breaks for any user arriving via feed/room |
 | `supabase/migrations/20260606000000_relationship_access_layer.sql` (Sprint 5) | Adds 6 tables (`visibility_owner_settings` / `visibility_policies` / `access_requests` / `access_grants` / `audience_lists` / `audience_list_members`) + 8 RPCs (`get_viewer_relationship_context`, `resolve_visibility_for_viewer`, `can_view_by_relationship`, `can_view_by_relationship_dryrun`, `upsert_visibility_policy`, `set_visibility_preset`, `create_access_request`, `resolve_access_request`) + null-safe partial unique indexes + RLS | `/my/visibility` and `/my/access-requests` 500 (`relation does not exist`); GatedField RPC calls `function does not exist`; viewer pages still render content (resolver returns null → fallback to children, but no enforcement) |
+| `supabase/migrations/20260607000000_relationship_access_enforcement_hardening.sql` (Sprint 5.2) | Adds `visibility_subject_belongs_to_owner` validator helper, recreates resolver/upsert/create-request/resolve-request to call it, adds `cancel_access_request` RPC + drops `access_requests_update_requester_cancel` policy, adds `get_artwork_passport_for_viewer` and `get_room_for_viewer_by_token` redacted RPCs, adds `resolve_visibility_for_preview` for owner preview-as | `/artwork/[id]` 500 (`function get_artwork_passport_for_viewer does not exist`); `/room/[token]` 500 (`function get_room_for_viewer_by_token does not exist`); `/my/access-requests` cancel button errors (`function cancel_access_request does not exist`); AccessRequestModal shows generic error because `create_access_request` returns `record` instead of expected `jsonb { request, duplicate }` |
+
+### Sprint 5.2 — section-by-section apply (REQUIRED)
+
+`20260607000000_relationship_access_enforcement_hardening.sql` contains **9 PL/pgSQL
+function bodies** in a single file (validator + 4 re-creates + cancel + 2 redacted
+RPCs + preview-as). Same dashboard tokenizer hazard as Sprint 5 — **do NOT paste
+the whole file at once.** Open the file, highlight each `-- == SECTION N == ...`
+block in turn, paste into the SQL Editor, press **Run**, repeat for all 9 sections.
+Every CREATE / DROP is `IF EXISTS / OR REPLACE`, so individual sections can be
+re-applied if a single one fails.
+
+### Sprint 5.2 verification SQL
+
+```sql
+-- Validator helper present?
+select count(*) as ok from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public' and p.proname='visibility_subject_belongs_to_owner';
+-- Expect: 1
+
+-- Hardened RPCs present (5 new + 4 re-created)?
+select count(*) as ok from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public'
+  and p.proname in (
+    'visibility_subject_belongs_to_owner','cancel_access_request',
+    'get_artwork_passport_for_viewer','get_room_for_viewer_by_token',
+    'resolve_visibility_for_preview'
+  );
+-- Expect: 5
+
+-- create_access_request now returns jsonb (not access_requests record)?
+select pg_get_function_result(p.oid) as result_type
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public' and p.proname='create_access_request';
+-- Expect: 'jsonb'
+
+-- Direct requester UPDATE policy is gone?
+select count(*) as should_be_zero from pg_policies
+where schemaname='public'
+  and tablename='access_requests'
+  and policyname='access_requests_update_requester_cancel';
+-- Expect: 0
+
+-- Smoke: anon can call the redacted artwork RPC (rejected gracefully if input is null)?
+select public.get_artwork_passport_for_viewer(null);
+-- Expect: null (no error)
+```
+
+### Sprint 5.2 — manual redaction smoke (10 min)
+
+Two browser sessions: Artist A (logged in) and Viewer B (logged in but a
+stranger to A). Always open DevTools → Network before each step.
+
+1. Artist A: `/my/visibility` → set preset to **Private Studio**, save.
+2. Viewer B: open A's `/artwork/<id>` for any public artwork.
+   - **Network:** `get_artwork_passport_for_viewer` response — `artwork.pricing_mode`, `price_*`, `fx_*`, `ownership_status`, `story` are all `null`. The `visibility.{price,availability,description}.can_view` are all `false`.
+   - **UI:** price/availability/description gates render; no flash of the real values; no raw price text anywhere.
+3. Viewer B: click *Request access* on the price gate, type a private message, submit.
+   - **DB / Network:** `beta_analytics_events` row payload **does not** contain the message body.
+4. Artist A: `/my/access-requests` → approve B's request.
+5. Viewer B: refresh `/artwork/<id>`.
+   - **UI:** price now shows.
+6. Artist A: `/my/shortlists/<roomId>` → set room audience to **Approved viewers**.
+7. Viewer B: open A's old room share link.
+   - **Network:** `get_room_for_viewer_by_token` response — `items` is `[]`, `can_view` is `false`. Response payload contains no token.
+   - **UI:** gated room panel only; item grid is not in the DOM.
+8. Artist A: approve B for the room.
+9. Viewer B: refresh the room — items now visible.
+10. On any follow-gated artwork field (e.g. set the artwork's price audience to **Followers**), Viewer B clicks the **Follow** CTA inside the gate. Confirm the follow really executes (FollowButton flips to *Following* / *Requested*); the gate disappears (or stays as request-pending if the target is a private profile).
 
 ### Sprint 5 — section-by-section apply (REQUIRED)
 

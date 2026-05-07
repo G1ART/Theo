@@ -2318,6 +2318,12 @@ export const messages = {
     "visibility.previewAs.simulating": "Simulating viewer…",
     "visibility.previewAs.canSee": "Can see this field",
     "visibility.previewAs.cannotSee": "Cannot see this field",
+    // Sprint 5.2 — accurate label for the page-level preview. The dry-run
+    // walks the same effective policy ladder as live viewers, but with
+    // `subject_id=null` it covers owner-wide defaults + preset fallback
+    // — not per-artwork field overrides.
+    "visibility.previewAs.scopeNote":
+      "Preview reflects your preset and any owner-wide overrides. Per-artwork overrides apply on the work itself.",
     "visibility.gate.cta.follow": "Follow",
     "visibility.gate.cta.requested": "Requested",
     "visibility.gate.cta.askAboutWork": "Ask about this work",
@@ -4669,6 +4675,8 @@ export const messages = {
     "visibility.previewAs.simulating": "시점 시뮬레이션 중…",
     "visibility.previewAs.canSee": "이 항목을 볼 수 있어요",
     "visibility.previewAs.cannotSee": "이 항목을 볼 수 없어요",
+    "visibility.previewAs.scopeNote":
+      "프리셋과 전체 작품 단위 override가 함께 적용된 상태를 보여줘요. 작품마다 따로 설정한 값은 해당 작품 화면에서 적용돼요.",
     "visibility.gate.cta.follow": "팔로우",
     "visibility.gate.cta.requested": "요청됨",
     "visibility.gate.cta.askAboutWork": "이 작품에 대해 문의",

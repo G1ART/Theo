@@ -1,6 +1,102 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
+
+## 2026-05-07 — Sprint 5.2: Access Enforcement & Redaction Hardening
+
+베이스라인: `d269823` (`release: Sprint 5.1 — Visibility hub hot-link on StudioHero + studio tour step`).
+
+Sprint 5 가 **owner UI / RPC / RLS / 카피 / 텔레메트리** 라는 *control surface* 를 깔았다면, Sprint 5.2 는 그것이 **실제 데이터 접근 척추** 가 되도록 조였다. 기능 신규 surface 0개, paywall 0개. Audit findings (P0-1 fail-open, P0-2 raw-row leak, P0-3 직접 UPDATE 정책, P1-1~P1-4) 를 각각 실데이터 enforcement 로 바꿨다.
+
+### Supabase SQL — 반드시 적용 필요
+
+**`supabase/migrations/20260607000000_relationship_access_enforcement_hardening.sql`** — 9 SECTION (validator helper · resolver/upsert/create-request/resolve-request 재생성 · cancel RPC · 관람자용 redacted artwork RPC · 관람자용 redacted room RPC · preview-as effective resolver). 파일에 `-- == SECTION N == ...` 배너로 분할되어 있다. **Supabase Dashboard SQL Editor 에서 섹션 단위로 highlight → Run** (한꺼번에 paste 금지 — release-workflow §1-1, dollar tag letters-only, 함수 본문 잘림 방지). 모든 섹션이 idempotent (`drop function if exists ... ; create or replace function ...`) 이라 재실행 안전.
+
+### 1. visibility_subject_belongs_to_owner (validator helper)
+
+`(owner, subject_type, subject_id)` 가 실제로 매칭되는지 확인하는 SECURITY DEFINER 헬퍼 1개. 기준:
+- `subject_id is null` → owner-wide default 이므로 무조건 true.
+- `artwork / artwork_field` → `artworks.id = subject_id and artist_id = owner`.
+- `room` → `shortlists.id = subject_id and owner_id = owner`.
+- `profile_section` → `subject_id = owner` (또는 null, 위에서 처리).
+- `exhibition` (subject_id≠null) → 소유 모델이 모호 (curator vs host vs delegate) 라 v1 에서는 fail-closed. UI 에서 exhibition subject 직접 사용 안 함.
+
+이 헬퍼를 `resolve_visibility_for_viewer` (잘못된 owner/subject 페어 → fail-closed 반환), `upsert_visibility_policy / create_access_request / resolve_access_request` (mutation 시 raise) 에 모두 끼워 넣었다. P1-1 closed.
+
+### 2. resolve_visibility_for_viewer 재생성
+
+기존 본문 + validator gate. 검증 실패 시 `{ can_view:false, required_audience:'owner_only', request_mode:null, reason:'subject_owner_mismatch' }`.
+
+### 3. 관람자용 redacted RPC 2개 (P0-1 / P0-2 closed)
+
+**`get_artwork_passport_for_viewer(p_artwork_id)`** — `{ artwork, visibility:{price,availability,description}, presence, relationship }` jsonb 반환.
+- artwork 의 sensitive 필드 (`pricing_mode`, `is_price_public`, `price_*`, `fx_*`, `ownership_status`, `story`) 는 해당 필드의 `can_view=true` 일 때만 raw 값을, 그렇지 않으면 **null** 을 돌려준다 — 브라우저는 가려진 값을 영영 보지 못함.
+- `presence:{price,availability,description}` boolean 시그널 — "값이 있긴 한데 가려졌다" 와 "원래 비어 있다" 를 UI 가 구분하도록. **boolean 만 노출**, 실제 값은 절대 흘리지 않음.
+- 비-public artwork 은 owner / delegate-writer 만 통과 (기존 RLS lane 유지).
+
+**`get_room_for_viewer_by_token(p_token)`** — `{ room, items, visibility, relationship, can_view }` jsonb. token text → uuid 캐스트 (실패 시 fail-closed null), `room_active=true and not expired` 검증, `resolve_visibility_for_viewer('room', id, '*')`. **`can_view=false` 면 items 는 빈 배열, 한 행도 DB 밖으로 나가지 않음.** view-log 부수 insert 는 best-effort try/except.
+
+### 4. cancel_access_request RPC + 정책 정리 (P0-3 closed)
+
+새 SECURITY DEFINER `cancel_access_request(p_request_id)` — 요청자 본인 / pending 만 / `status, updated_at` 만 변경. 동시에 `access_requests_update_requester_cancel` 정책을 **DROP** — 요청자는 더 이상 PostgREST 직접 UPDATE 로 row 의 다른 컬럼을 건드릴 수 없다. owner 측 `access_requests_update_owner` 는 유지 (resolve_access_request RPC 가 한 번 더 검증, 정책은 defense-in-depth).
+
+### 5. create_access_request 재생성: 명시적 duplicate signal (P1-3 closed)
+
+기존 return type `public.access_requests` → `jsonb`. 응답 shape: `{ "request": <row>, "duplicate": <bool> }`. 같은 (requester, subject, field, type) 의 pending 행이 있으면 그걸 반환하면서 `duplicate:true`. 이로써 client 가 더 이상 `created_at !== updated_at` 휴리스틱으로 추측하지 않는다 (default-inserted row 에서 두 값이 동일해 false-negative 가 났음).
+
+### 6. resolve_visibility_for_preview RPC (P1-4 closed)
+
+owner / delegate-writer 만 호출 가능 (그 외에는 raise). 기존 viewer resolver 와 **완전히 동일한** policy ladder + preset fallback 을 walk 한 뒤, `auth.uid()` 가 아닌 `p_fake_state` 의 신호 (signed_in / viewer_follows_target / target_follows_viewer / has_grant / is_delegate / is_self) 로 audience 판정. 결과는 같은 `{can_view, required_audience, request_mode, reason}` shape.
+
+### 7. TypeScript 데이터 레이어
+
+`src/lib/supabase/relationshipAccess.ts`
+- 신규: `getArtworkPassportForViewer(artworkId)`, `getRoomForViewerByToken(token)`, `resolveVisibilityForPreview(args)`.
+- `cancelAccessRequest` → 직접 UPDATE 대신 `cancel_access_request` RPC 호출, `AccessRequest` 반환.
+- `createAccessRequest` 시그니처 변경 — `{ data, duplicate, error }` 반환. legacy row-shape rollback 도 방어적으로 처리.
+- `normalizeResolution / normalizeRelationship` 헬퍼 — RPC payload 일부 필드가 빠져도 fail-closed 기본값으로 채움.
+
+`src/lib/visibility/types.ts`
+- 신규 view-model: `RedactedArtworkPassport`, `ArtworkFieldPresence`, `ArtworkPassportForViewer`, `RoomMetaForViewer`, `RoomItemForViewer`, `RoomForViewer`.
+
+### 8. UI surface 변경
+
+**`/artwork/[id]`** — 초기 fetch 가 `getArtworkPassportForViewer(id)` 1회로 통일 (artwork + 3 visibility resolutions + presence + relationship 한 번에 set). 별도 `resolveVisibilityForViewer` per-field useEffect 와 `getViewerRelationshipContext` 는 제거. owner 가 claim 승인/요청 후 refresh 도 새 `refreshPassport()` 로 일원화 (gate 상태 drift 방지). inline gate 로직은 fail-closed 패턴 (`if (eff.canView) return wrapped; if (!presence.field) return null; return <GatedField/>`). `priceResolution || canView` 같은 fail-open 패턴은 모두 제거.
+
+**`/room/[token]`** — `getRoomForViewerByToken(token)` 1회로 통일. `getRoomByToken` + `getRoomItemsByToken` 직접 호출 제거. gated 룸은 GatedField 만 그리고 items grid 는 아예 mount 안 됨. `room_viewed` telemetry 는 `data.canView ? items.length : 0` 으로 수정 — gated 일 때 0 보고 (token-free 유지).
+
+**`GatedField`** — `cta.kind === 'follow'` 일 때 더 이상 inert `<button onClick={onFollow?}>` 가 아니라 실제 `<FollowButton targetProfileId={ownerProfileId}>` 를 렌더한다 (P1-2 closed). `onMouseDownCapture` 로 telemetry intent 이벤트 (`follow_request_from_visibility_gate`) 를 click 즉시 한 번 기록, `onFollowed` 콜백으로 부모의 `onAfterFollow?.()` 호출 → artwork 페이지/룸 페이지가 `refreshPassport / load` 로 visibility 재해석. 결과적으로 follow 가 accept 되면 gate 가 즉시 사라진다.
+
+**`/my/visibility`** — preview-as 가 `canViewByRelationshipDryRun` (preset-only) 대신 새 `resolveVisibilityForPreview` (실 정책 ladder) 를 호출. v1 은 여전히 owner-wide (subject_id=null) 만 미리보기 — 이 한계를 사용자에게 정직하게 알리는 한 줄 (`visibility.previewAs.scopeNote`) 을 결과 패널 위에 추가.
+
+**`AccessRequestModal`** — `createAccessRequest` 의 새 jsonb 응답에서 `duplicate` 플래그 직접 사용. `data.created_at !== data.updated_at` 휴리스틱 제거.
+
+### 9. 테스트 (신규 2 + 기존 11 재검증)
+
+- `npm run test:access-enforcement` — 정적 source 텍스트 검사. (1) artwork 페이지가 `getArtworkPassportForViewer` 사용 + 기존 fail-open 패턴 부재, (2) artwork 페이지에서 `getArtworkById/resolveVisibilityForViewer/getViewerRelationshipContext` 직접 호출 부재, (3) room 페이지가 `getRoomForViewerByToken` 사용 + `getRoomItemsByToken/getRoomByToken/resolveVisibilityForViewer` 직접 호출 부재, (4) GatedField 가 FollowButton 사용 + `onFollow?:` prop 제거, (5) AccessRequestModal 이 `duplicate` 플래그 사용, (6) cancelAccessRequest 가 RPC 호출 (직접 `.from('access_requests').update(...)` 부재).
+- `npm run test:visibility-sql-contract` — 마이그레이션 텍스트 검사. validator helper 정의 + grant, 4 mutation function 본문이 모두 validator 호출, `cancel_access_request` 정의 + 기존 직접 update 정책 drop, redacted RPC 2개 정의 + room RPC anon grant, preview-as 정의 + grant, create_access_request 가 jsonb + `'request'`/`'duplicate'` 키 포함, SECTION 배너 + dollar tag letters-only 검증 (`$p_link$` 같은 underscore-tag 거부).
+- 기존 `test:privacy-token-audit / test:inquiry-source / test:visibility-copy / test:relationship-access / test:access-request / test:feed-personalization / test:feed-living-salon / test:feed-telemetry / test:people-reason` 전부 그린 유지.
+
+### 10. 새 i18n 키
+
+- `visibility.previewAs.scopeNote` (en + ko) — preview-as 가 owner-wide 정책까지만 시뮬레이션함을 정직하게 알림.
+
+### 11. 알려진 한계 / 다음 작업 후보
+
+- `visibility_subject_belongs_to_owner` 의 `exhibition` 분기는 v1 fail-closed. exhibition subject 정책을 도입하려면 ownership 정의 (curator vs host) 를 먼저 픽스해야 함.
+- `/my/visibility` preview-as 는 여전히 owner-wide 만 시뮬레이션 (per-artwork override 까진 미반영). 작품을 골라 preview 하는 UI 가 필요해지면 `resolveVisibilityForPreview({subjectId: artworkId, ...})` 호출만 추가하면 됨.
+- 첫급 필드 (`price / availability / description`) 외 신규 필드 (예: `studio_note`) 를 redacted RPC 가 자동 노출하도록 하려면 SQL 의 sensitive 컬럼 case 를 확장해야 함.
+
+### Verified
+
+- `npm run test:privacy-token-audit / test:inquiry-source / test:visibility-copy / test:relationship-access / test:access-request / test:feed-personalization / test:feed-living-salon / test:feed-telemetry / test:people-reason / test:access-enforcement / test:visibility-sql-contract` — 11/11 ✓
+- `npx tsc --noEmit` 0 errors
+- `npm run build` ✓
+- `npm run lint` 34 errors / 49 warnings (Sprint 5.1 baseline 동일, Sprint 5.2 가 새로 도입한 것 없음)
+
+신규 환경 변수 없음.
+
+---
 
 ## 2026-05-06 — Sprint 5.1: Visibility hub discoverability (UX micro-patch)
 

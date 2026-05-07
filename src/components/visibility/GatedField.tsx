@@ -14,6 +14,7 @@ import {
 } from "@/lib/visibility/cta";
 import { useT } from "@/lib/i18n/useT";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
+import { FollowButton } from "@/components/FollowButton";
 import { AccessRequestModal } from "./AccessRequestModal";
 
 type Props = {
@@ -28,10 +29,16 @@ type Props = {
   children: ReactNode;
   /** Optional override for telemetry surface. */
   surface?: string;
-  /** When the gated CTA is "follow", this is the click handler. */
-  onFollow?: () => void;
   /** When the gated CTA is "inquiry", this is the click handler (e.g. open price-inquiry modal). */
   onAskAboutWork?: () => void;
+  /**
+   * Sprint 5.2 — fires after a `follow` CTA produces a real follow / follow
+   * request (FollowButton's `onFollowed`) so the parent can re-fetch the
+   * server-resolved visibility and the gate disappears the moment the
+   * relationship changes. Without this, the page would stay gated until a
+   * full reload even though the relationship-graph is now richer.
+   */
+  onAfterFollow?: () => void;
 };
 
 export function GatedField({
@@ -44,8 +51,8 @@ export function GatedField({
   ownerLabel,
   children,
   surface,
-  onFollow,
   onAskAboutWork,
+  onAfterFollow,
 }: Props) {
   const { t, locale } = useT();
   const [accessOpen, setAccessOpen] = useState(false);
@@ -121,16 +128,7 @@ export function GatedField({
       request_type: kind === "inquiry" ? "price_inquiry" : kind,
       surface,
     });
-    if (kind === "follow") {
-      onFollow?.();
-      logBetaEventSync("follow_request_from_visibility_gate", {
-        subject_type: subjectType,
-        subject_id: subjectId ?? undefined,
-        field_key: fieldKey,
-        audience: resolution.requiredAudience,
-        surface,
-      });
-    } else if (kind === "inquiry") {
+    if (kind === "inquiry") {
       onAskAboutWork?.();
       logBetaEventSync("price_inquiry_from_gate", {
         subject_type: subjectType,
@@ -141,9 +139,35 @@ export function GatedField({
     } else if (kind === "access_request") {
       setAccessOpen(true);
     }
+    // 'follow' CTA is rendered as a real <FollowButton>, not via this
+    // handler (Sprint 5.2 — eliminates the inert no-op CTA). Telemetry
+    // for the follow path lives on the click-capture wrapper below.
   };
 
   const showSecondaryInquiry = shouldShowSecondaryInquiryCta(cta, fieldKey);
+
+  // Sprint 5.2 — fires the follow_request_from_visibility_gate event the
+  // moment the user actually presses the FollowButton. We use a small
+  // wrapper element with onMouseDownCapture so the telemetry lands even
+  // when the FollowButton's own state update / network call swallows the
+  // bubbling click.
+  const handleFollowIntent = () => {
+    logBetaEventSync("visibility_gate_cta_clicked", {
+      subject_type: subjectType,
+      subject_id: subjectId ?? undefined,
+      field_key: fieldKey,
+      audience: resolution.requiredAudience,
+      request_type: "follow",
+      surface,
+    });
+    logBetaEventSync("follow_request_from_visibility_gate", {
+      subject_type: subjectType,
+      subject_id: subjectId ?? undefined,
+      field_key: fieldKey,
+      audience: resolution.requiredAudience,
+      surface,
+    });
+  };
 
   return (
     <div className="rounded-2xl bg-zinc-50/70 p-4">
@@ -151,15 +175,21 @@ export function GatedField({
       {cta.kind !== "none" && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {cta.kind === "follow" && (
-            <button
-              type="button"
-              onClick={() => handleClick("follow")}
-              className="rounded-full bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-800"
-            >
-              {cta.followStatus === "pending"
-                ? t("visibility.gate.cta.requested")
-                : t("visibility.gate.cta.follow")}
-            </button>
+            // Real follow flow — never a no-op. Click-intent telemetry
+            // fires once on press; `onFollowed` re-resolves visibility
+            // so the gate disappears as soon as the relationship lands.
+            <span onMouseDownCapture={handleFollowIntent}>
+              <FollowButton
+                targetProfileId={ownerProfileId}
+                initialStatus={cta.followStatus ?? "none"}
+                isPrivateTarget={
+                  viewerRelationship?.target_is_public === false
+                }
+                size="sm"
+                onFollowed={() => onAfterFollow?.()}
+                surface="other"
+              />
+            </span>
           )}
           {cta.kind === "inquiry" && (
             <button
