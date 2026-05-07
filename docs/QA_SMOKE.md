@@ -14,6 +14,7 @@ affected feature will fail at insert / RPC time. **Apply migrations in order**.
 | `supabase/migrations/20260607000000_relationship_access_enforcement_hardening.sql` (Sprint 5.2) | Adds `visibility_subject_belongs_to_owner` validator helper, recreates resolver/upsert/create-request/resolve-request to call it, adds `cancel_access_request` RPC + drops `access_requests_update_requester_cancel` policy, adds `get_artwork_passport_for_viewer` and `get_room_for_viewer_by_token` redacted RPCs, adds `resolve_visibility_for_preview` for owner preview-as | `/artwork/[id]` 500 (`function get_artwork_passport_for_viewer does not exist`); `/room/[token]` 500 (`function get_room_for_viewer_by_token does not exist`); `/my/access-requests` cancel button errors (`function cancel_access_request does not exist`); AccessRequestModal shows generic error because `create_access_request` returns `record` instead of expected `jsonb { request, duplicate }` |
 | `supabase/migrations/20260608000000_sprint6_phase0_and_relationship_desk.sql` (Sprint 6) | Re-emits `get_artwork_passport_for_viewer` with explicit allowlists (drops `external_artists.invite_email` and internal `is_public` from viewer payload). Adds attribution-safe `resolve_room_source_from_token(text, uuid)`. Creates `relationship_private_notes` table + RLS + `upsert_relationship_private_note` RPC. Adds `get_relationship_desk_for_owner` and `get_relationship_card_for_owner` RPCs. Adds additive `resolve_access_request_v2` for grant lifecycle. | Without this: viewer artwork payloads still leak `invite_email`; `/artwork/[id]?fromRoom=...` still pulls full room metadata; `/my/relationships` 500 (`function get_relationship_desk_for_owner does not exist`); private note save errors (`relation does not exist`). |
 | `supabase/migrations/20260609000000_artwork_passport_enum_cast_hotfix.sql` (Sprint 6 hotfix v3) | Re-emits `get_artwork_passport_for_viewer` to (a) cast the visibility enum to text before coalescing — `coalesce(v_aw.visibility::text, '')` — fixing `invalid input value for enum artwork_visibility: ""` on every viewer call; and (b) restore the real `public.claims` schema in the inner subquery (`c.claim_type` / `c.subject_profile_id` / `c.work_id`) — earlier hotfix attempts referenced fictional columns (`c.role`, `c.is_primary`, `c.sort_order`, `c.profile_id`, `c.artwork_id`) that produced `column c.role does not exist`. Phase 0 redaction is preserved (no `to_jsonb`, no `invite_email`); the `presence` block (`price`/`availability`/`description` boolean signals) is restored to keep the Sprint 5.2 UI gate semantics. **Paste guidance:** dollar tag is `$hotfix$` and the header comments deliberately omit single quotes — see `.cursor/rules/release-workflow.mdc §1-1` (apostrophes inside `--` line comments confuse the dashboard splitter and surface as `relation "v_aw" does not exist (42P01)` on Run). | Without this: every artwork detail click (logged in or out, follower or stranger) fails with either 22P02 (enum) or `column c.role does not exist`. **Apply immediately after Sprint 6 SQL; safe to re-run if v1/v2 of the hotfix was applied.** |
+| `supabase/migrations/20260610000000_sprint6_1_principal_scoping_and_minimization.sql` (Sprint 6.1) | Re-emits the Relationship Desk RPC trio (`get_relationship_desk_for_owner`, `get_relationship_card_for_owner`, `upsert_relationship_private_note`) so each accepts `p_owner_profile_id` (default null → `auth.uid()`) and authorizes via `auth.uid() = v_owner OR is_active_account_delegate_writer(v_owner)`. **Drops the legacy 3/1/2-arg overloads** (otherwise PostgREST could resolve to the old un-validated body). Trims the desk row payload (`private_note_preview` → `has_private_note` + `private_note_updated_at`) and removes named viewer surveillance from the card (`shortlist_views` join + `last_viewed_at` gone; `was_shared_or_granted` boolean added). Re-emits `get_artwork_passport_for_viewer` once more to redact `created_by` for non-owner / non-delegate-writer viewers. **Paste guidance:** 4 sections, letters-only `$a$`/`$b$`/`$c$`/`$d$` tags, header comments are apostrophe-free — paste each section separately. | Without this: a delegate-writer using acting-as on `/my/relationships` would still see / write the delegate's OWN desk, not the principal's. Desk lists would still ship the raw 120-char note body. The Relationship Card would still expose `last_viewed_at` (named passive viewer signal). The artwork passport would still echo `created_by` to anonymous viewers. **Apply after the Sprint 6 hotfix.** |
 
 ### Sprint 6 — section-by-section apply (REQUIRED)
 
@@ -114,6 +115,99 @@ where schemaname='public'
 select public.get_artwork_passport_for_viewer(null);
 -- Expect: null (no error)
 ```
+
+### Sprint 6.1 — section-by-section apply (REQUIRED)
+
+`20260610000000_sprint6_1_principal_scoping_and_minimization.sql` contains
+**4 PL/pgSQL function bodies** (one per RPC) plus DROPs of the legacy
+overloads. Same dashboard tokenizer hazard as the other multi-function
+files — **do NOT paste the whole file at once.** Open the file,
+highlight each `-- == SECTION N ==` block in turn (1 → 4), paste into
+the SQL Editor, press **Run**. The dollar tags are unique per section
+(`$a$`/`$b$`/`$c$`/`$d$`) and the header comments deliberately avoid
+single quotes so `relation "v_aw" does not exist (42P01)` cannot
+re-occur. Every CREATE / DROP is `IF EXISTS / OR REPLACE`, so a single
+section can be re-applied if it failed once.
+
+### Sprint 6.1 verification SQL
+
+```sql
+-- 1) Relationship RPC trio is principal-aware (4 / 2 / 3 args).
+select p.proname, pg_get_function_arguments(p.oid) as args
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public'
+  and p.proname in (
+    'get_relationship_desk_for_owner',
+    'get_relationship_card_for_owner',
+    'upsert_relationship_private_note'
+  )
+order by p.proname;
+-- Expect (no other overloads):
+--   get_relationship_card_for_owner(p_owner_profile_id uuid DEFAULT NULL, p_target_profile_id uuid DEFAULT NULL)
+--   get_relationship_desk_for_owner(p_owner_profile_id uuid DEFAULT NULL, p_limit integer DEFAULT 50, p_offset integer DEFAULT 0, p_status text DEFAULT NULL)
+--   upsert_relationship_private_note(p_owner_profile_id uuid DEFAULT NULL, p_target_profile_id uuid DEFAULT NULL, p_note text DEFAULT NULL)
+
+-- 2) Each principal-aware RPC actually runs is_active_account_delegate_writer.
+select p.proname,
+  pg_get_functiondef(p.oid) ilike '%is_active_account_delegate_writer(v_owner)%' as gates_on_delegate
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public'
+  and p.proname in (
+    'get_relationship_desk_for_owner',
+    'get_relationship_card_for_owner',
+    'upsert_relationship_private_note'
+  );
+-- Expect: gates_on_delegate = t for all 3 rows.
+
+-- 3) Desk row payload no longer carries the raw note body.
+select
+  pg_get_functiondef(p.oid) ilike '%has_private_note%' as desk_uses_boolean,
+  pg_get_functiondef(p.oid) not ilike '%private_note_preview%' as desk_no_preview
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public' and p.proname='get_relationship_desk_for_owner';
+-- Expect: t / t
+
+-- 4) Card RPC dropped passive viewer surveillance.
+select
+  pg_get_functiondef(p.oid) not ilike '%shortlist_views%' as card_no_views_join,
+  pg_get_functiondef(p.oid) not ilike '%last_viewed_at%' as card_no_last_viewed,
+  pg_get_functiondef(p.oid) ilike '%was_shared_or_granted%' as card_uses_shared_flag
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public' and p.proname='get_relationship_card_for_owner';
+-- Expect: all three = t
+
+-- 5) Public artwork passport redacts created_by for non-owner viewers.
+select
+  pg_get_functiondef(p.oid) ilike '%v_is_owner_or_delegate%' as gates_created_by,
+  pg_get_functiondef(p.oid) ilike '%case when v_is_owner_or_delegate then v_aw.created_by%' as wraps_created_by
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname='public' and p.proname='get_artwork_passport_for_viewer';
+-- Expect: t / t
+```
+
+### Sprint 6.1 — manual smoke (15 min)
+
+**Acting-as principal correctness.**
+
+1. Sign in as a delegate-writer who has an active `account` delegation against Principal P. Use the global header to enter acting-as for P. Visit `/my/relationships`. **UI:** the calm acting-as banner appears at the top ("Viewing relationships for …"). The desk shows P's relationships, NOT the delegate's own. Network: `get_relationship_desk_for_owner` payload includes `p_owner_profile_id = <P.id>`.
+2. Still acting as P, open any row → save a private note. **DB:** `relationship_private_notes` row has `owner_profile_id = P.id` (NOT the delegate's id). `created_by` / `updated_by` is the delegate's `auth.uid()`.
+3. Exit acting-as. Visit `/my/relationships` again → the desk now shows the delegate's own relationship context. Confirm P's note from step 2 is NOT visible here.
+4. Sign in as the *target* of P's note (a third user). Confirm there is no surface that exposes the note (e.g. visit `/u/<P>`, `/people`, search). RLS keeps it owner-only.
+5. Pretend to be a hostile delegate: in DevTools, manually call `supabase.rpc('get_relationship_desk_for_owner', { p_owner_profile_id: '<some random profile id you have no delegation against>' })`. **Expected:** RPC returns `[]` (RLS-style fail closed). Same probe on `get_relationship_card_for_owner` returns `null`. `upsert_relationship_private_note` raises `not authorized to act for this owner`.
+
+**Surface minimization.**
+
+6. As a normal owner, open `/my/relationships`. Confirm the desk row shows only a quiet "Private note" / "메모 있음" chip — never the first 120 characters of the note. The full body still appears inside the Relationship Card drawer.
+7. Open the Relationship Card for a target who has been granted at least one room. Confirm the rooms section lists the room with "Approved" or "Shared" copy — there is NO "Viewed at HH:MM" line and no `last_viewed_at` field in the network response.
+
+**Public artwork passport DTO.**
+
+8. As anonymous (logged-out) browser, open any public artwork. DevTools → response of `get_artwork_passport_for_viewer` → confirm `artwork.created_by` is `null`. Sign in as the artwork's owner → reload → `artwork.created_by` is now the real uploader id. Sign in as a stranger → `created_by` is again `null`.
 
 ### Sprint 6 — manual smoke (15 min)
 

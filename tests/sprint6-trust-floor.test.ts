@@ -133,6 +133,7 @@ function sectionFor(sql: string, fnName: string): string | null {
     MIGRATION_REL,
     "supabase/migrations/20260607000000_relationship_access_enforcement_hardening.sql",
     "supabase/migrations/20260609000000_artwork_passport_enum_cast_hotfix.sql",
+    "supabase/migrations/20260610000000_sprint6_1_principal_scoping_and_minimization.sql",
   ]) {
     const body = read(rel);
     if (!body.includes("get_artwork_passport_for_viewer")) continue;
@@ -179,6 +180,7 @@ function sectionFor(sql: string, fnName: string): string | null {
     MIGRATION_REL,
     "supabase/migrations/20260607000000_relationship_access_enforcement_hardening.sql",
     "supabase/migrations/20260609000000_artwork_passport_enum_cast_hotfix.sql",
+    "supabase/migrations/20260610000000_sprint6_1_principal_scoping_and_minimization.sql",
   ]) {
     const body = read(rel);
     if (!body.includes("get_artwork_passport_for_viewer")) continue;

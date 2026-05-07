@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import { getSession } from "@/lib/supabase/auth";
+import { useActingAs } from "@/context/ActingAsContext";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -43,6 +44,14 @@ const FILTER_ORDER: RelationshipDeskFilter[] = [
 
 export default function RelationshipDeskPage() {
   const { t } = useT();
+  // Sprint 6.1 — acting-as principal correctness. The Sprint 6 build of
+  // this page assumed `auth.uid()` swapped during delegation, which it
+  // does not. We now resolve the effective owner at the call site:
+  // when the delegate is acting as a principal, every Relationship Desk
+  // RPC call goes through `effectiveOwnerProfileId = actingAsProfileId`
+  // and the SQL RPC validates the delegation server-side via
+  // `is_active_account_delegate_writer(...)`.
+  const { actingAsProfileId, actingAsLabel } = useActingAs();
   const [userId, setUserId] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [filter, setFilter] = useState<RelationshipDeskFilter>("all");
@@ -75,9 +84,17 @@ export default function RelationshipDeskPage() {
     });
   }, []);
 
+  // The principal we are reading the desk on behalf of. Falls back to
+  // the signed-in user when no acting-as context is set.
+  const effectiveOwnerProfileId = actingAsProfileId ?? userId;
+
   const reload = useCallback(async () => {
+    if (!effectiveOwnerProfileId) return;
     setLoading(true);
-    const { data, error: err } = await getRelationshipDeskForOwner({ filter });
+    const { data, error: err } = await getRelationshipDeskForOwner({
+      ownerProfileId: effectiveOwnerProfileId,
+      filter,
+    });
     setLoading(false);
     if (err) {
       setError(t("relationships.loadFailed"));
@@ -89,12 +106,15 @@ export default function RelationshipDeskPage() {
     logBetaEventSync("relationship_desk_viewed", {
       surface: "relationship_desk",
       action_kind: filter,
+      // Telemetry only captures the boolean acting-as state — never the
+      // principal id (would let log-readers infer delegation graphs).
+      acting_as: !!actingAsProfileId,
     });
-  }, [filter, t]);
+  }, [filter, t, effectiveOwnerProfileId, actingAsProfileId]);
 
   useEffect(() => {
     if (!authReady) return;
-    if (!userId) return;
+    if (!effectiveOwnerProfileId) return;
     // Defer the load to a microtask so the effect doesn't trigger a
     // synchronous setState in the same render pass (react-compiler
     // safety; same pattern used elsewhere in /my surfaces).
@@ -102,7 +122,7 @@ export default function RelationshipDeskPage() {
       void reload();
     });
     return () => cancelAnimationFrame(handle);
-  }, [authReady, userId, reload]);
+  }, [authReady, effectiveOwnerProfileId, reload]);
 
   const openCard = useCallback(
     async (profileId: string) => {
@@ -110,7 +130,10 @@ export default function RelationshipDeskPage() {
       setCard(null);
       setCardLoading(true);
       setNoteSavedAt(null);
-      const { data, error: err } = await getRelationshipCardForOwner(profileId);
+      const { data, error: err } = await getRelationshipCardForOwner(
+        effectiveOwnerProfileId,
+        profileId
+      );
       setCardLoading(false);
       if (err || !data) {
         setError(t("relationships.cardLoadFailed"));
@@ -121,9 +144,10 @@ export default function RelationshipDeskPage() {
       logBetaEventSync("relationship_card_opened", {
         surface: "relationship_desk",
         relationship_status: data.relationship_status,
+        acting_as: !!actingAsProfileId,
       });
     },
-    [t]
+    [t, effectiveOwnerProfileId, actingAsProfileId]
   );
 
   const closeCard = useCallback(() => {
@@ -137,6 +161,7 @@ export default function RelationshipDeskPage() {
     if (!card?.profile.id) return;
     setNoteSaving(true);
     const { data, error: err } = await upsertRelationshipPrivateNote({
+      ownerProfileId: effectiveOwnerProfileId,
       targetProfileId: card.profile.id,
       note: noteDraft,
     });
@@ -149,12 +174,14 @@ export default function RelationshipDeskPage() {
     logBetaEventSync("relationship_private_note_saved", {
       surface: "relationship_card",
       action_kind: "save",
+      acting_as: !!actingAsProfileId,
     });
     setNoteSavedTick((tick) => tick + 1);
-    // Refresh the desk row preview so the next view shows the new
-    // first-line snippet without a stale render.
+    // Refresh the desk row so the new "Private note" chip appears
+    // without a stale render. The desk row no longer exposes the note
+    // body itself (Sprint 6.1 surface minimization).
     void reload();
-  }, [card, noteDraft, reload, t]);
+  }, [card, noteDraft, reload, t, effectiveOwnerProfileId, actingAsProfileId]);
 
   const laneOptions = useMemo<LaneOption<RelationshipDeskFilter>[]>(
     () =>
@@ -192,6 +219,15 @@ export default function RelationshipDeskPage() {
         lead={t("relationships.subtitle")}
         density="tight"
       />
+
+      {actingAsProfileId && (
+        <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+          {t("relationships.actingAsBanner")}
+          {actingAsLabel ? (
+            <span className="ml-1 font-medium text-zinc-900">{actingAsLabel}</span>
+          ) : null}
+        </div>
+      )}
 
       <div className="mb-6">
         <LaneChips
@@ -327,9 +363,11 @@ function DeskRowItem({
             {counts.join(" · ")}
           </p>
         )}
-        {row.private_note_preview && (
-          <p className="mt-1 truncate text-xs italic text-zinc-500">
-            {t("relationships.notePrefix")}: {row.private_note_preview}
+        {row.has_private_note && (
+          // Sprint 6.1: the desk row only carries a quiet chip — the
+          // full note body lives inside the Relationship Card.
+          <p className="mt-1 inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600">
+            {t("relationships.privateNoteChip")}
           </p>
         )}
       </div>
@@ -604,9 +642,7 @@ function CardBody({
                 <span className="shrink-0 text-xs text-zinc-500">
                   {room.has_active_grant
                     ? t("relationships.room.approved")
-                    : room.last_viewed_at
-                      ? t("relationships.room.viewed")
-                      : t("relationships.room.shared")}
+                    : t("relationships.room.shared")}
                 </span>
               </li>
             ))}

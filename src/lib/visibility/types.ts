@@ -313,7 +313,10 @@ export type RelationshipDeskRow = {
   pending_access_request_count: number;
   open_inquiry_count: number;
   active_grant_count: number;
-  private_note_preview: string | null;
+  // Sprint 6.1 surface minimization: the desk row no longer carries the
+  // raw note body. The card RPC remains the only path to the full note.
+  has_private_note: boolean;
+  private_note_updated_at: string | null;
 };
 
 export type RelationshipDeskFilter =
@@ -360,7 +363,13 @@ export type RelationshipCardRoomRef = {
   room_id: string;
   title: string;
   has_active_grant: boolean;
-  last_viewed_at: string | null;
+  // Sprint 6.1 boundary: passive named-viewer signals (e.g. last_viewed_at
+  // from shortlist_views) are intentionally absent. We only carry whether
+  // the owner explicitly shared/granted the room to this target — every
+  // row in the card.rooms list is, by definition, either currently
+  // granted or has been granted at some point. Future product work may
+  // revisit named view signals with explicit copy + consent.
+  was_shared_or_granted: boolean;
 };
 
 export type RelationshipCardPrivateNote = {

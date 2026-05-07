@@ -436,25 +436,6 @@ export default function MyPage() {
               rail={<StudioNextStepsRail actions={studioActions} />}
             />
             <StudioOperationGrid tiles={operationTiles} />
-            {/* Sprint 5 — quiet entry to the access-requests inbox. The
-                visibility hub itself is now anchored on the StudioHero
-                action row (`studio-visibility-hub`); the inbox stays
-                here as a one-line link so it doesn't compete with the
-                inquiries tile but remains discoverable. */}
-            <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
-              <a
-                href="/my/access-requests"
-                className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
-              >
-                {t("nav.accessRequests")}
-              </a>
-              <a
-                href="/my/relationships"
-                className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
-              >
-                {t("nav.relationships")}
-              </a>
-            </div>
             {/* Profile materials — Statement + CV. Artist persona only;
                 non-artist studios stay calm without the panel. The two
                 cards back the public-profile surface modals (P5). */}
@@ -501,6 +482,34 @@ export default function MyPage() {
             actingAsProfileId={actingAsProfileId}
             principalName={profile.display_name ?? profile.username ?? null}
           />
+        )}
+
+        {/* Sprint 5 — quiet entry to the access-requests inbox. The
+            visibility hub itself is now anchored on the StudioHero
+            action row (`studio-visibility-hub`); the inbox stays here
+            as a one-line link so it doesn't compete with the inquiries
+            tile but remains discoverable.
+            Sprint 6.1 — the same strip is also rendered in acting-as
+            mode (a delegate-writer can review and respond to the
+            principal's access requests / relationships). The Studio
+            hero/operation-grid stay hidden in acting-as because they
+            were built around the signed-in user's own role context;
+            this strip is purely action-oriented and works either way. */}
+        {profile && (
+          <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+            <a
+              href="/my/access-requests"
+              className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
+            >
+              {t("nav.accessRequests")}
+            </a>
+            <a
+              href="/my/relationships"
+              className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
+            >
+              {t("nav.relationships")}
+            </a>
+          </div>
         )}
 
         {profile && (

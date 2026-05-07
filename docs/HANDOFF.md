@@ -2,6 +2,77 @@
 
 Last updated: 2026-05-07
 
+## 2026-05-07 — Sprint 6.1: Relationship Trust, Delegation Scope & Operator Privacy Polish
+
+**스프린트 성격.** 신규 기능 스프린트 아님. Sprint 6 가 실수로 남긴 5가지 신뢰 갭을 닫는 polish 패치. 추가 기능 없이 기존 기능의 권한·minimization 만 정밀화.
+
+**왜 필요했나.** Sprint 6 의 Relationship Desk RPC 트리오는 `auth.uid()` 를 그대로 owner 로 사용하고 "위임 acting-as 가 session uid 를 swap 한다" 는 잘못된 가정의 주석을 남겨두었다. 이 앱의 acting-as 는 `localStorage` 기반 클라이언트 product context 일 뿐이고, `auth.uid()` 는 위임 중에도 항상 실제 로그인한 delegate 의 id 다. 그 결과:
+
+- 위임자가 acting-as 로 `/my/relationships` 를 열면 principal 의 데스크가 아니라 본인의 데스크가 떴고,
+- `upsert_relationship_private_note` 는 `owner_profile_id = auth.uid()` 로 저장돼서 위임자가 principal 을 대신해 메모를 적는 게 불가능했으며,
+- 데스크 행은 메모 본문 첫 120자를 그대로 list payload 에 실어 owner-only 라곤 해도 노출 표면이 불필요하게 컸고,
+- Relationship Card 는 `shortlist_views` 를 join 해서 named "last viewed at" 을 카드 payload 에 노출 (v1 의 "no named viewer surveillance" 약속과 충돌),
+- artwork passport 는 모든 viewer 에게 `created_by` (실제 업로드한 delegate/operator 의 id 일 수 있음) 를 그대로 노출.
+
+**해결.** 단일 마이그레이션 `supabase/migrations/20260610000000_sprint6_1_principal_scoping_and_minimization.sql` 으로 4개 함수를 재정의:
+
+1. **`get_relationship_desk_for_owner(p_owner_profile_id uuid default null, p_limit int default 50, p_offset int default 0, p_status text default null)`** — `v_owner = coalesce(p_owner_profile_id, auth.uid())`, `auth.uid() = v_owner OR is_active_account_delegate_writer(v_owner)` 로 권한 검증, 실패 시 `[]` 반환. 데스크 행 payload 에서 `private_note_preview` 제거 → `has_private_note: bool` + `private_note_updated_at: timestamptz`.
+2. **`get_relationship_card_for_owner(p_owner_profile_id uuid default null, p_target_profile_id uuid default null)`** — 같은 권한 패턴. `shortlist_views` join 완전 제거. `RelationshipCardRoomRef` 가 `was_shared_or_granted: bool` (모든 행은 grant 가 있거나 있었던 방) 만 노출. `last_viewed_at` 은 응답에 없음.
+3. **`upsert_relationship_private_note(p_owner_profile_id uuid default null, p_target_profile_id uuid default null, p_note text default null)`** — 같은 권한 패턴. row 의 `owner_profile_id` 는 effective principal (`v_owner`), `created_by`/`updated_by` 는 실제 행위자 (`auth.uid()`). RLS 의 `is_active_account_delegate_writer` 정책과 일치.
+4. **`get_artwork_passport_for_viewer(p_artwork_id uuid)`** — Sprint 6 hotfix v3 의 enum cast / claims 스키마 수정을 그대로 보존하면서 `created_by` 만 owner / delegate-writer 한정으로 redact (`v_is_owner_or_delegate := auth.uid() is not null and (auth.uid() = v_owner or is_active_account_delegate_writer(v_owner))` → `case when v_is_owner_or_delegate then v_aw.created_by else null end`).
+
+**Legacy 시그니처 명시 DROP.** `create or replace` 는 시그니처가 다르면 새 함수를 만든다. 기존 (3, 1, 2) 인자 버전이 PostgREST 에 남아있으면 구 클라이언트가 우연히 그쪽으로 라우팅돼 권한 검증 없는 body 를 실행할 수 있다. 그래서 마이그레이션 상단에서 `drop function if exists public.get_relationship_desk_for_owner(integer, integer, text)` / `(uuid)` / `(uuid, text)` 를 명시적으로 실행 후 새 시그니처로 `create or replace`.
+
+**TS / UI 변경.**
+
+- `src/lib/supabase/relationshipAccess.ts`: 3개 wrapper 가 `ownerProfileId?: string | null` 를 받고 `p_owner_profile_id` 로 전달. 미지정 시 `null` (RPC default 로 `auth.uid()`).
+- `src/lib/visibility/types.ts`: `RelationshipDeskRow.private_note_preview` 제거 → `has_private_note` + `private_note_updated_at`. `RelationshipCardRoomRef.last_viewed_at` 제거 → `was_shared_or_granted`.
+- `src/app/my/relationships/page.tsx`: `useActingAs` 임포트, `effectiveOwnerProfileId = actingAsProfileId ?? userId` 를 모든 RPC 호출에 전달. acting-as 모드면 calm 배너 ("Viewing relationships for…") 노출. 데스크 행은 본문 대신 quiet "Private note" 칩만. 카드의 룸 행은 `last_viewed_at` 분기 제거.
+- `src/app/my/page.tsx`: `/my/access-requests` + `/my/relationships` 진입 strip 을 owner-header 블록 밖으로 빼서 acting-as 모드에서도 노출 (delegate-writer 가 principal 의 요청·관계 데스크에 접근할 수 있어야 함). Studio hero / operation grid 자체는 여전히 acting-as 일 때 숨김 (그 영역은 본인 role 컨텍스트 기반).
+- `src/lib/i18n/messages.ts`: `relationships.notePrefix` 제거, `relationships.privateNoteChip` + `relationships.actingAsBanner` 추가 (en/ko).
+
+**Telemetry boundary.** 데스크/카드/노트 저장 이벤트에 `acting_as: !!actingAsProfileId` (boolean) 만 추가. principal id 자체는 절대 페이로드에 들어가지 않는다 (로그 reader 가 위임 그래프를 역산할 수 없도록). 정적 테스트가 `: actingAsProfileId` (raw id 송출) 패턴을 forbid.
+
+**Phase F (resolve_access_request_v2 wiring).** 작업지시서의 default 권고대로 **Option 1 — UI unwired 유지**. 현재 `/my/access-requests` 는 그대로 legacy `resolveAccessRequest` 를 사용한다. v2 RPC 와 `resolveAccessRequestV2` wrapper 는 API-ready 이지만 owner UI 와 wired 되지 않은 상태. 다음 스프린트에서 narrowing 컨트롤 (필드 단위 승인, 30일 한정 승인 등) 의 calm UX 를 별도로 디자인한 뒤 wire 한다.
+
+**신규 정적 테스트 2개.**
+
+- `tests/sprint6-delegation-principal.test.ts` — Relationship 3종 RPC 가 `p_owner_profile_id` 인자 + `coalesce(p_owner_profile_id, v_uid)` + `is_active_account_delegate_writer(v_owner)` 검증을 모두 갖추는지, legacy overload DROP 이 명시적으로 있는지, `/my/relationships` 가 `useActingAs` 와 `effectiveOwnerProfileId` 를 사용하는지, wrapper 가 `ownerProfileId` 를 받고 `p_owner_profile_id` 로 보내는지, "swap session uid" 잘못된 주석이 다시 들어오지 않는지, 텔레메트리 페이로드에 principal id 가 raw 로 emit 되지 않는지를 모두 정적 검사로 핀.
+- `tests/relationship-card-privacy.test.ts` — 데스크 RPC body 에 `private_note_preview` / `left(rpn.note,...)` 가 절대 없고 `has_private_note` / `private_note_updated_at` 가 노출되는지, 카드 RPC body 에 `shortlist_views` / `artwork_views` / `profile_views` / `last_viewed_at` 같은 passive viewer 신호가 절대 없고 `was_shared_or_granted` 가 노출되는지, TS 타입이 일치하는지, passport 의 `created_by` 가 `v_is_owner_or_delegate` gate 뒤에 있는지를 정적 검사로 핀.
+
+**기존 테스트 업데이트.** `tests/relationship-desk.test.ts` 가 데스크 RPC 시그니처 검증 대상을 Sprint 6 (legacy) 에서 Sprint 6.1 (live) 마이그레이션으로 이동, legacy overload DROP 이 있는지 추가 핀, 텔레메트리 페이로드의 `acting_as` boolean key 는 허용 (note/private_note/noteDraft 는 여전히 forbid). `tests/sprint6-trust-floor.test.ts` 의 enum cast 가드와 claims 컬럼 가드에 Sprint 6.1 마이그레이션 파일도 포함하도록 확장.
+
+**Supabase 적용 (REQUIRED).** `20260610000000_sprint6_1_principal_scoping_and_minimization.sql` 은 4개 PL/pgSQL 함수 본문을 담고 있어 `.cursor/rules/release-workflow.mdc §1-1` 의 "한 마이그레이션 파일에 PL/pgSQL 함수 정의가 2개 이상이면 SECTION 단위로 highlight → Run" 규칙이 적용된다. SECTION 1 → 2 → 3 → 4 순서로 각각 highlight → Run. 모든 dollar tag 는 letters-only (`$a$` / `$b$` / `$c$` / `$d$`) 이고 헤더 주석은 작은따옴표를 의도적으로 회피했다 (Sprint 6 hotfix 때 `relation "v_aw" does not exist (42P01)` 를 만든 dashboard tokenizer 버그 회피). 모든 CREATE 는 `OR REPLACE`, DROP 은 `IF EXISTS` 라 한 섹션이 실패해도 안전하게 재시도 가능. 자세한 verification SQL 은 `docs/QA_SMOKE.md` 의 "Sprint 6.1 verification SQL" 섹션 참조.
+
+**환경 변수.** 변경 없음.
+
+**Verified.**
+
+- `npm run test:sprint6-trust-floor` ✅
+- `npm run test:persona-grammar` ✅
+- `npm run test:relationship-desk` ✅
+- `npm run test:sprint6-delegation-principal` ✅ (신규)
+- `npm run test:relationship-card-privacy` ✅ (신규)
+- `npm run test:privacy-token-audit` ✅
+- `npm run test:access-enforcement` ✅
+- `npm run test:visibility-sql-contract` ✅
+- `npm run test:relationship-access` ✅
+- `npm run test:access-request` ✅
+- `npm run test:inquiry-source` ✅
+- `npx tsc --noEmit` ✅ (사전 cleanup: stale `.next/types/routes.d 2.ts` / `validator 3.ts` 제거)
+- `npm run build` ✅
+- `npm run lint` — 베이스라인 (34 errors / 49 warnings) 그대로, 신규 회귀 0.
+
+**Known limitations.**
+
+- `resolve_access_request_v2` 는 여전히 UI unwired (의도적). 다음 스프린트에서 calm narrowing UX 를 디자인 후 wiring.
+- Phase 5 의 "if `profiles.is_public = false`, reduce nested owner profile to id/display_name/avatar_url" 권고는 이번 패치에 미포함 (Recommended/Optional 로 표기되어 있었고, owner profile 의 public/private 정책은 별도 surface 가 잡고 있어서 우선순위에서 밀림). 다음 스프린트에서 다룰 후보.
+- 데스크/카드 RPC 의 `p_owner_profile_id` default 는 `null` 이라 미지정 호출은 여전히 `auth.uid()` 로 fallback. 의도적 backward-compatibility 선택. 다음 스프린트에서 모든 호출이 항상 explicit owner 를 보내도록 정리하면 default 를 제거할 수 있다.
+
+**Next sprint recommendation.** Sprint 6 / 6.1 에서 닫지 못한 Phase 5 (owner profile minimization) 와 Phase F option 2 (access grant lifecycle 의 owner-side narrowing UX) 를 한 묶음으로 닫고, 그 다음 본격적인 Relationship Desk v2 / Private Room v2 product 작업으로 진입.
+
+---
+
 ## 2026-05-07 — Sprint 6 hotfix v3: artwork passport claims schema fix
 
 **증상.** v2 핫픽스를 SQL Editor 에 paste 하고 Run 한 직후, 작품을 클릭하면 enum 에러는 사라졌는데 새 에러가 생김.

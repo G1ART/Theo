@@ -529,14 +529,25 @@ export async function resolveRoomSourceFromToken(
 // ─────────────────────────────────────────────────────────────────────
 // Sprint 6 — Relationship Desk wrappers (owner/delegate-only)
 // ─────────────────────────────────────────────────────────────────────
+//
+// Acting-as / delegate principal correctness (Sprint 6.1):
+//   `auth.uid()` does NOT swap when a delegate is acting as a principal.
+//   The acting-as state is a CLIENT product context. To act on behalf of
+//   a principal, the wrapper must send `p_owner_profile_id` explicitly;
+//   the SQL RPCs validate that `auth.uid() = p_owner_profile_id` OR
+//   `is_active_account_delegate_writer(p_owner_profile_id)`. When the
+//   wrapper is called without an `ownerProfileId` arg we send null and
+//   the RPC defaults to `auth.uid()` (legacy behavior).
 
 export async function getRelationshipDeskForOwner(args?: {
+  ownerProfileId?: string | null;
   limit?: number;
   offset?: number;
   filter?: RelationshipDeskFilter;
 }): Promise<{ data: RelationshipDeskRow[]; error: Error | null }> {
   const filter = args?.filter ?? "all";
   const { data, error } = await supabase.rpc("get_relationship_desk_for_owner", {
+    p_owner_profile_id: args?.ownerProfileId ?? null,
     p_limit: args?.limit ?? 50,
     p_offset: args?.offset ?? 0,
     p_status: filter === "all" ? null : filter,
@@ -547,9 +558,11 @@ export async function getRelationshipDeskForOwner(args?: {
 }
 
 export async function getRelationshipCardForOwner(
+  ownerProfileId: string | null,
   targetProfileId: string
 ): Promise<{ data: RelationshipCard | null; error: Error | null }> {
   const { data, error } = await supabase.rpc("get_relationship_card_for_owner", {
+    p_owner_profile_id: ownerProfileId,
     p_target_profile_id: targetProfileId,
   });
   if (error) return { data: null, error };
@@ -558,6 +571,7 @@ export async function getRelationshipCardForOwner(
 }
 
 export async function upsertRelationshipPrivateNote(args: {
+  ownerProfileId?: string | null;
   targetProfileId: string;
   note: string;
 }): Promise<{
@@ -574,6 +588,7 @@ export async function upsertRelationshipPrivateNote(args: {
 }> {
   const clean = (args.note ?? "").slice(0, 4000);
   const { data, error } = await supabase.rpc("upsert_relationship_private_note", {
+    p_owner_profile_id: args.ownerProfileId ?? null,
     p_target_profile_id: args.targetProfileId,
     p_note: clean,
   });

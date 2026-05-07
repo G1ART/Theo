@@ -22,8 +22,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "..");
-const MIGRATION_REL =
+// The table + RLS still live in the Sprint 6 migration; the live RPC
+// bodies were re-emitted by Sprint 6.1 (principal-aware + minimized
+// surface). We read both files so each invariant points at the source
+// of truth.
+const SPRINT6_REL =
   "supabase/migrations/20260608000000_sprint6_phase0_and_relationship_desk.sql";
+const SPRINT6_1_REL =
+  "supabase/migrations/20260610000000_sprint6_1_principal_scoping_and_minimization.sql";
 
 function read(rel: string): string {
   return readFileSync(path.join(ROOT, rel), "utf8");
@@ -35,7 +41,8 @@ function sectionFor(sql: string, fnName: string): string | null {
 }
 
 (async () => {
-  const sql = read(MIGRATION_REL);
+  const sql = read(SPRINT6_REL);
+  const sql61 = read(SPRINT6_1_REL);
 
   // 1. relationship_private_notes table + RLS.
   assert.ok(
@@ -66,15 +73,25 @@ function sectionFor(sql: string, fnName: string): string | null {
     "(owner_profile_id, target_profile_id) must be UNIQUE for upsert correctness"
   );
 
-  // 2. get_relationship_desk_for_owner — signature + gating + sources.
+  // 2. get_relationship_desk_for_owner — Sprint 6.1 principal-aware
+  // signature + auth.uid() gating + explicit relationship sources only.
+  // The live function lives in the Sprint 6.1 migration (Sprint 6's
+  // 3-arg overload was dropped to prevent PostgREST from resolving to
+  // the un-validated body).
   assert.ok(
-    /create or replace function public\.get_relationship_desk_for_owner\s*\(\s*p_limit integer default 50\s*,\s*p_offset integer default 0\s*,\s*p_status text default null\s*\)/i.test(
-      sql
+    /create or replace function public\.get_relationship_desk_for_owner\s*\(\s*p_owner_profile_id\s+uuid\s+default null\s*,\s*p_limit\s+integer\s+default 50\s*,\s*p_offset\s+integer\s+default 0\s*,\s*p_status\s+text\s+default null\s*\)/i.test(
+      sql61
     ),
-    "get_relationship_desk_for_owner must have the canonical (int, int, text) signature"
+    "get_relationship_desk_for_owner (Sprint 6.1) must accept (uuid default null, integer default 50, integer default 0, text default null)"
   );
-  const desk = sectionFor(sql, "get_relationship_desk_for_owner");
-  assert.ok(desk, "desk RPC section must exist");
+  assert.ok(
+    /drop function if exists public\.get_relationship_desk_for_owner\s*\(integer,\s*integer,\s*text\)/i.test(
+      sql61
+    ),
+    "Sprint 6.1 must drop the legacy 3-arg desk RPC overload"
+  );
+  const desk = sectionFor(sql61, "get_relationship_desk_for_owner");
+  assert.ok(desk, "desk RPC section must exist in Sprint 6.1 migration");
   // Gating on auth.uid() (declaration line `v_uid uuid := auth.uid()`).
   assert.ok(
     /v_uid[\s\S]{0,40}:=\s*auth\.uid\(\)/.test(desk!),
@@ -135,6 +152,8 @@ function sectionFor(sql: string, fnName: string): string | null {
   // Defensive: the noteDraft body must NEVER appear inside any
   // logBetaEventSync payload object literal. We scan every event call
   // and assert the literal `noteDraft` (or `note:` body) is absent.
+  // Sprint 6.1: payloads may include an `acting_as: boolean` flag, but
+  // never a `note` body or any private_note* key.
   for (const m of page.matchAll(/logBetaEventSync\s*\(\s*"[^"]+"\s*,\s*\{([\s\S]*?)\}\s*\)/g)) {
     const body = m[1] ?? "";
     assert.ok(
@@ -152,7 +171,8 @@ function sectionFor(sql: string, fnName: string): string | null {
   }
 
   // 4. resolve_access_request_v2 must exist (Phase E backwards-compatible
-  // grant lifecycle additive RPC).
+  // grant lifecycle additive RPC). This still lives in the Sprint 6
+  // migration; Sprint 6.1 is intentionally additive-only here.
   assert.ok(
     /create or replace function public\.resolve_access_request_v2\s*\([\s\S]{0,300}p_grant_subject_type text default null/i.test(
       sql
