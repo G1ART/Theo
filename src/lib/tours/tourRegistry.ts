@@ -33,7 +33,10 @@ export type TourId = (typeof TOUR_IDS)[keyof typeof TOUR_IDS];
 export const TOURS: Record<TourId, TourDefinition> = {
   [TOUR_IDS.studio]: {
     id: TOUR_IDS.studio,
-    version: 8,
+    // v9: surface the new Sprint 5 visibility hub anchored on the
+    // hero hot-link so returning users learn that "who sees what" is
+    // now a first-class control, not buried in profile-edit.
+    version: 9,
     titleKey: "tour.studio.title",
     introKey: "tour.studio.intro",
     requiredAnchors: ["studio-hero", "studio-operating-grid"],
@@ -43,6 +46,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
         target: "studio-hero",
         titleKey: "tour.studio.hero.title",
         bodyKey: "tour.studio.hero.body",
+        placement: "bottom",
+      },
+      {
+        id: "visibility",
+        target: "studio-visibility-hub",
+        titleKey: "tour.studio.visibility.title",
+        bodyKey: "tour.studio.visibility.body",
         placement: "bottom",
       },
       {

@@ -176,6 +176,20 @@ export function StudioHero({
                 />
               )}
             </Link>
+            {/* Sprint 5 — hot-link to the visibility hub. Same outline tone
+                as siblings so the row stays calm; tour anchor wires the
+                "Choose who sees what" step in the studio tour. */}
+            <Link
+              href="/my/visibility"
+              data-tour="studio-visibility-hub"
+              aria-label={`${t("studio.hero.visibility")} — ${t(
+                "studio.hero.visibilityHint"
+              )}`}
+              title={t("studio.hero.visibilityHint")}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              {t("studio.hero.visibility")}
+            </Link>
           </div>
         </div>
       </div>

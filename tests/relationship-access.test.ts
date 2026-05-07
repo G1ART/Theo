@@ -19,6 +19,12 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://stub.example.com";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "stub-anon-key";
 
 import assert from "node:assert/strict";
+// Type-only import: dynamic `await import()` below produces a *value*
+// namespace, not a type namespace, so `typesMod.ViewerRelationshipContext`
+// (used as a type annotation) trips TS2503 under strict tsc. Pulling the
+// type via a static type-only import keeps the runtime behavior identical
+// (erased at compile time) while restoring tsc cleanliness.
+import type { ViewerRelationshipContext } from "../src/lib/visibility/types";
 
 (async () => {
   const ctaMod = await import("../src/lib/visibility/cta");
@@ -27,7 +33,7 @@ import assert from "node:assert/strict";
   const betaMod = await import("../src/lib/beta/logEvent");
 
   const { resolveGateCta, shouldShowSecondaryInquiryCta } = ctaMod;
-  const _viewerCtx: typesMod.ViewerRelationshipContext = {
+  const _viewerCtx: ViewerRelationshipContext = {
     viewer_id: "v",
     target_profile_id: "t",
     is_self: false,

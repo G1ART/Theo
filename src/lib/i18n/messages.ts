@@ -1303,6 +1303,8 @@ export const messages = {
     "studio.hero.previewPublic": "Preview public profile",
     "studio.hero.delegations": "Delegations",
     "studio.hero.delegationsPendingDot": "Pending invite awaits your response",
+    "studio.hero.visibility": "Visibility",
+    "studio.hero.visibilityHint": "Choose who sees what across your studio",
     "studio.hero.completeness": "Profile completeness",
     "studio.hero.public": "Public",
     "studio.hero.private": "Private",
@@ -1963,6 +1965,9 @@ export const messages = {
     "tour.studio.hero.title": "Welcome to your Studio",
     "tour.studio.hero.body":
       "This is the home base for everything you make, save, and share on Abstract.",
+    "tour.studio.visibility.title": "Choose who sees what",
+    "tour.studio.visibility.body":
+      "New: pick a calm preset (Open Studio · Follower-Aware · Mutual-First · Private Studio) or fine-tune price, availability, and description per artwork. Visitors who can't see a detail are offered a friendly Follow or Request — never a paywall.",
     "tour.studio.nextSteps.title": "Suggested next steps",
     "tour.studio.nextSteps.body":
       "Quick actions tuned to what your studio needs right now — profile, works, inquiries.",
@@ -3656,6 +3661,8 @@ export const messages = {
     "studio.hero.previewPublic": "공개 프로필 미리보기",
     "studio.hero.delegations": "위임",
     "studio.hero.delegationsPendingDot": "받은 위임 요청이 응답을 기다리고 있어요",
+    "studio.hero.visibility": "공개 범위",
+    "studio.hero.visibilityHint": "누가 무엇을 볼 수 있는지 한 화면에서 정해요",
     "studio.hero.completeness": "프로필 완성도",
     "studio.hero.public": "공개",
     "studio.hero.private": "비공개",
@@ -4314,6 +4321,9 @@ export const messages = {
     "tour.studio.hero.title": "내 스튜디오에 오신 걸 환영해요",
     "tour.studio.hero.body":
       "Abstract에서 만들고, 담고, 공유하는 모든 것이 시작되는 공간이에요.",
+    "tour.studio.visibility.title": "누가 무엇을 볼 수 있나요",
+    "tour.studio.visibility.body":
+      "새 기능 — 한 번에 큰 그림을 정하는 4개 프리셋(오픈 스튜디오 · 팔로워 우선 · 맞팔로우 중심 · 프라이빗 스튜디오), 작품마다 가격·availability·설명을 더 세밀하게 조정. 잠긴 정보를 본 방문자에게는 paywall 대신 팔로우 또는 정중한 접근 요청을 안내합니다.",
     "tour.studio.nextSteps.title": "다음으로 해보면 좋은 일",
     "tour.studio.nextSteps.body":
       "지금 스튜디오에 도움이 될 만한 일을 간단히 모아두는 곳이에요. 프로필·작품·문의를 바로 열 수 있어요.",

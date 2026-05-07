@@ -2,6 +2,20 @@
 
 Last updated: 2026-05-06
 
+## 2026-05-06 — Sprint 5.1: Visibility hub discoverability (UX micro-patch)
+
+Sprint 5 가 만든 **공개 범위 / 접근 권한** 레이어가 "프로필 편집 안" 에 묻혀 있다는 사용자 피드백 반영. 두 가지만 손봤다.
+
+- **StudioHero hot-link** — `/my` 좌상단 hero 의 액션 row (프로필 편집 · 공개 프로필 미리보기 · 위임 옆) 에 **공개 범위** 버튼 추가. 형제와 같은 outline 톤, `data-tour="studio-visibility-hub"` anchor 부여. 같은 hub 로 가던 `/my` 본문의 muted text-link 한 줄은 중복이라 제거 (접근 요청 inbox 한 줄만 남김).
+- **Studio tour 신규 step (v8 → v9)** — hero 다음에 `visibility` step 추가. 카피는 4개 preset 이름·필드 단위 미세조정·gate 의 hospitality 톤 (Follow / Request) 을 한 번에 알림. version bump 으로 returning users 에게도 자동 재표시.
+- 새 i18n 키: `studio.hero.visibility`, `studio.hero.visibilityHint`, `tour.studio.visibility.title`, `tour.studio.visibility.body` (en + ko 동시).
+
+수정 파일: `src/components/studio/StudioHero.tsx`, `src/lib/tours/tourRegistry.ts`, `src/app/my/page.tsx`, `src/lib/i18n/messages.ts`. 부수적으로 `tests/relationship-access.test.ts` 의 `typesMod.ViewerRelationshipContext` 타입 참조를 static `import type` 로 정리 (TS2503 fix — strict tsc 에서 dynamic import 의 namespace 는 type 으로 사용 못 함).
+
+Supabase SQL 변경 없음 / 신규 환경 변수 없음. **Verified**: `npx tsc --noEmit` 0 errors · `npm run build` ✓ · 3 Sprint-5 단위 테스트 + privacy-token-audit ✓ · lint baseline 동일 (34 errors / 49 warnings, 모두 기존 — Sprint 5 패치가 도입하지 않음).
+
+---
+
 ## 2026-05-06 — Sprint 5: Relationship Access Layer & Subscription-Ready Hospitality
 
 Sprint 1–4 가 만든 가치 루프 (Feed → Artwork Passport → Private Room / Inquiry → Artist follow-up) 위에, **관계 기반 정보 공개·취득 권한 레이어** 를 깔았다. 새 marketplace UI 0개, paywall vocabulary 0개. 작가는 한 화면에서 큰 그림 (preset) 을 정하고, 필요할 때 항목·작품·룸 단위로 미세조정한다. 관람자는 잠긴 항목에서 paywall 이 아니라 *친절한 다음 동작* (Follow / Ask about this work / Request access) 을 본다.

@@ -436,13 +436,12 @@ export default function MyPage() {
               rail={<StudioNextStepsRail actions={studioActions} />}
             />
             <StudioOperationGrid tiles={operationTiles} />
+            {/* Sprint 5 — quiet entry to the access-requests inbox. The
+                visibility hub itself is now anchored on the StudioHero
+                action row (`studio-visibility-hub`); the inbox stays
+                here as a one-line link so it doesn't compete with the
+                inquiries tile but remains discoverable. */}
             <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
-              <a
-                href="/my/visibility"
-                className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
-              >
-                {t("nav.visibility")} · {t("visibility.page.title")}
-              </a>
               <a
                 href="/my/access-requests"
                 className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
