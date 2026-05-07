@@ -24,7 +24,9 @@ if coalesce(v_aw.visibility, '') <> 'public' then
 - 소스 마이그레이션 두 곳도 같은 cast 로 패치 (`20260607...` §SECTION 7, `20260608...` §SECTION 1) — 새로 클러스터를 부트스트랩할 때 핫픽스에 의존하지 않도록.
 - `tests/sprint6-trust-floor.test.ts` 에 회귀 가드 추가 — 위 세 SQL 파일 중 어느 하나라도 cast 없는 `coalesce(v_aw.visibility, '')` 패턴을 다시 도입하면 즉시 실패.
 
-**Supabase 적용.** `20260609000000_artwork_passport_enum_cast_hotfix.sql` 한 파일을 SQL Editor 에 paste → Run. 단일 함수라 섹션 분할 불필요. 적용 후 검증:
+**Supabase 적용.** `20260609000000_artwork_passport_enum_cast_hotfix.sql` 한 파일을 통째로 SQL Editor 에 paste → Run. 단일 함수라 섹션 분할 불필요. dollar tag 는 `$hotfix$` 로 unique 하게 잡았고, 헤더 주석은 작은따옴표를 의도적으로 제거 (`.cursor/rules/release-workflow.mdc §1-1` — naive client splitter 가 `--` 라인 주석 안의 `'` 를 문자열 열림으로 오인해서 quote tracking 을 놓치고 함수 본문을 외부 statement 로 흘려, `relation "v_aw" does not exist (42P01)` 로 깨지는 케이스를 1차 수정 시도에서 한 번 겪었음). 만약 같은 42P01 이 또 보이면 paste 한 텍스트에 여분의 따옴표/주석이 들어갔는지 확인.
+
+적용 후 검증:
 
 ```sql
 -- 1) 함수가 핫픽스 본문으로 교체됐는지 (cast 가 들어간 버전인지)

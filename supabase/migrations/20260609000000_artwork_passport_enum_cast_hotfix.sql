@@ -1,32 +1,31 @@
 -- ===========================================================================
--- Hotfix — get_artwork_passport_for_viewer enum/text comparison bug
+-- Hotfix: get_artwork_passport_for_viewer enum/text comparison bug
 -- ===========================================================================
 --
--- Symptom: every viewer (logged in, logged out, follower, stranger) clicking
--- an artwork from the feed saw:
+-- NOTE FOR THE OPERATOR
+--   Paste this ENTIRE file into the Supabase SQL Editor and press Run.
+--   The header comments below intentionally avoid single quotes because
+--   the dashboard SQL splitter tokenizes paste-input client-side and a
+--   stray apostrophe in a line comment can confuse its quote tracker
+--   (per .cursor/rules/release-workflow.mdc paragraph 1-1). If you ever
+--   see ERROR 42P01 relation v_aw does not exist on a function paste,
+--   that is the same class of bug.
 --
---   invalid input value for enum artwork_visibility: ""
+-- WHAT THIS FIXES
+--   Symptom: every viewer (logged in or not, follower or stranger) who
+--   clicks an artwork from the feed sees
+--     invalid input value for enum artwork_visibility:
+--   The Sprint 5.2 and Sprint 6 builds of get_artwork_passport_for_viewer
+--   guard the non-public lane with coalesce(v_aw.visibility, empty-text).
+--   v_aw.visibility is the artwork_visibility enum, so Postgres tries to
+--   cast the empty-text fallback TO the enum and fails with 22P02 before
+--   any redaction logic runs.
 --
--- Root cause: the Sprint 5.2 + Sprint 6 re-creates of
---   public.get_artwork_passport_for_viewer(uuid)
--- guard the non-public lane with
---   if coalesce(v_aw.visibility, '') <> 'public' then ...
--- where `v_aw.visibility` is the `artwork_visibility` enum. Postgres tries
--- to find a common type for `coalesce(enum, text)` and ends up casting the
--- empty-string literal `''` *to* `artwork_visibility`, which fails because
--- '' is not a valid enum label. Every call to the RPC therefore raised
--- 22P02 before any redaction logic could run, and the artwork detail page
--- bubbled the message straight to the UI.
---
--- Fix: cast the enum to text before coalescing. The behavior is identical
--- (an artwork with NULL visibility — possible during early backfills — is
--- treated as non-public, matching the pre-Sprint-5.2 behavior of the
--- artworks_visibility_backfill).
---
--- This file recreates only the one RPC. Everything else (allowlist DTO,
--- nested profiles, claims redaction, etc.) is preserved verbatim from
--- 20260608000000_sprint6_phase0_and_relationship_desk.sql §SECTION 1.
--- Single PL/pgSQL body — safe to paste in one shot.
+-- HOW THIS FIXES IT
+--   Cast the enum to text before coalescing. The behavior is identical
+--   (an artwork with NULL visibility is still treated as non-public,
+--   matching the pre-Sprint-5.2 backfill). The DTO body is otherwise
+--   100% identical to Sprint 6 SECTION 1.
 
 create or replace function public.get_artwork_passport_for_viewer(
   p_artwork_id uuid
@@ -35,11 +34,12 @@ language plpgsql
 stable
 security definer
 set search_path = public
-as $a$
+as $hotfix$
 declare
   v_uid uuid := auth.uid();
   v_aw record;
   v_owner uuid;
+  v_vis_text text;
   v_price jsonb;
   v_avail jsonb;
   v_desc jsonb;
@@ -67,14 +67,10 @@ begin
     return null;
   end if;
 
-  v_owner := v_aw.artist_id;
+  v_owner    := v_aw.artist_id;
+  v_vis_text := coalesce(v_aw.visibility::text, '');
 
-  -- Hotfix: cast enum to text so the empty-string fallback in coalesce
-  -- never triggers an `invalid input value for enum artwork_visibility`
-  -- error. Comparing the resulting text value to the literal 'public' is
-  -- safe and preserves the original gate (only `public` artworks are
-  -- visible to non-owners).
-  if coalesce(v_aw.visibility::text, '') <> 'public' then
+  if v_vis_text <> 'public' then
     if v_uid is null
        or (v_uid <> v_owner
            and not public.is_active_account_delegate_writer(v_owner)) then
@@ -82,9 +78,9 @@ begin
     end if;
   end if;
 
-  v_price := public.resolve_visibility_for_viewer(v_owner, 'artwork', v_aw.id, 'price');
-  v_avail := public.resolve_visibility_for_viewer(v_owner, 'artwork', v_aw.id, 'availability');
-  v_desc  := public.resolve_visibility_for_viewer(v_owner, 'artwork', v_aw.id, 'description');
+  v_price        := public.resolve_visibility_for_viewer(v_owner, 'artwork', v_aw.id, 'price');
+  v_avail        := public.resolve_visibility_for_viewer(v_owner, 'artwork', v_aw.id, 'availability');
+  v_desc         := public.resolve_visibility_for_viewer(v_owner, 'artwork', v_aw.id, 'description');
   v_relationship := public.get_viewer_relationship_context(v_owner);
 
   v_can_price := coalesce((v_price->>'can_view')::boolean, false);
@@ -197,7 +193,7 @@ begin
     'viewer_id',    v_uid
   );
 end;
-$a$;
+$hotfix$;
 
 grant execute on function public.get_artwork_passport_for_viewer(uuid) to authenticated;
 grant execute on function public.get_artwork_passport_for_viewer(uuid) to anon;
