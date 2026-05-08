@@ -25,11 +25,15 @@ function read(rel: string): string {
 (async () => {
   // 1. /my/network — 4 tabs.
   const network = read("src/app/my/network/page.tsx");
+  // Sprint 6.2 — tab order: followers → following → requests →
+  // relationships. Pinning the order in TabKey doubles as a guard
+  // against accidental reshuffles during refactors; the visible
+  // tab bar order in the page mirrors this.
   assert.ok(
-    /type TabKey =[^;]*"followers"[^;]*"following"[^;]*"relationships"[^;]*"requests"/.test(
+    /type TabKey =[^;]*"followers"[^;]*"following"[^;]*"requests"[^;]*"relationships"/.test(
       network
     ),
-    "MyNetworkPage TabKey must list the 4 hub tabs"
+    "MyNetworkPage TabKey must list the 4 hub tabs in the canonical order followers → following → requests → relationships"
   );
   for (const tab of ["followers", "following", "relationships", "requests"]) {
     assert.ok(
@@ -45,6 +49,20 @@ function read(rel: string): string {
     /RelationshipDeskPanel\b/.test(network) &&
       /AccessRequestsPanel\b/.test(network),
     "MyNetworkPage must mount both new panels"
+  );
+
+  // Sprint 6.2 — pin the visible tab bar order. The four
+  // NetworkTabButton invocations in render must appear in
+  // followers → following → requests → relationships order so the
+  // narrative copy ("approved requests grow into the Relationships
+  // tab") matches the user's left-to-right scan.
+  const tabButtonOrder = [...network.matchAll(
+    /NetworkTabButton[\s\S]{0,200}?network\.tabs\.(followers|following|requests|relationships)/g
+  )].map((m) => m[1]);
+  assert.deepEqual(
+    tabButtonOrder,
+    ["followers", "following", "requests", "relationships"],
+    `tab bar render order must be followers → following → requests → relationships, got: ${tabButtonOrder.join(" → ")}`
   );
 
   // 2. Redirect pages — must contain router.replace, must NOT re-emit
@@ -137,8 +155,8 @@ function read(rel: string): string {
     )?.[0] ?? "";
   assert.ok(networkTourBlock.length > 0, "tour registry must define network tour");
   assert.ok(
-    /version:\s*([3-9]|\d{2,})/.test(networkTourBlock),
-    "network tour version must be bumped to >=3 in Sprint 6.2"
+    /version:\s*([4-9]|\d{2,})/.test(networkTourBlock),
+    "network tour version must be bumped to >=4 in Sprint 6.2 tab-order patch"
   );
   for (const stepId of ["relationships", "requests", "activity-dot"]) {
     assert.ok(
@@ -146,6 +164,15 @@ function read(rel: string): string {
       `network tour must include the "${stepId}" step`
     );
   }
+  // Sprint 6.2 tab-order patch — requests step must appear before
+  // relationships step in the tour so the narrated walkthrough mirrors
+  // the visible tab bar (inbound prompt first, history second).
+  const requestsIdx = networkTourBlock.indexOf('id: "requests"');
+  const relationshipsIdx = networkTourBlock.indexOf('id: "relationships"');
+  assert.ok(
+    requestsIdx > 0 && relationshipsIdx > 0 && requestsIdx < relationshipsIdx,
+    "network tour must order the 'requests' step before the 'relationships' step"
+  );
 
   // Studio tour: version bumped to >=10 with a network step pointing at
   // studio-network anchor.

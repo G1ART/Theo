@@ -32,7 +32,7 @@ import { AccessRequestsPanel } from "@/components/network/AccessRequestsPanel";
 //      activity dot when there are pending requests / open inquiries)
 //      instead of the prior two text links scattered across /my and
 //      /my/shortlists/*.
-type TabKey = "followers" | "following" | "relationships" | "requests";
+type TabKey = "followers" | "following" | "requests" | "relationships";
 type SortKey = "recent" | "alpha";
 
 function parseTab(raw: string | null): TabKey {
@@ -281,6 +281,14 @@ export default function MyNetworkPage() {
           data-tour="network-tabs"
           className="mb-4 flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1"
         >
+          {/* Sprint 6.2 — tab order is intentionally
+              followers → following → access requests → relationships.
+              Reads as a left-to-right narrative: who watches your work,
+              who you watch, who is asking to step closer right now,
+              and finally — who you've already begun a relationship with.
+              The Relationships tab sits last so the guide copy in the
+              Access requests tab ("approved requests grow into the
+              Relationships tab") matches the user's eye direction. */}
           <NetworkTabButton
             label={t("network.tabs.followers")}
             count={followersCount}
@@ -294,21 +302,27 @@ export default function MyNetworkPage() {
             onClick={() => setTab("following")}
           />
           <NetworkTabButton
-            label={t("network.tabs.relationships")}
-            active={activeTab === "relationships"}
-            onClick={() => setTab("relationships")}
-          />
-          <NetworkTabButton
             label={t("network.tabs.requests")}
             active={activeTab === "requests"}
             onClick={() => setTab("requests")}
+          />
+          <NetworkTabButton
+            label={t("network.tabs.relationships")}
+            active={activeTab === "relationships"}
+            onClick={() => setTab("relationships")}
           />
         </div>
 
         {/* Per-tab guidance — kindly explains what the active tab does
             so newcomers (and returning users post-Sprint 6.2) understand
-            why two former pages now live as tabs in here. */}
-        <p className="mb-4 text-xs text-zinc-500">
+            why two former pages now live as tabs in here.
+            `break-keep` = `word-break: keep-all` keeps Korean lines
+            from snapping in the middle of an 어절, and `text-pretty`
+            asks the browser to avoid widows / orphans (the "요." at the
+            end of a wrapped line was the original eyesore that
+            triggered this fix). Both are progressive — they degrade
+            gracefully on browsers that don't yet support them. */}
+        <p className="mb-4 max-w-prose break-keep text-pretty text-xs text-zinc-500">
           {activeTab === "followers" && t("network.guide.followers")}
           {activeTab === "following" && t("network.guide.following")}
           {activeTab === "relationships" && t("network.guide.relationships")}

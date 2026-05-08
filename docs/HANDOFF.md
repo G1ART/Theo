@@ -2,6 +2,26 @@
 
 Last updated: 2026-05-07
 
+## 2026-05-07 — Sprint 6.2 polish: tab reorder + Korean line-wrap fix
+
+**무엇을 바꿨나.** 사용자 피드백 반영 두 건.
+
+1. **탭 순서 재배열.** 기존 `팔로워 → 팔로잉 → 관계 → 접근 요청` 을 `팔로워 → 팔로잉 → 접근 요청 → 관계` 로 변경. 가이드 카피의 흐름("수락된 요청은 다음 탭(관계)의 관계 이력으로 이어져요") 이 시각적 좌→우 스캔과 일치하게 됨. 좌측은 inbound prompt(누가 왔다), 우측은 history(이미 함께 시작했다) 라는 더 자연스러운 read.
+2. **Korean line-wrap widow 제거.** 가이드 카피가 줄바꿈 시 "요." 한 글자만 마지막 줄에 남는 현상 해결. 카피 `<p>` 에 `break-keep` (`word-break: keep-all`, 한글 어절 중간 분절 방지) + `text-pretty` (브라우저에 widow/orphan 회피 요청) + `max-w-prose` 적용. CSS만으로 해결되니 카피 자체는 그대로 유지.
+
+**파일.**
+
+- `src/app/my/network/page.tsx`: TabKey union 순서 swap (`requests` 가 `relationships` 앞), 4-tab 렌더 순서 swap, guide `<p>` className 에 `break-keep text-pretty max-w-prose` 추가.
+- `src/lib/tours/tourRegistry.ts`: network 투어 step 순서를 `requests → relationships` 로 swap, 버전 v3 → v4 (returning user 가 새 흐름을 한 번 더 보도록).
+- `src/lib/i18n/messages.ts`: `tour.network.tabs.body` (en/ko) 본문을 새 탭 순서에 맞춰 재배열 ("Followers → Following → Access requests → Relationships" 흐름이 한 문장 안에서 자연스럽게 읽히도록).
+- `tests/sprint6-2-network-hub.test.ts`: TabKey 순서 정규식 갱신, 새 가드 추가 (4 NetworkTabButton 의 visible 렌더 순서 deepEqual 매칭, network 투어 step 안에서 `requests` 가 `relationships` 보다 먼저 나타나는지 검사).
+
+**환경 변수.** 변경 없음. **Supabase SQL.** 돌릴 것 없음.
+
+**Verified.** `npx tsc --noEmit` ok / `npm run build` ok / 정적 회귀 4종 (sprint6-2-network-hub / sprint6-delegation-principal / relationship-card-privacy / relationship-desk) 모두 ok.
+
+---
+
 ## 2026-05-07 — Sprint 6.2: Network Hub (Studio Hero pill + 4-tab consolidation)
 
 **무엇을 바꿨나.** Sprint 6 / 6.1 에서 만든 _관계 데스크_ 와 기존 _접근 요청 받은 함_ 의 진입점이 너무 조용했던 문제(`/my` 하단 작은 텍스트 링크 두 개 + `/my/shortlists/[id]` 의 한 줄)를 정리하면서, 사람 그래프 전부를 한 화면에서 다루도록 통합한 release. UI/UX 옵션 비교 후 사용자가 골라준 **옵션 C** 를 그대로 구현.

@@ -470,9 +470,12 @@ export const TOURS: Record<TourId, TourDefinition> = {
     id: TOUR_IDS.network,
     // v3: surface the Sprint 6.2 hub upgrade — Relationships and
     // Access requests are now tabs inside /my/network alongside the
-    // legacy Followers / Following tabs. Returning users see the new
-    // steps once because the version bumped.
-    version: 3,
+    // legacy Followers / Following tabs.
+    // v4: tab order rebalanced to followers → following → requests →
+    // relationships so the narrative reads inbound-then-history. The
+    // tour step order was swapped (requests first, relationships
+    // second) so returning users see the new flow at least once.
+    version: 4,
     titleKey: "tour.network.title",
     introKey: "tour.network.intro",
     requiredAnchors: ["network-tabs"],
@@ -503,24 +506,25 @@ export const TOURS: Record<TourId, TourDefinition> = {
         bodyKey: "tour.network.list.body",
         placement: "top",
       },
-      // Sprint 6.2 — explain the Relationships tab (Relationship Desk
-      // body lives inside the panel marked by `network-relationships-panel`,
-      // mounted only when `?tab=relationships`).
-      {
-        id: "relationships",
-        target: "network-relationships-panel",
-        titleKey: "tour.network.relationships.title",
-        bodyKey: "tour.network.relationships.body",
-        placement: "top",
-      },
-      // Sprint 6.2 — explain the Requests tab (Access Requests inbox
-      // lives inside the panel marked by `network-requests-panel`,
-      // mounted only when `?tab=requests`).
+      // Sprint 6.2 — Requests tab first, Relationships tab second.
+      // Mirrors the visible tab order (followers → following →
+      // requests → relationships) and the narrative ordering in the
+      // guide copy: a request is the inbound prompt; an approved
+      // request grows into a relationship. The panel anchors below
+      // are mounted only when the matching tab is active, so the
+      // framework auto-skips the inactive one.
       {
         id: "requests",
         target: "network-requests-panel",
         titleKey: "tour.network.requests.title",
         bodyKey: "tour.network.requests.body",
+        placement: "top",
+      },
+      {
+        id: "relationships",
+        target: "network-relationships-panel",
+        titleKey: "tour.network.relationships.title",
+        bodyKey: "tour.network.relationships.body",
         placement: "top",
       },
       // Sprint 6.2 — explain the dot badge on the studio header pill

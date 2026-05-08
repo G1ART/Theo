@@ -2146,7 +2146,7 @@ export const messages = {
       "One hub for the whole people graph: followers, following, your relationship desk, and incoming access requests.",
     "tour.network.tabs.title": "Four tabs, one place",
     "tour.network.tabs.body":
-      "Followers and Following are your follow graph. Relationships gathers everyone you've already exchanged something with — a request, an inquiry, a granted view, a private room. Access requests is the inbox where new connections begin.",
+      "Followers and Following are your follow graph. Access requests is the inbox where new connections start. Relationships, on the right, gathers everyone you've already exchanged something with — a request, an inquiry, a granted view, a private room. Reads left-to-right: who is watching, who you watch, who is asking, who you've already begun something with.",
     "tour.network.search.title": "Search & sort",
     "tour.network.search.body":
       "On the follower / following tabs you can trim by name or sort by recency to find someone fast.",
@@ -4667,7 +4667,7 @@ export const messages = {
       "사람 그래프 전부를 한 곳에서 관리해요. 팔로워·팔로잉·관계 데스크·접근 요청까지요.",
     "tour.network.tabs.title": "네 개의 탭, 한 곳에서",
     "tour.network.tabs.body":
-      "팔로워와 팔로잉은 팔로우 그래프예요. 관계 탭은 이미 한 번이라도 무언가를 주고받은 사람(요청·문의·접근 권한·프라이빗 룸 초대)을 모아두고, 접근 요청 탭은 새로운 연결이 시작되는 받은 함이에요.",
+      "팔로워·팔로잉은 팔로우 그래프예요. 접근 요청은 새로운 연결이 시작되는 받은 함이고, 맨 오른쪽 관계 탭은 이미 한 번이라도 무언가를 주고받은 사람(요청·문의·접근 권한·프라이빗 룸 초대)이 모이는 곳이에요. 왼쪽에서 오른쪽으로 자연스럽게 읽혀요. 누가 보고 있는지, 내가 누구를 보고 있는지, 지금 누가 다가오려 하는지, 그리고 이미 함께 무언가를 시작한 사람은 누구인지.",
     "tour.network.search.title": "검색 · 정렬",
     "tour.network.search.body":
       "팔로워·팔로잉 탭에서는 이름으로 좁히거나 최근 순으로 정렬해 빠르게 찾을 수 있어요.",
