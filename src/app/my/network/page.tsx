@@ -237,7 +237,15 @@ export default function MyNetworkPage() {
   return (
     <AuthGate>
       <TourTrigger tourId={TOUR_IDS.network} />
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      {/* Sprint 6.2 polish — page container widened from max-w-3xl to
+          max-w-4xl. Now that the hub holds four lanes (followers,
+          following, access requests, relationships) and Relationship
+          Desk rows can carry several activity chips per person, the
+          extra horizontal room keeps long lines (private-note chip +
+          activity counts) from wrapping prematurely as activity grows.
+          The studio /my page stays at its own width — this widening
+          is scoped to /my/network where density is highest. */}
+      <main className="mx-auto max-w-4xl px-4 py-8">
         <div className="mb-4 flex items-center justify-between gap-3">
           <Link
             href="/my"
