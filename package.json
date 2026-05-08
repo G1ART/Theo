@@ -34,7 +34,8 @@
     "test:first-value-paths": "tsx tests/first-value-paths.test.ts",
     "test:activation-telemetry": "tsx tests/activation-telemetry.test.ts",
     "test:sprint7-grant-v2-wiring": "tsx tests/sprint7-grant-v2-wiring.test.ts",
-    "test:sprint7-1-principal-network": "tsx tests/sprint7-1-principal-network.test.ts"
+    "test:sprint7-1-principal-network": "tsx tests/sprint7-1-principal-network.test.ts",
+    "test:auth-password-recovery": "tsx tests/auth-password-recovery.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

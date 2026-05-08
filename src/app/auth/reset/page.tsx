@@ -1,18 +1,29 @@
 "use client";
 
+/**
+ * Reset-password landing surface.
+ *
+ * Reached via the link in the password-reset email triggered from
+ * `/auth/forgot`. Supabase exchanges the token for a session as soon
+ * as the page loads, so we just check `getSession()` and let the user
+ * pick a new password.
+ *
+ * On success we route to `/feed` (default signed-in surface). The
+ * session is already authenticated, so no further sign-in step.
+ */
+
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getSession } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
-import { backToLabel } from "@/lib/i18n/back";
 
 const MIN_PASSWORD_LENGTH = 8;
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const { t, locale } = useT();
+  const { t } = useT();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,6 +39,8 @@ export default function ResetPasswordPage() {
         setHasSession(true);
         return;
       }
+      // Brief wait so the Supabase recovery-link exchange has time to
+      // settle when the user landed here a fraction of a second ago.
       await new Promise((r) => setTimeout(r, 1500));
       if (cancelled) return;
       const res2 = await getSession();
@@ -44,11 +57,11 @@ export default function ResetPasswordPage() {
     setError(null);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      setError(t("resetPassword.errorMin"));
       return;
     }
     if (password !== confirm) {
-      setError("Passwords do not match");
+      setError(t("resetPassword.errorMismatch"));
       return;
     }
 
@@ -67,68 +80,109 @@ export default function ResetPasswordPage() {
   if (hasSession === null) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-zinc-600">Loading...</p>
+        <p className="text-zinc-600">{t("common.loading")}</p>
       </div>
     );
   }
 
   if (!hasSession) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center px-4">
-        <p className="text-center text-zinc-600">
-          Reset link invalid or expired. Please request again.
+      <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-12">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
+          <p className="text-base font-semibold text-zinc-900">
+            {t("resetPassword.expiredTitle")}
+          </p>
+          <p className="mt-2 text-sm text-zinc-700 break-keep">
+            {t("resetPassword.expiredBody")}
+          </p>
+          <Link
+            href="/auth/forgot"
+            className="mt-5 inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-zinc-800"
+          >
+            {t("resetPassword.expiredCta")}
+          </Link>
+        </div>
+        <p className="mt-10 text-center text-sm text-zinc-600">
+          <Link
+            href="/login"
+            className="font-medium text-zinc-700 hover:text-zinc-900"
+          >
+            ← {t("auth.backToSignIn")}
+          </Link>
         </p>
-        <Link
-          href="/login"
-          className="mt-4 inline-block text-sm font-medium text-zinc-700 hover:text-zinc-900"
-        >
-          ← {backToLabel(t("auth.backToLogin"), locale)}
-        </Link>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <h1 className="mb-6 text-xl font-semibold">Set new password</h1>
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-xs space-y-4"
-      >
-        <input
-          type="password"
-          placeholder="New password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={MIN_PASSWORD_LENGTH}
-          className="w-full rounded border border-zinc-300 px-3 py-2"
-          autoComplete="new-password"
-        />
-        <input
-          type="password"
-          placeholder="Confirm password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          required
-          minLength={MIN_PASSWORD_LENGTH}
-          className="w-full rounded border border-zinc-300 px-3 py-2"
-          autoComplete="new-password"
-        />
-        <p className="text-xs text-zinc-500">
-          Minimum {MIN_PASSWORD_LENGTH} characters
+    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-12">
+      <header className="mb-8">
+        <h1 className="text-2xl font-semibold text-zinc-900">
+          {t("resetPassword.title")}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-600 break-keep">
+          {t("resetPassword.subtitle")}
         </p>
+      </header>
+
+      <form onSubmit={handleSubmit} className="space-y-3" noValidate>
+        <div>
+          <label
+            htmlFor="reset-password"
+            className="mb-1 block text-sm font-medium text-zinc-900"
+          >
+            {t("setPassword.newPassword")}
+          </label>
+          <input
+            id="reset-password"
+            type="password"
+            placeholder={t("resetPassword.placeholderNew")}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={MIN_PASSWORD_LENGTH}
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+            autoComplete="new-password"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="reset-password-confirm"
+            className="mb-1 block text-sm font-medium text-zinc-900"
+          >
+            {t("setPassword.confirm")}
+          </label>
+          <input
+            id="reset-password-confirm"
+            type="password"
+            placeholder={t("resetPassword.placeholderConfirm")}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            minLength={MIN_PASSWORD_LENGTH}
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+            autoComplete="new-password"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            {t("onboarding.passwordHint")}
+          </p>
+        </div>
+
         {error && (
-          <p className="text-sm text-red-600">{error}</p>
+          <p role="alert" className="text-sm text-red-600 break-keep">
+            {error}
+          </p>
         )}
+
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 disabled:opacity-50"
+          className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "Saving..." : "Set password"}
+          {loading ? t("resetPassword.submitting") : t("resetPassword.submit")}
         </button>
       </form>
-    </div>
+    </main>
   );
 }

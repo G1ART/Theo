@@ -42,6 +42,7 @@ function OnboardingInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signupEmailSent, setSignupEmailSent] = useState(false);
+  const [duplicateEmailFor, setDuplicateEmailFor] = useState<string | null>(null);
 
   // Signed-in arrivals short-circuit through the unified gate. This
   // page is intentionally only rendered for anonymous visitors; anyone
@@ -99,6 +100,26 @@ function OnboardingInner() {
       return;
     }
 
+    // QA #2 fix — Supabase anti-enumeration default behaviour. When
+    // the email already exists, `auth.signUp()` does NOT throw an
+    // error and returns a synthetic user payload whose `identities`
+    // array is empty. No confirmation email is sent. Without this
+    // guard the user would see the misleading "we sent you a
+    // confirmation email" screen even though nothing was sent.
+    //
+    // We surface a clear duplicate state instead, with inline links
+    // back to sign-in and password-reset. The enumeration trade-off
+    // is acceptable here: `signInWithPassword` already returns
+    // "Invalid login credentials" for unknown emails on the same
+    // domain, so this does not widen the existing surface.
+    const identities = (data?.user as { identities?: unknown } | null)?.identities;
+    const isDuplicateEmail =
+      !!data?.user && Array.isArray(identities) && identities.length === 0;
+    if (isDuplicateEmail) {
+      setDuplicateEmailFor(email.trim());
+      return;
+    }
+
     // Email-confirmation mode: no session yet.
     if (data?.user && !data?.session) {
       setSignupEmailSent(true);
@@ -138,7 +159,40 @@ function OnboardingInner() {
         <p className="mt-2 text-sm text-zinc-600">{t("onboarding.signupHint")}</p>
       </header>
 
-      {signupEmailSent ? (
+      {duplicateEmailFor ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
+          <p className="text-base font-semibold text-zinc-900">
+            {t("onboarding.duplicateEmailTitle")}
+          </p>
+          <p className="mt-2 text-sm text-zinc-700 break-keep">
+            {t("onboarding.duplicateEmailBody").replace(
+              "{email}",
+              duplicateEmailFor
+            )}
+          </p>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <Link
+              href={loginHref}
+              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-zinc-800"
+            >
+              {t("onboarding.duplicateEmailSignInCta")}
+            </Link>
+            <Link
+              href={`/auth/forgot?email=${encodeURIComponent(duplicateEmailFor)}`}
+              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            >
+              {t("onboarding.duplicateEmailResetCta")}
+            </Link>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDuplicateEmailFor(null)}
+            className="mt-4 inline-block text-xs font-medium text-zinc-500 hover:text-zinc-700"
+          >
+            {t("onboarding.duplicateEmailUseDifferent")}
+          </button>
+        </div>
+      ) : signupEmailSent ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
           <p className="text-base font-semibold text-zinc-900">
             {t("onboarding.checkEmailTitle")}

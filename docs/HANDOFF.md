@@ -1,6 +1,63 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-05-07
+Last updated: 2026-05-08
+
+## 2026-05-08 — QA hardening: 비밀번호 찾기 진입점 + 회원가입 중복 이메일 leak fix
+
+QA 팀의 두 건(제안 1 + 오류 1)을 처리한 작은 하드닝 패치. 다음 메이저 스프린트 전에 정합성 누수만 정확히 닫음.
+
+### #1 (제안) — 비밀번호 찾기 surface
+
+`src/lib/supabase/auth.ts` 의 `sendPasswordReset` 함수와 `/auth/reset` 페이지(메일 링크 도착 후 새 비번 입력)는 이미 존재했으나, **사용자가 시작할 진입점이 없었다.** Linear / Notion / Figma / Slack 의 표준 패턴을 따라 다음을 추가:
+
+- **신규 [/auth/forgot](src/app/auth/forgot/page.tsx)** — 단일 목적 페이지. 이메일 입력 → `sendPasswordReset` → "메일을 보냈어요" 표준 confirmation. **anti-enumeration 적용** (rate-limit 외의 모든 응답은 동일한 confirmation 으로 collapse — 이메일 등록 여부를 노출하지 않음). `?email=` 쿼리로 pre-fill 지원.
+- **[/login](src/app/login/page.tsx)** — 비밀번호 input 라벨 옆에 작은 "비밀번호를 잊으셨나요?" 링크. 사용자가 이미 이메일을 입력했으면 `?email=` 으로 pre-fill 해서 forgot 페이지로 보냄.
+- **[/auth/reset](src/app/auth/reset/page.tsx)** — i18n 적용 (기존엔 영문 하드코딩), expired-link fallback 추가 (세션 없이 도착한 경우 "링크가 만료됐어요 → 새 링크 요청" CTA 로 `/auth/forgot` 재진입).
+
+### #2 (오류) — 회원가입 중복 이메일 false confirmation
+
+QA 가 지적한 "이미 가입된 메일로 회원가입 시 중복 메시지가 안 뜨고 메일 전송 메시지만 출력 (실제로는 메일 미발송)" 의 root cause:
+
+- Supabase Auth 의 default 동작은 user enumeration 공격을 막기 위해 **이미 등록된 이메일에 대해 에러를 던지지 않고** synthetic user payload (`data.user.identities = []`) 를 반환한다. 메일도 발송되지 않는다.
+- 우리 [`/onboarding`](src/app/onboarding/page.tsx) 코드는 `err` 만 체크하고 `data.user && !data.session` 분기로 흘러서 **거짓 "확인 메일을 보냈어요" 화면**을 띄우고 있었음. **로직 의도가 이 케이스를 커버하지 못한 leak**.
+
+**Fix**: `signUpWithPassword` 응답에서 `data.user.identities` 가 빈 배열이면 duplicate-email 분기로 분기. 친절한 amber 톤 panel 에 다음 노출:
+- "이미 가입된 이메일이에요" + 어떤 이메일인지
+- "로그인으로 이동" 1차 CTA (`/login`)
+- "재설정 링크 받기" 2차 CTA (`/auth/forgot?email=...` 으로 pre-fill)
+- "다른 이메일로 가입" 토글
+
+보안 trade-off 노트: 이미 `signInWithPassword` 가 unknown 이메일에 대해 동일 도메인에서 "Invalid login credentials" 를 돌려주므로, 본 변경은 enumeration vector 를 의미 있게 넓히지 않는다. UX 명확성을 우선했다.
+
+### 신규 / 갱신 파일
+
+| 분류 | 파일 |
+|---|---|
+| 신규 페이지 | `src/app/auth/forgot/page.tsx` |
+| 신규 테스트 | `tests/auth-password-recovery.test.ts` |
+| 수정 (페이지) | `src/app/login/page.tsx`, `src/app/onboarding/page.tsx`, `src/app/auth/reset/page.tsx` |
+| 수정 (i18n) | `src/lib/i18n/messages.ts` (27개 신규 키, EN+KO 모두) |
+| 수정 (스크립트) | `package.json` (`test:auth-password-recovery`) |
+
+### 검증
+
+| 검증 | 결과 |
+|---|---|
+| `npm run test:auth-password-recovery` (신규) | ✅ |
+| `npm run test:sprint7-1-principal-network` | ✅ 회귀 |
+| `npm run test:sprint6-2-network-hub` | ✅ 회귀 |
+| `npm run test:privacy-token-audit` | ✅ (336 files / 81 sites) |
+| `npx tsc --noEmit` | ✅ |
+| `npx eslint <touched files>` | ✅ |
+| `npm run build` | ✅ |
+
+### Supabase / 환경 변수
+
+- SQL 변경 없음.
+- 환경 변수 변경 없음.
+- Supabase Dashboard 의 Auth → URL Configuration 에서 `<NEXT_PUBLIC_APP_URL>/auth/reset` 가 redirect allowlist 에 포함되어 있어야 비밀번호 재설정 메일 링크가 정상 동작한다 (이미 `/auth/callback` 가 등록돼 있다면 추가 등록 권장). Sprint 5 운영 시 등록되지 않았다면 dashboard 에서 한 번 확인 필요.
+
+---
 
 ## 2026-05-07 — Sprint 7.1: First-Value Principal, Routing & Activation Polish
 

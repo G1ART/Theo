@@ -168,12 +168,24 @@ function LoginInner() {
           />
         </div>
         <div>
-          <label
-            htmlFor="login-password"
-            className="mb-1 block text-sm font-medium text-zinc-900"
-          >
-            {t("login.placeholderPassword")}
-          </label>
+          <div className="mb-1 flex items-baseline justify-between gap-2">
+            <label
+              htmlFor="login-password"
+              className="block text-sm font-medium text-zinc-900"
+            >
+              {t("login.placeholderPassword")}
+            </label>
+            <Link
+              href={
+                email.trim()
+                  ? `/auth/forgot?email=${encodeURIComponent(email.trim())}`
+                  : "/auth/forgot"
+              }
+              className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+            >
+              {t("login.forgotPasswordCta")}
+            </Link>
+          </div>
           <input
             id="login-password"
             type="password"

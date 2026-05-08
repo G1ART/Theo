@@ -1174,6 +1174,12 @@ export const messages = {
     "onboarding.checkEmailBody": "We sent a confirmation link to your email. Click it to activate your account, then sign in to finish your profile.",
     "onboarding.errorPasswordMin": "Password must be at least 8 characters",
     "onboarding.errorPasswordMismatch": "Passwords do not match",
+    "onboarding.duplicateEmailTitle": "This email already has an account",
+    "onboarding.duplicateEmailBody":
+      "{email} is already registered. Sign in with your password, or send yourself a reset link if you forgot it.",
+    "onboarding.duplicateEmailSignInCta": "Sign in instead",
+    "onboarding.duplicateEmailResetCta": "Send a reset link",
+    "onboarding.duplicateEmailUseDifferent": "Use a different email",
     "banner.randomIdTitle": "You're using a temporary ID",
     "banner.randomIdCta": "Set your username in Settings for mentions and tagging.",
     "banner.randomIdLink": "Go to Settings",
@@ -1192,6 +1198,37 @@ export const messages = {
     "setPassword.errorMismatch": "Passwords do not match",
     "setPassword.placeholderPassword": "At least 8 characters",
     "setPassword.placeholderConfirm": "Same as above",
+
+    "login.forgotPasswordCta": "Forgot password?",
+
+    "forgotPassword.title": "Reset your password",
+    "forgotPassword.subtitle":
+      "Enter the email you signed up with. We will send you a link to set a new password.",
+    "forgotPassword.labelEmail": "Email",
+    "forgotPassword.sendCta": "Send reset link",
+    "forgotPassword.sentTitle": "Check your email",
+    "forgotPassword.sentBody":
+      "If an Abstract account exists for {email}, we just sent a reset link. Open it to choose a new password.",
+    "forgotPassword.sentHint":
+      "The link expires after a short while. Check your spam folder if you don't see it.",
+    "forgotPassword.resend": "Send again with a different email",
+    "forgotPassword.resendCooldown": "Send again ({seconds}s)",
+    "forgotPassword.rateLimit":
+      "Email sending is temporarily limited. Please wait a moment and try again.",
+
+    "resetPassword.title": "Set a new password",
+    "resetPassword.subtitle":
+      "Choose a password you can remember. You will be signed in automatically.",
+    "resetPassword.expiredTitle": "Reset link expired",
+    "resetPassword.expiredBody":
+      "This reset link is no longer valid. Request a fresh one to continue.",
+    "resetPassword.expiredCta": "Request a new link",
+    "resetPassword.placeholderNew": "At least 8 characters",
+    "resetPassword.placeholderConfirm": "Repeat password",
+    "resetPassword.errorMin": "Password must be at least 8 characters",
+    "resetPassword.errorMismatch": "Passwords do not match",
+    "resetPassword.submit": "Set password",
+    "resetPassword.submitting": "Saving...",
     "authReset.placeholderNewPassword": "New password",
     "authReset.placeholderConfirmPassword": "Confirm password",
     "my.errorLoadProfile": "Failed to load profile",
@@ -3846,6 +3883,12 @@ export const messages = {
     "onboarding.checkEmailBody": "등록한 이메일로 확인 링크를 보냈습니다. 링크로 계정을 활성화한 뒤 로그인하면 프로필 설정으로 이어집니다.",
     "onboarding.errorPasswordMin": "비밀번호는 8자 이상이어야 합니다",
     "onboarding.errorPasswordMismatch": "비밀번호가 일치하지 않습니다",
+    "onboarding.duplicateEmailTitle": "이미 가입된 이메일이에요",
+    "onboarding.duplicateEmailBody":
+      "{email} 은(는) 이미 사용 중인 이메일이에요. 비밀번호로 로그인하거나, 잊으셨다면 재설정 링크를 받아보세요.",
+    "onboarding.duplicateEmailSignInCta": "로그인으로 이동",
+    "onboarding.duplicateEmailResetCta": "재설정 링크 받기",
+    "onboarding.duplicateEmailUseDifferent": "다른 이메일로 가입",
     "banner.randomIdTitle": "임시 아이디를 사용 중입니다",
     "banner.randomIdCta": "댓글·태깅을 위해 설정에서 유저 아이디를 설정하세요.",
     "banner.randomIdLink": "설정으로 이동",
@@ -3866,6 +3909,37 @@ export const messages = {
     "setPassword.placeholderConfirm": "위와 동일",
     "authReset.placeholderNewPassword": "새 비밀번호",
     "authReset.placeholderConfirmPassword": "비밀번호 확인",
+
+    "login.forgotPasswordCta": "비밀번호를 잊으셨나요?",
+
+    "forgotPassword.title": "비밀번호 재설정",
+    "forgotPassword.subtitle":
+      "가입하신 이메일을 입력해 주세요. 새 비밀번호를 설정할 수 있는 링크를 보내드려요.",
+    "forgotPassword.labelEmail": "이메일",
+    "forgotPassword.sendCta": "재설정 링크 보내기",
+    "forgotPassword.sentTitle": "이메일을 확인해 주세요",
+    "forgotPassword.sentBody":
+      "{email} 로 가입된 Abstract 계정이 있다면 재설정 링크를 보내드렸어요. 링크를 열어 새 비밀번호를 설정하세요.",
+    "forgotPassword.sentHint":
+      "링크는 일정 시간 후 만료돼요. 메일이 보이지 않으면 스팸함도 확인해 주세요.",
+    "forgotPassword.resend": "다른 이메일로 다시 보내기",
+    "forgotPassword.resendCooldown": "다시 보내기 ({seconds}초)",
+    "forgotPassword.rateLimit":
+      "이메일 발송이 잠시 제한되고 있어요. 잠시 후 다시 시도해 주세요.",
+
+    "resetPassword.title": "새 비밀번호 설정",
+    "resetPassword.subtitle":
+      "기억하기 쉬운 비밀번호로 설정해 주세요. 자동으로 로그인됩니다.",
+    "resetPassword.expiredTitle": "재설정 링크가 만료됐어요",
+    "resetPassword.expiredBody":
+      "이 재설정 링크는 더 이상 유효하지 않아요. 새로운 링크를 다시 받아 주세요.",
+    "resetPassword.expiredCta": "새 링크 요청",
+    "resetPassword.placeholderNew": "8자 이상",
+    "resetPassword.placeholderConfirm": "위와 동일",
+    "resetPassword.errorMin": "비밀번호는 8자 이상이어야 합니다",
+    "resetPassword.errorMismatch": "비밀번호가 일치하지 않습니다",
+    "resetPassword.submit": "비밀번호 설정",
+    "resetPassword.submitting": "저장 중...",
     "my.errorLoadProfile": "프로필을 불러오지 못했습니다",
     "my.errorLoadStats": "통계를 불러오지 못했습니다",
     "my.exhibitionSaveCover": "대표 썸네일 저장",
