@@ -311,7 +311,7 @@ export default function MyInquiriesPage() {
 
         {pendingAccessRequests !== null && pendingAccessRequests > 0 && (
           <Link
-            href="/my/access-requests"
+            href="/my/network?tab=requests"
             className="mt-3 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-3 py-1 text-[11px] font-medium text-white hover:bg-zinc-800"
           >
             {t("inquiries.accessRequestsChip").replace(

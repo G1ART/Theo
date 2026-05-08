@@ -1303,6 +1303,9 @@ export const messages = {
     "studio.hero.previewPublic": "Preview public profile",
     "studio.hero.delegations": "Delegations",
     "studio.hero.delegationsPendingDot": "Pending invite awaits your response",
+    "studio.hero.network": "Network",
+    "studio.hero.networkHint": "Followers, following, relationships, and access requests in one place",
+    "studio.hero.networkPendingDot": "Activity in your relationships awaits a response",
     "studio.hero.visibility": "Visibility",
     "studio.hero.visibilityHint": "Choose who sees what across your studio",
     "studio.hero.completeness": "Profile completeness",
@@ -1586,6 +1589,12 @@ export const messages = {
     "network.backToStudio": "My Studio",
     "network.tabs.followers": "Followers",
     "network.tabs.following": "Following",
+    "network.tabs.relationships": "Relationships",
+    "network.tabs.requests": "Access requests",
+    "network.guide.followers": "People who follow your studio. Tap a row to open their public profile or follow them back.",
+    "network.guide.following": "People you follow. Their new works and exhibitions surface in your feed.",
+    "network.guide.relationships": "Your Relationship Desk — every person who has asked, inquired, been granted access, or been added to a private room. Open a card to see the full history with them and add a private note that only you (and your delegates) can read.",
+    "network.guide.requests": "Pending and resolved access requests for your visibility-locked artworks and profile fields. Approve or decline directly here; approved requests grow into the relationship history shown in the Relationships tab.",
     "network.summary.followers": "followers",
     "network.summary.following": "following",
     "network.search.placeholder": "Search by name, handle, or bio",
@@ -1965,6 +1974,9 @@ export const messages = {
     "tour.studio.hero.title": "Welcome to your Studio",
     "tour.studio.hero.body":
       "This is the home base for everything you make, save, and share on Abstract.",
+    "tour.studio.network.title": "Network in one place",
+    "tour.studio.network.body":
+      "The 네트워크 pill takes you to the unified hub where Followers, Following, your Relationship Desk, and the Access Requests inbox now live as four tabs. The small dot you'll sometimes see on this pill means there's a pending access request or open inquiry waiting — it's a quiet presence signal, never a number.",
     "tour.studio.visibility.title": "Choose who sees what",
     "tour.studio.visibility.body":
       "New: pick a calm preset (Open Studio · Follower-Aware · Mutual-First · Private Studio) or fine-tune price, availability, and description per artwork. Visitors who can't see a detail are offered a friendly Follow or Request — never a paywall.",
@@ -2130,16 +2142,26 @@ export const messages = {
       "Whenever you upload, edit, or reply while acting on someone else's account, this chip appears at the top of the form: 'Posting as Principal · operated by You'. It's a moment-of-mutation reminder so you never confuse the two personas.",
 
     "tour.network.title": "Network",
-    "tour.network.intro": "Both sides of your graph, lightly organized.",
-    "tour.network.tabs.title": "Followers · Following",
+    "tour.network.intro":
+      "One hub for the whole people graph: followers, following, your relationship desk, and incoming access requests.",
+    "tour.network.tabs.title": "Four tabs, one place",
     "tour.network.tabs.body":
-      "Switch between people following you and people you follow — the two sides of your graph.",
+      "Followers and Following are your follow graph. Relationships gathers everyone you've already exchanged something with — a request, an inquiry, a granted view, a private room. Access requests is the inbox where new connections begin.",
     "tour.network.search.title": "Search & sort",
     "tour.network.search.body":
-      "Trim by name, or sort by recency to find people you've recently connected with.",
-    "tour.network.list.title": "Your relationship graph",
+      "On the follower / following tabs you can trim by name or sort by recency to find someone fast.",
+    "tour.network.list.title": "Live rows",
     "tour.network.list.body":
-      "Each row is a live connection — follow back, view their studio, or send a short message.",
+      "Each row is a live connection — follow back, open their studio, review a request, or open the relationship card to see the full history.",
+    "tour.network.relationships.title": "Relationship Desk",
+    "tour.network.relationships.body":
+      "Open the Relationships tab to see every person who has touched your work — request, inquiry, grant, room invite, follow. Tap a row to open their card: full history with you, a calm Suggested Next Action, and a private note that only you (and your delegates) can read. The note body never appears in the row list — only a quiet 'Private note' chip — so the desk stays calm while still letting you remember context.",
+    "tour.network.requests.title": "Access requests inbox",
+    "tour.network.requests.body":
+      "Switch to the Access requests tab to see every pending request for your visibility-locked artworks and profile fields. Approve and the requester immediately sees the field; decline and they get a calm 'not now'. Resolved requests stay listed below pending ones so you have an audit trail.",
+    "tour.network.activityDot.title": "The dot on 네트워크",
+    "tour.network.activityDot.body":
+      "When the 네트워크 pill in the studio header carries a small red dot, you have at least one pending access request or open inquiry from people in your relationship graph. The dot is presence-only — never a number — so the studio stays quiet until you choose to dive in.",
 
     "feedback.promptTitle": "How is this page working for you?",
     "feedback.promptHint":
@@ -3804,6 +3826,9 @@ export const messages = {
     "studio.hero.previewPublic": "공개 프로필 미리보기",
     "studio.hero.delegations": "위임",
     "studio.hero.delegationsPendingDot": "받은 위임 요청이 응답을 기다리고 있어요",
+    "studio.hero.network": "네트워크",
+    "studio.hero.networkHint": "팔로워·팔로잉·관계·접근 요청을 한 곳에서 다뤄요",
+    "studio.hero.networkPendingDot": "관계에서 응답이 필요한 활동이 있어요",
     "studio.hero.visibility": "공개 범위",
     "studio.hero.visibilityHint": "누가 무엇을 볼 수 있는지 한 화면에서 정해요",
     "studio.hero.completeness": "프로필 완성도",
@@ -4084,6 +4109,12 @@ export const messages = {
     "network.backToStudio": "내 스튜디오",
     "network.tabs.followers": "팔로워",
     "network.tabs.following": "팔로잉",
+    "network.tabs.relationships": "관계",
+    "network.tabs.requests": "접근 요청",
+    "network.guide.followers": "내 스튜디오를 팔로우한 사람들이에요. 행을 눌러 프로필을 열거나 맞팔할 수 있어요.",
+    "network.guide.following": "내가 팔로우한 사람들이에요. 이들의 새 작품과 전시가 피드에 우선 노출돼요.",
+    "network.guide.relationships": "관계 데스크예요. 나에게 접근을 요청했거나, 작품을 문의했거나, 접근 권한을 받았거나, 프라이빗 룸에 초대된 모든 사람이 한 줄씩 모여요. 카드를 열면 그동안의 흐름을 볼 수 있고, 나(와 위임자)만 보는 비공개 메모를 남길 수 있어요.",
+    "network.guide.requests": "공개 범위가 잠긴 작품·프로필 항목에 대한 접근 요청 모음이에요. 여기서 바로 수락하거나 거절할 수 있고, 수락된 요청은 다음 탭(관계)의 관계 이력으로 이어져요.",
     "network.summary.followers": "팔로워",
     "network.summary.following": "팔로잉",
     "network.search.placeholder": "이름·핸들·소개 검색",
@@ -4464,6 +4495,9 @@ export const messages = {
     "tour.studio.hero.title": "내 스튜디오에 오신 걸 환영해요",
     "tour.studio.hero.body":
       "Abstract에서 만들고, 담고, 공유하는 모든 것이 시작되는 공간이에요.",
+    "tour.studio.network.title": "네트워크가 한 곳에",
+    "tour.studio.network.body":
+      "‘네트워크’ 버튼은 통합 허브로 데려가요. 팔로워·팔로잉·관계 데스크·접근 요청 받은 함이 네 개의 탭으로 모여 있어요. 가끔 이 버튼에 작은 빨간 점이 보이면, 응답을 기다리는 접근 요청이나 열린 문의가 있다는 뜻이에요. 숫자는 띄우지 않고 존재만 알려요.",
     "tour.studio.visibility.title": "누가 무엇을 볼 수 있나요",
     "tour.studio.visibility.body":
       "새 기능 — 한 번에 큰 그림을 정하는 4개 프리셋(오픈 스튜디오 · 팔로워 우선 · 맞팔로우 중심 · 프라이빗 스튜디오), 작품마다 가격·availability·설명을 더 세밀하게 조정. 잠긴 정보를 본 방문자에게는 paywall 대신 팔로우 또는 정중한 접근 요청을 안내합니다.",
@@ -4629,16 +4663,26 @@ export const messages = {
       "다른 분의 계정으로 업로드·편집·답장을 하실 때, 폼 상단에 '○○ 명의로 게시 중 · 운영자: 본인' 칩이 떠요. 저장 직전 어느 페르소나로 작업 중인지 매번 확인할 수 있는 마지막 안전망이에요.",
 
     "tour.network.title": "네트워크 안내",
-    "tour.network.intro": "그래프의 양쪽을 가볍게 정리해둔 공간이에요.",
-    "tour.network.tabs.title": "팔로워 · 팔로잉",
+    "tour.network.intro":
+      "사람 그래프 전부를 한 곳에서 관리해요. 팔로워·팔로잉·관계 데스크·접근 요청까지요.",
+    "tour.network.tabs.title": "네 개의 탭, 한 곳에서",
     "tour.network.tabs.body":
-      "나를 팔로우하는 사람과 내가 팔로우하는 사람을 오가며 볼 수 있어요. 그래프의 두 면이에요.",
+      "팔로워와 팔로잉은 팔로우 그래프예요. 관계 탭은 이미 한 번이라도 무언가를 주고받은 사람(요청·문의·접근 권한·프라이빗 룸 초대)을 모아두고, 접근 요청 탭은 새로운 연결이 시작되는 받은 함이에요.",
     "tour.network.search.title": "검색 · 정렬",
     "tour.network.search.body":
-      "이름으로 좁히거나 최근 순으로 정렬해서 최근에 연결된 사람을 쉽게 찾을 수 있어요.",
-    "tour.network.list.title": "내 관계 그래프",
+      "팔로워·팔로잉 탭에서는 이름으로 좁히거나 최근 순으로 정렬해 빠르게 찾을 수 있어요.",
+    "tour.network.list.title": "살아있는 행",
     "tour.network.list.body":
-      "각 줄이 살아있는 연결이에요. 맞팔하거나 스튜디오를 보거나 짧은 메시지로 인사를 건네보세요.",
+      "각 줄이 살아있는 연결이에요. 맞팔하거나 스튜디오를 열거나 요청을 검토하거나 관계 카드를 열어 그동안의 흐름을 한눈에 볼 수 있어요.",
+    "tour.network.relationships.title": "관계 데스크",
+    "tour.network.relationships.body":
+      "관계 탭을 열면 내 작품에 한 번이라도 닿은 모든 사람(요청·문의·접근 권한·룸 초대·팔로우)이 모여요. 행을 누르면 카드가 열리고, 그 사람과의 흐름·차분한 다음 행동 추천·나(와 위임자)만 보는 비공개 메모를 함께 볼 수 있어요. 메모 본문은 행 목록에 절대 노출되지 않고, '비공개 메모' 작은 칩만 표시돼요. 데스크는 차분하게 두면서도 맥락은 잊지 않도록 한 설계예요.",
+    "tour.network.requests.title": "접근 요청 받은 함",
+    "tour.network.requests.body":
+      "접근 요청 탭에서는 공개 범위가 잠긴 작품·프로필 항목에 들어온 모든 요청을 볼 수 있어요. 수락하면 요청자가 즉시 해당 항목을 볼 수 있고, 거절하면 차분한 '지금은 어렵다'는 응답이 전달돼요. 처리된 요청은 대기 요청 아래에 그대로 남아 기록으로 쓰여요.",
+    "tour.network.activityDot.title": "스튜디오 헤더의 빨간 점",
+    "tour.network.activityDot.body":
+      "스튜디오 헤더 '네트워크' 버튼에 작은 빨간 점이 보이면, 관계 그래프 안의 사람으로부터 응답이 필요한 접근 요청이나 열린 문의가 하나 이상 있다는 뜻이에요. 점은 존재 신호일 뿐 숫자를 띄우지 않아서, 들어가서 직접 확인하기 전까지는 스튜디오가 조용해요.",
 
     "feedback.promptTitle": "이 화면, 어떻게 느껴지세요?",
     "feedback.promptHint":

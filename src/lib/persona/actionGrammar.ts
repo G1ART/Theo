@@ -143,7 +143,7 @@ export const FIRST_VALUE_PATHS: Record<PersonaMode, ActionPath[]> = {
       descriptionKey: "persona.artist.reviewRelationships.desc",
       primary: {
         verb: "open_relationship",
-        href: "/my/relationships",
+        href: "/my/network?tab=relationships",
         event: "persona_action_card_clicked",
       },
       successSignal: "relationship_desk_opened",
@@ -178,12 +178,12 @@ export const FIRST_VALUE_PATHS: Record<PersonaMode, ActionPath[]> = {
       descriptionKey: "persona.gallery.reviewRequests.desc",
       primary: {
         verb: "approve_access",
-        href: "/my/access-requests",
+        href: "/my/network?tab=requests",
         event: "persona_action_card_clicked",
       },
       secondary: {
         verb: "open_relationship",
-        href: "/my/relationships",
+        href: "/my/network?tab=relationships",
         event: "persona_action_card_secondary_clicked",
       },
       successSignal: "first_request_resolved",
@@ -207,12 +207,12 @@ export const FIRST_VALUE_PATHS: Record<PersonaMode, ActionPath[]> = {
       descriptionKey: "persona.curator.continueRelationship.desc",
       primary: {
         verb: "open_relationship",
-        href: "/my/relationships",
+        href: "/my/network?tab=relationships",
         event: "persona_action_card_clicked",
       },
       secondary: {
         verb: "add_private_note",
-        href: "/my/relationships",
+        href: "/my/network?tab=relationships",
         event: "persona_action_card_secondary_clicked",
       },
       successSignal: "relationship_continued",
@@ -260,7 +260,7 @@ export const FIRST_VALUE_PATHS: Record<PersonaMode, ActionPath[]> = {
       descriptionKey: "persona.multi.continueRecentRelationship.desc",
       primary: {
         verb: "open_relationship",
-        href: "/my/relationships",
+        href: "/my/network?tab=relationships",
         event: "persona_action_card_clicked",
       },
       successSignal: "relationship_continued",

@@ -17,12 +17,35 @@ import { getMyStats, type MyStats } from "@/lib/supabase/me";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
+import { getSession } from "@/lib/supabase/auth";
+import { RelationshipDeskPanel } from "@/components/network/RelationshipDeskPanel";
+import { AccessRequestsPanel } from "@/components/network/AccessRequestsPanel";
 
-type TabKey = "followers" | "following";
+// Sprint 6.2 — Network Hub upgrade.
+//
+// `/my/network` is now the single home for every people-graph surface:
+// followers, following, the Relationship Desk, and the Access Requests
+// inbox. Two side-effects of this:
+//   1. /my/relationships and /my/access-requests are now thin redirect
+//      pages that send the user here with the right tab pre-selected.
+//   2. The Studio Hero exposes a single "네트워크" pill (with a tiny
+//      activity dot when there are pending requests / open inquiries)
+//      instead of the prior two text links scattered across /my and
+//      /my/shortlists/*.
+type TabKey = "followers" | "following" | "relationships" | "requests";
 type SortKey = "recent" | "alpha";
 
 function parseTab(raw: string | null): TabKey {
-  return raw === "following" ? "following" : "followers";
+  switch (raw) {
+    case "following":
+      return "following";
+    case "relationships":
+      return "relationships";
+    case "requests":
+      return "requests";
+    default:
+      return "followers";
+  }
 }
 
 function avatarUrl(v: string | null | undefined): string | null {
@@ -31,15 +54,6 @@ function avatarUrl(v: string | null | undefined): string | null {
   return getArtworkImageUrl(v, "avatar");
 }
 
-/**
- * Network — /my/network (Brief: Studio/Profile UX Reset + Network Page Upgrade)
- *
- * Consolidates `/my/followers` and `/my/following` into a single relationship
- * management surface with tabs, search, and sort. Existing routes remain
- * available for backward compatibility (bookmarks, deep links from old
- * notifications). Data layer is unchanged — we page through the same
- * `getMyFollowers` / `getMyFollowing` helpers.
- */
 export default function MyNetworkPage() {
   const { t } = useT();
   const router = useRouter();
@@ -47,6 +61,8 @@ export default function MyNetworkPage() {
   const activeTab = parseTab(searchParams.get("tab"));
 
   const [stats, setStats] = useState<MyStats | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   const [followers, setFollowers] = useState<FollowProfileRow[]>([]);
   const [followersCursor, setFollowersCursor] = useState<string | null>(null);
@@ -58,9 +74,6 @@ export default function MyNetworkPage() {
   const [followingLoaded, setFollowingLoaded] = useState(false);
   const [followingLoading, setFollowingLoading] = useState(false);
 
-  // Reverse map per person so unfollow/follow state reflects reality even in
-  // the "followers" tab (where the person may or may not be someone I follow
-  // back yet).
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
 
   const [query, setQuery] = useState("");
@@ -70,12 +83,14 @@ export default function MyNetworkPage() {
     (next: TabKey) => {
       if (next === activeTab) return;
       const params = new URLSearchParams(searchParams.toString());
-      if (next === "following") params.set("tab", "following");
-      else params.delete("tab");
+      if (next === "followers") params.delete("tab");
+      else params.set("tab", next);
       const qs = params.toString();
-      router.replace(qs ? `/my/network?${qs}` : "/my/network", { scroll: false });
+      router.replace(qs ? `/my/network?${qs}` : "/my/network", {
+        scroll: false,
+      });
     },
-    [activeTab, router, searchParams],
+    [activeTab, router, searchParams]
   );
 
   const hydrateFollowingMap = useCallback(async (rows: FollowProfileRow[]) => {
@@ -103,28 +118,24 @@ export default function MyNetworkPage() {
       setFollowersLoaded(true);
       setFollowersLoading(false);
     },
-    [hydrateFollowingMap],
+    [hydrateFollowingMap]
   );
 
-  const loadFollowing = useCallback(
-    async (cursor?: string) => {
-      setFollowingLoading(true);
-      const res = await getMyFollowing({ limit: 24, cursor });
-      if (!res.error) {
-        setFollowing((prev) => (cursor ? [...prev, ...res.data] : res.data));
-        setFollowingCursor(res.nextCursor);
-        // Everyone in /my/following is by definition followed by me.
-        setFollowingMap((prev) => {
-          const next = { ...prev };
-          for (const row of res.data) next[row.id] = true;
-          return next;
-        });
-      }
-      setFollowingLoaded(true);
-      setFollowingLoading(false);
-    },
-    [],
-  );
+  const loadFollowing = useCallback(async (cursor?: string) => {
+    setFollowingLoading(true);
+    const res = await getMyFollowing({ limit: 24, cursor });
+    if (!res.error) {
+      setFollowing((prev) => (cursor ? [...prev, ...res.data] : res.data));
+      setFollowingCursor(res.nextCursor);
+      setFollowingMap((prev) => {
+        const next = { ...prev };
+        for (const row of res.data) next[row.id] = true;
+        return next;
+      });
+    }
+    setFollowingLoaded(true);
+    setFollowingLoading(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,11 +148,19 @@ export default function MyNetworkPage() {
     };
   }, []);
 
-  // Lazy-load each tab the first time it is opened. Switching back to a
-  // tab that's already loaded is instantaneous. The load is scheduled via
-  // `requestAnimationFrame` so the effect itself does not synchronously
-  // trigger a `setState` (avoids a `react-hooks/set-state-in-effect`
-  // warning and matches the project-wide pattern used elsewhere).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await getSession();
+      if (cancelled) return;
+      setUserId(data.session?.user?.id ?? null);
+      setAuthReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       if (activeTab === "followers" && !followersLoaded && !followersLoading) {
@@ -162,6 +181,7 @@ export default function MyNetworkPage() {
     loadFollowing,
   ]);
 
+  const isFollowTab = activeTab === "followers" || activeTab === "following";
   const rawRows = activeTab === "followers" ? followers : following;
   const cursor = activeTab === "followers" ? followersCursor : followingCursor;
   const loadingMore =
@@ -169,11 +189,10 @@ export default function MyNetworkPage() {
       ? followersLoading && followers.length > 0
       : followingLoading && following.length > 0;
   const initialLoading =
-    activeTab === "followers"
-      ? !followersLoaded
-      : !followingLoaded;
+    activeTab === "followers" ? !followersLoaded : !followingLoaded;
 
   const filtered = useMemo(() => {
+    if (!isFollowTab) return [];
     const q = query.trim().toLowerCase();
     const base = q
       ? rawRows.filter((row) => {
@@ -194,9 +213,6 @@ export default function MyNetworkPage() {
         return an.localeCompare(bn);
       });
     }
-    // "recent" — follows.created_at descending (provided by follows.ts).
-    // Falls back to name when timestamps are missing (should not happen
-    // for rows produced by our helpers, but keeps ordering stable).
     return [...base].sort((a, b) => {
       const at = a.followed_at ? new Date(a.followed_at).getTime() : 0;
       const bt = b.followed_at ? new Date(b.followed_at).getTime() : 0;
@@ -205,7 +221,7 @@ export default function MyNetworkPage() {
       const bn = (b.display_name ?? b.username ?? "").toLowerCase();
       return an.localeCompare(bn);
     });
-  }, [rawRows, query, sort]);
+  }, [rawRows, query, sort, isFollowTab]);
 
   const followersCount = stats?.followersCount ?? 0;
   const followingCount = stats?.followingCount ?? 0;
@@ -245,7 +261,9 @@ export default function MyNetworkPage() {
               <span className="font-semibold">{followersCount}</span>{" "}
               {t("network.summary.followers")}
             </button>
-            <span aria-hidden className="mx-2 text-zinc-300">·</span>
+            <span aria-hidden className="mx-2 text-zinc-300">
+              ·
+            </span>
             <button
               type="button"
               onClick={() => setTab("following")}
@@ -261,152 +279,172 @@ export default function MyNetworkPage() {
           role="tablist"
           aria-label={t("network.title")}
           data-tour="network-tabs"
-          className="mb-4 inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-1"
+          className="mb-4 flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1"
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "followers"}
+          <NetworkTabButton
+            label={t("network.tabs.followers")}
+            count={followersCount}
+            active={activeTab === "followers"}
             onClick={() => setTab("followers")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === "followers"
-                ? "bg-white text-zinc-900 shadow-sm"
-                : "text-zinc-600 hover:text-zinc-900"
-            }`}
-          >
-            {t("network.tabs.followers")}
-            <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] tabular-nums text-zinc-600">
-              {followersCount}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "following"}
+          />
+          <NetworkTabButton
+            label={t("network.tabs.following")}
+            count={followingCount}
+            active={activeTab === "following"}
             onClick={() => setTab("following")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === "following"
-                ? "bg-white text-zinc-900 shadow-sm"
-                : "text-zinc-600 hover:text-zinc-900"
-            }`}
-          >
-            {t("network.tabs.following")}
-            <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] tabular-nums text-zinc-600">
-              {followingCount}
-            </span>
-          </button>
+          />
+          <NetworkTabButton
+            label={t("network.tabs.relationships")}
+            active={activeTab === "relationships"}
+            onClick={() => setTab("relationships")}
+          />
+          <NetworkTabButton
+            label={t("network.tabs.requests")}
+            active={activeTab === "requests"}
+            onClick={() => setTab("requests")}
+          />
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <label className="relative flex-1 min-w-[180px]" data-tour="network-search">
-            <span className="sr-only">{t("network.search.placeholder")}</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("network.search.placeholder")}
-              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label={t("network.search.clear")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-              >
-                ✕
-              </button>
-            )}
-          </label>
-          <div
-            data-tour="network-sort"
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2 py-1.5"
-          >
-            <span className="text-xs text-zinc-500">{t("network.sort.label")}</span>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-              className="bg-transparent text-sm text-zinc-800 focus:outline-none"
+        {/* Per-tab guidance — kindly explains what the active tab does
+            so newcomers (and returning users post-Sprint 6.2) understand
+            why two former pages now live as tabs in here. */}
+        <p className="mb-4 text-xs text-zinc-500">
+          {activeTab === "followers" && t("network.guide.followers")}
+          {activeTab === "following" && t("network.guide.following")}
+          {activeTab === "relationships" && t("network.guide.relationships")}
+          {activeTab === "requests" && t("network.guide.requests")}
+        </p>
+
+        {isFollowTab && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <label
+              className="relative flex-1 min-w-[180px]"
+              data-tour="network-search"
             >
-              <option value="recent">{t("network.sort.recent")}</option>
-              <option value="alpha">{t("network.sort.alpha")}</option>
-            </select>
+              <span className="sr-only">{t("network.search.placeholder")}</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("network.search.placeholder")}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label={t("network.search.clear")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                >
+                  ✕
+                </button>
+              )}
+            </label>
+            <div
+              data-tour="network-sort"
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2 py-1.5"
+            >
+              <span className="text-xs text-zinc-500">
+                {t("network.sort.label")}
+              </span>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                className="bg-transparent text-sm text-zinc-800 focus:outline-none"
+              >
+                <option value="recent">{t("network.sort.recent")}</option>
+                <option value="alpha">{t("network.sort.alpha")}</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         <div data-tour="network-list">
-          {initialLoading ? (
-            <p className="py-8 text-center text-sm text-zinc-500">…</p>
-          ) : visibleCount === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 p-8 text-center text-sm text-zinc-500">
-              {emptyCopy}
-            </p>
-          ) : filtered.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 p-8 text-center text-sm text-zinc-500">
-              {emptyCopy}
-            </p>
-          ) : (
-            <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
-              {filtered.map((row) => {
-                const src = avatarUrl(row.avatar_url);
-                const name = row.display_name ?? row.username ?? "—";
-                const handle = row.username ? `@${row.username}` : null;
-                return (
-                  <li
-                    key={row.id}
-                    className="flex items-center gap-3 px-4 py-3 sm:gap-4"
-                  >
-                    <Link
-                      href={row.username ? `/u/${row.username}` : "#"}
-                      className="flex min-w-0 flex-1 items-center gap-3"
-                      aria-label={t("network.openProfile")}
+          {isFollowTab ? (
+            initialLoading ? (
+              <p className="py-8 text-center text-sm text-zinc-500">…</p>
+            ) : visibleCount === 0 ? (
+              <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 p-8 text-center text-sm text-zinc-500">
+                {emptyCopy}
+              </p>
+            ) : filtered.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 p-8 text-center text-sm text-zinc-500">
+                {emptyCopy}
+              </p>
+            ) : (
+              <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                {filtered.map((row) => {
+                  const src = avatarUrl(row.avatar_url);
+                  const name = row.display_name ?? row.username ?? "—";
+                  const handle = row.username ? `@${row.username}` : null;
+                  return (
+                    <li
+                      key={row.id}
+                      className="flex items-center gap-3 px-4 py-3 sm:gap-4"
                     >
-                      <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-zinc-200">
-                        {src ? (
-                          <Image
-                            src={src}
-                            alt=""
-                            width={40}
-                            height={40}
-                            className="h-full w-full object-cover"
-                            unoptimized
-                          />
-                        ) : (
-                          <span className="flex h-full w-full items-center justify-center text-sm font-medium text-zinc-600">
-                            {name.charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-zinc-900">
-                          {name}
+                      <Link
+                        href={row.username ? `/u/${row.username}` : "#"}
+                        className="flex min-w-0 flex-1 items-center gap-3"
+                        aria-label={t("network.openProfile")}
+                      >
+                        <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-zinc-200">
+                          {src ? (
+                            <Image
+                              src={src}
+                              alt=""
+                              width={40}
+                              height={40}
+                              className="h-full w-full object-cover"
+                              unoptimized
+                            />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center text-sm font-medium text-zinc-600">
+                              {name.charAt(0).toUpperCase()}
+                            </span>
+                          )}
                         </span>
-                        {(handle || row.bio) && (
-                          <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                            {handle}
-                            {handle && row.bio && (
-                              <span aria-hidden className="mx-1 text-zinc-300">·</span>
-                            )}
-                            {row.bio && (
-                              <span className="text-zinc-500">{row.bio}</span>
-                            )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-zinc-900">
+                            {name}
                           </span>
-                        )}
-                      </span>
-                    </Link>
-                    <FollowButton
-                      targetProfileId={row.id}
-                      initialFollowing={followingMap[row.id] ?? activeTab === "following"}
-                      size="sm"
-                    />
-                  </li>
-                );
-              })}
-            </ul>
+                          {(handle || row.bio) && (
+                            <span className="mt-0.5 block truncate text-xs text-zinc-500">
+                              {handle}
+                              {handle && row.bio && (
+                                <span
+                                  aria-hidden
+                                  className="mx-1 text-zinc-300"
+                                >
+                                  ·
+                                </span>
+                              )}
+                              {row.bio && (
+                                <span className="text-zinc-500">{row.bio}</span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      </Link>
+                      <FollowButton
+                        targetProfileId={row.id}
+                        initialFollowing={
+                          followingMap[row.id] ?? activeTab === "following"
+                        }
+                        size="sm"
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          ) : activeTab === "relationships" ? (
+            <RelationshipDeskPanel userId={userId} authReady={authReady} />
+          ) : (
+            <AccessRequestsPanel />
           )}
         </div>
 
-        {cursor && (
+        {isFollowTab && cursor && (
           <div className="mt-6 text-center">
             <button
               type="button"
@@ -424,5 +462,38 @@ export default function MyNetworkPage() {
         )}
       </main>
     </AuthGate>
+  );
+}
+
+function NetworkTabButton({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        active
+          ? "bg-white text-zinc-900 shadow-sm"
+          : "text-zinc-600 hover:text-zinc-900"
+      }`}
+    >
+      {label}
+      {typeof count === "number" && (
+        <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] tabular-nums text-zinc-600">
+          {count}
+        </span>
+      )}
+    </button>
   );
 }

@@ -133,21 +133,23 @@ function stripSqlComments(s: string): string {
     "RelationshipCardRoomRef must declare was_shared_or_granted: boolean"
   );
 
-  // 4. UI: desk row no longer renders the note body
-  const page = read("src/app/my/relationships/page.tsx");
+  // 4. UI: desk row no longer renders the note body. Sprint 6.2 — desk
+  // body lives in the panel component (mounted by both the network hub
+  // tab and the legacy /my/relationships redirect).
+  const page = read("src/components/network/RelationshipDeskPanel.tsx");
   assert.ok(
     !/private_note_preview/.test(page),
-    "/my/relationships must not reference private_note_preview"
+    "RelationshipDeskPanel must not reference private_note_preview"
   );
   assert.ok(
     /has_private_note/.test(page),
-    "/my/relationships must read has_private_note when rendering the desk row chip"
+    "RelationshipDeskPanel must read has_private_note when rendering the desk row chip"
   );
   // The card body's room section should be driven by has_active_grant /
   // was_shared_or_granted, not by last_viewed_at.
   assert.ok(
     !/room\.last_viewed_at/.test(page),
-    "/my/relationships must not branch on room.last_viewed_at"
+    "RelationshipDeskPanel must not branch on room.last_viewed_at"
   );
 
   // 5. Phase D — passport DTO must redact created_by behind owner /

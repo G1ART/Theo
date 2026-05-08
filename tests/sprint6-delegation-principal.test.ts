@@ -100,16 +100,19 @@ function stripSqlComments(s: string): string {
     );
   }
 
-  // 4. The UI page must import useActingAs and pass an effective owner
-  // into all three RPC wrappers.
-  const page = read("src/app/my/relationships/page.tsx");
+  // 4. The UI panel must import useActingAs and pass an effective owner
+  // into all three RPC wrappers. Sprint 6.2 — desk body lives in the
+  // panel component so /my/network?tab=relationships and the legacy
+  // /my/relationships redirect both render the same principal-aware
+  // surface.
+  const page = read("src/components/network/RelationshipDeskPanel.tsx");
   assert.ok(
     /useActingAs\s*\(/.test(page),
-    "/my/relationships must import useActingAs"
+    "RelationshipDeskPanel must import useActingAs"
   );
   assert.ok(
     /effectiveOwnerProfileId\s*=\s*actingAsProfileId\s*\?\?\s*userId/.test(page),
-    "/my/relationships must compute effectiveOwnerProfileId from actingAsProfileId ?? userId"
+    "RelationshipDeskPanel must compute effectiveOwnerProfileId from actingAsProfileId ?? userId"
   );
   for (const call of [
     /getRelationshipDeskForOwner\(\s*\{[\s\S]{0,200}ownerProfileId:\s*effectiveOwnerProfileId/,
@@ -118,7 +121,7 @@ function stripSqlComments(s: string): string {
   ]) {
     assert.ok(
       call.test(page),
-      `/my/relationships must pass effectiveOwnerProfileId to RPC wrapper: ${call}`
+      `RelationshipDeskPanel must pass effectiveOwnerProfileId to RPC wrapper: ${call}`
     );
   }
 

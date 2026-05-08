@@ -33,6 +33,15 @@ type Props = {
    * avoid numeric badges here — the count lives inside the hub.
    */
   pendingInboundDelegations?: number | null;
+  /**
+   * Sprint 6.2 — Network Hub entry point.
+   * Sum of `pending_access_request_count + open_inquiry_count` across the
+   * principal's relationships. When > 0, a small dot badge is rendered
+   * on the Network action button. Same calm philosophy as
+   * `pendingInboundDelegations`: dot only, no numerals — the breakdown
+   * lives inside the Network hub itself.
+   */
+  pendingNetworkActivityCount?: number | null;
 };
 
 function avatarUrl(v: string | null | undefined): string | null {
@@ -55,6 +64,7 @@ export function StudioHero({
   followersCount,
   followingCount,
   pendingInboundDelegations,
+  pendingNetworkActivityCount,
 }: Props) {
   const { t } = useT();
   const identity = formatIdentityPair(profile);
@@ -170,6 +180,30 @@ export function StudioHero({
             >
               {t("studio.hero.delegations")}
               {(pendingInboundDelegations ?? 0) > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-1 -top-1 inline-block h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white"
+                />
+              )}
+            </Link>
+            {/* Sprint 6.2 — Network Hub hot-link. Same calm outline tone
+                as Delegations / Visibility; tour anchor (studio-network)
+                wires a dedicated step in the studio tour explaining what
+                "네트워크" rolls up. The dot mirrors the delegations pill:
+                strictly a presence signal, no numerals. */}
+            <Link
+              href="/my/network"
+              data-tour="studio-network"
+              aria-label={
+                (pendingNetworkActivityCount ?? 0) > 0
+                  ? `${t("studio.hero.network")} · ${t("studio.hero.networkPendingDot")}`
+                  : `${t("studio.hero.network")} — ${t("studio.hero.networkHint")}`
+              }
+              title={t("studio.hero.networkHint")}
+              className="relative rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              {t("studio.hero.network")}
+              {(pendingNetworkActivityCount ?? 0) > 0 && (
                 <span
                   aria-hidden="true"
                   className="absolute -right-1 -top-1 inline-block h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white"

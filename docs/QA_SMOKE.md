@@ -236,6 +236,91 @@ where n.nspname='public' and p.proname='get_artwork_passport_for_viewer';
 
 8. As anonymous (logged-out) browser, open any public artwork. DevTools → response of `get_artwork_passport_for_viewer` → confirm `artwork.created_by` is `null`. Sign in as the artwork's owner → reload → `artwork.created_by` is now the real uploader id. Sign in as a stranger → `created_by` is again `null`.
 
+### Sprint 6.2 — Network Hub manual smoke (10 min)
+
+Sprint 6.2 is **frontend-only** — there is no migration to apply. Run the
+checks below to confirm the new entry point + 4-tab hub + redirect
+consolidation works end-to-end.
+
+**Studio Hero pill.**
+
+1. Sign in as a normal owner (no acting-as) and open `/my`. Confirm a
+   new outline pill labeled **네트워크 / Network** sits in the hero
+   action row alongside `Visibility` and `Delegations`. Tone matches
+   the siblings (white background, zinc-300 border, hover bg-zinc-50).
+2. If the account currently has any pending access request OR any
+   open inquiry, confirm a small rose-500 dot is rendered at the
+   pill's top-right corner (no number, just a presence dot — same
+   style as the Delegations dot). If everything is at zero, the pill
+   shows no dot.
+3. `aria-label` on the pill spells out the dot in screen readers (e.g.
+   "네트워크 · 관계에서 응답이 필요한 활동이 있어요"). When count is 0,
+   the label falls back to the descriptive hint ("팔로워·팔로잉·관계·
+   접근 요청을 한 곳에서 다뤄요"). Confirm with VoiceOver / NVDA or
+   the accessibility inspector.
+
+**Network hub — 4 tabs.**
+
+4. Click the new pill → land on `/my/network`. Confirm a tab bar with
+   four tabs renders (with `data-tour="network-tabs"`):
+   `팔로워 / Followers · 팔로잉 / Following · 관계 / Relationships ·
+   접근 요청 / Access requests`. The first two carry the existing
+   numeric chip; the last two do not (no numbers per Sprint 6.2 calm
+   rule).
+5. Above the active tab body a single quiet line of guide copy is
+   rendered, explaining what _this_ tab does. Switch tabs and confirm
+   the copy changes per `network.guide.{followers, following,
+   relationships, requests}` keys.
+6. Switch to **관계** (Relationships) → the Relationship Desk panel
+   mounts (`data-tour="network-relationships-panel"`). All Sprint 6.1
+   surfaces still work end-to-end: LaneChips filter, desk rows, "메모
+   있음" chip, card drawer, private note save with "Saved at HH:MM"
+   timestamp.
+7. Switch to **접근 요청** (Access requests) → the inbox panel mounts
+   (`data-tour="network-requests-panel"`). Filter (`all / pending /
+   resolved`), expandable rows, approve / decline buttons, success
+   telemetry (`access_request_resolved` + `access_grant_created`)
+   all behave as before.
+
+**Legacy redirects.**
+
+8. Type `/my/relationships` directly into the URL bar. Confirm a brief
+   "Loading…" flash, then the URL replaces to
+   `/my/network?tab=relationships` and the hub mounts on that tab.
+9. Type `/my/access-requests` directly. Same behavior, ending at
+   `/my/network?tab=requests`.
+10. Cross-link smoke: from a Relationship Card with at least one
+    pending access request, click "검토하기 / Review request" and
+    confirm the link sends you straight into `/my/network?tab=
+    requests` (no double hop through the legacy URL).
+
+**Acting-as parity.**
+
+11. Sign in as a delegate-writer who has an active account delegation
+    against Principal P. Enter acting-as mode for P. Confirm:
+    - The Studio Hero (and therefore the new pill) is **hidden** —
+      acting-as preserves the prior Sprint 6.1 contract that the hero
+      is owner-only.
+    - The page-level quiet text strip ("접근 요청" / "관계") under the
+      page header is **visible** and links to `/my/network?tab=
+      requests` and `/my/network?tab=relationships` respectively.
+    - Following those links, the hub mounts and shows P's relationships
+      / requests (the desk fetch still passes `p_owner_profile_id =
+      P.id` per Sprint 6.1 acting-as correctness).
+
+**Guide tour.**
+
+12. Click the `?` help button on `/my`. Confirm the studio tour now
+    has a `network` step that anchors on `studio-network` and explains
+    the new pill + dot. Returning users see the tour replay because
+    the studio tour version bumped from 9 → 10.
+13. Click the `?` help button on `/my/network`. Confirm the network
+    tour now walks through 6 steps: `tabs → search → list →
+    relationships → requests → activity-dot`. On the relationships
+    tab, the `requests` step's anchor is missing so the framework
+    silently skips it (and vice versa). Returning users see the new
+    steps because the network tour version bumped from 2 → 3.
+
 ### Sprint 6 — manual smoke (15 min)
 
 **Phase 0 (trust floor).**

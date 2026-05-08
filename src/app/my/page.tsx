@@ -37,6 +37,7 @@ import {
 import { getProfileById } from "@/lib/supabase/profiles";
 import { getBoardSaveSignals, type BoardSaveSignal } from "@/lib/supabase/shortlists";
 import { listMyDelegations } from "@/lib/supabase/delegations";
+import { getRelationshipDeskForOwner } from "@/lib/supabase/relationshipAccess";
 import {
   StudioHero,
   StudioHeroPanel,
@@ -74,6 +75,11 @@ export default function MyPage() {
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [boardSaveSignal, setBoardSaveSignal] = useState<BoardSaveSignal | null>(null);
   const [pendingInboundDelegations, setPendingInboundDelegations] = useState<number>(0);
+  // Sprint 6.2 — sum of `pending_access_request_count + open_inquiry_count`
+  // across the principal's relationships. Drives the dot badge on the
+  // StudioHero "네트워크" pill. Calm presence-only signal — never
+  // surfaced as a numeric badge to keep the hero quiet.
+  const [pendingNetworkActivityCount, setPendingNetworkActivityCount] = useState<number>(0);
   const [computedCompleteness, setComputedCompleteness] = useState<number | null>(null);
   const [, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
@@ -190,6 +196,7 @@ export default function MyPage() {
           messagesUnread,
           boardSignalRes,
           delegationsRes,
+          deskRes,
         ] = await Promise.all([
           getProfileViewsCount(profileData.id, 7),
           getMyPriceInquiryCount(effectiveProfileId ?? undefined),
@@ -207,6 +214,16 @@ export default function MyPage() {
           effectiveProfileId
             ? Promise.resolve({ data: { sent: [], received: [] }, error: null })
             : listMyDelegations(),
+          // Sprint 6.2 — Network Hub activity ping. The desk RPC already
+          // applies the Sprint 6.1 acting-as authorization (delegate
+          // writers get the same view as the principal). We sum
+          // `pending_access_request_count + open_inquiry_count` across
+          // rows; if the user has no related profiles yet the sum is 0
+          // and the hero pill renders without a dot.
+          getRelationshipDeskForOwner({
+            ownerProfileId: effectiveProfileId ?? profileData.id,
+            filter: "all",
+          }),
         ]);
         setProfileViewsCount(countRes.data);
         setPriceInquiryCount(inquiryCountRes.data ?? 0);
@@ -217,6 +234,14 @@ export default function MyPage() {
         setPendingInboundDelegations(
           received.filter((d) => d.status === "pending").length
         );
+        const deskRows = deskRes.data ?? [];
+        let networkActivity = 0;
+        for (const row of deskRows) {
+          networkActivity +=
+            (row.pending_access_request_count ?? 0) +
+            (row.open_inquiry_count ?? 0);
+        }
+        setPendingNetworkActivityCount(networkActivity);
         if (effectiveProfileId) {
           const { data: exData } = await listExhibitionsForProfile(profileData.id);
           setExhibitions(
@@ -431,6 +456,7 @@ export default function MyPage() {
                   followersCount={stats?.followersCount ?? 0}
                   followingCount={stats?.followingCount ?? 0}
                   pendingInboundDelegations={pendingInboundDelegations}
+                  pendingNetworkActivityCount={pendingNetworkActivityCount}
                 />
               }
               rail={<StudioNextStepsRail actions={studioActions} />}
@@ -484,27 +510,23 @@ export default function MyPage() {
           />
         )}
 
-        {/* Sprint 5 — quiet entry to the access-requests inbox. The
-            visibility hub itself is now anchored on the StudioHero
-            action row (`studio-visibility-hub`); the inbox stays here
-            as a one-line link so it doesn't compete with the inquiries
-            tile but remains discoverable.
-            Sprint 6.1 — the same strip is also rendered in acting-as
-            mode (a delegate-writer can review and respond to the
-            principal's access requests / relationships). The Studio
-            hero/operation-grid stay hidden in acting-as because they
-            were built around the signed-in user's own role context;
-            this strip is purely action-oriented and works either way. */}
-        {profile && (
+        {/* Sprint 6.2 — the owner-mode entry to network surfaces is
+            now the calm "네트워크" pill on the StudioHero action row.
+            This text strip is therefore acting-as only: when a delegate
+            is operating on behalf of a principal the StudioHero is
+            hidden (it was built around the signed-in user's own role),
+            so this strip becomes the only quiet path into the principal
+            owner's network hub from the studio shell. */}
+        {profile && actingAsProfileId && (
           <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
             <a
-              href="/my/access-requests"
+              href="/my/network?tab=requests"
               className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
             >
               {t("nav.accessRequests")}
             </a>
             <a
-              href="/my/relationships"
+              href="/my/network?tab=relationships"
               className="rounded-full px-2 py-1 hover:bg-zinc-100 hover:text-zinc-700"
             >
               {t("nav.relationships")}

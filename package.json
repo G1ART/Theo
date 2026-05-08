@@ -28,7 +28,8 @@
     "test:persona-grammar": "tsx tests/persona-grammar.test.ts",
     "test:relationship-desk": "tsx tests/relationship-desk.test.ts",
     "test:sprint6-delegation-principal": "tsx tests/sprint6-delegation-principal.test.ts",
-    "test:relationship-card-privacy": "tsx tests/relationship-card-privacy.test.ts"
+    "test:relationship-card-privacy": "tsx tests/relationship-card-privacy.test.ts",
+    "test:sprint6-2-network-hub": "tsx tests/sprint6-2-network-hub.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -2,6 +2,56 @@
 
 Last updated: 2026-05-07
 
+## 2026-05-07 — Sprint 6.2: Network Hub (Studio Hero pill + 4-tab consolidation)
+
+**무엇을 바꿨나.** Sprint 6 / 6.1 에서 만든 _관계 데스크_ 와 기존 _접근 요청 받은 함_ 의 진입점이 너무 조용했던 문제(`/my` 하단 작은 텍스트 링크 두 개 + `/my/shortlists/[id]` 의 한 줄)를 정리하면서, 사람 그래프 전부를 한 화면에서 다루도록 통합한 release. UI/UX 옵션 비교 후 사용자가 골라준 **옵션 C** 를 그대로 구현.
+
+핵심 변화 4가지:
+
+1. **`/my/network` 가 4-tab 허브가 됨.** 기존 `followers` / `following` 두 탭에 더해 **`relationships`** (관계 데스크 본체) 와 **`requests`** (접근 요청 받은 함) 가 같은 페이지의 탭으로 들어옴. 활성 탭 위에는 그 탭의 의미를 짧게 설명하는 `network.guide.*` 카피가 한 줄 떠서 처음 보는 사용자도 바로 이해할 수 있게 함.
+2. **StudioHero 에 단일 "네트워크" 버튼 + 점 배지.** Hero action row 의 `Visibility` / `Delegations` 와 같은 quiet outline 톤의 pill 한 개. `pending_access_request_count + open_inquiry_count > 0` 일 때만 (delegations 와 동일한 ring-2 / -right-1 / -top-1 / bg-rose-500) 작은 점만 뜸. **숫자 배지는 띄우지 않음** — 존재 신호일 뿐.
+3. **레거시 두 페이지는 redirect 페이지로 다이어트.** `/my/relationships` → `/my/network?tab=relationships`, `/my/access-requests` → `/my/network?tab=requests`. `router.replace` 로 즉시 hop. 기존 북마크 / 이메일 / 다른 surface 의 링크가 깨지지 않음. 두 redirect 페이지가 각자 desk/inbox 본체를 또 mount 하면 의미가 없으므로, 이를 막는 정적 회귀 가드를 새로 추가 (`tests/sprint6-2-network-hub.test.ts`).
+4. **가이드투어 친절히 갱신.** Network 투어를 v3 으로 bump 하고 `relationships` / `requests` / `activity-dot` 3개 step 추가. Studio 투어도 v10 으로 bump 하고 `studio-network` anchor 에 한 step 추가. 두 투어의 i18n (en/ko) 본문은 "왜 두 개의 페이지가 탭이 되었는지" 와 "헤더의 빨간 점은 숫자가 아니라 존재 신호" 를 분명히 안내.
+
+**파일.**
+
+- 새 컴포넌트: `src/components/network/RelationshipDeskPanel.tsx`, `src/components/network/AccessRequestsPanel.tsx`. 두 파일 모두 Sprint 6.1 의 acting-as / principal-aware RPC 호출 (`effectiveOwnerProfileId = actingAsProfileId ?? userId`) 을 그대로 가져옴.
+- `/my/network/page.tsx`: 4-tab 으로 확장. `parseTab` 4 케이스, `NetworkTabButton` helper, follow-tab 일 때만 search/sort UI, relationships/requests 탭일 때 새 panel 렌더, 활성 탭 위에 `network.guide.*` 카피.
+- `/my/relationships/page.tsx`, `/my/access-requests/page.tsx`: thin redirect (`router.replace`).
+- `src/components/studio/StudioHero.tsx`: `pendingNetworkActivityCount?: number | null` prop, `studio-network` anchor, dot 렌더링 (delegations 와 동일 패턴).
+- `src/app/my/page.tsx`: `getRelationshipDeskForOwner({ ownerProfileId, filter: "all" })` 추가 호출, 행들의 `pending_access_request_count + open_inquiry_count` 합산 → `pendingNetworkActivityCount` state → Hero 로 전달. 기존 quiet 텍스트 strip 은 **acting-as 모드 전용** 으로 좁힘 (owner 모드에선 Hero pill 이 진입점, acting-as 모드에선 Hero 가 없으므로 strip 이 마지막 quiet 진입점). 두 strip 링크는 `/my/network?tab=requests`, `/my/network?tab=relationships` 로 갱신.
+- 레거시 cross-link 정리: `src/app/my/inquiries/page.tsx`, `src/app/my/shortlists/[id]/page.tsx`, `src/lib/persona/actionGrammar.ts` 의 `/my/access-requests` / `/my/relationships` 직접 링크를 모두 새 hub URL 로 교체.
+- i18n (en/ko): `studio.hero.network`, `studio.hero.networkHint`, `studio.hero.networkPendingDot`, `network.tabs.relationships`, `network.tabs.requests`, `network.guide.{followers,following,relationships,requests}`, `tour.studio.network.{title,body}`, `tour.network.{relationships,requests,activityDot}.{title,body}` 와 기존 `tour.network.{tabs,search,list}.body` refresh.
+- Tour: `src/lib/tours/tourRegistry.ts` 에서 `TOUR_IDS.network` v3 (3 step 추가), `TOUR_IDS.studio` v10 (1 step 추가).
+- 테스트: `tests/sprint6-2-network-hub.test.ts` 신규 (4-tab 구조 / redirect / Hero 배선 / 투어 step + version 보장). `package.json` 에 `test:sprint6-2-network-hub` 스크립트. 기존 `tests/sprint6-delegation-principal.test.ts` / `tests/relationship-card-privacy.test.ts` / `tests/relationship-desk.test.ts` 는 desk body 가 panel component 로 이동했으므로 검사 path 를 `src/app/my/relationships/page.tsx` → `src/components/network/RelationshipDeskPanel.tsx` 로 정정.
+
+**보안 / 프라이버시.** Sprint 6.1 의 위임 / 접근 / 노트 redaction 모델은 **하나도 건드리지 않음**. desk / inbox / 카드 / 노트의 모든 RPC 호출은 panel component 로 이주한 후에도 `effectiveOwnerProfileId` (acting-as 시 principal id) 를 `p_owner_profile_id` 로 그대로 넘김. 텔레메트리 — `pendingNetworkActivityCount` 는 클라이언트 derived 값이라 별도 이벤트를 발생시키지 않음 (이미 `relationship_desk_viewed` 가 카운트 fetch 의 부수 효과로 한 번 emit 됨). 새 Hero pill 자체는 텔레메트리 없음 (calm presence-only).
+
+**환경 변수.** 변경 없음.
+
+**Supabase SQL 적용.** **돌려야 할 것 없음.** Sprint 6.2 는 순수 frontend / UI 변경이며, 새 마이그레이션 파일은 없음. RPC contract 도 동일.
+
+**Verified.**
+
+- `npx tsc --noEmit` ok.
+- `npm run lint` 우리 새/수정 파일 (RelationshipDeskPanel, AccessRequestsPanel, network/page, my/page, redirect 페이지, StudioHero) 에 신규 lint 이슈 없음. 기존 pre-existing warning/error 만 잔존.
+- `npm run build` 성공. `/my/network`, `/my/relationships`, `/my/access-requests` 모두 prerendered static 으로 출력됨.
+- 정적 회귀 (모두 ok): `test:sprint6-2-network-hub`, `test:sprint6-trust-floor`, `test:sprint6-delegation-principal`, `test:relationship-card-privacy`, `test:relationship-desk`, `test:relationship-access`, `test:access-request`, `test:access-enforcement`, `test:visibility-sql-contract`, `test:visibility-copy`, `test:persona-grammar`, `test:privacy-token-audit` (79 telemetry call sites scanned across 331 files).
+
+**스모크 (수동, 권장 순서).**
+
+1. (Owner) `/my` 진입 → StudioHero action row 에 "네트워크" 버튼이 `Visibility` / `Delegations` 와 같은 톤으로 보이는지. pending request / open inquiry 가 있는 계정이면 **빨간 점**이 뜨는지 (숫자 X).
+2. 그 버튼 클릭 → `/my/network` 로 이동, 4 탭 (팔로워 / 팔로잉 / 관계 / 접근 요청) 이 한 줄 또는 wrap 되어 보이고, 활성 탭 위에 한 줄 가이드 카피가 보이는지.
+3. `?tab=relationships` 또는 탭 클릭 → 관계 데스크 본체가 panel 로 mount, LaneChips / 행 / 카드 drawer / 비공개 메모 모두 정상 동작.
+4. `?tab=requests` → 접근 요청 받은 함 본체가 panel 로 mount, filter / approve / decline 정상 동작.
+5. 옛 URL `/my/relationships` 와 `/my/access-requests` 를 직접 입력 → 짧은 "Loading…" 이후 hub 로 redirect.
+6. 가이드 도움말 (`?` 버튼) → Studio 투어 v10 / Network 투어 v3 가 새 step 들을 노출. 위치/탭 anchor 가 없으면 그 step 이 자동 skip 되는 것도 확인.
+7. (Delegate) acting-as 모드로 들어가면 StudioHero 가 숨겨지고, 페이지 하단에 "접근 요청" / "관계" quiet 텍스트 링크 두 개가 acting-as 전용으로 노출되는지. 두 링크 모두 hub 의 해당 탭으로 이동.
+
+**알려진 한계 / 다음 sprint 고려.** acting-as 모드에서는 Hero 가 안 보이므로 점 배지 시각 신호가 없음. 향후 `ActingAsBanner` 또는 `account-switcher` 에 동등한 quiet 신호를 붙이는 것을 검토 가능 (이번 sprint 범위 밖).
+
+---
+
 ## 2026-05-07 — Sprint 6.1 paste hotfix: relationship_private_notes table safety net
 
 **증상.** 사용자가 SECTION 단위로 Sprint 6.1 SQL 을 paste 하던 중 SECTION 3 (`upsert_relationship_private_note`) 에서:

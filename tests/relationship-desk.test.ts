@@ -130,9 +130,13 @@ function sectionFor(sql: string, fnName: string): string | null {
     );
   }
 
-  // 3. UI page: RPC wrapper usage + canonical telemetry + no note body
+  // 3. UI panel: RPC wrapper usage + canonical telemetry + no note body
   // in any beta event payload.
-  const page = read("src/app/my/relationships/page.tsx");
+  // Sprint 6.2 — the desk body lives in the panel component now (the
+  // /my/relationships route is a thin redirect into /my/network?tab=
+  // relationships). The full panel still exposes every telemetry call
+  // and RPC wrapper that this regression guards.
+  const page = read("src/components/network/RelationshipDeskPanel.tsx");
   assert.ok(
     page.includes("getRelationshipDeskForOwner"),
     "page must call the desk RPC wrapper"

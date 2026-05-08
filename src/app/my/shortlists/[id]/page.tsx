@@ -198,7 +198,7 @@ function ShortlistDetailContent() {
                 "the people connected to this room" without leaving
                 the studio. */}
             <Link
-              href="/my/relationships"
+              href="/my/network?tab=relationships"
               className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline"
             >
               {t("nav.relationships")}

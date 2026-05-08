@@ -33,10 +33,12 @@ export type TourId = (typeof TOUR_IDS)[keyof typeof TOUR_IDS];
 export const TOURS: Record<TourId, TourDefinition> = {
   [TOUR_IDS.studio]: {
     id: TOUR_IDS.studio,
-    // v9: surface the new Sprint 5 visibility hub anchored on the
-    // hero hot-link so returning users learn that "who sees what" is
-    // now a first-class control, not buried in profile-edit.
-    version: 9,
+    // v10: surface the Sprint 6.2 Network Hub pill on the hero action
+    // row so returning users learn that the former /my/relationships
+    // and /my/access-requests pages now live as tabs inside
+    // /my/network. The dot on the pill is a calm presence signal —
+    // never a numeric count — and the tour explains exactly that.
+    version: 10,
     titleKey: "tour.studio.title",
     introKey: "tour.studio.intro",
     requiredAnchors: ["studio-hero", "studio-operating-grid"],
@@ -46,6 +48,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
         target: "studio-hero",
         titleKey: "tour.studio.hero.title",
         bodyKey: "tour.studio.hero.body",
+        placement: "bottom",
+      },
+      {
+        id: "network",
+        target: "studio-network",
+        titleKey: "tour.studio.network.title",
+        bodyKey: "tour.studio.network.body",
         placement: "bottom",
       },
       {
@@ -459,7 +468,11 @@ export const TOURS: Record<TourId, TourDefinition> = {
 
   [TOUR_IDS.network]: {
     id: TOUR_IDS.network,
-    version: 2,
+    // v3: surface the Sprint 6.2 hub upgrade — Relationships and
+    // Access requests are now tabs inside /my/network alongside the
+    // legacy Followers / Following tabs. Returning users see the new
+    // steps once because the version bumped.
+    version: 3,
     titleKey: "tour.network.title",
     introKey: "tour.network.intro",
     requiredAnchors: ["network-tabs"],
@@ -471,6 +484,11 @@ export const TOURS: Record<TourId, TourDefinition> = {
         bodyKey: "tour.network.tabs.body",
         placement: "bottom",
       },
+      // The follow-graph tabs render `network-search` / `network-list`
+      // (LaneChips for query + alpha/recent sort, then the rows). The
+      // framework silently skips the step when its anchor is not in
+      // the DOM, so on the Relationships / Requests tabs these two
+      // steps are dropped naturally.
       {
         id: "search",
         target: "network-search",
@@ -484,6 +502,36 @@ export const TOURS: Record<TourId, TourDefinition> = {
         titleKey: "tour.network.list.title",
         bodyKey: "tour.network.list.body",
         placement: "top",
+      },
+      // Sprint 6.2 — explain the Relationships tab (Relationship Desk
+      // body lives inside the panel marked by `network-relationships-panel`,
+      // mounted only when `?tab=relationships`).
+      {
+        id: "relationships",
+        target: "network-relationships-panel",
+        titleKey: "tour.network.relationships.title",
+        bodyKey: "tour.network.relationships.body",
+        placement: "top",
+      },
+      // Sprint 6.2 — explain the Requests tab (Access Requests inbox
+      // lives inside the panel marked by `network-requests-panel`,
+      // mounted only when `?tab=requests`).
+      {
+        id: "requests",
+        target: "network-requests-panel",
+        titleKey: "tour.network.requests.title",
+        bodyKey: "tour.network.requests.body",
+        placement: "top",
+      },
+      // Sprint 6.2 — explain the dot badge on the studio header pill
+      // that brings users here. Anchors on `studio-network` which is
+      // only rendered on /my; framework skips the step on /my/network.
+      {
+        id: "activity-dot",
+        target: "studio-network",
+        titleKey: "tour.network.activityDot.title",
+        bodyKey: "tour.network.activityDot.body",
+        placement: "bottom",
       },
     ],
   },
