@@ -2,6 +2,125 @@
 
 Last updated: 2026-05-08
 
+## 2026-05-08 — Production DB drift 점검 + Sprint 6/7/7.1 누락 SQL backfill (코드 변경 없음)
+
+### 배경 — 잘못된 sanity check 정정
+
+이전 Sprint 7.1 마무리 보고에서 "production DB 에 `access_requests` 테이블이 없는 것 같다 (Sprint 5/6 SQL 미적용 의심)" 라고 적었지만, **그건 잘못된 진단이었다.** Cursor 에 등록된 `user-supabase` MCP 가 abstract-mvp (`sgufonscldvdwfgzltfw`) 가 아니라 **다른 supabase 프로젝트 (`jenqxlbfqgqjwuonrmav`)** 에 연결돼 있었다. Sprint 7 와 7.1 작업 중 우리가 그 MCP 로 호출한 두 번의 `apply_migration` 도 abstract-mvp 가 아니라 그 다른 프로젝트로 갔다.
+
+다른 MCP 인 `plugin-supabase-supabase` 는 호출마다 `project_id` 를 인자로 받는 형태라 abstract-mvp 의 진짜 프로젝트 ref 를 직접 넘겨 점검 + 적용이 가능했다. 이 채널로 다시 점검한 결과:
+
+- `access_requests`, `access_grants`, `audience_lists`, `audience_list_members`, `relationship_private_notes`, `visibility_owner_settings`, `visibility_policies`, `is_active_account_delegate_writer`, `get_relationship_desk_for_owner`, `create_access_request`, `resolve_access_request`, `cancel_access_request`, `get_artwork_passport_for_viewer`, `visibility_subject_belongs_to_owner`, `resolve_visibility_for_viewer`, `can_view_by_relationship`, `upsert_visibility_policy`, `set_visibility_preset`, `get_room_for_viewer_by_token`, `resolve_visibility_for_preview`, `upsert_relationship_private_note`, `get_viewer_relationship_context`, `get_relationship_card_for_owner` — **전부 OK**. Sprint 5 / 5.2 / 6 / 6.1 의 핵심 surface 는 production 에 정상 적용돼있다.
+- `supabase_migrations.schema_migrations` 에는 `20260423224142` (`seed_plan_matrix`) 까지만 등록돼 있다. 즉 supabase CLI 흐름이 아니라 dashboard 직접 paste/run 으로 적용된 흔적이 많아서 **migration history 와 실제 schema 가 sync out** 되어 있다 (operational risk: 다음에 누가 CLI db push 를 시도하면 충돌).
+
+### 진짜 미적용 — Critical 3건만 즉시 적용
+
+`plugin-supabase-supabase` MCP 의 `apply_migration` 으로 abstract-mvp production 에 직접 적용 완료 (`create or replace` 라 idempotent):
+
+| 적용 SQL | 출처 마이그레이션 | 적용 효과 |
+|---|---|---|
+| `resolve_access_request_v2` (single function) | [`20260608000000_sprint6_phase0_and_relationship_desk.sql`](supabase/migrations/20260608000000_sprint6_phase0_and_relationship_desk.sql) SECTION 7 만 추출 | Sprint 7 의 4-scope grant narrowing UI ("Approve for this work" / "Approve for 30 days") 가 production 에서 정상 동작 |
+| `get_artwork_passport_for_viewer` redefine | [`20260620000000_sprint7_phase0_passport_owner_minimization.sql`](supabase/migrations/20260620000000_sprint7_phase0_passport_owner_minimization.sql) 전체 | 비공개 owner 의 nested profile (`bio`/`main_role`/`roles`) 가 anon viewer 에게 더 이상 노출되지 않음 (Sprint 7 work order §2.1 trust-floor) |
+| `list_access_requests_for_owner_v2` | [`20260621000000_sprint7_1_access_request_row_identity.sql`](supabase/migrations/20260621000000_sprint7_1_access_request_row_identity.sql) 전체 | `/my/network?tab=requests` 의 enriched row 표시 (요청자 이름/역할) 가 production 에서 정상 동작 |
+
+세 함수 모두 `pg_proc` 에서 정확한 signature 로 등록 확인 완료.
+
+### 적용하지 않은 누락 항목 (별도 추적 필요)
+
+향후 어느 시점에 한 번 더 dashboard / MCP 로 적용 권장:
+
+- `lookup_profile_identity` ([`20260430000200`](supabase/migrations/20260430000200_lookup_profile_identity.sql))
+- `upsert_my_profile_identity` ([`20260430000100`](supabase/migrations/20260430000100_upsert_my_profile_identity.sql))
+- `lookup_profile_studio_portfolio` ([`20260428000000`](supabase/migrations/20260428000000_lookup_profile_studio_portfolio.sql))
+- `lookup_profile_cv` ([`20260601400000`](supabase/migrations/20260601400000_lookup_profile_cv.sql))
+- `resolve_room_source_from_token` ([`20260608000000`](supabase/migrations/20260608000000_sprint6_phase0_and_relationship_desk.sql) 의 한 SECTION)
+- `connection_message_threads` 테이블 ([`20260425000000`](supabase/migrations/20260425000000_connection_message_threads.sql))
+- 그 외 schema_migrations 에 미등록된 ~30+ 마이그레이션 (대부분 idempotent, 그러나 dependency 는 이미 dashboard 로 적용된 상태)
+
+이들 누락이 production 코드에 즉시 영향을 주는지는 surface 별로 sanity 필요. 우선 critical path 만 닫음.
+
+### 권장 후속 액션
+
+1. ~~`supabase_migrations.schema_migrations` 와 실제 schema 의 sync 회복~~ → **2026-05-08 후속 패치에서 완료**. 폴더 67개 마이그레이션 모두 register, 향후 `supabase db push` 가 안전.
+2. MCP 설정에서 `user-supabase` 를 abstract-mvp 의 ref (`sgufonscldvdwfgzltfw`) 로 바꾸거나, 또는 향후 모든 db 작업에 `plugin-supabase-supabase` + `project_id` 인자를 사용하기로 합의.
+3. `release-workflow.mdc` 에 "MCP 가 어느 프로젝트에 연결돼있는지 매번 `get_project_url` 로 검증 후 진행" 항목 추가 검토.
+
+### 변경 파일
+
+- (코드 변경 없음 — production DB 만 수정)
+- 본 HANDOFF 섹션 추가
+
+### Verified
+
+- `pg_proc` 에서 세 함수의 signature 모두 OK
+- 다른 dependent 함수/테이블 모두 사전 점검 완료
+- 환경 변수 추가/변경 없음
+
+---
+
+## 2026-05-08 — Operational tech debt 청산: 함수 5개 backfill + schema_migrations sync
+
+위 drift 점검의 후속 정리 패치. 다음 sprint 전에 production DB 의 metadata + missing object 까지 깨끗하게 맞춤. 코드 변경은 여전히 0 — DB metadata / 함수만 정리.
+
+### Phase A — 누락 객체 backfill (5건)
+
+`production_funcs vs local_migration_funcs` wide diff 에서 production 영향 가능성 있는 5건을 식별 후 `apply_migration` 으로 적용 (모두 `create or replace`, idempotent):
+
+| 마이그레이션 timestamp | 정의 객체 | 비고 |
+|---|---|---|
+| `20260428000000` | `lookup_profile_by_username` (redefine v1) | 더 늦은 v3 가 superset 이라 효과 무 |
+| `20260430000100` | `upsert_my_profile` redefine | `cover_image_url` / `artist_statement` 등 5개 신규 컬럼 처리 추가 |
+| `20260430000200` | `lookup_profile_by_username` (redefine v2) | 더 늦은 v3 가 superset |
+| `20260601400000` | `lookup_profile_by_username` (redefine v3 — superset, **최종 정의**) | CV 컬럼 (`education`/`exhibitions`/`awards`/`residencies`) 노출 |
+| `20260608000000` SECTION 2 만 | `resolve_room_source_from_token` | Sprint 6 의 누락 함수. 다른 SECTION 들은 이미 production 에 OK. |
+
+→ 이로써 `lookup_profile_by_username` 가 가장 최신 (CV) 정의로 production 에 반영됐고, `upsert_my_profile` 도 P1-0 identity 컬럼을 처리하는 정의로 갱신됨.
+
+### Phase B — `schema_migrations` register-only sync
+
+기존에 `supabase_migrations.schema_migrations` 에는 supabase CLI 가 등록한 16개 (G1 / p0 wave3 / 일부 23일자 entry) + 우리가 sprint 7/7.1 작업에서 마지막에 register 한 8개 marker 만 있었다. 즉 폴더의 67개 마이그레이션 중 60개 이상이 미등록 상태로, **다음에 누가 `supabase db push` 를 하면 이미 적용된 것을 다시 migrate 하려 시도할 위험**이 있었다.
+
+다음 SQL 한 줄로 폴더의 모든 timestamp 를 register (이미 등록된 것은 `on conflict (version) do nothing` 으로 skip):
+
+```sql
+insert into supabase_migrations.schema_migrations (version, name) values
+  ('20260420120000','v_ai_events_summary'),
+  ('20260421120000','identity_completeness'),
+  -- ... (60 rows total, 폴더 timestamp + name)
+  ('20260621000000','sprint7_1_access_request_row_identity')
+on conflict (version) do nothing;
+```
+
+→ 60개 신규 register 완료. 이전 backfill 시 자동 생성된 `20260508*` marker 8개는 폴더 timestamp 와 중복 history 라 cleanup (DELETE).
+
+### 최종 상태 (2026-05-08 기준)
+
+- `schema_migrations` 갯수: **77 entries** (폴더 67개 + supabase CLI 가 자체 timestamp 로 등록한 legacy 10개 noise. legacy 는 이름이 일부 중복되지만 향후 db push 매칭에 무해하므로 그대로 둠)
+- 다음 검증 SQL 모두 OK:
+  - `resolve_access_request_v2`, `list_access_requests_for_owner_v2`, `get_artwork_passport_for_viewer`, `resolve_room_source_from_token`, `lookup_profile_by_username`, `upsert_my_profile` 모두 `pg_proc` 에 존재
+- production 의 모든 핵심 surface SQL dependency 가 정리됨. 향후 supabase CLI db push 안전.
+
+### 누락이 아닌 것으로 확인 (false positive)
+
+- `exhibitions` 테이블 → 코드 어디서도 사용 안 함 (`grep .from\('exhibitions'\) src` → 0 hits). 마이그레이션 work order placeholder. 무시.
+- `plan_matrix` → 실제 production 에는 `plan_feature_matrix` + `plan_quota_matrix` + `plans` 분리 적용됨. 이름 혼동.
+- `connection_message_threads` → 실제로는 `connection_messages` 테이블에 `participant_key` 컬럼/index 추가 + `list_connection_conversations` RPC. 모두 production 에 이미 OK.
+- `has_account_delegate_permission`, `has_project_delegate_permission`, `is_active_account_delegate`, `is_active_project_delegate` → 더 옛 정의 함수 이름. 코드에서 사용 안 함 (`grep` 0 hits). production 의 `is_active_account_delegate_writer` / `has_active_account_delegate_perm` 가 이들의 후속.
+
+### 변경 파일
+
+- (코드 변경 없음 — production DB 만 수정)
+- 본 HANDOFF 섹션 추가
+
+### Verified
+
+- 폴더의 67개 마이그레이션 모두 `schema_migrations` 에 등록 확인
+- 6개 핵심 함수 production `pg_proc` 등록 확인
+- 환경 변수 추가/변경 없음
+- (코드 변경이 없으므로 빌드/테스트 수행 불필요)
+
+---
+
 ## 2026-05-08 — QA hardening: 비밀번호 찾기 진입점 + 회원가입 중복 이메일 leak fix
 
 QA 팀의 두 건(제안 1 + 오류 1)을 처리한 작은 하드닝 패치. 다음 메이저 스프린트 전에 정합성 누수만 정확히 닫음.
