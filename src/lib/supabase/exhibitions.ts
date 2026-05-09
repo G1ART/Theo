@@ -388,7 +388,8 @@ export async function listExhibitionsForFeed(profileIds: string[]): Promise<{
     .in("exhibition_id", exhibitionIds);
   const withWorks = new Set((ewRows ?? []).map((r: { exhibition_id: string }) => r.exhibition_id));
   const filtered = merged.filter((e) => withWorks.has(e.id));
-  return { data: filtered.slice(0, 30), error: curatedRes.error ?? hostRes.error };
+  const enriched = await enrichExhibitionsCoversFromWorks(filtered.slice(0, 30));
+  return { data: enriched, error: curatedRes.error ?? hostRes.error };
 }
 
 export type ExhibitionCursor = { created_at: string; id: string };
@@ -449,7 +450,109 @@ export async function listExhibitionsForFollowingFeed(
     hasMore && slice[pageSize]
       ? { created_at: slice[pageSize].created_at!, id: slice[pageSize].id }
       : null;
-  return { data: page, nextCursor: next, error: null };
+  const enrichedPage = await enrichExhibitionsCoversFromWorks(page);
+  return { data: enrichedPage, nextCursor: next, error: null };
+}
+
+/**
+ * Display-only enrichment: when an exhibition's `cover_image_paths` is
+ * shorter than `target` (default 2 — the feed strip's `EXHIBITION_MIN_COVERS`
+ * gate), append synthetic cover paths drawn from the exhibition's first
+ * artworks (`exhibition_works.sort_order asc` → `artwork_images.sort_order asc`,
+ * one image per work). The curator's own covers always come first; synthetic
+ * paths only fill the gap.
+ *
+ * Boundary: this is a feed-only fallback so a curator's exhibition can
+ * still surface in the Living Salon while they're still composing the
+ * cover. The DB row is NEVER mutated; edit / "my exhibitions" / AI
+ * routes call separate fetch functions and continue to see the raw
+ * `cover_image_paths` (so we don't trick the curator into thinking they
+ * already uploaded a cover, and we don't prompt the AI with phantom
+ * covers).
+ *
+ * Same storage bucket as artwork images — `getArtworkImageUrl(path)` already
+ * renders both, so the synthetic path is rendered byte-for-byte the same
+ * as a curator-uploaded cover.
+ */
+export async function enrichExhibitionsCoversFromWorks(
+  exhibitions: ExhibitionWithCredits[],
+  target = 2
+): Promise<ExhibitionWithCredits[]> {
+  if (exhibitions.length === 0) return exhibitions;
+
+  const needs = exhibitions.filter(
+    (e) => (e.cover_image_paths?.length ?? 0) < target
+  );
+  if (needs.length === 0) return exhibitions;
+
+  const needIds = needs.map((e) => e.id);
+  const { data: ewRowsRaw } = await supabase
+    .from("exhibition_works")
+    .select("exhibition_id, work_id, sort_order")
+    .in("exhibition_id", needIds);
+  const ewRows = (ewRowsRaw ?? []) as Array<{
+    exhibition_id: string;
+    work_id: string;
+    sort_order: number | null;
+  }>;
+  if (ewRows.length === 0) return exhibitions;
+
+  // Per-exhibition: keep the first `target` work_ids by sort_order asc (nulls last).
+  const sortedEw = [...ewRows].sort((a, b) => {
+    const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+    return ao - bo;
+  });
+  const worksByEx = new Map<string, string[]>();
+  for (const row of sortedEw) {
+    const arr = worksByEx.get(row.exhibition_id) ?? [];
+    if (arr.length < target) {
+      arr.push(row.work_id);
+      worksByEx.set(row.exhibition_id, arr);
+    }
+  }
+
+  const candidateWorkIds = Array.from(new Set([...worksByEx.values()].flat()));
+  if (candidateWorkIds.length === 0) return exhibitions;
+
+  const { data: imgRowsRaw } = await supabase
+    .from("artwork_images")
+    .select("artwork_id, storage_path, sort_order")
+    .in("artwork_id", candidateWorkIds);
+  const imgRows = (imgRowsRaw ?? []) as Array<{
+    artwork_id: string;
+    storage_path: string;
+    sort_order: number | null;
+  }>;
+  if (imgRows.length === 0) return exhibitions;
+
+  const sortedImgs = [...imgRows].sort((a, b) => {
+    const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+    return ao - bo;
+  });
+  const firstImgByWork = new Map<string, string>();
+  for (const row of sortedImgs) {
+    if (!firstImgByWork.has(row.artwork_id)) {
+      firstImgByWork.set(row.artwork_id, row.storage_path);
+    }
+  }
+
+  return exhibitions.map((e) => {
+    const existing = e.cover_image_paths ?? [];
+    if (existing.length >= target) return e;
+    const wIds = worksByEx.get(e.id) ?? [];
+    const synthetic: string[] = [];
+    for (const w of wIds) {
+      const p = firstImgByWork.get(w);
+      if (!p) continue;
+      if (existing.includes(p) || synthetic.includes(p)) continue;
+      synthetic.push(p);
+      if (existing.length + synthetic.length >= target) break;
+    }
+    if (synthetic.length === 0) return e;
+    return { ...e, cover_image_paths: [...existing, ...synthetic] };
+  });
 }
 
 /** List recent public exhibitions for global feed (not follow-limited). Cursor for load more. */
@@ -493,8 +596,10 @@ export async function listPublicExhibitionsForFeed(
     hasMore && result[pageSize]
       ? { created_at: result[pageSize].created_at!, id: result[pageSize].id }
       : null;
+  const dataPage = hasMore ? result.slice(0, pageSize) : result;
+  const enriched = await enrichExhibitionsCoversFromWorks(dataPage);
   return {
-    data: hasMore ? result.slice(0, pageSize) : result,
+    data: enriched,
     nextCursor: next,
     error: null,
   };

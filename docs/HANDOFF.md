@@ -1,6 +1,67 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
+
+## 2026-05-09 — 피드 누락 전시 핫픽스: cover_image_paths 부족분 자동 채움 (display-only)
+
+### 문제 (QA report)
+
+`@thegreen_oc` 의 전시 "영웅은 은퇴하지 않는다" (id `43310699-be98-4eb5-9a67-6b561f418596`) 는 작품 6점이 정상적으로 등록돼 있고 status=`live` 인데도 메인 피드에 **나타나지 않는** 이슈. 전시 상세 페이지 (`/e/[id]`) 로 직접 가면 정상 표시. 콘솔 에러 / 네트워크 에러 / 토스트 모두 없음.
+
+### 진단
+
+production SQL 로 게이트별 통과 여부를 한 줄에 나열한 결과:
+
+| 게이트 | 결과 |
+|---|---|
+| status=live, curator public, RLS anon 노출 | ✅ |
+| `exhibition_works` 6점 (shell 필터 통과) | ✅ |
+| **`cover_image_paths.length >= EXHIBITION_MIN_COVERS(2)`** | ❌ (1장만) |
+
+원인: `src/lib/feed/livingSalon.ts` 의 `collectExhibitions` 가 `cover_image_paths.length >= 2` 인 전시만 strip 으로 만든다 (단일 floating thumb 방지 디자인 의도). 큐레이터가 cover 사진을 1장만 올린 전시는 silently 사라짐. 게이트 자체는 의도된 디자인이지만 **"작품은 다 있는데 cover 만 부족" 한 케이스의 first-value 가 사라지는 부작용**이 있음.
+
+### 픽스 — 옵션 C (synthetic cover from first artworks)
+
+`src/lib/supabase/exhibitions.ts` 에 `enrichExhibitionsCoversFromWorks(exhibitions, target=2)` 헬퍼 추가. cover 가 부족한 전시에 한해 `exhibition_works.sort_order asc` 의 첫 N 작품 → 각 작품의 `artwork_images.sort_order asc` 첫 1장을 합성으로 끝에 push 한다. 큐레이터가 직접 올린 cover 는 무조건 앞에 보존.
+
+`getArtworkImageUrl(path)` 가 cover/artwork 양쪽을 같은 storage bucket 으로 변환하기 때문에 (확인: `ExhibitionMemoryStrip.tsx:126`), 합성 path 는 큐레이터 cover 와 byte-for-byte 같은 방식으로 렌더된다.
+
+### 적용 boundary — 다른 표면 영향 0
+
+| 표면 | enrich? | 이유 |
+|---|---|---|
+| 메인 피드 (`listExhibitionsForFeed`, `listExhibitionsForFollowingFeed`, `listPublicExhibitionsForFeed`) | ✅ | 게이트와 같은 surface |
+| 다른 사용자 프로필 (`UserProfileContent`) | ❌ | 별도 fetch path. 데이터 정직성 우선 |
+| 자기 전시 list (`/my/exhibitions`) | ❌ | 큐레이터에게 "내가 안 올린 cover" 보이면 혼란 |
+| 자기 전시 edit (`/my/exhibitions/[id]`) | ❌ | DB 진실값 그대로 |
+| AI route (`exhibition-review`, `delegation-brief`) | ❌ | "cover 있음" 으로 prompt 오인 방지 |
+
+DB 미수정. 큐레이터가 추후 cover 를 추가하면 `cover_image_paths.length >= 2` 가 되는 순간 enrich 가 자동으로 비활성 (`needs.length === 0` 으로 early return). UX/타입/컴포넌트/마이그레이션 변경 0.
+
+### 영웅 전시 시뮬레이션
+
+production SQL 로 본 결과:
+
+- 기존 cover (1장): IMG_2384.JPG (큐레이터 업로드)
+- 합성될 cover (1장): IMG_2454.jpg (첫 작품의 첫 이미지)
+- 결과: 2장 → 게이트 통과 → 다음 피드 fetch 부터 정상 노출
+
+### 검증
+
+- `npm run test:exhibition-cover-enrichment` ✅ — 신규 (7 invariant: 빈 입력, 포화 입력, 0/1 cover 채움, 중복 skip, works 없음, images 없음)
+- `npm run test:feed-living-salon` / `feed-personalization` / `feed-telemetry` ✅ — 회귀 0
+- `npx tsc --noEmit` — 신규 에러 0 (사전 `.next/types/routes.d 2.ts` 노이즈만)
+- `npm run lint` — 신규 에러 0 (사전 `useT.ts` / `artworks.ts` 노이즈만)
+
+### Supabase SQL
+
+이번 패치는 **코드 변경만**. 새/수정된 마이그레이션 없음.
+
+### 환경 변수
+
+변경 없음.
+
+---
 
 ## 2026-05-08 — Production DB drift 점검 + Sprint 6/7/7.1 누락 SQL backfill (코드 변경 없음)
 
