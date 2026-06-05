@@ -29,6 +29,7 @@ export type GateCopyInput = {
 const FIELD_NOUN_EN: Record<string, string> = {
   price: "price",
   availability: "availability",
+  price_availability: "price and availability",
   description: "detailed studio notes",
   studio_note: "private studio notes",
   exhibition_preview: "upcoming exhibition previews",
@@ -38,13 +39,31 @@ const FIELD_NOUN_EN: Record<string, string> = {
 
 const FIELD_NOUN_KO: Record<string, string> = {
   price: "가격",
-  availability: "availability",
+  // QA 2026-06-05 — was the raw English "availability"; localized so the
+  // Korean copy reads naturally and the object particle resolves cleanly.
+  availability: "소장 가능 여부",
+  price_availability: "가격과 소장 가능 여부",
   description: "더 자세한 작품 노트",
   studio_note: "private 스튜디오 노트",
-  exhibition_preview: "전시 전 private preview",
+  exhibition_preview: "전시 전 미리보기",
   room: "이 프라이빗 룸",
   "*": "이 정보",
 };
+
+// QA 2026-06-05 — Korean object particle (을/를) chosen from the noun's
+// final syllable instead of the old hard-coded "을(를)" placeholder. A
+// Hangul syllable carries a 받침 (jongseong) when (code - 0xAC00) % 28 !== 0.
+// Non-Hangul endings fall back to the vowel-final "를", which reads
+// naturally for the few loanword nouns we still surface.
+function objectParticleKo(word: string): "을" | "를" {
+  const trimmed = word.trim();
+  if (!trimmed) return "를";
+  const last = trimmed.charCodeAt(trimmed.length - 1);
+  if (last >= 0xac00 && last <= 0xd7a3) {
+    return (last - 0xac00) % 28 !== 0 ? "을" : "를";
+  }
+  return "를";
+}
 
 function resolveOwnerEn(ownerLabel?: string | null): string {
   return ownerLabel && ownerLabel.trim() ? ownerLabel.trim() : "This artist";
@@ -89,23 +108,24 @@ function buildKo(
 ): string {
   const owner = resolveOwnerKo(ownerLabel);
   const noun = FIELD_NOUN_KO[fieldKey] ?? FIELD_NOUN_KO["*"];
+  const obj = `${noun}${objectParticleKo(noun)}`;
   switch (audience) {
     case "public":
-      return `${owner} ${noun}을(를) 누구에게나 공개합니다.`;
+      return `${owner} ${obj} 누구에게나 공개합니다.`;
     case "signed_in":
-      return `${owner} 로그인한 분들에게 ${noun}을(를) 공개합니다.`;
+      return `${owner} 로그인한 분들에게 ${obj} 공개합니다.`;
     case "followers":
-      return `${owner} 팔로워에게 ${noun}을(를) 공개합니다.`;
+      return `${owner} 팔로워에게 ${obj} 공개합니다.`;
     case "following":
-      return `${owner} 본인이 팔로우하는 분들에게 ${noun}을(를) 공개합니다.`;
+      return `${owner} 본인이 팔로우하는 분들에게 ${obj} 공개합니다.`;
     case "mutuals":
-      return `${owner} 맞팔로우 또는 승인된 연결에게 ${noun}을(를) 공개합니다.`;
+      return `${owner} 맞팔로우 또는 승인된 연결에게 ${obj} 공개합니다.`;
     case "approved":
-      return `${owner} 승인된 관람자에게 ${noun}을(를) 공개합니다.`;
+      return `${owner} 승인된 관람자에게 ${obj} 공개합니다.`;
     case "delegates":
-      return `${owner} 활성 위임자에게 ${noun}을(를) 공개합니다.`;
+      return `${owner} 활성 위임자에게 ${obj} 공개합니다.`;
     case "owner_only":
-      return `${owner} ${noun}을(를) 당분간 비공개로 두었습니다.`;
+      return `${owner} ${obj} 당분간 비공개로 두었습니다.`;
   }
 }
 

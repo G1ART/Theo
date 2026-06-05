@@ -28,7 +28,7 @@ export type GateCtaResult = {
   resolvedFrom: "owner_override" | "audience_default" | "price_addon";
 };
 
-const PRICE_FIELDS = new Set(["price", "availability"]);
+const PRICE_FIELDS = new Set(["price", "availability", "price_availability"]);
 
 // Default rule (audience-based) when owner did not override request_mode:
 //   public/signed_in     → none (already visible; should not gate)

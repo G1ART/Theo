@@ -1,6 +1,58 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-05-29
+Last updated: 2026-06-05
+
+## 2026-06-05 — QA 오류/제안 리포트 3건 (availability 게이트 / 문구 한국어화 / 프로비넌스 온보딩 가드)
+
+### 1. 작품 상세 — availability 게이트가 "두 번" 뜨고 첫 칸 무반응 (오류, 2026-06-01)
+
+- **위치**: `src/app/artwork/[id]/page.tsx` (availability + price 게이트 렌더 블록).
+- **원인**:
+  - 한정공개(예: mutuals) 작품은 availability·price 두 필드가 각각 게이트 박스를 그려 거의 동일한 문구가 두 번 나란히 뜸(②의 영문 `availability` 미번역까지 겹쳐 "같은 칸 반복"으로 인지).
+  - availability 게이트에 **`onAskAboutWork` 가 누락**되어, price 류 필드의 보조 "이 작품 문의" 버튼(`shouldShowSecondaryInquiryCta`)이 **죽은 no-op** → "첫 번째 칸 클릭 무반응". price 게이트만 핸들러가 있어 "두 번째 칸 반응".
+- **수정**:
+  - availability·price 가 **같은 공개대상+요청모드**로 둘 다 게이트될 때는 **단일 병합 게이트**(`fieldKey="price_availability"`, 문구 "가격과 소장 가능 여부를 …") 하나만 렌더 → 중복 인상 제거.
+  - 분리 렌더 시에도 availability 게이트에 `onAskAboutWork` 연결 → 문의 버튼 항상 동작.
+  - `cta.ts` `PRICE_FIELDS` 에 `price_availability` 추가(병합 게이트도 inquiry CTA 제공).
+  - 값이 보이는 경우(소장상태/가격)는 기존과 동일하게 인라인 표시 — 동작 보존.
+
+### 2. availability 문구 한국어화 + 조사 정리 (제안, 2026-06-01)
+
+- **위치**: `src/lib/visibility/copy.ts` (게이트 문구 생성기, room/artwork 공용).
+- **원인**: KO 명사 매핑이 `availability: "availability"`(영문) + 모든 문장이 하드코딩 `…을(를) 공개합니다.`.
+- **수정**:
+  - availability → **"소장 가능 여부"** 한국어화. exhibition_preview 도 한국어 종결("전시 전 미리보기")로 정리.
+  - **받침(jongseong) 기반 조사 헬퍼** `objectParticleKo` 도입 — `(code-0xAC00)%28` 으로 을/를 단일 선택, 비-한글 종결은 "를" 폴백. `을(를)` 플레이스홀더를 **모든 게이트 문장**(가격·노트 등 포함)에서 제거.
+  - 예) "…소장 가능 여부를 공개합니다.", "…가격을 공개합니다.", 병합 "…가격과 소장 가능 여부를 공개합니다."
+
+### 3. 프로필 설정 전 소장/큐레이팅 기록 → 프로비넌스에 "설정 중인 프로필" 고정 (오류, 2026-06-01)
+
+- **위치**: `create_claim_request` RPC + `src/app/artwork/[id]/page.tsx`.
+- **진단(실데이터)**: "Moment with Moments"의 OWNS claim 이 가리키는 프로필이 **플레이스홀더**(`user_7d79b96eec1a`, display_name null, completeness 0). 이 계정 이메일은 `sienna.m.ko@gmail.com` → **Sienna Ko 본인의 미완성 2번째 계정**. 작가 프로필(`siennamko`)은 별개 auth 계정이라, 화면이 중립 라벨 "설정 중인 프로필"을 정확히 보여줘도(표시 로직 정상) **완료 프로필이 영원히 반영 불가**. claim 생성 RPC 에 온보딩 가드가 전혀 없어 미완성 계정도 OWNS/CURATED/EXHIBITED claim 생성 가능(큐레이팅 동일 경로 → 동일 증상).
+- **수정**:
+  - **서버 가드(권위)**: `create_claim_request` 에 subject 프로필이 placeholder(`is_placeholder_username`)이면 `profile_incomplete` 예외(errcode P0001). 마이그레이션 `20260622000000_qa_claim_onboarding_guard.sql`. 아티스트-귀속 RPC(`create_external_artist_and_claim`/`create_claim_for_existing_artist`)는 의미가 달라 범위 제외.
+  - **클라이언트 안내**: `handleRequestClaim` 에서 `profile_incomplete` 감지 시 친절 문구(`errors.claimProfileIncomplete`) + 1.2초 후 `/onboarding` 이동.
+  - **이 레코드(데이터)**: Sienna Ko 중복계정/잘못된 claim 은 코드 예방과 별개로 케이스별 수동 처리 필요(이번 패치 범위 외).
+
+### 검증
+
+- `npx tsx tests/visibility-copy.test.ts` ✅ · `tests/relationship-access.test.ts` ✅
+- KO 문구 샘플 출력으로 조사/병합 문구 육안 확인 ✅
+- `npx tsc --noEmit` — 신규 에러 0 (사전 `.next/types/routes.d 2.ts` 중복파일 노이즈만)
+- 수정 파일 ESLint — 신규 문제 0 (artwork page 159/407/417 등은 사전 `set-state-in-effect` 노이즈, 이번 diff 무관)
+
+### Supabase SQL (적용 필요)
+
+- **이미 production 에 `apply_migration` 으로 적용 완료** + `schema_migrations` 에 `20260622000000` 기록 동기화함.
+- 파일: `supabase/migrations/20260622000000_qa_claim_onboarding_guard.sql` (단일 PL/pgSQL 함수 → 한 블록 실행 가능). 다른 환경 적용 시 그대로 실행.
+
+### 환경 변수
+
+- 추가/변경 없음.
+
+---
+
+Last updated (prev): 2026-05-29
 
 ## 2026-05-29 — QA 오류 리포트 3건 핫픽스 (일괄 업로드 / 설정 저장 / AI 제안 404)
 

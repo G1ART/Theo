@@ -619,6 +619,19 @@ function ArtworkDetailContent() {
     setClaimDropdownOpen(false);
     if (error) {
       logSupabaseError("createClaimRequest", error);
+      // QA 2026-06-05 — placeholder/onboarding-incomplete accounts are
+      // blocked server-side from filing provenance claims (otherwise the
+      // claim would surface "설정 중인 프로필" forever). Surface a friendly
+      // nudge and route to onboarding instead of a raw error.
+      const msg =
+        typeof (error as { message?: unknown })?.message === "string"
+          ? ((error as { message: string }).message)
+          : "";
+      if (msg.includes("profile_incomplete")) {
+        setError(t("errors.claimProfileIncomplete"));
+        setTimeout(() => router.push("/onboarding"), 1200);
+        return;
+      }
       setError(formatSupabaseError(error, t, "errors.failedRequestClaim"));
       return;
     }
@@ -770,66 +783,112 @@ function ArtworkDetailContent() {
               <p className="mt-1 text-sm text-zinc-600">{sizeDisplay}</p>
             )}
             {(() => {
-              // Sprint 5.2 — fail-closed availability render. The server
-              // nullifies `ownership_status` when the viewer can't see
-              // it; `presence.availability` tells us whether a value
-              // *would* have existed pre-redaction so we can choose
-              // between "show gate" and "render nothing".
-              const eff = availabilityResolution ?? PENDING_RESOLUTION;
-              const label = ownershipStatusLabel(artwork.ownership_status, t);
-              if (eff.canView) {
-                if (!label) return null;
-                return <p className="mt-2 font-medium text-zinc-700">{label}</p>;
-              }
-              if (!fieldPresence?.availability) return null;
-              return (
-                <div className="mt-2">
-                  <GatedField
-                    ownerProfileId={artwork.artist_id}
-                    subjectType="artwork"
-                    subjectId={artwork.id}
-                    fieldKey="availability"
-                    resolution={eff}
-                    viewerRelationship={viewerRelationship}
-                    ownerLabel={getArtworkArtistLabel(artwork).label}
-                    surface="artwork_passport"
-                    onAfterFollow={() => void refreshPassport()}
-                  >
-                    <></>
-                  </GatedField>
-                </div>
+              // QA 2026-06-05 — availability + price gate consolidation.
+              //
+              // Both are fail-closed, price-flavored fields. When the viewer
+              // can see a value we render it inline (ownership label / price).
+              // When BOTH are gated to the *same* audience + request mode we
+              // show ONE combined gate ("가격과 소장 가능 여부") instead of two
+              // near-identical boxes, and wire its "Ask about this work" CTA
+              // so it is never a dead no-op — the previous standalone
+              // availability gate omitted `onAskAboutWork`, so its secondary
+              // inquiry button did nothing (QA: "first box click no response").
+              // Otherwise each field renders its own gate, both with a working
+              // inquiry CTA.
+              const availEff = availabilityResolution ?? PENDING_RESOLUTION;
+              const priceEff = priceResolution ?? PENDING_RESOLUTION;
+              const ownershipLabel = ownershipStatusLabel(
+                artwork.ownership_status,
+                t
               );
-            })()}
-            {(() => {
-              // Sprint 5.2 — fail-closed price render. Unlike availability/
-              // description, price always surfaces *something* (display or
-              // gate) because price hospitality is the canonical entry
-              // point for a price inquiry conversation.
-              const eff = priceResolution ?? PENDING_RESOLUTION;
-              if (eff.canView) {
-                return (
-                  <p className="mt-2 text-sm text-zinc-600">
-                    {getArtworkPriceDisplay(artwork, t)}
+              const ownerLabel = getArtworkArtistLabel(artwork).label;
+
+              const availHasValue = !!fieldPresence?.availability;
+              const availGated = !availEff.canView && availHasValue;
+              const priceGated = !priceEff.canView;
+
+              const availableNode =
+                availEff.canView && ownershipLabel ? (
+                  <p className="mt-2 font-medium text-zinc-700">
+                    {ownershipLabel}
                   </p>
+                ) : null;
+              const priceNode = priceEff.canView ? (
+                <p className="mt-2 text-sm text-zinc-600">
+                  {getArtworkPriceDisplay(artwork, t)}
+                </p>
+              ) : null;
+
+              const mergeGates =
+                availGated &&
+                priceGated &&
+                availEff.requiredAudience === priceEff.requiredAudience &&
+                availEff.requestMode === priceEff.requestMode;
+
+              if (mergeGates) {
+                return (
+                  <div className="mt-2">
+                    <GatedField
+                      ownerProfileId={artwork.artist_id}
+                      subjectType="artwork"
+                      subjectId={artwork.id}
+                      fieldKey="price_availability"
+                      resolution={priceEff}
+                      viewerRelationship={viewerRelationship}
+                      ownerLabel={ownerLabel}
+                      surface="artwork_passport"
+                      onAskAboutWork={() => setShowInquiryForm(true)}
+                      onAfterFollow={() => void refreshPassport()}
+                    >
+                      <></>
+                    </GatedField>
+                  </div>
                 );
               }
+
               return (
-                <div className="mt-2">
-                  <GatedField
-                    ownerProfileId={artwork.artist_id}
-                    subjectType="artwork"
-                    subjectId={artwork.id}
-                    fieldKey="price"
-                    resolution={eff}
-                    viewerRelationship={viewerRelationship}
-                    ownerLabel={getArtworkArtistLabel(artwork).label}
-                    surface="artwork_passport"
-                    onAskAboutWork={() => setShowInquiryForm(true)}
-                    onAfterFollow={() => void refreshPassport()}
-                  >
-                    <></>
-                  </GatedField>
-                </div>
+                <>
+                  {availEff.canView
+                    ? availableNode
+                    : availHasValue && (
+                        <div className="mt-2">
+                          <GatedField
+                            ownerProfileId={artwork.artist_id}
+                            subjectType="artwork"
+                            subjectId={artwork.id}
+                            fieldKey="availability"
+                            resolution={availEff}
+                            viewerRelationship={viewerRelationship}
+                            ownerLabel={ownerLabel}
+                            surface="artwork_passport"
+                            onAskAboutWork={() => setShowInquiryForm(true)}
+                            onAfterFollow={() => void refreshPassport()}
+                          >
+                            <></>
+                          </GatedField>
+                        </div>
+                      )}
+                  {priceEff.canView ? (
+                    priceNode
+                  ) : (
+                    <div className="mt-2">
+                      <GatedField
+                        ownerProfileId={artwork.artist_id}
+                        subjectType="artwork"
+                        subjectId={artwork.id}
+                        fieldKey="price"
+                        resolution={priceEff}
+                        viewerRelationship={viewerRelationship}
+                        ownerLabel={ownerLabel}
+                        surface="artwork_passport"
+                        onAskAboutWork={() => setShowInquiryForm(true)}
+                        onAfterFollow={() => void refreshPassport()}
+                      >
+                        <></>
+                      </GatedField>
+                    </div>
+                  )}
+                </>
               );
             })()}
             {showPriceInquiryBlock && (
