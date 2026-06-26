@@ -71,11 +71,28 @@
 - If build fails, use “Redeploy without cache / Clear cache” when needed
 
 ## Supabase Auth redirect URLs
-Supabase → Authentication → URL Configuration
-Add:
-- https://<vercel-domain>/auth/callback
-Keep localhost if needed:
-- http://localhost:3000/auth/callback
+Supabase Dashboard → Authentication → URL Configuration
+
+**Site URL** (한 개 — 사용자에게 발송되는 모든 Auth 메일의 base 가 됨):
+- 운영 도메인 그 자체 (예: `https://your-domain.com` 또는 `https://abstract-mvp-dxfn.vercel.app`)
+- 이 값이 비어 있거나 잘못되어 있으면 비밀번호 재설정/매직 링크가
+  엉뚱한 도메인 (예: `vercel.com`) 으로 라우팅된다. (QA 2026-06-26 #3)
+- Vercel 의 `NEXT_PUBLIC_APP_URL` 과 항상 일치해야 한다.
+
+**Redirect URLs (allowlist)** — Auth 메일 링크가 도착할 모든 콜백:
+- `https://<운영 도메인>/auth/callback`
+- `https://<운영 도메인>/auth/reset`
+- `https://<운영 도메인>/set-password`
+- `http://localhost:3000/auth/callback` (로컬 개발용)
+- `http://localhost:3000/auth/reset` (로컬 개발용)
+
+새 도메인을 붙일 때 체크리스트:
+1) Vercel 의 `NEXT_PUBLIC_APP_URL` 갱신 → Redeploy.
+2) Supabase Site URL 을 같은 값으로 갱신.
+3) Redirect URLs 에 위 3 개 콜백을 새 도메인으로 추가 (옛 도메인은
+   하위 호환을 위해 일시적으로 유지 가능).
+4) `/auth/forgot` 에서 본인에게 메일 발송 → 링크가 운영 도메인의
+   `/auth/reset?…` 로 떨어지는지 1 회 검증.
 
 ## Common failure modes & fixes
 ### 1) “supabaseUrl is required” during Vercel build

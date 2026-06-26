@@ -2,11 +2,108 @@
 
 Last updated: 2026-06-26
 
-## 2026-06-26 — QA 12건 일괄 수정·업그레이드 (Wave 1-4)
+## 2026-06-26 — QA 12건 일괄 수정·업그레이드 (Wave 5)
 
-5-wave 패치 묶음. Wave 0 (배포·도메인 설정) 은 사용자 액션 의존이라
-별도 진행 중. Wave 5 (멀티이미지/대체뷰/단위·매체 i18n/CV PDF) 는
-이어서 진행 예정.
+Wave 5 까지 모든 코드 변경 완료. 멀티 이미지 / 대체 뷰 / cm·in 단위
+토글 / 매체 datalist / CV PDF 업로드 + 공개 다운로드.
+
+### Wave 5 #2 + #5 — 작품당 멀티 이미지 + 대체 뷰
+
+- **스키마** (`supabase/migrations/20260626100000_qa_wave5_schema_extensions.sql`,
+  production 적용 완료):
+  - `artwork_images.view_type text not null default 'wall_mounted'` +
+    `('wall_mounted','detail','angle','in_situ','other')` 체크 제약.
+  - `profiles.cv_pdf_path text` (Wave #6 에서 사용).
+- **타입/SDK** (`src/lib/supabase/artworks.ts`):
+  - `ArtworkImage.view_type`, `attachArtworkImage(opts: { sortOrder?, viewType? })`.
+  - 모든 `artwork_images` SELECT 에 `view_type` 포함
+    (`shortlists`, `import/website/session/.../match` 포함).
+- **단일 업로드** (`src/app/upload/page.tsx`):
+  - 단일 `image` 상태 → `images: PendingImage[]` 로 교체. 다중 첨부,
+    이미지별 view_type select, 위/아래 순서 변경, 삭제 지원. 첫 번째 이미지
+    = primary (`sort_order=0`). 업로드 실패 시 직전까지 attach 된
+    이미지들을 best-effort 롤백.
+- **상세 캐러셀** (`src/components/artwork/ArtworkImageStage.tsx`):
+  - 이전/다음 버튼 + 키보드 ArrowLeft/Right + thumbnail strip +
+    카운터 캡션 (view N of M · {viewType}). 라이트박스도 현재 인덱스 노출.
+- **i18n**: `upload.multiImageHint`, `upload.imagePrimaryChip`,
+  `upload.imageViewTypeLabel`, `upload.imageMoveUp/Down/Remove`,
+  `upload.viewType.{wallMounted|detail|angle|inSitu|other}`,
+  `artwork.carouselPrev/Next/Counter/Thumbs` (EN/KO).
+
+### Wave 5 #4 — 단위(cm/in) · 매체 datalist
+
+- **`src/lib/size/format.ts`**:
+  - `setSizeUnitSuffix(size, unit)`: cm ↔ in 접미사 안전 교체. hosu
+    (`^\s*\d+\s*[FPMS]\b`) 는 cm-anchored 라 손대지 않음. 단위 없는
+    문자열은 unit 추가. `parseSizeWithUnit` 와 round-trip 보장.
+  - `detectSizeUnit(size, locale)`: 명시 접미사 우선, 없으면 locale
+    (ko → cm, 그 외 → in).
+- **단일 업로드 + 작품 편집** (`src/app/upload/page.tsx`,
+  `src/app/artwork/[id]/edit/page.tsx`):
+  - size 인풋 옆에 `cm` / `in` aria-pressed 토글 버튼.
+  - medium 인풋에 `datalist` (TAXONOMY.mediumOptions 14종) — 자유입력 보존.
+- 회귀 보호: `tests/size-unit-toggle.test.ts`.
+
+### Wave 5 #6 — CV PDF 업로드 + 공개 다운로드
+
+- **DB**:
+  - `supabase/migrations/20260626200000_qa_wave5_cv_pdf_rpc.sql` —
+    SECURITY DEFINER `update_my_cv_pdf_path(text)`. owner 폴더
+    접두사 검증, profile_updated_at 동기화.
+  - `supabase/migrations/20260626300000_qa_wave5_lookup_profile_cv_pdf.sql` —
+    `lookup_profile_by_username` 공개 분기에 `cv_pdf_path` 노출 +
+    부수 회귀픽스로 `viewer_follow_status` 복구 (20260601400000 에서
+    누락 → PrivateProfileShell follow 버튼이 항상 "none" 으로 떨어지던
+    이슈).
+- **Storage** (`src/lib/supabase/storage.ts`): `uploadProfileCvPdf`,
+  `removeProfileCvPdf`, `getProfileCvPdfUrl`, `PROFILE_CV_MAX_BYTES = 10MB`,
+  `ProfileCvValidationError`. `artworks` 버킷의 owner 폴더에 저장하므로
+  기존 storage RLS 그대로 통과 (Shape 1).
+- **UI**:
+  - `src/app/my/profile/cv/CvPdfUploader.tsx` 신설 + `CvEditorClient`
+    하단에 통합 — 업로드/교체/삭제 + 새 탭 열기 + 다운로드. RPC 실패
+    시 storage 롤백, 교체/삭제 시 이전 파일 best-effort 정리.
+  - `ProfileSurfaceCards.cvPdfPath` prop 추가 — CV 모달 상단 칩으로
+    "CV(PDF) 다운로드" 노출. PDF 만 있어도 visitor 에게 CV 카드 표시.
+- **타입/셀렉터**: `ProfilePublic.cv_pdf_path`, `PROFILE_ME_SELECT` 확장.
+- **i18n**: `cv.pdf.*` (title/lead/upload/replace/remove/empty/preview/
+  download/sizeLimit/errors/toasts), `profile.public.cvPdf`.
+- 회귀 보호: `tests/profile-cv-pdf.test.ts` (SQL 계약 — cv_pdf_path
+  노출, viewer_follow_status 복구, owner 폴더 가드, 스키마 컬럼).
+
+### Wave 5 — Supabase SQL 적용 필요 (요약)
+
+- `20260626100000_qa_wave5_schema_extensions.sql`
+- `20260626200000_qa_wave5_cv_pdf_rpc.sql`
+- `20260626300000_qa_wave5_lookup_profile_cv_pdf.sql`
+
+Production 은 본 작업에서 `apply_migration` MCP 로 모두 적용 완료
+(`schema_migrations` 동기화 포함). 로컬/스테이징은 SQL Editor 에서
+파일 순서대로 실행.
+
+### Wave 0 — 배포 설정 (사용자 액션 필요, 코드 외)
+
+- **환경 변수**:
+  - Vercel `NEXT_PUBLIC_APP_URL` = 운영 도메인 그대로 (예:
+    `https://abstract-mvp-dxfn.vercel.app` 또는 새로 붙인 Porkbun
+    도메인). 설정 후 Redeploy.
+- **Supabase Dashboard → Authentication → URL Configuration**:
+  - **Site URL** = `NEXT_PUBLIC_APP_URL` 과 동일한 값.
+  - **Redirect URLs (allowlist)** 에 다음 3 개 추가:
+    - `https://<운영 도메인>/auth/callback`
+    - `https://<운영 도메인>/auth/reset`
+    - `https://<운영 도메인>/set-password`
+  - 로컬 개발용 `http://localhost:3000/auth/callback`,
+    `http://localhost:3000/auth/reset` 도 함께 유지.
+- **검증**: `/auth/forgot` 에서 본인 메일 → 링크가 운영 도메인의
+  `/auth/reset?…` 로 떨어지는지 1 회 확인.
+- 자세한 단계는 `docs/03_RUNBOOK.md` → "Supabase Auth redirect URLs"
+  섹션과 `.env.example` 의 `NEXT_PUBLIC_APP_URL` 주석 참고.
+
+---
+
+## 2026-06-26 — QA 12건 일괄 수정·업그레이드 (Wave 1-4)
 
 ### Wave 1 — 퀵픽스 3건
 
@@ -89,7 +186,8 @@ Last updated: 2026-06-26
   실행 필요 (SQL Editor 에서 **섹션 단위 실행** 권장).
 
 ### 환경 변수
-- 추가 없음.
+- 추가 없음 (Wave 0 에서 `NEXT_PUBLIC_APP_URL` + Supabase Site URL
+  콜아웃은 별도 — 상단 Wave 0 섹션 참조).
 
 ---
 
