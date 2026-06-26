@@ -39,6 +39,8 @@ import { WebsiteImportPanel } from "@/components/upload/WebsiteImportPanel";
 import { BulkUploadGuidance } from "@/components/upload/BulkUploadGuidance";
 import { BetaFeedbackPrompt } from "@/components/beta";
 import { formatBulkFileUploadFailure } from "@/lib/upload/formatUploadError";
+import { formatSupabaseError } from "@/lib/errors/supabase";
+import { logSupabaseError } from "@/lib/supabase/errors";
 import {
   BULK_MAX_FILES_PER_BATCH,
   BULK_MY_DRAFTS_QUERY_LIMIT,
@@ -598,6 +600,13 @@ export default function BulkUploadPage() {
     }
     setPublishing(true);
     try {
+      // Per-work successes that should be linked to the exhibition + counted
+      // toward "today's salon" refresh. Failures stay as drafts so the user
+      // can fix and retry exactly the failed entries.
+      let publishedIds: string[] = [];
+      let failedCount = 0;
+      let firstFailureReason: string | null = null;
+
       if (intent && needsAttribution) {
         const opts: Parameters<typeof publishArtworksWithProvenance>[1] = {
           intent,
@@ -612,14 +621,27 @@ export default function BulkUploadPage() {
         if (intent === "INVENTORY" || intent === "CURATED") {
           opts.period_status = periodStatus;
         }
-        if (intent === "CURATED" && addToExhibitionId) {
-          opts.projectId = addToExhibitionId;
-        }
-        const { error, inviteSent, inviteFailed } = await publishArtworksWithProvenance(ids, opts);
+        // QA 2026-06-26 (#8) — DO NOT forward addToExhibitionId as a
+        // projectId to the claim RPC; the server rejects work_id +
+        // project_id together. Exhibition linking happens below via
+        // addWorkToExhibition, but only for SUCCEEDED ids.
+        const { results, firstError, error, inviteSent, inviteFailed } =
+          await publishArtworksWithProvenance(ids, opts);
         if (error) {
-          setToast(error instanceof Error ? error.message : "Publish failed");
-          setTimeout(() => setToast(null), 3000);
+          logSupabaseError("publishArtworksWithProvenance.setup", error);
+          setToast(formatSupabaseError(error, t, "upload.publishFallback"));
+          setTimeout(() => setToast(null), 4000);
           return;
+        }
+        publishedIds = results.filter((r) => r.ok).map((r) => r.id);
+        failedCount = results.length - publishedIds.length;
+        if (firstError !== undefined) {
+          logSupabaseError("publishArtworksWithProvenance.work", firstError);
+          firstFailureReason = formatSupabaseError(
+            firstError,
+            t,
+            "upload.publishFallback"
+          );
         }
         if (inviteSent) {
           setToast(t("upload.inviteSent"));
@@ -640,23 +662,64 @@ export default function BulkUploadPage() {
           forProfileId: actingAsProfileId ?? null,
         });
         if (error) {
-          setToast(error instanceof Error ? error.message : "Publish failed");
-          setTimeout(() => setToast(null), 3000);
+          logSupabaseError("publishArtworks", error);
+          setToast(formatSupabaseError(error, t, "upload.publishFallback"));
+          setTimeout(() => setToast(null), 4000);
           return;
         }
+        publishedIds = [...ids];
       }
-      if (addToExhibitionId && ids.length > 0 && intent === "CURATED") {
-        for (const workId of ids) {
+
+      // Link only successful works to the exhibition. Linking a draft
+      // (a failed publish) would surface a half-published work on the
+      // exhibition page, which is exactly the "잘못 저장된 것 같다"
+      // confusion QA reported.
+      if (addToExhibitionId && publishedIds.length > 0 && intent === "CURATED") {
+        for (const workId of publishedIds) {
           await addWorkToExhibition(addToExhibitionId, workId, {
             actingSubjectProfileId: actingAsProfileId ?? null,
           });
         }
-        router.push(`/my/exhibitions/${addToExhibitionId}/add`);
+      }
+
+      // Surface a precise outcome. Three cases:
+      //   1) all failed → friendly error toast (cause-aware).
+      //   2) partial    → "N of M published, X failed: <cause>"
+      //   3) all good   → silent success (caller already navigates /
+      //                   refetches drafts).
+      if (publishedIds.length === 0 && failedCount > 0) {
+        const reason = firstFailureReason ?? t("upload.publishFallback");
+        setToast(
+          t("upload.publishAllFailed").replace("{reason}", reason)
+        );
+        setTimeout(() => setToast(null), 5000);
         return;
       }
-      setSelected(new Set());
-      await fetchDrafts();
-      void logBetaEvent("bulk_publish_completed", { count: ids.length });
+      if (failedCount > 0) {
+        const reason = firstFailureReason ?? t("upload.publishFallback");
+        setToast(
+          t("upload.publishPartial")
+            .replace("{ok}", String(publishedIds.length))
+            .replace("{total}", String(publishedIds.length + failedCount))
+            .replace("{failed}", String(failedCount))
+            .replace("{reason}", reason)
+        );
+        setTimeout(() => setToast(null), 6000);
+      }
+
+      // Navigate / refetch ONLY when at least one work landed publicly.
+      if (publishedIds.length > 0) {
+        if (addToExhibitionId && intent === "CURATED") {
+          router.push(`/my/exhibitions/${addToExhibitionId}/add`);
+          return;
+        }
+        setSelected(new Set());
+        // Silent refetch so a partial-success toast stays visible.
+        await fetchDrafts({ silent: true });
+        void logBetaEvent("bulk_publish_completed", {
+          count: publishedIds.length,
+        });
+      }
     } finally {
       setPublishing(false);
     }

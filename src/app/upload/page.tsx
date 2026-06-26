@@ -327,11 +327,16 @@ function UploadPageContent() {
           intent === "CREATED"
             ? actingAsProfileId ?? userId
             : selectedArtist!.id;
+        // QA 2026-06-26 (#8) — file the claim work-scoped only.
+        // Passing both workId and projectId hits the DB invariant
+        // `exactly one of work_id, project_id required` and the entire
+        // upload silently failed. Exhibition wiring is handled below
+        // by the separate `addWorkToExhibition` call, mirroring the
+        // external-artist branch above.
         const { error: claimErr } = await createClaimForExistingArtist({
           artistProfileId,
           claimType,
           workId: artworkId,
-          projectId: addToExhibitionId?.trim() && (claimType === "CURATED" || claimType === "INVENTORY") ? addToExhibitionId.trim() : undefined,
           visibility: "public",
           ...claimPayload,
           subjectProfileId: actingAsProfileId ?? undefined,

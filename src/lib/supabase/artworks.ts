@@ -1476,8 +1476,6 @@ export type PublishWithProvenanceOptions = {
   externalArtistEmail?: string | null;
   /** For INVENTORY/CURATED/EXHIBITED: past/current/future */
   period_status?: "past" | "current" | "future" | null;
-  /** For CURATED: exhibition/project id to link claims and add works to exhibition */
-  projectId?: string | null;
   /**
    * Acting-as override. When the caller is operating as an account-scope
    * delegate of `onBehalfOfProfileId`, the drafts were created under that
@@ -1488,16 +1486,44 @@ export type PublishWithProvenanceOptions = {
   onBehalfOfProfileId?: string | null;
 };
 
+export type PublishWithProvenanceResult = {
+  /** Per-work outcome (in input order). */
+  results: Array<{ id: string; ok: true } | { id: string; ok: false; error: unknown }>;
+  /** Convenience: id of first failure, if any. */
+  firstError?: unknown;
+  /** Set to a single error when the call could not start at all
+   *  (e.g. unauthenticated). For per-work failures, see `results`. */
+  error: unknown;
+  inviteSent?: boolean;
+  inviteFailed?: boolean;
+};
+
+/**
+ * Publish a batch of draft artworks, filing the matching provenance
+ * claim per work. Returns per-work outcomes so the caller can show a
+ * partial-success summary ("3 of 5 published, 2 failed: …") instead of
+ * an opaque "Publish failed" toast.
+ *
+ * QA 2026-06-26 (#8) — the previous implementation passed both
+ * `workId` and `projectId` to the claim RPC, which the server rejects
+ * with `exactly one of work_id, project_id required`. That is why
+ * every CURATED bulk publish from "전시 → 작품 추가 → 일괄 업로드"
+ * silently failed and left drafts behind. We now file work-scoped
+ * claims only; exhibition wiring is the caller's job via
+ * `addWorkToExhibition`, exactly mirroring the single-upload flow.
+ */
 export async function publishArtworksWithProvenance(
   ids: string[],
   opts: PublishWithProvenanceOptions
-): Promise<{ error: unknown; inviteSent?: boolean; inviteFailed?: boolean }> {
+): Promise<PublishWithProvenanceResult> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  if (!session?.user?.id)
-    return { error: new Error("Not authenticated") };
-  if (ids.length === 0) return { error: null };
+  if (!session?.user?.id) {
+    const err = new Error("Not authenticated");
+    return { results: [], error: err, firstError: err };
+  }
+  if (ids.length === 0) return { results: [], error: null };
 
   const { createClaimForExistingArtist, createExternalArtistAndClaim } = await import("@/lib/provenance/rpc");
 
@@ -1510,51 +1536,75 @@ export async function publishArtworksWithProvenance(
   // pointed to the principal but the claim subject pointed to the
   // operator — leaving the work simultaneously on two profiles.
   const subjectOverride = opts.onBehalfOfProfileId ?? null;
+
+  const results: PublishWithProvenanceResult["results"] = [];
+  let firstError: unknown = undefined;
+
   for (const id of ids) {
+    let claimErr: unknown = null;
     if (opts.intent === "CREATED") {
-      const { error: claimErr } = await createClaimForExistingArtist({
+      const { error } = await createClaimForExistingArtist({
         artistProfileId: subjectOverride ?? session.user.id,
         claimType: "CREATED",
         workId: id,
         visibility: "public",
         subjectProfileId: subjectOverride ?? undefined,
       });
-      if (claimErr) return { error: claimErr };
+      claimErr = error;
     } else if (opts.externalArtistDisplayName) {
-      const { error: claimErr } = await createExternalArtistAndClaim({
+      const { error } = await createExternalArtistAndClaim({
         displayName: opts.externalArtistDisplayName,
         inviteEmail: opts.externalArtistEmail ?? null,
         claimType: opts.intent,
         workId: id,
-        projectId: opts.projectId ?? null,
+        // QA 2026-06-26 (#8) — DO NOT pass projectId here. Exhibition
+        // linking happens after publish via addWorkToExhibition.
         visibility: "public",
         ...claimPayload,
         subjectProfileId: subjectOverride ?? undefined,
       });
-      if (claimErr) return { error: claimErr };
+      claimErr = error;
     } else if (opts.artistProfileId) {
-      const { error: claimErr } = await createClaimForExistingArtist({
+      const { error } = await createClaimForExistingArtist({
         artistProfileId: opts.artistProfileId,
         claimType: opts.intent,
         workId: id,
-        projectId: opts.projectId ?? null,
+        // QA 2026-06-26 (#8) — see note above.
         visibility: "public",
         ...claimPayload,
         subjectProfileId: subjectOverride ?? undefined,
       });
-      if (claimErr) return { error: claimErr };
-      const { error: upErr } = await supabase
-        .from("artworks")
-        .update({ artist_id: opts.artistProfileId })
-        .eq("id", id);
-      if (upErr) return { error: upErr };
+      claimErr = error;
+      if (!claimErr) {
+        const { error: upErr } = await supabase
+          .from("artworks")
+          .update({ artist_id: opts.artistProfileId })
+          .eq("id", id);
+        if (upErr) claimErr = upErr;
+      }
     }
-    const { error } = await supabase
+
+    if (claimErr) {
+      results.push({ id, ok: false, error: claimErr });
+      if (firstError === undefined) firstError = claimErr;
+      continue;
+    }
+
+    // Only flip to public when the claim landed. A failed claim leaves
+    // the artwork as `draft` so the user can fix the cause and retry
+    // exactly the failed entries (instead of silently shipping
+    // half-attributed work to the public feed).
+    const { error: pubErr } = await supabase
       .from("artworks")
       .update({ visibility: "public" })
       .eq("id", id)
       .eq("visibility", "draft");
-    if (error) return { error };
+    if (pubErr) {
+      results.push({ id, ok: false, error: pubErr });
+      if (firstError === undefined) firstError = pubErr;
+      continue;
+    }
+    results.push({ id, ok: true });
   }
 
   let inviteSent = false;
@@ -1565,7 +1615,7 @@ export async function publishArtworksWithProvenance(
     inviteSent = !inviteErr;
     if (inviteErr) inviteFailed = true;
   }
-  return { error: null, inviteSent, inviteFailed };
+  return { results, firstError, error: null, inviteSent, inviteFailed };
 }
 
 export async function recordArtworkView(artworkId: string) {

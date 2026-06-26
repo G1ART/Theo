@@ -620,6 +620,11 @@ export const messages = {
     "upload.externalArtistEmailHint": "If you add an email, we can send an invite. When they sign up with that email, the work will auto-link to their profile.",
     "upload.inviteSent": "Invite email sent.",
     "upload.inviteSentFailed": "Invite email could not be sent.",
+    "upload.publishFallback":
+      "Couldn't publish. Please try again, or remove the work and re-upload if the file may be too large.",
+    "upload.publishAllFailed": "Couldn't publish any work. {reason}",
+    "upload.publishPartial":
+      "{ok} of {total} works published. {failed} couldn't be published — {reason}",
     "upload.selectedArtist": "Selected",
     "upload.screenSizeHint":
       "One image per upload. Each file may be up to {maxMb} MB—enough for sharp display online. If your file is larger, export a smaller copy first.",
@@ -3330,6 +3335,11 @@ export const messages = {
     "upload.externalArtistEmailHint": "이메일을 입력하면 초대장을 보낼 수 있습니다. 해당 이메일로 가입하면 작품이 자동으로 연결됩니다.",
     "upload.inviteSent": "초대 이메일을 보냈습니다.",
     "upload.inviteSentFailed": "이메일 발송에 실패했습니다.",
+    "upload.publishFallback":
+      "게시에 실패했어요. 잠시 후 다시 시도하거나, 파일이 너무 크면 작품을 지우고 더 작은 이미지로 다시 올려 주세요.",
+    "upload.publishAllFailed": "한 점도 게시하지 못했어요. {reason}",
+    "upload.publishPartial":
+      "{total}점 중 {ok}점만 게시했어요. {failed}점은 게시하지 못했어요 — {reason}",
     "upload.selectedArtist": "선택됨",
     "upload.screenSizeHint":
       "한 번에 한 장만 올릴 수 있어요. 파일당 최대 {maxMb}MB까지 허용됩니다. 화면용으로는 충분한 크기예요. 더 크면 편집기에서 줄인 뒤 선택해 주세요.",
