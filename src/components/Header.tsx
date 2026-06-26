@@ -211,7 +211,16 @@ export function Header() {
   }, [staleCleared, acknowledgeStaleCleared]);
 
   return (
-    <>
+    // QA 2026-06-26 (#1) — sticky top so the header stays in view from
+    // the very first paint, even on pages where the user lands with
+    // scrollY > 0 (deep-link / SSR-scrolled-to-section). The whole
+    // banner+header stack sticks together so the staleCleared and
+    // acting-as banners never become detached "floating" notices above
+    // the bar. `z-40` keeps us below modals/drawers (z-50+), so an
+    // open dialog still covers the bar without the user needing to
+    // dismiss us first. The opaque `bg-white` prevents page content
+    // from bleeding through the bar while it scrolls underneath.
+    <div className="sticky top-0 z-40 bg-white">
       {staleCleared && !actingAsLabel && (
         <div
           role="status"
@@ -644,6 +653,6 @@ export function Header() {
         </div>
       )}
     </header>
-    </>
+    </div>
   );
 }
