@@ -97,7 +97,9 @@ export type ArtworkClaim = {
   start_date?: string | null;
   end_date?: string | null;
   profiles: { username: string | null; display_name: string | null } | null;
-  external_artists?: { display_name: string; invite_email?: string | null } | null;
+  // QA 2026-06-27: invite_email is intentionally NOT embedded in public
+  // artwork payloads (PII). Read it via getExternalArtistInviteEmail (owner only).
+  external_artists?: { display_name: string } | null;
 };
 
 const CLAIM_STATUS_CONFIRMED = "confirmed";
@@ -347,7 +349,7 @@ const ARTWORK_SELECT = `
   artwork_images(storage_path, sort_order, view_type),
   profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles, is_public),
   artwork_likes(count),
-  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name, invite_email))
+  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
 `;
 
 export async function listPublicArtworks(
@@ -1100,7 +1102,7 @@ export async function getArtworkById(
       artwork_images(storage_path, sort_order, view_type),
       profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles),
       artwork_likes(count),
-      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name, invite_email))
+      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
     `
     )
     .eq("id", id)
@@ -1144,7 +1146,7 @@ export async function getArtworksByIds(
       artwork_images(storage_path, sort_order, view_type),
       profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles),
       artwork_likes(count),
-      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name, invite_email))
+      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
     `
     )
     .in("id", ids);

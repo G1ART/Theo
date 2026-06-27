@@ -77,6 +77,30 @@ export async function createExternalArtist(
   return { data: (data as { id: string } | null)?.id ?? null, error: null };
 }
 
+/**
+ * Owner-only fetch of an invited external artist's invite_email.
+ *
+ * QA 2026-06-27: `external_artists.invite_email` (PII) is no longer
+ * selectable via PostgREST by anon/authenticated — the public feed /
+ * detail / exhibition embeds dropped it so a third-party viewer can't
+ * harvest invite emails of publicly-credited external artists. The
+ * edit screen still needs it to prefill the invite field, so it now
+ * goes through the SECURITY DEFINER `get_external_artist_invite_email`
+ * RPC, which returns the email only to the inviter (invited_by =
+ * auth.uid()). Non-inviters (incl. delegates, who never had row
+ * access to begin with) get null.
+ */
+export async function getExternalArtistInviteEmail(
+  externalArtistId: string
+): Promise<{ data: string | null; error: unknown }> {
+  if (!externalArtistId) return { data: null, error: null };
+  const { data, error } = await supabase.rpc("get_external_artist_invite_email", {
+    p_external_artist_id: externalArtistId,
+  });
+  if (error) return { data: null, error };
+  return { data: (data as string | null) ?? null, error: null };
+}
+
 export async function updateClaim(
   claimId: string,
   payload: {

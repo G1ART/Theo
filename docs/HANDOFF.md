@@ -1,6 +1,56 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-06-26
+Last updated: 2026-06-27
+
+## 2026-06-27 — 외부(초대 전) 작가 표기명이 제3자에게 안 보이던 버그 (QA)
+
+### 증상
+갤러리가 아직 온보딩 안 한 작가 이름을 넣고 이메일 초대 후 업로드하면,
+피드/작품 상세/전시에서 **비로그인·제3자 뷰어에게는 작가 자리에 외부
+작가명(예: 김수철)이 아니라 업로더 계정명(예: 지원닷아트코리아)**이 노출.
+
+### 원인 (확정)
+- `claims` 는 public SELECT 가 열려 있으나, `external_artists` 는
+  `external_artists_all_own (invited_by = auth.uid())` 정책 하나뿐이라
+  **초대한 갤러리 본인만** 읽을 수 있었음.
+- 그래서 `claims(..., external_artists(display_name, invite_email))`
+  임베드가 제3자에게는 external_artists 행을 **null** 로 반환 →
+  표시 로직(`FeedArtworkCard` / `getArtworkArtistLabel`)이 외부명이
+  없으면 `artworks.artist_id`(=갤러리)로 폴백 → 갤러리명 출력.
+- anon 롤 시뮬레이션으로 확정 (claim 은 보이고 display_name 만 null).
+- 피드뿐 아니라 작품 상세·전시 페이지 동일 영향(셋 다 같은 임베드).
+
+### 수정 (A안 — 정규화 유지, SQL + 코드)
+- **마이그레이션** `supabase/migrations/20260627000000_external_artist_public_credit.sql`
+  (production `apply_migration` 적용 완료 + `schema_migrations` 동기화):
+  1. `external_artists_select_public` 정책 — **공개(visibility='public')·
+     confirmed claim 에서 참조되는 행만** 누구나 SELECT 가능 →
+     display_name 공개.
+  2. `invite_email`(PII) 차단 — 테이블 SELECT 를 anon/authenticated 에서
+     **revoke** 후 invite_email 을 **제외한** 컬럼만 재부여.
+     (컬럼 레벨 revoke 만으로는 테이블 grant 가 있으면 무효라 테이블
+     revoke + 컬럼 grant 조합 사용.) 소유자도 직접 임베드로는 못 읽음.
+  3. `get_external_artist_invite_email(uuid)` SECURITY DEFINER RPC —
+     초대자 본인(`invited_by = auth.uid()`)에게만 invite_email 반환.
+- **코드**:
+  - `src/lib/supabase/artworks.ts`: 공개 임베드 3곳
+    (ARTWORK_SELECT / getArtworkById / getArtworksByIds)에서
+    `external_artists(display_name, invite_email)` →
+    `external_artists(display_name)`. `ArtworkClaim` 타입에서 invite_email 제거.
+  - `src/lib/provenance/rpc.ts`: `getExternalArtistInviteEmail()` 추가.
+  - `src/app/artwork/[id]/edit/page.tsx`: 편집 프리필을 임베드 대신
+    위 RPC 로 조회(비초대자는 빈 값).
+- **회귀 보호**: `tests/external-artist-public-credit.test.ts`
+  (정책/권한/RPC/임베드 계약 검증).
+
+### Supabase SQL 적용 필요
+- `20260627000000_external_artist_public_credit.sql` — production 적용 완료.
+  로컬/스테이징은 SQL Editor 에서 실행.
+
+### 환경 변수
+- 추가 없음.
+
+---
 
 ## 2026-06-26 — QA 12건 일괄 수정·업그레이드 (Wave 5)
 

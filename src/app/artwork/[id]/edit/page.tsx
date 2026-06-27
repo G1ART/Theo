@@ -17,6 +17,7 @@ import {
   createClaimForExistingArtist,
   createExternalArtist,
   createExternalArtistAndClaim,
+  getExternalArtistInviteEmail,
   updateClaim,
 } from "@/lib/provenance/rpc";
 import { AuthGate } from "@/components/AuthGate";
@@ -180,7 +181,13 @@ function EditArtworkContent() {
       if (claim.external_artist_id && claim.external_artists) {
         setUseExternalArtist(true);
         setExternalArtistName(claim.external_artists.display_name ?? "");
-        setExternalArtistEmail(claim.external_artists.invite_email ?? "");
+        // QA 2026-06-27: invite_email is no longer embedded in the
+        // public artwork payload (PII). Prefill it via the owner-only
+        // RPC; non-inviters simply get an empty field.
+        const externalArtistId = claim.external_artist_id;
+        void getExternalArtistInviteEmail(externalArtistId).then(({ data }) => {
+          if (data) setExternalArtistEmail(data);
+        });
       }
     } else if (effectiveIds.includes(artwork.artist_id)) {
       setClaimType("CREATED");
