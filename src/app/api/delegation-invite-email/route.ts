@@ -23,7 +23,7 @@ function buildHtml(payload: Payload, acceptUrl: string) {
 
   return `
   <div style="font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #111827;">
-    <p><strong>${inviter}</strong> invited you to help manage ${scope}${projectLine} on Abstract.</p>
+    <p><strong>${inviter}</strong> invited you to help manage ${scope}${projectLine} on Theo.</p>
     <p>After signing in or creating an account with this email, you can review the delegation scope and accept or decline.</p>
     <p style="margin:8px 0 24px; color:#6b7280; font-size:12px;">
       Signing up alone does not activate access — you'll explicitly review and accept on the next screen.
@@ -35,7 +35,7 @@ function buildHtml(payload: Payload, acceptUrl: string) {
       </a>
     </p>
     <p style="color:#6b7280; font-size:12px;">If you didn’t expect this, you can ignore this email — nothing will happen.</p>
-    <p>— Abstract</p>
+    <p>— Theo</p>
   </div>
   `;
 }
@@ -55,7 +55,7 @@ function buildHtmlKo(payload: Payload, acceptUrl: string) {
 
   return `
   <div style="font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #111827;">
-    <p><strong>${inviter}</strong>님이 Abstract에서 ${scope}${projectLine} 관리 권한을 함께 다뤄달라고 초대했어요.</p>
+    <p><strong>${inviter}</strong>님이 Theo에서 ${scope}${projectLine} 관리 권한을 함께 다뤄달라고 초대했어요.</p>
     <p>이 이메일 주소로 가입하거나 로그인하면 위임 내용을 확인하고 수락할 수 있어요.</p>
     <p style="margin:8px 0 24px; color:#6b7280; font-size:12px;">
       가입만으로는 권한이 활성화되지 않아요. 다음 화면에서 직접 확인 후 수락해야 활성화됩니다.
@@ -67,7 +67,7 @@ function buildHtmlKo(payload: Payload, acceptUrl: string) {
       </a>
     </p>
     <p style="color:#6b7280; font-size:12px;">예상치 못한 메일이라면 무시하셔도 됩니다 — 아무 일도 일어나지 않아요.</p>
-    <p>— Abstract</p>
+    <p>— Theo</p>
   </div>
   `;
 }
@@ -129,8 +129,8 @@ export async function POST(req: Request) {
     }
 
     const inviter = body.inviterName?.trim() || "Someone";
-    const subjectEn = `${inviter} invited you to review a delegation on Abstract`;
-    const subjectKo = `Abstract에서 ${inviter}님이 위임 내용을 보내셨어요 — 확인 후 수락해 주세요`;
+    const subjectEn = `${inviter} invited you to review a delegation on Theo`;
+    const subjectKo = `Theo에서 ${inviter}님이 위임 내용을 보내셨어요 — 확인 후 수락해 주세요`;
 
     const html = buildHtml(body, acceptUrl) + "<hr/>" + buildHtmlKo(body, acceptUrl);
 

@@ -25,7 +25,7 @@ const REQUIRED_PERMISSION = "manage_works";
  * derived from the actual server-side counts so the operator still has
  * a working checklist when the LLM is unavailable. Numbers are never
  * invented — every entry references a count we measured in this same
- * request and links to the right surface inside Abstract.
+ * request and links to the right surface inside Theo.
  */
 function buildDelegationBriefFallback(
   ctx: DelegationBriefInput,

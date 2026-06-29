@@ -69,7 +69,7 @@ export async function extractFromUrl(url: string): Promise<CvExtractResult> {
         // Polite, identifiable UA. Some hosts (Cloudflare) reject the
         // default node fetch UA.
         "user-agent":
-          "AbstractCVImport/1.0 (+https://abstract.art; cv-import bot for the profile owner)",
+          "TheoCVImport/1.0 (+https://theo.art; cv-import bot for the profile owner)",
         accept: "text/html,application/xhtml+xml",
       },
     });

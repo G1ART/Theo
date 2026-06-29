@@ -17,7 +17,7 @@ export function stripOpaqueIdsFromCopilotText(text: string): string {
 }
 
 /**
- * Prefer localized CTA labels for known Abstract deep links; otherwise use
+ * Prefer localized CTA labels for known Theo deep links; otherwise use
  * a cleaned model label.
  */
 export function resolvePortfolioActionLabel(

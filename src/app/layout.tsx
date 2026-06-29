@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Abstract — Artist-centric community",
+  title: "Theo — Artist-centric community",
   description: "Share works, connect with artists and collectors.",
 };
 

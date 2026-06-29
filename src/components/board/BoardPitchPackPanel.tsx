@@ -42,7 +42,7 @@ const KIND_LABEL: Record<BoardPitchPackDraftKind, MessageKey> = {
  * P1-A — Board Pitch Pack panel.
  *
  * Calm collapsed CTA on the board detail page; only fires the model on
- * explicit click. Outputs are copy-only — Abstract never pastes anything
+ * explicit click. Outputs are copy-only — Theo never pastes anything
  * back into the board, never sends outreach. The panel never displays
  * price/collection info; the API also never sends it.
  *

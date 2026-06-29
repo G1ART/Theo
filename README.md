@@ -1,4 +1,4 @@
-# Abstract MVP
+# Theo MVP
 
 Next.js and Supabase app: artist-centric feed, uploads, exhibitions, price inquiries, and lightweight beta analytics.
 

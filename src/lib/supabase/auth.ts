@@ -120,7 +120,7 @@ function warnMissingIdentitySql(row: Record<string, unknown>) {
   if (env === "production") return;
   const have = Object.keys(row).sort().join(", ");
   console.warn(
-    "%c[Abstract] get_my_auth_state() is missing `needs_identity_setup` / `is_placeholder_username`.",
+    "%c[Theo] get_my_auth_state() is missing `needs_identity_setup` / `is_placeholder_username`.",
     "color:#b45309;font-weight:600",
     "\nApply supabase/migrations/20260421120000_identity_completeness.sql before testing onboarding.",
     "\nReturned columns:",

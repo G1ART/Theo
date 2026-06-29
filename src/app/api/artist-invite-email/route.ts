@@ -48,8 +48,8 @@ function buildEmailHtml(payload: InvitePayload) {
     ? `현재 “${exhibition}” 전시를 준비하며, 작가님의 동의와 함께 작품을 소개하고자 합니다.`
     : "";
 
-  const inviterIntroEn = `A ${inviterRole} ${inviter} has added your work to their program on Abstract and would like to invite you to join the platform.`;
-  const inviterIntroKo = `${inviterRoleKo} ${inviter} 님이 Abstract에서 ${artist} 님의 작품을 전시 프로그램에 포함하며, 함께 플랫폼에 참여해 주시기를 정중히 초청드립니다.`;
+  const inviterIntroEn = `A ${inviterRole} ${inviter} has added your work to their program on Theo and would like to invite you to join the platform.`;
+  const inviterIntroKo = `${inviterRoleKo} ${inviter} 님이 Theo에서 ${artist} 님의 작품을 전시 프로그램에 포함하며, 함께 플랫폼에 참여해 주시기를 정중히 초청드립니다.`;
 
   const onboardingUrl = "https://abstract-mvp-dxfn.vercel.app/onboarding";
 
@@ -59,55 +59,55 @@ function buildEmailHtml(payload: InvitePayload) {
 
     <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">Dear ${artist},</h1>
 
-    <p>You are being invited to join <strong>Abstract</strong>, an artist‑centric platform for sharing works and building exhibitions with curators, galleries, and collectors.</p>
+    <p>You are being invited to join <strong>Theo</strong>, an artist‑centric platform for sharing works and building exhibitions with curators, galleries, and collectors.</p>
 
     <p>${inviterIntroEn}</p>
     ${exhibitionLineEn ? `<p>${exhibitionLineEn}</p>` : ""}
 
-    <p>By joining Abstract with this email address, you’ll be able to:</p>
+    <p>By joining Theo with this email address, you’ll be able to:</p>
     <ul>
       <li>review how your work is presented and update details yourself</li>
       <li>connect directly with curators and galleries who show your work</li>
       <li>keep a growing record of your exhibitions and provenance in one place</li>
     </ul>
 
-    <p>To get started, please create your account with this email address on Abstract using the button below.</p>
+    <p>To get started, please create your account with this email address on Theo using the button below.</p>
 
     <p style="margin:24px 0;">
       <a href="${onboardingUrl}"
          style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Join Abstract
+        Join Theo
       </a>
     </p>
 
-    <p>Warm regards,<br/>The Abstract team</p>
+    <p>Warm regards,<br/>The Theo team</p>
 
     <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
 
     <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">${artist} 님께,</h1>
 
-    <p>아티스트를 중심에 두고 전시와 커뮤니티를 만들어 가는 플랫폼 <strong>Abstract</strong> 에</p>
+    <p>아티스트를 중심에 두고 전시와 커뮤니티를 만들어 가는 플랫폼 <strong>Theo</strong> 에</p>
     <p>${inviterIntroKo}</p>
     ${exhibitionLineKo ? `<p>${exhibitionLineKo}</p>` : ""}
 
-    <p>Abstract에 가입하시면:</p>
+    <p>Theo에 가입하시면:</p>
     <ul>
       <li>작품이 어떻게 소개되는지 직접 확인하고, 필요한 내용을 스스로 수정하실 수 있고</li>
       <li>작품을 전시·소개하는 큐레이터와 갤러리와 직접 연결되고</li>
       <li>전시 이력과 프로비넌스(소장·전시 기록)를 한 곳에 쌓아두실 수 있습니다.</li>
     </ul>
 
-    <p>이 이메일 주소로 Abstract 계정을 만들어 주시면,<br/>
+    <p>이 이메일 주소로 Theo 계정을 만들어 주시면,<br/>
     이미 업로드된 작품과 전시가 자연스럽게 연동되도록 도와드리겠습니다.</p>
 
     <p style="margin:24px 0;">
       <a href="${onboardingUrl}"
          style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Abstract 가입하기
+        Theo 가입하기
       </a>
     </p>
 
-    <p>감사합니다.<br/>Abstract 드림</p>
+    <p>감사합니다.<br/>Theo 드림</p>
   </div>
   `;
 }
@@ -142,8 +142,8 @@ export async function POST(req: Request) {
 
     const inviter = body.inviterName?.trim() || "a gallery / curator";
 
-    const subjectEn = `Invitation from ${inviter} on Abstract`;
-    const subjectKo = `Abstract에서 ${inviter}님이 초대합니다`;
+    const subjectEn = `Invitation from ${inviter} on Theo`;
+    const subjectKo = `Theo에서 ${inviter}님이 초대합니다`;
 
     const html = buildEmailHtml(body);
     const from = parseFromHeader(fromRaw);

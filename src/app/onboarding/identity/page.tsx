@@ -307,7 +307,7 @@ function IdentityInner() {
   if (loadState !== "ready") {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <p className="text-lg font-semibold text-zinc-900">Abstract</p>
+        <p className="text-lg font-semibold text-zinc-900">Theo</p>
         <p className="text-zinc-600">{t("common.loading")}</p>
       </div>
     );
@@ -518,7 +518,7 @@ export default function OnboardingIdentityPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-          <p className="text-lg font-semibold text-zinc-900">Abstract</p>
+          <p className="text-lg font-semibold text-zinc-900">Theo</p>
           <p className="text-zinc-600">Loading...</p>
         </div>
       }

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Abstract AI Surface primitives — single-file, low-ceremony building
+ * Theo AI Surface primitives — single-file, low-ceremony building
  * blocks shared across every AI panel/card so the studio feels like one
  * coherent product system. Designed per
  * `Abstract_AI_Layer_UX_Design_Unification_2026-04-27.md` §4.

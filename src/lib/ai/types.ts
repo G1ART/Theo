@@ -64,7 +64,7 @@ export type ProfileSuggestionsResult = AiDegradation & {
   missing: string[]; // short bullet points describing what's weak
   suggestions: ProfileSuggestion[];
   /**
-   * Wave 2: 1–3 alternative bios the artist can adopt wholesale. Abstract
+   * Wave 2: 1–3 alternative bios the artist can adopt wholesale. Theo
    * does not store these server-side; adoption happens through the
    * settings page.
    */
@@ -86,7 +86,7 @@ export type ProfileSuggestionsResult = AiDegradation & {
   /**
    * P1-0: 2–3 candidate artist statement passages produced when the route
    * is called with mode=statement. The UI lets the artist copy or directly
-   * paste a draft into the statement textarea — Abstract never auto-applies.
+   * paste a draft into the statement textarea — Theo never auto-applies.
    */
   statementDrafts?: string[];
 };
@@ -119,7 +119,7 @@ export type PortfolioSuggestion = {
 export type PortfolioSuggestionsResult = AiDegradation & {
   suggestions: PortfolioSuggestion[];
   /**
-   * Wave 2: optional ordering hint. Abstract never auto-reorders — the
+   * Wave 2: optional ordering hint. Theo never auto-reorders — the
    * UI shows the rationale and links, and the artist still chooses.
    */
   ordering?: {

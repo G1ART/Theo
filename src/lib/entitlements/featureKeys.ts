@@ -1,6 +1,6 @@
 /**
  * Canonical feature key registry — the single source of truth for every
- * gated capability in Abstract. The registry is a TypeScript literal union
+ * gated capability in Theo. The registry is a TypeScript literal union
  * so mis-typed keys fail at compile time; it is also mirrored into the
  * `plan_feature_matrix` table via the seed migration so DB-level gates
  * (RPCs with `SECURITY DEFINER`) can reference the same values.

@@ -62,7 +62,7 @@ async function safeFetchBuffer(
         signal: ctrl.signal,
         redirect: "manual",
         headers: {
-          "User-Agent": "AbstractWebsiteImport/1.0 (+https://abstract.art)",
+          "User-Agent": "TheoWebsiteImport/1.0 (+https://theo.art)",
           Accept:
             kind === "page"
               ? "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"

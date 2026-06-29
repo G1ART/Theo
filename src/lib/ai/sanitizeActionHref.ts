@@ -3,7 +3,7 @@
  *
  * The profile / portfolio copilots let the LLM emit an `actionHref` for
  * each suggestion ("작가 소개문 추가" → some link). The model is only
- * *asked* to reference a real Abstract surface — nothing stops it from
+ * *asked* to reference a real Theo surface — nothing stops it from
  * hallucinating a path that does not exist (e.g. `/settings/bio`,
  * `/profile/edit`, `/settings/location`). Those rendered straight into a
  * `<Link>` produce a 404 (QA 2026-05-28).

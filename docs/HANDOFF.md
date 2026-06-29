@@ -2,6 +2,23 @@
 
 Last updated: 2026-06-29
 
+## 2026-06-29 — 브랜드명 변경: Abstract → Theo
+
+- 플랫폼 이름이 **Abstract → Theo** 로 변경됨 (GitHub/Vercel 프로젝트명도 theo 로 변경됨). 로고 이미지는 추후 첨부 예정.
+- 변경 범위(사용자 노출 + 브랜드 표기):
+  - 헤더 로고(`Header.tsx`), 로딩 화면(`page.tsx`, `AuthGate.tsx`, `onboarding/*`), 메타데이터 타이틀(`layout.tsx`).
+  - i18n 전체 문자열(`messages.ts`, 한/영) — 단 미술 용어 "Abstraction"(추상)은 유지.
+  - 초대/위임 이메일(`api/artist-invite-email`, `api/delegation-invite-email`), 투어 카피(`tourKoCopy.ts`).
+  - AI 시스템 프롬프트/세이프티(`lib/ai/prompts`, `lib/ai/safety.ts`, `lib/ai/types.ts`) — 모델이 플랫폼명을 Theo 로 칭하도록.
+  - 임포트 봇 User-Agent(`crawlSite.ts`, `cv/extract.ts`) → Theo* / theo.art.
+  - README 제목.
+- **의도적으로 유지(브랜드 표기 아님):**
+  - 내부 타입 식별자 `AbstractActionVerb`(`persona/actionGrammar.ts`) — 크로스파일 리팩터링이라 별도 작업으로 분리.
+  - 과거 작업지시서 파일명 참조 주석(`Abstract_..._.md`) — 실제 파일명 레퍼런스.
+  - `docs/` 내 과거 기록 문서 — 히스토리 보존.
+- SQL/환경 변수 변경 없음. `tsc --noEmit`·`next build` 통과.
+
+
 ## 2026-06-29 — QA 3건: 전시 작가 그룹핑 / 외부 작가명 게시물 단위 / 온보딩 배너 루프
 
 ### 이슈 1 — 전시 페이지에서 여러 작가 작품이 "한 작가"로 묶임

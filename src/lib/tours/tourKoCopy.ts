@@ -37,7 +37,7 @@ export const TOUR_KO_HEADER: Record<string, string> = {
 export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
   "studio.main:hero": {
     title: "내 스튜디오에 오신 걸 환영해요",
-    body: "Abstract에서 만들고, 담고, 공유하는 모든 것이 시작되는 공간이에요.",
+    body: "Theo에서 만들고, 담고, 공유하는 모든 것이 시작되는 공간이에요.",
   },
   "studio.main:next-steps": {
     title: "다음으로 해보면 좋은 일",
@@ -176,7 +176,7 @@ export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
   },
   "exhibition.create:curator": {
     title: "큐레이터와 호스트",
-    body: "전시를 만든 큐레이터와 주최자를 남겨보세요. Abstract 안의 프로필을 바로 연결할 수 있어요.",
+    body: "전시를 만든 큐레이터와 주최자를 남겨보세요. Theo 안의 프로필을 바로 연결할 수 있어요.",
   },
 
   "people.main:search": {

@@ -291,7 +291,7 @@ export function Header() {
           className="text-lg font-semibold text-zinc-900 hover:text-zinc-700"
           onClick={closeMobile}
         >
-          <span translate="no">Abstract</span>
+          <span translate="no">Theo</span>
         </Link>
 
         {/* Main tabs: Feed, People, Upload (no Settings) */}

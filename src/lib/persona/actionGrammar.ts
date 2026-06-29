@@ -7,7 +7,7 @@
 //
 // Core principle (mirrored in docs/product/PERSONA_ACTION_GRAMMAR.md):
 //
-//   Abstract should not standardize the art world into a rigid CRM
+//   Theo should not standardize the art world into a rigid CRM
 //   pipeline. It should translate ambiguous art-world relationships
 //   into small, respectful, repeatable product actions.
 //
