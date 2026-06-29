@@ -39,6 +39,7 @@
     "test:exhibition-cover-enrichment": "tsx tests/exhibition-cover-enrichment.test.ts",
     "test:ai-action-href-sanitize": "tsx tests/ai-action-href-sanitize.test.ts",
     "test:external-artist-name-everywhere": "tsx tests/external-artist-name-everywhere.test.ts",
+    "test:external-artist-dedupe": "tsx tests/external-artist-dedupe.test.ts",
     "test:onboarding-banner-refresh": "tsx tests/onboarding-banner-refresh.test.ts"
   },
   "dependencies": {

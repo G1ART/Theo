@@ -1,6 +1,49 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
+
+## 2026-06-30 — 외부(초대 전) 작가 엔티티 정규화(dedupe)
+
+### 배경 / 근본 원인
+- 비온보딩 작가의 작품을 업로드할 때마다 `create_external_artist_and_claim`
+  이 **매번 새 `external_artists` 행**(난수 id)을 만들었다. 그래서 같은
+  작가(예: "김수철")의 작품이 `external_artist_id` 기준으로는 작품 수만큼
+  쪼개졌고, 전시 페이지 "작가별 섹션"이 한 작가를 여러 섹션으로 분해했다.
+- 이전 임시 픽스(이름 기준 그룹핑)는 표시는 맞췄지만 **동명이인을
+  구분 못 하는 한계**가 있었다. 이번에 "변동 없는 유니크 엔티티"로
+  정규화하는 정공법으로 전환.
+
+### 변경 (SQL — 적용 필요)
+- **`supabase/migrations/20260630000000_external_artist_dedupe.sql`** — ✅ production 적용 완료(MCP).
+  - **SECTION 1 (백필):** 기존 중복 `external_artists`를 정규화된
+    `display_name` 기준으로 canonical 1행으로 병합 → `claims.external_artist_id`
+    재지정 → 잔여 행 삭제. 안전장치:
+    - 같은 이름에 **서로 다른 non-null 이메일이 2개 이상**이면 동명이인
+      가능성으로 **병합 건너뜀**(가드). → 적용 후 남은 그룹: `oh jeong`,
+      `april ej oh` 2건. **이 둘은 수동 검토 필요**(같은 사람의 두 이메일인지,
+      실제 동명이인인지 확인 후 수동 병합/분리).
+    - canonical은 invite_email 보유 행 우선(가입 시 이메일 매칭 트리거 유지),
+      없으면 최초 생성행. 이미 온보딩된(`claimed_profile_id` not null) 행은 미변경.
+  - **SECTION 2 (업로드 dedupe):** `create_external_artist_and_claim` 이 같은
+    초대자에 대해 `(이메일 있으면 이메일, 없으면 이름)` 기준으로 **기존 행을
+    재사용**하도록 수정. → 앞으로 `external_artist_id`가 작가당 안정적.
+    위임(writer) 가드/시그니처/반환형은 그대로 유지.
+
+### 변경 (프론트)
+- `getArtworkArtistGroupKey()`(`src/lib/supabase/artworks.ts`)를 **안정화된
+  `external_artist_id` 우선**으로 전환(이름은 id 없을 때만 폴백). 정규화
+  이후 한 작가의 작품이 한 섹션으로 모이고, 진짜 동명이인(다른 행/이메일)은
+  분리된다. 검증: 전시 `7e9f2db5…`의 김수철 8점 → 단일 id로 통합 확인.
+
+### 후속 검토 과제(별도)
+- 비온보딩 작가를 **매 업로드마다 재초대**하는 UX 자체 개선(작가 선택/재사용
+  UI, 초대 이메일 필수화, 온보디드/비온보디드 작가 통합 관리 관점).
+
+### 검증
+- `test:external-artist-dedupe`, `test:external-artist-name-everywhere` 통과.
+- `tsc --noEmit`·`next build` 통과. SQL production 적용 완료. 환경 변수 변경 없음.
+
+
 
 ## 2026-06-29 — 브랜드명 변경: Abstract → Theo
 

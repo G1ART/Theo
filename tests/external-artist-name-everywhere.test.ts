@@ -49,8 +49,12 @@ const artworksSrc = read("src/lib/supabase/artworks.ts");
 assert.match(artworksSrc, /export function getExternalArtistClaim/);
 assert.match(artworksSrc, /export function isExternalArtistArtwork/);
 assert.match(artworksSrc, /export function getArtworkArtistGroupKey/);
-// group key prefers external_artist_id so invited artists don't collapse.
+// group key for external artists must prefer the STABLE external_artist_id.
+// After the 2026-06-30 dedupe migration there is one external_artists row per
+// invited artist, so the id collapses one artist's works into a single section
+// while genuine homonyms (distinct rows) split. Name is only a blank-id fallback.
 assert.match(artworksSrc, /ext:\$\{externalClaim\.external_artist_id\}/);
+assert.match(artworksSrc, /extname:\$\{name\}/);
 
 // 3) 전시 페이지 그룹핑 키 교체 ------------------------------------------
 for (const rel of [

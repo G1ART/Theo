@@ -290,13 +290,23 @@ export function getArtworkArtistGroupKey(
   artwork: Artwork | ArtworkWithLikes
 ): string {
   const externalClaim = getExternalArtistClaim(artwork);
-  if (externalClaim?.external_artist_id) {
-    return `ext:${externalClaim.external_artist_id}`;
+  if (externalClaim) {
+    // After the 2026-06-30 dedupe migration, `external_artists` is one row
+    // per artist (per inviter), so `external_artist_id` is a STABLE identity:
+    // every work credited to the same invited artist now shares one id, while
+    // genuine homonyms (distinct rows / emails) keep distinct ids and split
+    // into separate sections. Prefer the id; fall back to the normalized name
+    // only when the id is somehow missing.
+    if (externalClaim.external_artist_id) {
+      return `ext:${externalClaim.external_artist_id}`;
+    }
+    const name = externalClaim.external_artists?.display_name?.trim().toLowerCase();
+    if (name) return `extname:${name}`;
   }
   const artistId = (artwork as any).artist_id as string | null | undefined;
   if (artistId) return artistId;
   const { label } = getArtworkArtistLabel(artwork);
-  return `ext:${label ?? "unknown"}`;
+  return `extname:${(label ?? "unknown").toLowerCase()}`;
 }
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
