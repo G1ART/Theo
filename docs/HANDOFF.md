@@ -53,6 +53,13 @@ Last updated: 2026-06-29
   **이미 production 적용 + schema_migrations 동기화 완료** (헬퍼 동작 검증:
   이의연/Namu Choi 등 외부명 정상 해석).
 
+### 후속 픽스 — 외부 작가 확인 모달 텍스트 오버플로우
+- 증상: 피드에서 외부 작가명 클릭 시 뜨는 확인 모달 본문이 박스 밖으로 넘침.
+- 원인: 모달이 피드 카드의 `truncate`(=`white-space: nowrap`) 작가명 span 안에서
+  렌더되어 그 속성을 **상속** → 본문이 한 줄로 렌더.
+- 수정: 공유 `ConfirmActionDialog` 박스에 `whitespace-normal break-words text-left`
+  추가(상속 리셋). 메시지 텍스트 자체는 변경 없음(한/영 그대로 정상 표기).
+
 ### Verified
 - `tests/external-artist-name-everywhere.test.ts`,
   `tests/onboarding-banner-refresh.test.ts`,

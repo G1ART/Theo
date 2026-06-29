@@ -107,7 +107,11 @@ export function ConfirmActionDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        // `whitespace-normal break-words` defensively resets any inherited
+        // `white-space: nowrap` / truncation from the element that opened the
+        // dialog (e.g. a feed card's `truncate` artist-name span). Without it
+        // the modal copy renders on one line and overflows the box.
+        className="w-full max-w-sm whitespace-normal break-words rounded-2xl bg-white p-5 text-left shadow-xl"
       >
         <h2 id={titleId} className="text-sm font-semibold text-zinc-900">
           {title}
