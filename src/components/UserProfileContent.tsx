@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { setExhibitionBack } from "@/lib/exhibitionBack";
 import {
   DndContext,
   closestCenter,
@@ -91,6 +92,7 @@ export function UserProfileContent({
 }: Props) {
   const { t } = useT();
   const router = useRouter();
+  const pathname = usePathname();
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [showUpdatedBanner, setShowUpdatedBanner] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
@@ -800,6 +802,7 @@ export function UserProfileContent({
                 <li key={ex.id}>
                   <Link
                     href={`/e/${ex.id}`}
+                    onClick={() => setExhibitionBack(pathname ?? "/feed")}
                     className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-2.5 shadow-sm transition hover:border-zinc-300 hover:shadow-md"
                   >
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-zinc-200 bg-zinc-100">

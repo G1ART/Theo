@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
+import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { AuthGate } from "@/components/AuthGate";
 import { BoardPitchPackPanel } from "@/components/board/BoardPitchPackPanel";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
@@ -32,6 +33,7 @@ import { RoomVisibilityPill } from "@/components/visibility/RoomVisibilityPill";
 function ShortlistDetailContent() {
   const { t } = useT();
   const params = useParams();
+  const pathname = usePathname();
   const id = typeof params.id === "string" ? params.id : "";
   const [shortlist, setShortlist] = useState<ShortlistRow | null>(null);
   const [items, setItems] = useState<ShortlistItemRow[]>([]);
@@ -340,7 +342,10 @@ function ShortlistDetailContent() {
                   <p className="mt-1 truncate text-sm font-medium text-zinc-800">{item.artwork.title ?? "Untitled"}</p>
                 </Link>
               ) : item.exhibition_id && item.exhibition ? (
-                <Link href={`/e/${item.exhibition_id}`}>
+                <Link
+                  href={`/e/${item.exhibition_id}`}
+                  onClick={() => setExhibitionBack(pathname ?? `/my/shortlists/${id}`)}
+                >
                   <p className="text-sm font-medium text-zinc-800">{item.exhibition.title ?? "Exhibition"}</p>
                 </Link>
               ) : null}

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
+import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { logRoomAction } from "@/lib/supabase/shortlists";
@@ -59,6 +60,7 @@ const PENDING_ROOM_RESOLUTION: VisibilityResolution = {
 
 export default function RoomPage() {
   const params = useParams();
+  const pathname = usePathname();
   const { t } = useT();
   const token = typeof params.token === "string" ? params.token : "";
   const [meta, setMeta] = useState<RoomMetaForViewer | null>(null);
@@ -315,7 +317,11 @@ export default function RoomPage() {
               return (
                 <li key={item.item_id}>
                   <article className="flex flex-col">
-                    <Link href={`/e/${item.exhibition_id}`} className="group block">
+                    <Link
+                      href={`/e/${item.exhibition_id}`}
+                      onClick={() => setExhibitionBack(pathname ?? `/room/${token}`)}
+                      className="group block"
+                    >
                       {/* Calm dashed frame so an exhibition slot reads as
                           a placeholder for an external link, not a
                           broken artwork tile. */}

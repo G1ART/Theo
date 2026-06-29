@@ -2,6 +2,36 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 — 전시 페이지 "← 피드" 백 링크 진입경로 인식
+
+### 문제
+- `/e/[id]` 전시 페이지의 뒤로가기 링크가 진입 경로와 무관하게 **항상
+  "← 피드"(/feed)** 로 하드코딩되어 있었다. 프로필/룸/숏리스트에서 전시로
+  들어와도 피드로 튕겨나갔다.
+
+### 수정 (artwork 의 검증된 패턴 미러링)
+- 새 헬퍼 `src/lib/exhibitionBack.ts` (`setExhibitionBack`/`getExhibitionBack`)
+  — `artworkBack.ts` 와 동일한 sessionStorage 기반 "진입 경로 stamp → 상세에서
+  읽기" 패턴. 진입 경로별로 라벨도 매핑(피드/프로필/내 스튜디오/보드).
+- 전시로 진입하는 표면 4곳이 클릭 시 자기 경로를 stamp:
+  `feed/ExhibitionMemoryStrip`, `UserProfileContent`(프로필 전시 목록),
+  `room/[token]`, `my/shortlists/[id]`.
+- `e/[id]/page.tsx` 가 `getExhibitionBack()` 로 백 링크의 경로/라벨을 결정
+  (클라이언트 useEffect 에서 읽어 hydration 안전).
+- 참고: 작품 상세(`/artwork/[id]`)는 이미 동일 패턴(`artworkBack`)으로 진입경로
+  인식이 되어 있었음(변경 없음).
+
+### 아직 남은 유사 케이스(우선순위 낮음, 미수정)
+- `/notifications` 의 "← 피드" 는 전역 진입(헤더 종)이라 고정 피드도 무난.
+- `/my/exhibitions/[id]`(관리) 의 "← 내 정보(/my)" 는 관리 페이지의 홈이
+  /my 라 합리적. (공개 전시 → 전시 관리 진입 시엔 /my 로 가는 미세한 비대칭만 존재.)
+
+### 검증
+- `test:exhibition-back-context` 통과. `tsc --noEmit`·`next build` 통과.
+  SQL/환경 변수 변경 없음.
+
+
+
 ## 2026-06-30 — 외부(초대 전) 작가 엔티티 정규화(dedupe)
 
 ### 배경 / 근본 원인

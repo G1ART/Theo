@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { useT } from "@/lib/i18n/useT";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { backToLabel } from "@/lib/i18n/back";
+import { getExhibitionBack } from "@/lib/exhibitionBack";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import {
   ensureDefaultExhibitionMediaBuckets,
@@ -45,6 +47,16 @@ export default function PublicExhibitionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shortlistOpen, setShortlistOpen] = useState(false);
+  const [back, setBack] = useState<{ path: string; labelKey: string }>({
+    path: "/feed",
+    labelKey: "nav.feed",
+  });
+
+  useEffect(() => {
+    // Read the entry context on the client only (sessionStorage) so the visitor
+    // returns to where they came from (profile, room, shortlist…), not always feed.
+    setBack(getExhibitionBack());
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -145,8 +157,8 @@ export default function PublicExhibitionPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <Link href="/feed" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← {backToLabel(t("nav.feed"), locale)}
+        <Link href={back.path} className="text-sm text-zinc-600 hover:text-zinc-900">
+          ← {backToLabel(t(back.labelKey as MessageKey), locale)}
         </Link>
         {isOwner && (
           <>

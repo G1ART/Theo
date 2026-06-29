@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useT } from "@/lib/i18n/useT";
+import { setExhibitionBack } from "@/lib/exhibitionBack";
 import {
   type ExhibitionWithCredits,
   getExhibitionHostCuratorLabel,
@@ -39,6 +41,7 @@ type Props = {
  */
 export function ExhibitionMemoryStrip({ exhibition, feedContext }: Props) {
   const { t } = useT();
+  const pathname = usePathname();
   const period =
     exhibition.start_date && exhibition.end_date
       ? `${exhibition.start_date} – ${exhibition.end_date}`
@@ -48,6 +51,7 @@ export function ExhibitionMemoryStrip({ exhibition, feedContext }: Props) {
   const thumbGridCols = thumbs.length === 2 ? "grid-cols-2" : "grid-cols-3";
 
   function handleClick() {
+    setExhibitionBack(pathname ?? "/feed");
     if (!feedContext) return;
     logFeedEvent("feed_item_click", {
       tab: feedContext.tab,
