@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-01
 
+## 2026-07-01 — 데이터구조 업그레이드 Phase 3 (claims 무결성)
+
+라이브 감사(위반 0건) 후 `claims` 에 구조 무결성 제약 추가. 멀티 페르소나
+조합은 제한하지 않음 — "한 claim 의 작가 참조는 최대 1개", "CREATED 는 작가
+1명", "work 당 창작자 claim 1개" 같은 형태 규칙만 강제.
+
+### 적용 SQL — `20260701000004_claims_integrity_phase3.sql` (production 적용 완료)
+- `claims_claim_type_valid`: claim_type ∈ {CREATED,OWNS,INVENTORY,EXHIBITED,CURATED,
+  INCLUDES_WORK,HOSTS_PROJECT} (provenance/types.ts CLAIM_TYPES 동기).
+- `claims_artist_ref_not_both`: `num_nonnulls(artist_profile_id, external_artist_id) <= 1`.
+- `claims_created_requires_artist`: CREATED 는 작가 참조 정확히 1개.
+- `uq_claims_one_created_per_work`: work 당 CREATED claim 1개.
+- CHECK 는 NOT VALID→VALIDATE 패턴으로 무중단 적용. 편집 플로우는 기존 claim 을
+  `updateClaim` 으로 in-place 갱신하므로 유니크와 충돌하지 않음.
+
+### 검증
+- `test:claims-integrity-phase3` 통과. 라이브 4개 제약 convalidated=true 확인.
+  `tsc --noEmit`·`next build` 통과.
+
+### 데이터구조 업그레이드 (Phase 1~3) 완료
+- D안(작가 정체성 비정규화)은 멀티 페르소나(작가=갤러리 등) 정당성 때문에 제외.
+- 향후 수동 검토: `oh jeong`(2개 이메일), `april ej oh`(오타 이메일 혼재) — 보류.
+
 ## 2026-07-01 — 데이터구조 업그레이드 Phase 2 (외부작가 라이프사이클)
 
 비온보딩 작가 → 온보딩 전환을 매끄럽게 만드는 패치. **이메일 정책은 soft**
