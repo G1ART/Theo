@@ -584,12 +584,20 @@ export default function MyPage() {
                 {t("studio.portfolioHelper.desc")}
               </p>
             </div>
-            <a
-              href="/my/library"
-              className="shrink-0 text-xs font-medium text-zinc-700 underline-offset-2 hover:text-zinc-900 hover:underline"
-            >
-              {t("studio.portfolioHelper.workshopLink")}
-            </a>
+            <div className="flex shrink-0 items-center gap-3">
+              <a
+                href="/my/artists"
+                className="text-xs font-medium text-zinc-700 underline-offset-2 hover:text-zinc-900 hover:underline"
+              >
+                {t("myArtists.navLabel")}
+              </a>
+              <a
+                href="/my/library"
+                className="text-xs font-medium text-zinc-700 underline-offset-2 hover:text-zinc-900 hover:underline"
+              >
+                {t("studio.portfolioHelper.workshopLink")}
+              </a>
+            </div>
           </FloorPanel>
         )}
 

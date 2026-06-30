@@ -104,6 +104,8 @@ function EditArtworkContent() {
   const [useExternalArtist, setUseExternalArtist] = useState(false);
   const [externalArtistName, setExternalArtistName] = useState("");
   const [externalArtistEmail, setExternalArtistEmail] = useState("");
+  // Soft-required email (2026-07-01) — opt out to link manually later via /my/artists.
+  const [externalNoEmail, setExternalNoEmail] = useState(false);
 
   // Effective edit-permission identity: principal first (so the principal's
   // claim wins on edit-screen rehydration when an account-scope delegate
@@ -231,6 +233,11 @@ function EditArtworkContent() {
       if (useExternalArtist) {
         if (!externalArtistName.trim()) {
           setError(t("artwork.validation.artistNameRequired"));
+          return;
+        }
+        const exEmail = externalArtistEmail.trim();
+        if (!externalNoEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(exEmail)) {
+          setError(t("upload.externalArtistEmailRequired"));
           return;
         }
       } else if (!selectedArtist) {
@@ -748,11 +755,21 @@ function EditArtworkContent() {
                       value={externalArtistEmail}
                       onChange={(e) => setExternalArtistEmail(e.target.value)}
                       placeholder={t("artwork.externalArtistEmailPlaceholder")}
-                      className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                      disabled={externalNoEmail}
+                      className="w-full rounded border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
                     />
                     <p className="text-xs text-zinc-500">
                       {t("artwork.externalArtistEmailHint")}
                     </p>
+                    <label className="flex items-start gap-2 text-xs text-zinc-600">
+                      <input
+                        type="checkbox"
+                        checked={externalNoEmail}
+                        onChange={(e) => setExternalNoEmail(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>{t("upload.externalArtistNoEmail")}</span>
+                    </label>
                   </div>
                 ) : (
                   <>

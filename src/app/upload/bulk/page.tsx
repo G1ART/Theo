@@ -138,6 +138,8 @@ export default function BulkUploadPage() {
   const [useExternalArtist, setUseExternalArtist] = useState(!!(fromExhibition && preselectedExternalName));
   const [externalArtistName, setExternalArtistName] = useState(preselectedExternalName ?? "");
   const [externalArtistEmail, setExternalArtistEmail] = useState(preselectedExternalEmail ?? "");
+  // Soft-required email (2026-07-01) — opt out to link manually later via /my/artists.
+  const [externalNoEmail, setExternalNoEmail] = useState(false);
   const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
   /** Attribution 단계를 '다음' 버튼으로 완료했을 때만 true. 전시에서 진입 시 작가/외부 이미 선택됨 → 바로 업로드 단계. */
   const [attributionStepDone, setAttributionStepDone] = useState(
@@ -592,6 +594,12 @@ export default function BulkUploadPage() {
           setTimeout(() => setToast(null), 2000);
           return;
         }
+        const email = externalArtistEmail.trim();
+        if (!externalNoEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          setToast(t("upload.externalArtistEmailRequired"));
+          setTimeout(() => setToast(null), 3500);
+          return;
+        }
       } else if (!selectedArtist) {
         setToast(t("upload.linkArtist") || "Please select an artist");
         setTimeout(() => setToast(null), 2000);
@@ -747,7 +755,10 @@ export default function BulkUploadPage() {
   const canPublishSelected = selectedIds.length > 0 && selectedReady === selectedIds.length;
 
   const externalNameValid = useExternalArtist && externalArtistName.trim().length >= 2;
-  const attributionValid = !needsAttribution || selectedArtist !== null || externalNameValid;
+  const externalEmailValid =
+    externalNoEmail || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(externalArtistEmail.trim());
+  const attributionValid =
+    !needsAttribution || selectedArtist !== null || (externalNameValid && externalEmailValid);
   const showIntent = intent === null;
   const showAttribution = intent !== null && needsAttribution && !attributionStepDone;
   const showMain = intent !== null && (!needsAttribution || attributionStepDone);
@@ -870,9 +881,19 @@ export default function BulkUploadPage() {
                   value={externalArtistEmail}
                   onChange={(e) => setExternalArtistEmail(e.target.value)}
                   placeholder={t("upload.externalArtistEmailPlaceholder")}
-                  className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm"
+                  disabled={externalNoEmail}
+                  className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
                 />
                 <p className="text-xs text-zinc-500">{t("upload.externalArtistEmailHint")}</p>
+                <label className="flex max-w-md items-start gap-2 text-xs text-zinc-600">
+                  <input
+                    type="checkbox"
+                    checked={externalNoEmail}
+                    onChange={(e) => setExternalNoEmail(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>{t("upload.externalArtistNoEmail")}</span>
+                </label>
               </div>
             ) : (
               <>
@@ -944,6 +965,7 @@ export default function BulkUploadPage() {
                 onClick={() => {
                   if (!attributionValid) return;
                   if (useExternalArtist && externalArtistName.trim().length < 2) return;
+                  if (useExternalArtist && !externalEmailValid) return;
                   setAttributionStepDone(true);
                 }}
                 className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"

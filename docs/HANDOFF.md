@@ -2,6 +2,39 @@
 
 Last updated: 2026-07-01
 
+## 2026-07-01 — 데이터구조 업그레이드 Phase 2 (외부작가 라이프사이클)
+
+비온보딩 작가 → 온보딩 전환을 매끄럽게 만드는 패치. **이메일 정책은 soft**
+(사용자 결정): 기본은 초대 이메일 입력을 요구하되 "이메일 없음/나중에 연결"
+체크박스로 예외 허용, 예외 케이스는 소유자 연결 RPC로 커버.
+
+### 적용 SQL (production 적용 완료)
+- **`20260701000002_external_artist_link.sql`**
+  - `link_external_artist_to_profile(ext_id, target_profile_id)`: 초대자(또는 그
+    계정/프로젝트 writer)가 외부 작가 행을 실제 프로필에 수동 연결. signup 트리거와
+    동일 의미 — `claimed_profile_id` 설정 → claims 이관(`artist_profile_id`,
+    `external_artist_id=null`) → `artworks.artist_id` 전환.
+  - `list_my_external_artists(inviter)`: 미연결 외부 작가 목록 + 작품 수 + 이메일 유무.
+- **`20260701000003_artwork_storage_current_owner.sql`**
+  - `can_manage_artworks_storage_path`에 **Shape 5** 추가: 이 storage_path 를 참조하는
+    작품의 현재 `artist_id` 가 caller 이면 허용 → 온보딩/연결 후 작가가 (업로더 폴더에
+    남아있는) 자기 작품 이미지 바이트를 교체/삭제 가능. `idx_artwork_images_storage_path` 추가.
+
+### 코드
+- 신규 페이지 `/my/artists` (초대한 작가 관리): 프로필 검색 → 연결 확인 모달.
+  진입 링크는 `/my` 포트폴리오 헬퍼 줄에 추가.
+- `src/lib/provenance/externalArtists.ts` (list/link 래퍼).
+- 업로드 단일/벌크/편집: 외부 작가 이메일 소프트 필수 + "이메일 없음" 옵트아웃.
+- i18n: `myArtists.*`, `upload.externalArtistEmailRequired/NoEmail` (한/영).
+
+### 검증
+- `test:external-artist-link-phase2`, `test:external-artist-dedupe-phase1` 통과.
+  `tsc --noEmit`·`next build` 통과.
+
+### 다음 (예정)
+- Phase 3: `claim_type` enum/CHECK + 작가식별(artist_profile_id XOR external_artist_id)
+  + work당 CREATED 1개 무결성(데이터 정리 후 NOT VALID→VALIDATE 단계 적용).
+
 ## 2026-07-01 — 데이터구조 업그레이드 Phase 1 (외부작가 정규화 완결 + 정합성)
 
 데이터 구조 심층 점검 후, 벌크/전시/보드/비온보딩작가/프로비넌스가 충돌 없이

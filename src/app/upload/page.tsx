@@ -101,6 +101,10 @@ function UploadPageContent() {
   );
   const [externalArtistName, setExternalArtistName] = useState(preselectedExternalName ?? "");
   const [externalArtistEmail, setExternalArtistEmail] = useState(preselectedExternalEmail ?? "");
+  // Soft-required email (2026-07-01): default we ask for the artist's email so
+  // they auto-link their works on signup. The owner can opt out explicitly
+  // ("no email / link later"), in which case linking happens via /my/artists.
+  const [externalNoEmail, setExternalNoEmail] = useState(false);
 
   // Form — QA 2026-06-26 (#2/#5): support multiple images per work,
   // each tagged with a `view_type`. Order in the array becomes the
@@ -215,6 +219,11 @@ function UploadPageContent() {
         const name = externalArtistName.trim();
         if (!name || name.length < 2) {
           setError(t("common.pleaseEnterArtistName"));
+          return;
+        }
+        const email = externalArtistEmail.trim();
+        if (!externalNoEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          setError(t("upload.externalArtistEmailRequired"));
           return;
         }
       } else if (!selectedArtist) {
@@ -550,9 +559,19 @@ function UploadPageContent() {
                   value={externalArtistEmail}
                   onChange={(e) => setExternalArtistEmail(e.target.value)}
                   placeholder={t("upload.externalArtistEmailPlaceholder")}
-                  className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                  disabled={externalNoEmail}
+                  className="w-full rounded border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
                 />
                 <p className="text-xs text-zinc-500">{t("upload.externalArtistEmailHint")}</p>
+                <label className="flex items-start gap-2 text-xs text-zinc-600">
+                  <input
+                    type="checkbox"
+                    checked={externalNoEmail}
+                    onChange={(e) => setExternalNoEmail(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>{t("upload.externalArtistNoEmail")}</span>
+                </label>
               </div>
             ) : (
               <>
