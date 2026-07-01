@@ -44,7 +44,9 @@
     "test:external-artist-dedupe-phase1": "tsx tests/external-artist-dedupe-phase1.test.ts",
     "test:external-artist-link-phase2": "tsx tests/external-artist-link-phase2.test.ts",
     "test:claims-integrity-phase3": "tsx tests/claims-integrity-phase3.test.ts",
-    "test:onboarding-banner-refresh": "tsx tests/onboarding-banner-refresh.test.ts"
+    "test:onboarding-banner-refresh": "tsx tests/onboarding-banner-refresh.test.ts",
+    "test:size-unit-toggle": "tsx tests/size-unit-toggle.test.ts",
+    "test:size-display": "tsx tests/size-display.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

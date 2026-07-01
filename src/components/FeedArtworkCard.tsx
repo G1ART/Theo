@@ -26,7 +26,9 @@ import {
 import {
   formatSizeForLocale,
   parseSizeWithUnit,
+  type SizeUnitPref,
 } from "@/lib/size/format";
+import { useSizeUnitPref } from "@/lib/size/preference";
 import { LikeButton } from "./LikeButton";
 import { ArtworkArtistName } from "@/components/artwork/ArtworkArtistName";
 import { Chip } from "@/components/ds";
@@ -74,7 +76,8 @@ function extractSizeBase(formatted: string | null): string | null {
 function buildSizePill(
   size: string | null | undefined,
   sizeUnit: "cm" | "in" | null | undefined,
-  locale: string
+  locale: string,
+  prefUnit: SizeUnitPref
 ): string | null {
   if (!size || !size.trim()) return null;
   const parsed = parseSizeWithUnit(size);
@@ -82,7 +85,7 @@ function buildSizePill(
   if (!inputHasUnit && (sizeUnit == null || sizeUnit === undefined)) {
     return null;
   }
-  return extractSizeBase(formatSizeForLocale(size, locale, sizeUnit ?? null));
+  return extractSizeBase(formatSizeForLocale(size, locale, sizeUnit ?? null, prefUnit));
 }
 
 type ArtistProfileLite = {
@@ -150,6 +153,7 @@ export function FeedArtworkCard({
   const router = useRouter();
   const pathname = usePathname();
   const { t, locale } = useT();
+  const sizePref = useSizeUnitPref();
   const images = artwork.artwork_images ?? [];
   const sorted = [...images].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -190,7 +194,7 @@ export function FeedArtworkCard({
   const isMini = variant === "discoveryMini";
   const sizeOverlay = isMini
     ? null
-    : buildSizePill(artwork.size, artwork.size_unit ?? null, locale);
+    : buildSizePill(artwork.size, artwork.size_unit ?? null, locale, sizePref);
   // Standard tiles use a 4:5 portrait aspect for a magazine rhythm. Anchor /
   // spotlight stays square because its wider column span already gives it
   // visual weight; a taller anchor would push the row height up. Mini stays

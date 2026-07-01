@@ -24,7 +24,7 @@ import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
-import { detectSizeUnit, parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
+import { parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
@@ -84,6 +84,8 @@ function EditArtworkContent() {
   const [year, setYear] = useState("");
   const [medium, setMedium] = useState("");
   const [size, setSize] = useState("");
+  // Explicit unit the artist declares (source of truth for size_unit).
+  const [sizeUnit, setSizeUnit] = useState<SizeUnit>(locale.startsWith("ko") ? "cm" : "in");
   const [hosuNumber, setHosuNumber] = useState("");
   const [hosuType, setHosuType] = useState<"F" | "P" | "M" | "S" | "">("");
   const [hosuWarning, setHosuWarning] = useState<string | null>(null);
@@ -162,6 +164,16 @@ function EditArtworkContent() {
         setYear(String(a.year ?? ""));
         setMedium(a.medium ?? "");
         setSize(a.size ?? "");
+        // Seed the unit selector from the stored column, else from an
+        // explicit unit embedded in the size text.
+        {
+          const stored = (a as { size_unit?: unknown }).size_unit;
+          if (stored === "cm" || stored === "in") setSizeUnit(stored);
+          else {
+            const declared = a.size ? parseSizeWithUnit(a.size)?.unit : null;
+            if (declared) setSizeUnit(declared);
+          }
+        }
         setStory(a.story ?? "");
         setOwnershipStatus(a.ownership_status ?? "available");
         setPricingMode((a.pricing_mode as "fixed" | "inquire") ?? "fixed");
@@ -255,13 +267,12 @@ function EditArtworkContent() {
     let inviteSent = false;
     let inviteSendFailed = false;
     const sizeTrimmed = size.trim();
-    const sizeWithUnit = sizeTrimmed ? parseSizeWithUnit(sizeTrimmed) : null;
     const payload: UpdateArtworkPayload = {
       title: title.trim() || null,
       year: yearNum,
       medium: medium.trim() || null,
       size: sizeTrimmed || null,
-      size_unit: sizeWithUnit?.unit ?? null,
+      size_unit: sizeTrimmed ? sizeUnit : null,
       story: story.trim() || null,
       ownership_status: ownershipStatus,
       pricing_mode: pricingMode,
@@ -549,6 +560,7 @@ function EditArtworkContent() {
                   setSize(
                     `${n}${hosuType} (${h.widthCm.toFixed(1)} x ${h.heightCm.toFixed(1)} cm)`
                   );
+                  setSizeUnit("cm"); // hosu is a cm standard
                   setHosuWarning(null);
                 }}
                 className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
@@ -563,30 +575,35 @@ function EditArtworkContent() {
               <input
                 type="text"
                 value={size}
-                onChange={(e) => setSize(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSize(val);
+                  const declared = parseSizeWithUnit(val)?.unit;
+                  if (declared) setSizeUnit(declared);
+                }}
                 required
                 placeholder={t("artwork.field.sizePlaceholder")}
                 className="flex-1 rounded border border-zinc-300 px-3 py-2"
               />
-              {/* QA 2026-06-26 (#4) — see /upload page comment. */}
-              {(() => {
-                const currentUnit: SizeUnit = detectSizeUnit(size, locale);
-                return (["cm", "in"] as const).map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    aria-pressed={currentUnit === u}
-                    onClick={() => setSize(setSizeUnitSuffix(size, u))}
-                    className={`rounded border px-3 text-xs font-medium ${
-                      currentUnit === u
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ));
-              })()}
+              {/* Explicit cm / in selector — stored verbatim in size_unit. */}
+              {(["cm", "in"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  aria-pressed={sizeUnit === u}
+                  onClick={() => {
+                    setSizeUnit(u);
+                    setSize((prev) => setSizeUnitSuffix(prev, u));
+                  }}
+                  className={`rounded border px-3 text-xs font-medium ${
+                    sizeUnit === u
+                      ? "border-zinc-900 bg-zinc-900 text-white"
+                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
             </div>
           </div>
           <div>

@@ -8,6 +8,7 @@ import type { Session } from "@supabase/supabase-js";
 import { signOut } from "@/lib/supabase/auth";
 import { supabase } from "@/lib/supabase/client";
 import { getMyProfile } from "@/lib/supabase/profiles";
+import { hydrateSizeUnitPref } from "@/lib/size/preference";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { getUnreadCount } from "@/lib/supabase/notifications";
 import { useT } from "@/lib/i18n/useT";
@@ -62,10 +63,18 @@ export function Header() {
     const loadProfile = () => {
       getMyProfile().then(({ data }) => {
         if (cancelled) return;
-        const p = data as { username?: string | null; avatar_url?: string | null } | null;
+        const p = data as {
+          username?: string | null;
+          avatar_url?: string | null;
+          profile_details?: { size_unit_pref?: unknown } | null;
+        } | null;
         setProfileUsername(p?.username ?? null);
         setAvatarUrl(p?.avatar_url ?? null);
         setProfileLoaded(true);
+        // Mirror the server-side size-unit display preference into the
+        // localStorage cache so every artwork surface renders in the unit
+        // the viewer picked, on any device (see @/lib/size/preference).
+        hydrateSizeUnitPref(p?.profile_details?.size_unit_pref);
       });
     };
     setProfileLoaded(false);

@@ -1,5 +1,5 @@
 import type { HosuType } from "./hosu";
-import { findHosuSize, findNearestHosu } from "./hosu";
+import { findHosuSize } from "./hosu";
 
 export type ParsedSize = {
   widthCm: number;
@@ -10,6 +10,10 @@ export type ParsedSize = {
 
 export type SizeUnit = "cm" | "in";
 
+/** Viewer display preference. `"auto"` follows the page locale
+ *  (KO → cm, everything else → in). */
+export type SizeUnitPref = SizeUnit | "auto";
+
 export function cmToIn(cm: number): number {
   return cm / 2.54;
 }
@@ -18,67 +22,91 @@ export function inToCm(inVal: number): number {
   return inVal * 2.54;
 }
 
+/** Round to the first decimal place and drop a trailing `.0`
+ *  ("소수점 첫째자리에서 반올림"). 90.94 → "90.9", 100 → "100". */
+function round1(n: number): string {
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
 /**
- * QA 2026-06-26 (#4) — rewrite the unit suffix of a size string so the
- * UI's "cm / in" toggle is round-trippable with `parseSizeWithUnit`.
+ * Resolve the unit the viewer should SEE the dimensions in.
+ * - explicit preference ("cm" | "in") wins,
+ * - otherwise fall back to the page locale (KO → cm, else in).
+ */
+export function resolveViewUnit(
+  pref: SizeUnitPref | null | undefined,
+  locale: string
+): SizeUnit {
+  if (pref === "cm" || pref === "in") return pref;
+  return locale.startsWith("ko") ? "cm" : "in";
+}
+
+/**
+ * Rewrite the trailing unit of a size string so the upload form's
+ * "cm / in" toggle is round-trippable with `parseSizeWithUnit`.
  *
- * The transform is idempotent and conservative:
- *   - If the string is a hosu (e.g. "30F (90.9 x 72.7 cm)"), we leave
- *     it untouched: hosu is always cm-anchored.
- *   - If the string already ends in cm/in, we replace the suffix with
- *     the target unit. We do NOT numerically convert; the user is
- *     declaring intent, not transforming values. ("30 x 40 cm" → "in"
- *     yields "30 x 40 in"; users who want the converted number can do
- *     that themselves.)
- *   - If the string ends in raw numbers (unitless), we append the unit.
- *   - If it doesn't look like a size at all, we return it as-is so we
- *     never silently destroy free-form notes.
+ * Conservative & idempotent:
+ *   - Hosu strings (e.g. "30F ...") are cm-anchored → left untouched.
+ *   - "30 x 40 cm" → toggling to `in` yields "30 × 40 in" (declares
+ *     intent; does NOT numerically convert the typed values).
+ *   - Unit-less "30 x 40" gets the unit appended.
+ *   - Anything that doesn't look like WxH dims is returned as-is so we
+ *     never destroy free-form notes.
  */
 export function setSizeUnitSuffix(size: string, unit: SizeUnit): string {
   const raw = size.trim();
   if (!raw) return raw;
-  // Hosu values are cm-anchored and have their own canonical format
-  // (e.g. "30F (90.9 x 72.7 cm)"). We anchor on the start of the
-  // string and require an uppercase hosu type letter so we don't
-  // accidentally match the "c" / "m" of a trailing "cm" suffix.
+  // Hosu values are cm-anchored and carry their own canonical format.
+  // Anchor on the start and require an uppercase hosu letter so we do
+  // not match the "c"/"m" of a trailing "cm".
   if (/^\s*\d+\s*[FPMS]\b/.test(raw)) return raw;
-  const withSuffix = raw.replace(
-    /(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*(?:cm|in(?:ch(?:es)?)?))?\s*$/i,
-    (_, w, h) => `${w} × ${h} ${unit}`,
+  return raw.replace(
+    /(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)(?:\s*(?:cm|in(?:ch(?:es)?)?|"))?\s*$/i,
+    (_, w, h) => `${w} × ${h} ${unit}`
   );
-  return withSuffix;
 }
 
-/** Heuristic: pick a default unit when the user opens the form to a
- *  saved size string. Prefers the explicit suffix, falls back to
- *  locale (KO → cm, others → in). */
+/** Pick the default unit when opening the form on a saved size string.
+ *  Prefers an explicit suffix, falls back to locale (KO → cm, else in). */
 export function detectSizeUnit(
   size: string | null | undefined,
-  locale: string,
+  locale: string
 ): SizeUnit {
   if (size) {
-    if (/\bin(?:ch(?:es)?)?\b\s*$/i.test(size)) return "in";
-    if (/\bcm\b\s*$/i.test(size)) return "cm";
+    if (/(?:in(?:ch(?:es)?)?|")\s*$/i.test(size)) return "in";
+    if (/cm\s*$/i.test(size)) return "cm";
   }
   return locale.startsWith("ko") ? "cm" : "in";
 }
 
-/** 파싱 결과 + 사용자 입력 단위. 표시 시 locale 변환에 사용 */
 export type ParsedSizeWithUnit = { parsed: ParsedSize; unit: SizeUnit | null };
 
+const HOSU_TYPED_RE = /(\d+)\s*([FPMS])\b/;
+const INCH_MARKER_RE = /(?:"|\binch(?:es)?\b|\bin\b)/i;
+const CM_MARKER_RE = /cm\b/i;
+const NUMBER_RE = /\d+(?:\.\d+)?/g;
+
 /**
- * parseSize와 동일하되, 입력 문자열에서 감지한 단위를 함께 반환.
- * unit은 suffix가 명시적으로 존재할 때만 설정됨:
- * - "20 x 30 in" / "24 x 18 inches" → unit: "in"
- * - "50 x 40 cm" / "100×80cm" → unit: "cm"
- * - "30F" → unit: "cm" (호수는 항상 cm)
- * - "100 x 80" (suffix 없음) → unit: null (unitless)
+ * Parse a free-form size string into cm-normalized dimensions plus the
+ * unit the numbers were declared in (or `null` when the unit can't be
+ * determined). Handles the messy real-world formats in production:
+ *   "91*72.2", "42x29.7(cm)", "9\" x 12\"", "53cm x 45.5cm",
+ *   "24 x 24 inch", "50 X 50cm", "130 × 324", "30F (90.9 x 72.7 cm)".
+ *
+ * Unit resolution (in priority order):
+ *   1. explicit hosu (F/P/M/S)  → cm (hosu is a cm standard)
+ *   2. inch marker (", inch, in) → in  (numbers stored ×2.54 as cm)
+ *   3. cm marker                 → cm
+ *   4. bare numbers, no marker   → unit: null (unknown; caller decides)
+ * Strings with no numeric dimensions ("Variable size", "N/A") → null.
  */
 export function parseSizeWithUnit(size: string): ParsedSizeWithUnit | null {
   const raw = size.trim();
+  if (!raw) return null;
 
-  // 1) 호수 → cm (항상 cm)
-  const hosuMatch = raw.match(/(\d+)\s*([FPMScfmps])/);
+  // 1) Explicit typed hosu (e.g. "30F", "30F (90.9 x 72.7 cm)").
+  const hosuMatch = raw.match(HOSU_TYPED_RE);
   if (hosuMatch) {
     const num = parseInt(hosuMatch[1], 10);
     const type = hosuMatch[2].toUpperCase() as HosuType;
@@ -96,163 +124,83 @@ export function parseSizeWithUnit(size: string): ParsedSizeWithUnit | null {
     }
   }
 
-  // 2) "W x H in" / "W x H inches" — explicit inch suffix required
-  const inMatch = raw.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s+in(?:ch(?:es)?)?\s*$/i);
-  if (inMatch) {
-    const wIn = parseFloat(inMatch[1]);
-    const hIn = parseFloat(inMatch[2]);
-    if (Number.isFinite(wIn) && Number.isFinite(hIn)) {
-      return {
-        parsed: { widthCm: wIn * 2.54, heightCm: hIn * 2.54 },
-        unit: "in",
-      };
-    }
-  }
-  // Also match "WxHin" (no space before unit)
-  const inMatchNoSpace = raw.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)in(?:ch(?:es)?)?\s*$/i);
-  if (inMatchNoSpace) {
-    const wIn = parseFloat(inMatchNoSpace[1]);
-    const hIn = parseFloat(inMatchNoSpace[2]);
-    if (Number.isFinite(wIn) && Number.isFinite(hIn)) {
-      return {
-        parsed: { widthCm: wIn * 2.54, heightCm: hIn * 2.54 },
-        unit: "in",
-      };
-    }
-  }
+  // 2) First two numbers anywhere in the string are the dimensions.
+  const nums = raw.match(NUMBER_RE);
+  if (!nums || nums.length < 2) return null;
+  const a = parseFloat(nums[0]);
+  const b = parseFloat(nums[1]);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
 
-  // 3) "W x H cm" — explicit cm suffix required
-  const cmMatch = raw.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*cm\s*$/i);
-  if (cmMatch) {
-    const w = parseFloat(cmMatch[1]);
-    const h = parseFloat(cmMatch[2]);
-    if (Number.isFinite(w) && Number.isFinite(h)) {
-      return { parsed: { widthCm: w, heightCm: h }, unit: "cm" };
-    }
-  }
+  const hasInch = INCH_MARKER_RE.test(raw);
+  const hasCm = CM_MARKER_RE.test(raw);
 
-  // 4) "W x H" — unitless, no conversion
-  const plainMatch = raw.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*$/);
-  if (plainMatch) {
-    const w = parseFloat(plainMatch[1]);
-    const h = parseFloat(plainMatch[2]);
-    if (Number.isFinite(w) && Number.isFinite(h)) {
-      return { parsed: { widthCm: w, heightCm: h }, unit: null };
-    }
+  if (hasInch && !hasCm) {
+    return { parsed: { widthCm: a * 2.54, heightCm: b * 2.54 }, unit: "in" };
   }
-
-  return null;
+  if (hasCm) {
+    return { parsed: { widthCm: a, heightCm: b }, unit: "cm" };
+  }
+  // Bare numbers, no unit marker → unit unknown.
+  return { parsed: { widthCm: a, heightCm: b }, unit: null };
 }
 
 /**
- * 저장된 size + size_unit을 locale에 맞게 표시.
- * - size_unit === 'in': 참값은 inch. KO에서만 cm로 변환 표시, EN은 inch 그대로.
- * - size_unit === 'cm': 참값은 cm. EN에서만 inch로 변환 표시, KO는 cm 그대로.
- * - size_unit == null: 기존 동작(파싱 가능하면 locale에 따라 cm/in 결정).
+ * Format a stored size for display.
+ * - `storedUnit` (the `size_unit` column) is the source of truth for the
+ *   unit the numbers were entered in; when null we fall back to the unit
+ *   embedded in the text, then to "unknown".
+ * - `viewUnit` is the unit to render in (resolve via `resolveViewUnit`
+ *   from the viewer preference + locale). Defaults to the locale rule.
+ * - Conversion uses 1 in = 2.54 cm, rounded to one decimal place.
+ * - An explicit hosu (only when the artist actually typed one) is kept as
+ *   a leading label (e.g. "30F · 92 × 73 cm"). No hosu is ever guessed.
+ * - Free-form values ("Variable size") are returned verbatim.
+ * - When the true unit is unknown (bare numbers, no `size_unit`), the raw
+ *   numbers are returned WITHOUT a unit so callers can gate on it.
  */
 export function formatSizeForLocale(
   size: string | null | undefined,
   locale: string,
-  sizeUnit?: SizeUnit | null
+  storedUnit?: SizeUnit | null,
+  prefUnit?: SizeUnitPref | null
 ): string | null {
   if (!size || !size.trim()) return null;
-  const parsed = parseSize(size);
-  if (!parsed) return size.trim();
+  const parsed = parseSizeWithUnit(size);
+  if (!parsed) return size.trim(); // free-form note
 
-  const { widthCm, heightCm, hosuNumber, hosuType } = parsed;
-  const isKo = locale.startsWith("ko");
-  /** 사용자 입력에 호수가 없을 때, cm 기준 치수로 가장 가까운 호수(표시용). */
-  const nearestHosu =
-    hosuNumber != null && hosuType ? null : findNearestHosu(widthCm, heightCm);
-  const hosuPrefix = (h: { number: number; type: HosuType }) =>
-    isKo ? `약 ${h.number}${h.type} · ` : `~${h.number}${h.type} · `;
+  const { widthCm, heightCm, hosuNumber, hosuType } = parsed.parsed;
+  const detected = parsed.unit; // unit inferred from the text (or null)
+  const viewUnit = resolveViewUnit(prefUnit, locale);
+  const hosuLabel =
+    hosuNumber != null && hosuType ? `${hosuNumber}${hosuType}` : null;
+  const withHosu = (base: string) => (hosuLabel ? `${hosuLabel} · ${base}` : base);
 
-  if (sizeUnit === "in") {
-    const wIn = cmToIn(widthCm);
-    const hIn = cmToIn(heightCm);
-    if (isKo) {
-      const base = `${widthCm.toFixed(1)} × ${heightCm.toFixed(1)} cm`;
-      if (hosuNumber != null && hosuType) return `${hosuNumber}${hosuType} · ${base}`;
-      if (nearestHosu) return `${hosuPrefix(nearestHosu)}${base}`;
-      return base;
-    }
-    const base = `${wIn.toFixed(1)} × ${hIn.toFixed(1)} in`;
-    if (hosuNumber != null && hosuType) return `${hosuNumber}${hosuType} · ${base}`;
-    if (nearestHosu) return `${hosuPrefix(nearestHosu)}${base}`;
-    return base;
+  // Recover the raw numbers the artist typed (parse pre-normalized inch
+  // inputs to cm; undo that so the stored `size_unit` column — which is the
+  // real source of truth — can reinterpret bare numbers correctly).
+  const rawW = detected === "in" ? widthCm / 2.54 : widthCm;
+  const rawH = detected === "in" ? heightCm / 2.54 : heightCm;
+
+  // storedUnit (the size_unit column) wins over any unit embedded in text.
+  const trueUnit: SizeUnit | null = storedUnit ?? detected;
+
+  // Unknown unit → keep the raw numbers, no unit suffix, no conversion.
+  if (trueUnit == null) {
+    return withHosu(`${round1(rawW)} × ${round1(rawH)}`);
   }
 
-  if (sizeUnit === "cm") {
-    const base = `${widthCm.toFixed(1)} × ${heightCm.toFixed(1)} cm`;
-    if (hosuNumber != null && hosuType) return `${hosuNumber}${hosuType} · ${base}`;
-    if (nearestHosu && isKo) return `${hosuPrefix(nearestHosu)}${base}`;
-    if (isKo) return base;
-    const wIn = cmToIn(widthCm);
-    const hIn = cmToIn(heightCm);
-    const inBase = `${wIn.toFixed(1)} × ${hIn.toFixed(1)} in`;
-    if (nearestHosu) return `${hosuPrefix(nearestHosu)}${inBase}`;
-    return inBase;
-  }
+  // Normalize to true cm, then render in the requested view unit.
+  const trueWcm = trueUnit === "in" ? rawW * 2.54 : rawW;
+  const trueHcm = trueUnit === "in" ? rawH * 2.54 : rawH;
 
-  // size_unit 없음. 입력에 *호수가 명기* 된 경우만 단위(cm)가 확정 — 호수
-  // 자체가 cm 기반 표준이라 안전. 그 외 순수 숫자(`120 × 80`)는 단위가
-  // cm 인지 in 인지 알 수 없어 임의로 부여하면 2.5배 오차로 사용자에게
-  // 잘못된 정보를 주게 된다. 호출처(예: 피드 사이즈 pill)에서 단위 부재
-  // 게이트로 미렌더 처리하도록 *수치만* 반환한다.
-  if (hosuNumber != null && hosuType) {
-    if (isKo) {
-      const base = `${widthCm.toFixed(1)} × ${heightCm.toFixed(1)} cm`;
-      return `${hosuNumber}${hosuType} · ${base}`;
-    }
-    const wIn = cmToIn(widthCm);
-    const hIn = cmToIn(heightCm);
-    const base = `${wIn.toFixed(1)} × ${hIn.toFixed(1)} in`;
-    return `${hosuNumber}${hosuType} · ${base}`;
+  if (viewUnit === "in") {
+    return withHosu(`${round1(cmToIn(trueWcm))} × ${round1(cmToIn(trueHcm))} in`);
   }
-  // 호수 명기가 없으면 단위 미상 — 수치만 보존.
-  const base = `${widthCm.toFixed(1)} × ${heightCm.toFixed(1)}`;
-  if (nearestHosu) return `${hosuPrefix(nearestHosu)}${base}`;
-  return base;
+  return withHosu(`${round1(trueWcm)} × ${round1(trueHcm)} cm`);
 }
 
+/** Backwards-compatible dimension parser (cm-normalized). */
 export function parseSize(size: string): ParsedSize | null {
-  const raw = size.trim();
-
-  // 1) 호수 패턴: "30F" 또는 "30F (90.9 x 72.7 cm)"
-  const hosuMatch = raw.match(/(\d+)\s*([FPMScfmps])/);
-  if (hosuMatch) {
-    const num = parseInt(hosuMatch[1], 10);
-    const type = hosuMatch[2].toUpperCase() as HosuType;
-    const hosu = findHosuSize(num, type);
-    if (hosu) {
-      return {
-        widthCm: hosu.widthCm,
-        heightCm: hosu.heightCm,
-        hosuNumber: hosu.number,
-        hosuType: hosu.type,
-      };
-    }
-  }
-
-  // 2) "W x H in" / "W x H inches" — explicit inch suffix
-  const inMatch = raw.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*in(?:ch(?:es)?)?\b/i);
-  if (inMatch) {
-    const wIn = parseFloat(inMatch[1]);
-    const hIn = parseFloat(inMatch[2]);
-    if (Number.isFinite(wIn) && Number.isFinite(hIn)) {
-      return { widthCm: wIn * 2.54, heightCm: hIn * 2.54 };
-    }
-  }
-
-  // 3) "W x H cm" / "W x H" — treat as cm (display parser, not unit-aware)
-  const cmMatch = raw.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
-  if (cmMatch) {
-    const w = parseFloat(cmMatch[1]);
-    const h = parseFloat(cmMatch[2]);
-    if (Number.isFinite(w) && Number.isFinite(h)) {
-      return { widthCm: w, heightCm: h };
-    }
-  }
-
-  return null;
+  const parsed = parseSizeWithUnit(size);
+  return parsed ? parsed.parsed : null;
 }

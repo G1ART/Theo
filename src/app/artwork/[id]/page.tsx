@@ -55,6 +55,7 @@ import { peekRoomSource, setRoomSource } from "@/lib/room/source";
 import type { InquirySource } from "@/lib/supabase/priceInquiries";
 import { ownershipStatusLabel } from "@/lib/artworks/labels";
 import { formatSizeForLocale } from "@/lib/size/format";
+import { useSizeUnitPref } from "@/lib/size/preference";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
 import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
 import { InquiryReplyAssist } from "@/components/ai/InquiryReplyAssist";
@@ -91,6 +92,7 @@ function ArtworkDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t, locale } = useT();
+  const sizePref = useSizeUnitPref();
   const id = typeof params.id === "string" ? params.id : "";
   const fromRoom = searchParams.get("fromRoom");
   const { actingAsProfileId } = useActingAs();
@@ -713,7 +715,7 @@ function ArtworkDetailContent() {
   const { path: backPath, labelKey: backLabelKey } = getArtworkBack();
   const sizeDisplay =
     artwork.size != null
-      ? formatSizeForLocale(artwork.size, locale, artwork.size_unit ?? undefined)
+      ? formatSizeForLocale(artwork.size, locale, artwork.size_unit ?? undefined, sizePref)
       : null;
 
   return (

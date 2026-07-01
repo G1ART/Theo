@@ -30,7 +30,7 @@ import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
 import { useT } from "@/lib/i18n/useT";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
-import { detectSizeUnit, parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
+import { parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
@@ -123,6 +123,10 @@ function UploadPageContent() {
   const [year, setYear] = useState("");
   const [medium, setMedium] = useState("");
   const [size, setSize] = useState("");
+  // Explicit unit the artist declares for the dimensions (source of truth
+  // for the size_unit column). Defaults by locale; auto-syncs when the
+  // typed value already carries an explicit unit (e.g. "24 x 24 inch").
+  const [sizeUnit, setSizeUnit] = useState<SizeUnit>(locale.startsWith("ko") ? "cm" : "in");
   const [hosuNumber, setHosuNumber] = useState("");
   const [hosuType, setHosuType] = useState<"F" | "P" | "M" | "S" | "">("");
   const [hosuWarning, setHosuWarning] = useState<string | null>(null);
@@ -282,14 +286,13 @@ function UploadPageContent() {
     }
 
     const sizeTrimmed = size.trim();
-    const sizeWithUnit = sizeTrimmed ? parseSizeWithUnit(sizeTrimmed) : null;
     const isExternal = needsAttribution(intent) && useExternalArtist;
     const payload: CreateArtworkPayload = {
       title: title.trim(),
       year: yearNum,
       medium: medium.trim(),
       size: sizeTrimmed,
-      size_unit: sizeWithUnit?.unit ?? null,
+      size_unit: sizeTrimmed ? sizeUnit : null,
       story: story.trim() || null,
       ownership_status: ownershipStatus,
       pricing_mode: pricingMode,
@@ -884,6 +887,7 @@ function UploadPageContent() {
                       setSize(
                         `${n}${hosuType} (${h.widthCm.toFixed(1)} x ${h.heightCm.toFixed(1)} cm)`
                       );
+                      setSizeUnit("cm"); // hosu is a cm standard
                       setHosuWarning(null);
                     }}
                     className="rounded-full border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
@@ -899,35 +903,39 @@ function UploadPageContent() {
                 <input
                   type="text"
                   value={size}
-                  onChange={(e) => setSize(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSize(val);
+                    // If the artist typed an explicit unit, keep the
+                    // selector in sync so the stored size_unit matches.
+                    const declared = parseSizeWithUnit(val)?.unit;
+                    if (declared) setSizeUnit(declared);
+                  }}
                   required
                   placeholder={t("upload.placeholderSize")}
                   className="flex-1 rounded border border-zinc-300 px-3 py-2"
                 />
-                {/* QA 2026-06-26 (#4) — explicit unit toggle so the
-                    user declares cm vs in. Clicking re-anchors the
-                    suffix on the size string via setSizeUnitSuffix,
-                    which parseSizeWithUnit then round-trips into the
-                    size_unit column at save time. Hosu-prefilled
-                    values are left alone (they are cm-anchored). */}
-                {(() => {
-                  const currentUnit: SizeUnit = detectSizeUnit(size, locale);
-                  return (["cm", "in"] as const).map((u) => (
-                    <button
-                      key={u}
-                      type="button"
-                      aria-pressed={currentUnit === u}
-                      onClick={() => setSize(setSizeUnitSuffix(size, u))}
-                      className={`rounded border px-3 text-xs font-medium ${
-                        currentUnit === u
-                          ? "border-zinc-900 bg-zinc-900 text-white"
-                          : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                      }`}
-                    >
-                      {u}
-                    </button>
-                  ));
-                })()}
+                {/* Explicit cm / in selector — the artist declares the
+                    unit; it is stored verbatim in size_unit. Toggling also
+                    re-anchors the suffix on the visible string for clarity. */}
+                {(["cm", "in"] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    aria-pressed={sizeUnit === u}
+                    onClick={() => {
+                      setSizeUnit(u);
+                      setSize((prev) => setSizeUnitSuffix(prev, u));
+                    }}
+                    className={`rounded border px-3 text-xs font-medium ${
+                      sizeUnit === u
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    {u}
+                  </button>
+                ))}
               </div>
             </div>
             <div>

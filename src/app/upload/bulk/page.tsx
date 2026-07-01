@@ -83,7 +83,7 @@ export default function BulkUploadPage() {
   const preselectedExternalName = searchParams.get("externalName");
   const preselectedExternalEmail = searchParams.get("externalEmail");
 
-  const { t } = useT();
+  const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [drafts, setDrafts] = useState<ArtworkWithLikes[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,7 +108,11 @@ export default function BulkUploadPage() {
   const [titleReplaceTo, setTitleReplaceTo] = useState("");
   const [pendingBulk, setPendingBulk] = useState<null | { message: string; run: () => Promise<void> }>(null);
   const [bulkSize, setBulkSize] = useState("");
-  const [bulkSizeUnit, setBulkSizeUnit] = useState<"" | "cm" | "in">("");
+  // Default the batch size unit by locale (KO → cm, else in) so bulk-applied
+  // sizes always carry an explicit unit instead of landing as "unit unknown".
+  const [bulkSizeUnit, setBulkSizeUnit] = useState<"" | "cm" | "in">(
+    locale.startsWith("ko") ? "cm" : "in"
+  );
   const [bulkPriceAmount, setBulkPriceAmount] = useState("");
   const [bulkPriceCurrency, setBulkPriceCurrency] = useState("USD");
   const [bulkPricePublic, setBulkPricePublic] = useState(false);

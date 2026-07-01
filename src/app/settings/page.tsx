@@ -29,6 +29,7 @@ import {
   type TaxonomyOption,
 } from "@/lib/profile/taxonomy";
 import { BuildStamp } from "@/components/BuildStamp";
+import { SizeUnitPreference } from "@/components/settings/SizeUnitPreference";
 import { BioDraftAssist } from "@/components/ai/BioDraftAssist";
 import { ProfileMediaUploader } from "@/components/profile/ProfileMediaUploader";
 import { StatementDraftAssist } from "@/components/profile/StatementDraftAssist";
@@ -1121,6 +1122,8 @@ export default function SettingsPage() {
               </div>
               <p className="mt-2 text-xs text-zinc-500">{t("profile.completenessHint")}</p>
             </div>
+
+            <SizeUnitPreference />
 
             {/* P1-0 Profile identity surface (auto-save for media + slider, on-blur for statement). */}
             {uid && (
