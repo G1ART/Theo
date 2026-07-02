@@ -120,9 +120,12 @@ export default function AddWorkToExhibitionPage() {
       : await getMyProfile();
     const profileId = (profile as { id?: string } | null)?.id;
     const [myRes, listedRes] = await Promise.all([
+      // Only published works are addable to an exhibition. Bulk-uploaded but
+      // not-yet-published drafts must be published first — otherwise abandoned
+      // drafts leak into the exhibition add picker (QA 2026-07-01).
       listMyArtworks({
         limit: 100,
-        publicOnly: false,
+        publicOnly: true,
         forProfileId: actingAsProfileId ?? null,
       }),
       profileId

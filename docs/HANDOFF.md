@@ -2,6 +2,41 @@
 
 Last updated: 2026-07-02
 
+## 2026-07-02 — QA 리포트 패치 (일괄 업로드 5종 + 외부작가 중복)
+
+QA(2026-07-01, PC/Windows) 5개 이슈 진단·수정.
+
+### 무엇을 했나
+1. **제목 일괄 적용에 "모두 같은 제목으로(set)" 모드 추가**
+   - `src/app/upload/bulk/page.tsx`: `titleBulkMode`에 `set` 추가, `transformTitle`
+     에 set 분기(전체를 동일 제목으로). i18n `bulk.titleModeSet` /
+     `bulk.titleSetPlaceholder` (EN/KO). 기존 접두/접미/치환은 유지.
+2. **초안 확인 표에 Size 컬럼 추가(인라인 편집)**
+   - 일괄 사이즈 적용값이 게시 전 표에서 확인 가능. `updateDraftField`에
+     `size`/`size_unit` 처리 추가. 일괄 적용 시 `bulkVersion` 키로 행을
+     remount → 저장값 즉시 반영(포커스 유지 위해 per-row onBlur는 remount 안 함).
+3. **전시 작품추가에 draft 누출 차단**
+   - `src/app/my/exhibitions/[id]/add/page.tsx`: `listMyArtworks({publicOnly:true})`.
+     게시 안 된 일괄 초안이 전시 후보로 뜨던 문제 해결.
+   - `src/app/e/[id]/page.tsx`: 전시 상세에서 `visibility==='draft'` 방어 필터.
+4. **일괄 게시 후 이동 동선을 단일 업로드와 일치**
+   - `handlePublish`: 전부 성공 시 전시 유입은 `/my/exhibitions/[id]`(상세),
+     일반은 `/u/[username]`(프로필)로 이동. 부분 실패 시에만 현 페이지 유지(재시도).
+5. **외부작가 중복(김수철 3행 → 1행) 정리 + 재발 차단**
+   - `supabase/migrations/20260702000000_external_artist_email_global_dedupe.sql`.
+   - 정책: 같은 이메일이면 **초대자 달라도 전역 병합**, 같은 (초대자,이름)의
+     무이메일 행은 이메일 행으로 흡수. `get_or_create_external_artist`를
+     이메일 전역 재사용 + 무이메일 흡수(backfill)로 하드닝, 유니크 인덱스를
+     `(lower(email)) 전역` + `(invited_by, lower(name)) 무이메일`로 교체.
+   - **Supabase SQL: 이미 MCP로 적용 완료** (김수철 43 claims 단일행 확인,
+     전역/무이메일 중복 0). 다른 환경 재현 시 위 마이그레이션을 SECTION 단위 실행.
+
+### Verified
+- `npx tsc --noEmit` 통과, `npm run build` 통과.
+- DB: 김수철 external_artists 1행(43 claims), 전역 이메일 중복·무이메일 중복 없음.
+
+---
+
 ## 2026-07-02 — UI/UX 리디자인 2차: 페이지 내부 콘텐츠 재구성
 
 1차에서 씌운 3단 AppShell 위에서, 4개 대상 페이지의 **본문**을 와이어프레임에

@@ -105,7 +105,9 @@ export default function PublicExhibitionPage() {
       return;
     }
     const { data: artList } = await getArtworksByIds(worksRes.data!.map((w) => w.work_id));
-    setArtworks(artList ?? []);
+    // Defensive: never surface unpublished drafts on the public exhibition
+    // page even if a draft was somehow linked (QA 2026-07-01).
+    setArtworks((artList ?? []).filter((a) => a.visibility !== "draft"));
     setLoading(false);
   }, [id]);
 

@@ -101,8 +101,12 @@ export default function BulkUploadPage() {
   const [pendingFiles, setPendingFiles] = useState<{ id: string; file: File }[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Bumped after a *bulk* apply so the draft table rows remount and reflect
+  // the newly saved values. Per-row onBlur edits deliberately do NOT bump
+  // this (rows use uncontrolled defaultValue inputs) so typing keeps focus.
+  const [bulkVersion, setBulkVersion] = useState(0);
 
-  const [titleBulkMode, setTitleBulkMode] = useState<"none" | "prefix" | "suffix" | "replace">("none");
+  const [titleBulkMode, setTitleBulkMode] = useState<"none" | "set" | "prefix" | "suffix" | "replace">("none");
   const [titleBulkText, setTitleBulkText] = useState("");
   const [titleReplaceFrom, setTitleReplaceFrom] = useState("");
   const [titleReplaceTo, setTitleReplaceTo] = useState("");
@@ -408,6 +412,9 @@ export default function BulkUploadPage() {
     // QA 2026-06-26 (#7) — silent so the table doesn't flash through a
     // loading state while the user is still in the bulk-apply panel.
     await fetchDrafts({ silent: true });
+    // QA 2026-07-01 — remount rows so bulk-applied values (e.g. size) show
+    // in the draft confirmation table before publishing.
+    setBulkVersion((v) => v + 1);
   }
 
   async function handleApply(field: string, value: unknown) {
@@ -449,6 +456,7 @@ export default function BulkUploadPage() {
     // QA 2026-06-26 (#7) — silent so the open bulk-apply panel does not
     // unmount the row inputs the user just edited.
     await fetchDrafts({ silent: true });
+    setBulkVersion((v) => v + 1);
     setPendingBulk(null);
     setToast(t("bulk.applyTitleBulk"));
     setTimeout(() => setToast(null), 2000);
@@ -721,16 +729,33 @@ export default function BulkUploadPage() {
 
       // Navigate / refetch ONLY when at least one work landed publicly.
       if (publishedIds.length > 0) {
-        if (addToExhibitionId && intent === "CURATED") {
-          router.push(`/my/exhibitions/${addToExhibitionId}/add`);
-          return;
-        }
-        setSelected(new Set());
-        // Silent refetch so a partial-success toast stays visible.
-        await fetchDrafts({ silent: true });
         void logBetaEvent("bulk_publish_completed", {
           count: publishedIds.length,
         });
+        // Partial failure — keep the user here so they can fix & retry the
+        // failed rows (a cause-aware toast is already showing above).
+        if (failedCount > 0) {
+          setSelected(new Set());
+          await fetchDrafts({ silent: true });
+          return;
+        }
+        // All published — mirror single-upload navigation instead of
+        // stranding the user on the draft table / add page (QA 2026-07-01).
+        if (addToExhibitionId) {
+          router.push(`/my/exhibitions/${addToExhibitionId}`);
+          return;
+        }
+        const { getMyProfile, getProfileById } = await import("@/lib/supabase/profiles");
+        const { data: profile } = actingAsProfileId
+          ? await getProfileById(actingAsProfileId)
+          : await getMyProfile();
+        const username = (profile as { username?: string | null } | null)?.username?.trim();
+        if (username) {
+          router.push(`/u/${username}`);
+          return;
+        }
+        setSelected(new Set());
+        await fetchDrafts({ silent: true });
       }
     } finally {
       setPublishing(false);
@@ -742,6 +767,8 @@ export default function BulkUploadPage() {
     if (field === "title") payload.title = String(value ?? "");
     else if (field === "year") payload.year = typeof value === "number" ? value : (parseInt(String(value), 10) || null);
     else if (field === "medium") payload.medium = String(value ?? "");
+    else if (field === "size") payload.size = String(value ?? "").trim() || null;
+    else if (field === "size_unit") payload.size_unit = value ? (String(value) as "cm" | "in") : null;
     else if (field === "ownership_status") payload.ownership_status = String(value ?? "");
     else     if (field === "pricing_mode") payload.pricing_mode = value as "fixed" | "inquire" | null;
     await updateArtwork(id, payload as Parameters<typeof updateArtwork>[1], {
@@ -798,6 +825,7 @@ export default function BulkUploadPage() {
     to: string
   ): string {
     const base = title ?? "";
+    if (mode === "set") return seg.trim();
     if (mode === "prefix") return (seg + base).trim();
     if (mode === "suffix") return (base + seg).trim();
     if (mode === "replace" && from) return base.split(from).join(to);
@@ -1189,6 +1217,7 @@ export default function BulkUploadPage() {
                   className="rounded border border-zinc-300 px-2 py-1 text-sm"
                 >
                   <option value="none">{t("bulk.titleModeNone")}</option>
+                  <option value="set">{t("bulk.titleModeSet")}</option>
                   <option value="prefix">{t("bulk.titleModePrefix")}</option>
                   <option value="suffix">{t("bulk.titleModeSuffix")}</option>
                   <option value="replace">{t("bulk.titleModeReplace")}</option>
@@ -1197,7 +1226,7 @@ export default function BulkUploadPage() {
                   <input
                     value={titleBulkText}
                     onChange={(e) => setTitleBulkText(e.target.value)}
-                    placeholder={t("bulk.titleNewSegment")}
+                    placeholder={titleBulkMode === "set" ? t("bulk.titleSetPlaceholder") : t("bulk.titleNewSegment")}
                     className="w-48 rounded border border-zinc-300 px-2 py-1 text-sm"
                   />
                 )}
@@ -1448,6 +1477,7 @@ export default function BulkUploadPage() {
                   <th className="min-w-[220px] p-2 text-left">{t("bulk.tableTitle")}</th>
                   <th className="p-2 text-left">{t("bulk.year")}</th>
                   <th className="p-2 text-left">{t("bulk.medium")}</th>
+                  <th className="p-2 text-left">{t("bulk.size")}</th>
                   <th className="p-2 text-left">{t("bulk.ownershipStatus")}</th>
                   <th className="p-2 text-left">{t("bulk.pricingMode")}</th>
                   <th className="p-2 text-left">{t("bulk.status")}</th>
@@ -1459,7 +1489,7 @@ export default function BulkUploadPage() {
                   const img = (d.artwork_images ?? [])[0];
                   const thumb = img ? getArtworkImageUrl(img.storage_path, "thumb") : null;
                   return (
-                    <tr key={d.id} className="border-b border-zinc-100">
+                    <tr key={`${d.id}-${bulkVersion}`} className="border-b border-zinc-100">
                       <td className="p-2">
                         <input
                           type="checkbox"
@@ -1501,6 +1531,26 @@ export default function BulkUploadPage() {
                           className="w-32 rounded border border-zinc-300 px-2 py-1"
                           onBlur={(e) => updateDraftField(d.id, "medium", e.target.value)}
                         />
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            defaultValue={d.size ?? ""}
+                            placeholder="—"
+                            className="w-24 rounded border border-zinc-300 px-2 py-1"
+                            onBlur={(e) => updateDraftField(d.id, "size", e.target.value)}
+                          />
+                          <select
+                            defaultValue={d.size_unit ?? ""}
+                            className="rounded border border-zinc-300 px-1 py-1"
+                            onChange={(e) => updateDraftField(d.id, "size_unit", e.target.value || null)}
+                          >
+                            <option value="">—</option>
+                            <option value="cm">cm</option>
+                            <option value="in">in</option>
+                          </select>
+                        </div>
                       </td>
                       <td className="p-2">
                         <select
