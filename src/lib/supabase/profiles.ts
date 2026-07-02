@@ -224,6 +224,83 @@ function numberFieldOrNull(v: unknown): number | null {
   return null;
 }
 
+/**
+ * Public listing of profiles for the Explore Artists tab. Public read
+ * (RLS: is_public=true only), filtered by role when requested. No sensitive
+ * fields (email/details) are selected; only the identity slice needed for
+ * a lightweight artist card.
+ */
+export type ProfileListItem = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  main_role: string | null;
+  roles: string[] | null;
+  bio: string | null;
+};
+
+export type ProfileListCursor = { created_at: string; id: string };
+
+export async function listPublicProfiles(options: {
+  role?: string | null;
+  limit?: number;
+  cursor?: ProfileListCursor | null;
+} = {}): Promise<{
+  data: ProfileListItem[];
+  nextCursor: ProfileListCursor | null;
+  error: unknown;
+}> {
+  const { role = null, limit = 24, cursor = null } = options;
+  const pageSize = Math.min(Math.max(limit, 1), 60);
+  const requestLimit = pageSize + 1;
+
+  let query = supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url, main_role, roles, bio, created_at")
+    .eq("is_public", true)
+    .not("username", "is", null)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(requestLimit);
+
+  if (role) {
+    // Match either main_role or any of the roles[] array entries.
+    query = query.or(`main_role.eq.${role},roles.cs.{${role}}`);
+  }
+
+  if (cursor) {
+    const createdAt = cursor.created_at.replace(/"/g, '\\"');
+    const id = cursor.id.replace(/"/g, '\\"');
+    query = query.or(
+      `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt."${id}")`
+    );
+  }
+
+  const { data, error } = await query;
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+
+  let nextCursor: ProfileListCursor | null = null;
+  if (rows.length > pageSize) {
+    const overflow = rows[pageSize];
+    const createdAt = overflow?.created_at != null ? String(overflow.created_at) : null;
+    const id = overflow?.id != null ? String(overflow.id) : null;
+    if (createdAt && id) nextCursor = { created_at: createdAt, id };
+  }
+
+  const trimmed = rows.slice(0, pageSize).map((r) => ({
+    id: String(r.id ?? ""),
+    username: r.username != null ? String(r.username) : null,
+    display_name: r.display_name != null ? String(r.display_name) : null,
+    avatar_url: r.avatar_url != null ? String(r.avatar_url) : null,
+    main_role: r.main_role != null ? String(r.main_role) : null,
+    roles: Array.isArray(r.roles) ? (r.roles as string[]) : null,
+    bio: r.bio != null ? String(r.bio) : null,
+  }));
+
+  return { data: trimmed, nextCursor, error };
+}
+
 export async function checkUsernameExists(
   username: string,
   excludeUserId?: string

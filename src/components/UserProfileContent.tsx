@@ -104,6 +104,10 @@ export function UserProfileContent({
   const [savedToast, setSavedToast] = useState(false);
   const [savedToastMsg, setSavedToastMsg] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Wireframe redesign: top-of-profile role tab (Artist(main) / Collector).
+  // Purely a UI filter — the underlying persona strip / reorder / permission
+  // logic keeps its own state (`active`) and stays authoritative.
+  const [roleTab, setRoleTab] = useState<"artist" | "collector">("artist");
 
   // Exhibition manual order map (rebuilt only when the prop changes).
   const initialExhibitionOrderMap = useMemo(
@@ -460,6 +464,42 @@ export function UserProfileContent({
 
   const isExhibitionsView = active.kind === "persona" && active.tab === "exhibitions";
 
+  // Derived role-tab set. We only surface the Artist tab if the profile
+  // actually claims artist-hood (main_role=artist or artist in roles[]),
+  // and only surface the Collector tab if the profile has any collected
+  // works OR explicitly declares the collector role. Solo-role profiles
+  // never render the tab strip.
+  const isArtistProfile = isArtistRole({ main_role: profile.main_role ?? null, roles });
+  const collectorFromRoles =
+    profile.main_role === "collector" || roles.includes("collector");
+  // Any OWNS-typed claim naming this profile — including self-owned works
+  // — surfaces the Collector tab. Self-ownership counts as collection in
+  // Theo's model (kept works, unsold), and the persona strip already
+  // exposes it as `Collected (n)`; making the top tab reflect that keeps
+  // the two navigations in sync.
+  const collectorFromArtworks = artworks.some((a) =>
+    (a.claims ?? []).some(
+      (c) => c.subject_profile_id === profile.id && c.claim_type === "OWNS"
+    )
+  );
+  const hasCollectorTab = collectorFromRoles || collectorFromArtworks;
+  const showRoleTabs = isArtistProfile && hasCollectorTab;
+
+  // Keep the underlying persona `active` in sync with the chosen role tab.
+  // Collector → force `OWNS`; Artist → if we came from OWNS reset to `all`.
+  useEffect(() => {
+    if (!showRoleTabs) return;
+    if (roleTab === "collector") {
+      if (!(active.kind === "persona" && active.tab === "OWNS")) {
+        setActive({ kind: "persona", tab: "OWNS" });
+      }
+    } else if (roleTab === "artist") {
+      if (active.kind === "persona" && active.tab === "OWNS") {
+        setActive({ kind: "persona", tab: "all" });
+      }
+    }
+  }, [roleTab, showRoleTabs, active]);
+
   const worksHeading = useMemo(() => {
     if (isExhibitionsView) return t("exhibition.myExhibitions");
     if (active.kind === "custom") {
@@ -515,6 +555,14 @@ export function UserProfileContent({
               <ProfileActions profileId={profile.id} />
             </div>
           </div>
+          {isOwner && (
+            <Link
+              href="/settings"
+              className="shrink-0 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              {t("profile.editProfile")}
+            </Link>
+          )}
         </div>
 
         {profile.bio ? (
@@ -559,15 +607,45 @@ export function UserProfileContent({
         )}
       </div>
 
+      {/* Wireframe role tabs (Artist / Collector). Only rendered when both
+          apply — a solo-artist profile keeps the previous layout. */}
+      {showRoleTabs && (
+        <div className="mb-6 flex items-center gap-6 border-b border-zinc-200 text-sm">
+          <button
+            type="button"
+            onClick={() => setRoleTab("artist")}
+            aria-pressed={roleTab === "artist"}
+            className={`-mb-px border-b-2 pb-2 transition-colors ${
+              roleTab === "artist"
+                ? "border-zinc-900 font-semibold text-zinc-900"
+                : "border-transparent text-zinc-500 hover:text-zinc-800"
+            }`}
+          >
+            {t("profile.tab.artist")}
+            <span className="ml-1 text-[10px] uppercase tracking-wider text-zinc-400">
+              {profile.main_role === "artist" ? "main" : ""}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoleTab("collector")}
+            aria-pressed={roleTab === "collector"}
+            className={`-mb-px border-b-2 pb-2 transition-colors ${
+              roleTab === "collector"
+                ? "border-zinc-900 font-semibold text-zinc-900"
+                : "border-transparent text-zinc-500 hover:text-zinc-800"
+            }`}
+          >
+            {t("profile.tab.collector")}
+          </button>
+        </div>
+      )}
+
       {/* Profile Surface Cards — Artist Statement + CV. Both surfaces
           stay artist-only (incl. hybrid); for non-artist personas
           (curator / collector / gallerist) the entire row is suppressed.
-          Replaces the legacy `ArtistStatementSection` full-section card,
-          which was pushing the artworks tab off the first viewport
-          whenever the statement ran long. The two trigger buttons keep
-          the surface compact and open in-page modals — see
-          `ProfileSurfaceCards.tsx` for the layout decision. */}
-      {isArtistRole({ main_role: profile.main_role ?? null, roles }) && (
+          Also suppressed when the visitor picked the Collector role tab. */}
+      {roleTab === "artist" && isArtistRole({ main_role: profile.main_role ?? null, roles }) && (
         <ProfileSurfaceCards
           statement={profile.artist_statement ?? null}
           heroImagePath={profile.artist_statement_hero_image_url ?? null}
@@ -608,7 +686,7 @@ export function UserProfileContent({
         </>
       )}
 
-      {stripPublic.length > 0 && (() => {
+      {roleTab === "artist" && stripPublic.length > 0 && (() => {
         const activeStripKey =
           stripPublic.find((row) =>
             row.kind === "persona"
@@ -873,9 +951,24 @@ export function UserProfileContent({
           )}
         </>
       ) : displayedArtworks.length === 0 ? (
-        <EmptyState title={t("profile.noWorks")} size="sm" />
+        roleTab === "collector" ? (
+          <EmptyState title={t("profile.collectorEmpty")} size="sm" />
+        ) : isOwner && !isExhibitionsView ? (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <UploadYourWorkTile label={t("profile.section.uploadYourWork")} />
+          </div>
+        ) : (
+          <EmptyState title={t("profile.noWorks")} size="sm" />
+        )
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {roleTab === "artist" &&
+            isOwner &&
+            !isExhibitionsView &&
+            active.kind === "persona" &&
+            (active.tab === "all" || active.tab === "CREATED") && (
+              <UploadYourWorkTile label={t("profile.section.uploadYourWork")} />
+            )}
           {displayedArtworks.map((artwork) => (
             <ArtworkCard
               key={artwork.id}
@@ -903,5 +996,17 @@ export function UserProfileContent({
       )}
       </PageShell>
     </>
+  );
+}
+
+function UploadYourWorkTile({ label }: { label: string }) {
+  return (
+    <Link
+      href="/upload"
+      className="flex aspect-square w-full flex-col items-center justify-center gap-3 rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500 transition-colors hover:border-zinc-400 hover:bg-zinc-100 hover:text-zinc-800"
+    >
+      <span aria-hidden className="text-3xl leading-none">+</span>
+      <span className="text-sm font-medium">{label}</span>
+    </Link>
   );
 }

@@ -719,7 +719,7 @@ function ArtworkDetailContent() {
       : null;
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
+    <main className="mx-auto max-w-3xl px-4 py-8">
       <ArtworkPassportHeader
         fromRoom={fromRoom}
         backPath={backPath}
@@ -727,7 +727,10 @@ function ArtworkDetailContent() {
       />
 
       <div className="space-y-6">
-        <div className="grid gap-6 sm:grid-cols-2">
+        {/* Wireframe layout: large hero image on top, all metadata stacks
+            beneath. Preserves the existing ArtworkImageStage (which owns
+            lightbox / desktop full-size logic). */}
+        <div className="mx-auto w-full max-w-xl">
           <ArtworkImageStage
             sortedImages={sortedImages}
             title={artwork.title}
@@ -736,9 +739,11 @@ function ArtworkDetailContent() {
             onOpenFullSize={() => setFullSizeOpen(true)}
             onCloseFullSize={() => setFullSizeOpen(false)}
           />
+        </div>
 
+        <div>
           <div>
-            <h1 className="text-xl font-semibold text-zinc-900">
+            <h1 className="text-2xl font-semibold text-zinc-900">
               {artwork.title ?? t("common.untitled")}
             </h1>
             {(() => {

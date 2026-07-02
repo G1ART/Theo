@@ -33,7 +33,6 @@ import {
   getPeopleRecommendations,
   type PeopleRec,
 } from "@/lib/supabase/recommendations";
-import { FeedHeader } from "./feed/FeedHeader";
 import { LivingSalonGrid } from "./feed/LivingSalonGrid";
 import { FeedGridSkeleton } from "@/components/ds";
 
@@ -86,6 +85,13 @@ type Props = {
   userId: string | null;
   onTabChange: (tab: "all" | "following") => void;
   onSortChange: (sort: "latest" | "popular") => void;
+  /**
+   * When true the built-in FeedHeader (tab + sort controls) is skipped —
+   * the caller renders its own header. Introduced with the wireframe
+   * redesign so the new Explore taxonomy header owns the primary
+   * navigation and FeedContent is used purely as the "For you" body.
+   */
+  suppressHeader?: boolean;
 };
 
 export function FeedContent({
@@ -94,6 +100,7 @@ export function FeedContent({
   userId,
   onTabChange,
   onSortChange,
+  suppressHeader = false,
 }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -724,14 +731,19 @@ export function FeedContent({
 
   return (
     <div>
-      <FeedHeader
-        tab={tab}
-        sort={sort}
-        isLoading={loading}
-        onTabChange={onTabChange}
-        onSortChange={onSortChange}
-        onRefresh={handleManualRefresh}
-      />
+      {!suppressHeader && (
+        <div className="mb-6 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            disabled={loading}
+            className="rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-500 hover:text-zinc-800 disabled:opacity-60"
+            aria-label={t("feed.refreshQuiet")}
+          >
+            {loading ? t("feed.refreshing") : t("feed.refreshQuiet")}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <FeedGridSkeleton />

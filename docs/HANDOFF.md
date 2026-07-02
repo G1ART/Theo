@@ -2,6 +2,85 @@
 
 Last updated: 2026-07-02
 
+## 2026-07-02 — UI/UX 리디자인 2차: 페이지 내부 콘텐츠 재구성
+
+1차에서 씌운 3단 AppShell 위에서, 4개 대상 페이지의 **본문**을 와이어프레임에
+맞춰 재구성. 기존 로직(재정렬/권한/좋아요/문의/개인화 피드)은 그대로 보존.
+
+### 무엇을 했나
+1. **Explore `/feed` 공개 랜딩 + 5탭 택소노미**
+   - `AuthGate` 제거(`src/app/feed/page.tsx`) — 로그아웃 사용자도 접근 가능.
+   - 탭: `For you · Artworks · Artists · Exhibitions · All`
+     (`FeedHeader.tsx` 교체, `FeedClient.tsx` 라우팅 확장).
+     - `For you` = 기존 Living Salon(`FeedContent`)을 `suppressHeader` 로 감쌈.
+       로그아웃 클릭 시 `/login?next=/feed?tab=foryou` 로 유도.
+     - `Artworks / Artists / Exhibitions / All` = 신규 `ExploreTaxonomyContent`
+       가 각각 `listPublicArtworks / listPublicProfiles(role=artist) /
+       listPublicExhibitionsForFeed` 로 무한스크롤. `latest/popular` 정렬은
+       For you / All 에서만 노출(단일 타입 탭은 필터가 무의미).
+   - 비로그인 블러 게이트: 카드에 `locked` 를 넘겨 작가 핸들/캡션을 `blur-sm
+     select-none` 처리, 클릭·hover CTA 는 `/login?next=…` 이동
+     (`ExploreArtworkCard.tsx`, `ExploreArtistCard.tsx`,
+     `ExploreExhibitionCard.tsx`).
+   - 하위호환: 기존 `?tab=all|following` 은 로그인 여부에 따라 `foryou` 또는 `all`
+     로 매핑(`FeedClient.normalizeTab`).
+
+2. **프로필 `/u/[username]` 역할 상단탭 + 스택 재구성** (`UserProfileContent.tsx`)
+   - `isArtistRole()` 이 true 이면서 컬렉터 활동(OWNS claim 또는 명시 role)이
+     있는 경우에만 **상단 역할탭** `Artist(main) | Collector` 노출. 단일 역할
+     프로필은 탭을 렌더하지 않음(회귀 방지).
+   - Artist 탭 = 기존 `ProfileSurfaceCards`(Statement/CV) + 기존 페르소나 스트립
+     (All/CREATED/CURATED/…) 그대로. 오너·작품 없음 상태에서 그리드에
+     `Upload your work +` 타일 노출.
+   - Collector 탭 = `active` 를 `{persona, OWNS}` 로 강제 → 기존
+     `filterArtworksByPersona(...,'OWNS')` 재사용 (자기소장 포함). 상단
+     Statement/CV·페르소나 스트립은 이 탭에서 숨김.
+   - 오너에겐 헤더 우측 `edit profile` → `/settings` CTA 추가.
+   - dnd-kit 재정렬, 편집 권한, `PrivateProfileShell` 등 기존 기능 그대로.
+
+3. **작품 상세 `/artwork/[id]` 대형 히어로 레이아웃** (`page.tsx`)
+   - 상단 `Back → ArtworkImageStage`(중앙, `max-w-xl`) → 아래에 Title/Artist/
+     follow/좋아요/사이즈/가격·문의/전시/story/provenance 스택. 좌우 2단
+     그리드를 세로 스택으로 전환하되 **모든 기능 블록(GatedField, 문의, 전시,
+     provenance)은 그대로 유지**.
+
+4. **전시 상세 `/e/[id]` 히어로 + 캐러셀 + 큐레이션 그리드** (`page.tsx`)
+   - 히어로: 좌측 세로 커버 + 우측 dl(Curator / Location / Exhibition info).
+   - `Exhibition Photos`: 기존 media buckets 를 하나로 flatten 해서 좌우
+     화살표 캐러셀(`ExhibitionPhotosCarousel` 인라인 컴포넌트, native
+     scroll-snap 사용).
+   - `Artwork curated`: 참여 작품을 2열 `ExploreArtworkCard` 그리드로.
+   - 관리(오너) 링크 / SaveToShortlist / status 라벨은 그대로.
+
+5. **데이터/유틸**
+   - `listPublicProfiles({role, limit, cursor})` 신규 (RLS 공개 read,
+     `is_public=true`, `main_role` 또는 `roles[]` 매치).
+   - i18n 키 en/ko 추가: `feed.tab.*`, `feed.anonHint/anonLockCta`,
+     `profile.tab.*`, `profile.editProfile`, `profile.section.*`,
+     `profile.collectorEmpty`, `artwork.follow`, `exhibition.photos/curated`,
+     `exhibition.curatorLabel/locationLabel/infoLabel`.
+
+### 검증
+- `tsc --noEmit` 통과, `npm run build` 통과. **SQL·환경변수 변경 없음**.
+- 데스크톱 1440: `/feed?tab=all|artworks|artists|exhibitions` 각 탭 정상 렌더
+  (로그아웃 상태에서 작가명·캡션 블러, 카드 hover 시 "Log in to see the full
+  view" CTA 노출). 프로필(`blue_greentree`) 역할탭 `Artist(main) | Collector`
+  정상 토글, Collector 탭 시 3점 OWNS 작품만 표시, Artist 탭 시 Statement/CV
+  카드 + 페르소나 스트립 복귀. 작품 상세 히어로+메타 스택 정상, 전시 상세
+  히어로+Exhibition Photos 캐러셀+2열 curated 그리드 정상.
+- 모바일 390(CDP): 좌측/우측 aside `display:none`, 상단 header/햄버거 유지,
+  프로필 역할탭 그대로 노출.
+
+### SQL / 환경변수
+- **Supabase SQL 돌려야 할 것은 없음**.
+- 환경변수 변경 없음.
+
+### 아직 남은 것(다음 턴 후보)
+- Explore For you 로그인 상태에서 새 UI 카드(ExploreArtworkCard)를 옵션으로
+  옮기는 A/B(현재는 기존 Living Salon 카드 유지).
+- Theo News 정적 플레이스홀더 → 실데이터 소스 연결.
+- 프로필 편집 진입점을 `/settings` 대신 인라인 편집(모달)로 승격.
+
 ## 2026-07-02 — UI/UX 리디자인 1차: 3단 AppShell + SUIT 폰트
 
 UI/UX팀 와이어프레임(데스크톱 3단) 기반 공통 셸을 도입. 이번 1차는 **구조/셸

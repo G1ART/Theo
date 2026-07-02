@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
@@ -22,6 +22,7 @@ import {
   type ExhibitionWorkRow,
 } from "@/lib/supabase/exhibitions";
 import { getArtworksByIds, getArtworkImageUrl, getArtworkArtistLabel, getArtworkArtistGroupKey, type ArtworkWithLikes } from "@/lib/supabase/artworks";
+import { ExploreArtworkCard } from "@/components/explore/ExploreArtworkCard";
 import { getSession } from "@/lib/supabase/auth";
 import { listMyDelegations } from "@/lib/supabase/delegations";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
@@ -176,110 +177,175 @@ export default function PublicExhibitionPage() {
         <p className="text-zinc-600">{error ?? "Exhibition not found."}</p>
       ) : (
         <>
-          <header className="mb-8">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-semibold text-zinc-900">{exhibition.title}</h1>
-                <p className="mt-1 text-sm text-zinc-500">
-                  {exhibition.start_date && exhibition.end_date
-                    ? `${exhibition.start_date} – ${exhibition.end_date}`
-                    : exhibition.start_date ?? ""}
-                  {" · "}
-                  {getExhibitionHostCuratorLabel(exhibition, t)}
-                  {" · "}
-                  {t(STATUS_LABELS[exhibition.status] ?? "exhibition.statusPlanned")}
-                </p>
-              </div>
+          {/* Wireframe hero: portrait cover on the left, meta stack on the
+              right. On mobile the two halves stack vertically. */}
+          <header className="mb-10 grid gap-6 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-start">
+            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-md border border-zinc-200 bg-zinc-100">
+              {(exhibition.cover_image_paths ?? [])[0] ? (
+                <Image
+                  src={getArtworkImageUrl(exhibition.cover_image_paths![0], "medium")}
+                  alt={exhibition.title ?? ""}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 640px) 100vw, 220px"
+                  priority
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
+                {exhibition.title}
+              </h1>
+              <dl className="mt-3 space-y-1 text-sm text-zinc-600">
+                <div className="flex gap-2">
+                  <dt className="w-20 shrink-0 text-zinc-400">
+                    {t("exhibition.curatorLabel")}
+                  </dt>
+                  <dd className="min-w-0">{getExhibitionHostCuratorLabel(exhibition, t)}</dd>
+                </div>
+                {(exhibition.start_date || exhibition.end_date) && (
+                  <div className="flex gap-2">
+                    <dt className="w-20 shrink-0 text-zinc-400">
+                      {t("exhibition.locationLabel")}
+                    </dt>
+                    <dd className="min-w-0">
+                      {exhibition.start_date && exhibition.end_date
+                        ? `${exhibition.start_date} – ${exhibition.end_date}`
+                        : exhibition.start_date ?? ""}
+                    </dd>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <dt className="w-20 shrink-0 text-zinc-400">
+                    {t("exhibition.infoLabel")}
+                  </dt>
+                  <dd className="min-w-0">
+                    {t(STATUS_LABELS[exhibition.status] ?? "exhibition.statusPlanned")}
+                  </dd>
+                </div>
+              </dl>
               {userId && (
-                <button
-                  type="button"
-                  onClick={() => setShortlistOpen(true)}
-                  className="shrink-0 rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
-                >
-                  {t("boards.save.cta")}
-                </button>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShortlistOpen(true)}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  >
+                    {t("boards.save.cta")}
+                  </button>
+                </div>
               )}
             </div>
           </header>
           <SaveToShortlistModal exhibitionId={id} open={shortlistOpen} onClose={() => setShortlistOpen(false)} />
 
-          {byArtist.length > 0 && (
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-medium text-zinc-700">{t("exhibition.byArtist")}</h2>
-              <div className="space-y-6">
-                {byArtist.map(({ artistId, artistName, list }) => (
-                  <div key={artistId} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <p className="mb-3 text-sm font-medium text-zinc-900">{artistName}</p>
-                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6">
-                      {list.map((art) => {
-                        const img = art.artwork_images?.[0]?.storage_path;
-                        return (
-                          <div key={art.id} className="relative">
-                            <Link
-                              href={`/artwork/${art.id}`}
-                              className="block aspect-square overflow-hidden rounded border border-zinc-100 bg-zinc-100"
-                            >
-                              {img ? (
-                                <Image
-                                  src={getArtworkImageUrl(img, "thumb")}
-                                  alt={art.title ?? ""}
-                                  width={120}
-                                  height={120}
-                                  className="h-full w-full object-cover"
-                                  sizes="120px"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
-                                  No image
-                                </div>
-                              )}
-                            </Link>
-                            <div className="mt-1 truncate text-xs text-zinc-600">{art.title ?? "Untitled"}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Exhibition Photos — merged media buckets rendered as a single
+              horizontal carousel per wireframe. Keeps the original
+              per-bucket data model but flattens the display so viewers get
+              one scroll gesture, not one per bucket. */}
+          {mediaBuckets.some((b) => b.items.length > 0) && (
+            <section className="mb-10">
+              <h2 className="mb-3 text-lg font-semibold text-zinc-900">
+                {t("exhibition.photos")}
+              </h2>
+              <ExhibitionPhotosCarousel
+                items={mediaBuckets.flatMap((b) =>
+                  b.items.map((m) => ({ id: m.id, storage_path: m.storage_path }))
+                )}
+              />
             </section>
           )}
 
-          {artworks.length === 0 && (
-            <div className="mb-8">
+          {/* Artwork curated — 2-col grid of ExploreArtworkCard. Preserves
+              artist-grouping semantics via the underlying data. When the
+              exhibition has no works, show the existing empty state. */}
+          <section className="mb-10">
+            <h2 className="mb-3 text-lg font-semibold text-zinc-900">
+              {t("exhibition.curated")}
+            </h2>
+            {artworks.length === 0 ? (
               <EmptyState title={t("exhibition.noWorks")} size="sm" />
-            </div>
-          )}
-
-          {mediaBuckets.map((bucket) => (
-            <section key={bucket.key} className="mb-8">
-              <h2 className="mb-3 text-sm font-medium text-zinc-700">{bucket.title}</h2>
-              {bucket.items.length === 0 ? (
-                <p className="rounded border border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-500">
-                  {t("exhibition.noMediaYet")}
-                </p>
-              ) : (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {bucket.items.map((m) => (
-                    <div
-                      key={m.id}
-                      className="relative aspect-square overflow-hidden rounded border border-zinc-200 bg-zinc-100"
-                    >
-                      <Image
-                        src={getArtworkImageUrl(m.storage_path, "thumb")}
-                        alt=""
-                        fill
-                        className="object-cover"
-                        sizes="150px"
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
+            ) : (
+              <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2">
+                {byArtist.flatMap(({ list }) =>
+                  list.map((art) => (
+                    <ExploreArtworkCard key={art.id} artwork={art} />
+                  ))
+                )}
+              </div>
+            )}
+          </section>
         </>
       )}
     </main>
+  );
+}
+
+type CarouselItem = { id: string; storage_path: string };
+
+/**
+ * Simple horizontal carousel for exhibition photos. Uses native scroll
+ * (snap + smooth) so keyboard / trackpad / touch all Just Work; the
+ * arrows only drive `scrollBy` when the user prefers to click. No
+ * external deps — the exhibition detail page is otherwise lightweight
+ * and we don't want to pull in a slider lib for a low-frequency surface.
+ */
+function ExhibitionPhotosCarousel({ items }: { items: CarouselItem[] }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  function scrollBy(dir: -1 | 1) {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.8, 320), behavior: "smooth" });
+  }
+
+  return (
+    <div className="relative">
+      <div
+        ref={trackRef}
+        className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2"
+      >
+        {items.map((m) => (
+          <div
+            key={m.id}
+            className="relative aspect-[16/9] w-[85%] shrink-0 snap-start overflow-hidden rounded-md border border-zinc-200 bg-zinc-100 sm:w-[70%] lg:w-[60%]"
+          >
+            <Image
+              src={getArtworkImageUrl(m.storage_path, "medium")}
+              alt=""
+              fill
+              className="object-cover"
+              sizes="(max-width: 640px) 85vw, (max-width: 1280px) 70vw, 60vw"
+            />
+          </div>
+        ))}
+      </div>
+      {items.length > 1 && (
+        <>
+          <button
+            type="button"
+            aria-label="Previous"
+            onClick={() => scrollBy(-1)}
+            className="absolute left-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-zinc-700 shadow-md hover:bg-white sm:inline-flex"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            aria-label="Next"
+            onClick={() => scrollBy(1)}
+            className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-zinc-700 shadow-md hover:bg-white sm:inline-flex"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </>
+      )}
+    </div>
   );
 }

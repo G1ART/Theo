@@ -1,127 +1,113 @@
 "use client";
 
 import { useT } from "@/lib/i18n/useT";
-import { PageHeader } from "@/components/ds/PageHeader";
 
-type Tab = "all" | "following";
+export type ExploreTab = "foryou" | "artworks" | "artists" | "exhibitions" | "all";
 type Sort = "latest" | "popular";
 
 type Props = {
-  tab: Tab;
+  tab: ExploreTab;
   sort: Sort;
-  isLoading: boolean;
-  onTabChange: (tab: Tab) => void;
+  isSignedIn: boolean;
+  onTabChange: (tab: ExploreTab) => void;
   onSortChange: (sort: Sort) => void;
-  onRefresh: () => void;
+  /**
+   * When false the sort control row (New works / Resonating) is omitted.
+   * Sort only makes sense on personalized/mixed surfaces (For you, All),
+   * so type-filtered tabs (Artworks, Artists, Exhibitions) hide it.
+   */
+  showSortControls?: boolean;
 };
 
+const TAB_ORDER: ExploreTab[] = [
+  "foryou",
+  "artworks",
+  "artists",
+  "exhibitions",
+  "all",
+];
+
 /**
- * Living Salon header. Pairs a quiet brand line with two control rows:
- *
- *   Primary  [Recommended] [Following]            ← `tab` toggle
- *   Sort     [New works]   [Resonating]   [↻]    ← `sort` + manual refresh
- *
- * The two control rows live in one strip on desktop (kept compact) and stack
- * on mobile so the secondary sort never crowds the primary lane. All copy is
- * i18n-routed; no English literals leak through.
+ * Explore/Feed header. Matches the wireframe layout: a single left-aligned
+ * cluster with "For you" followed by a spacer, then Artworks / Artists /
+ * Exhibitions / All. "For you" requires sign-in — for anon visitors it
+ * still renders but the click routes to /login (handled upstream in
+ * FeedClient.handleTabChange).
  */
 export function FeedHeader({
   tab,
   sort,
-  isLoading,
+  isSignedIn,
   onTabChange,
   onSortChange,
-  onRefresh,
+  showSortControls = true,
 }: Props) {
   const { t } = useT();
 
   return (
-    <div className="mb-10">
-      <PageHeader
-        variant="plain"
-        title={t("feed.todayTitle")}
-        lead={t("feed.todaySubtitle")}
-        density="tight"
-      />
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav
-          aria-label={t("feed.todayTitle")}
-          className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1"
-        >
-          <PillButton
-            active={tab === "all"}
-            onClick={() => onTabChange("all")}
-          >
-            {t("feed.tabRecommended")}
-          </PillButton>
-          <PillButton
-            active={tab === "following"}
-            onClick={() => onTabChange("following")}
-          >
-            {t("feed.tabFollowing")}
-          </PillButton>
-        </nav>
-
-        <div className="flex items-center gap-3 text-sm">
-          <div className="inline-flex items-center gap-3 text-zinc-500">
-            <SortButton
-              active={sort === "latest"}
-              onClick={() => onSortChange("latest")}
-            >
-              {t("feed.sortNewWorks")}
-            </SortButton>
-            <span aria-hidden className="text-zinc-300">
-              ·
-            </span>
-            <SortButton
-              active={sort === "popular"}
-              onClick={() => onSortChange("popular")}
-            >
-              {t("feed.sortResonating")}
-            </SortButton>
-          </div>
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={isLoading}
-            aria-label={t("feed.refreshQuiet")}
-            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 px-2.5 py-1.5 text-xs font-medium tracking-tight text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[6.5rem] sm:px-3"
-          >
-            <RefreshGlyph spinning={isLoading} />
-            <span className="hidden sm:inline">
-              {isLoading ? t("feed.refreshing") : t("feed.refreshQuiet")}
-            </span>
-          </button>
-        </div>
+    <div className="mb-8">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+        {TAB_ORDER.map((key, idx) => {
+          const active = tab === key;
+          const isForYou = key === "foryou";
+          const dimmed = isForYou && !isSignedIn;
+          return (
+            <div key={key} className="flex items-center">
+              {idx === 1 && <span className="hidden pr-4 lg:inline" aria-hidden />}
+              <button
+                type="button"
+                onClick={() => onTabChange(key)}
+                aria-pressed={active}
+                className={`transition-colors ${
+                  active
+                    ? "font-semibold text-zinc-900"
+                    : dimmed
+                      ? "text-zinc-300 hover:text-zinc-500"
+                      : "text-zinc-500 hover:text-zinc-900"
+                }`}
+              >
+                {t(`feed.tab.${labelKey(key)}`)}
+              </button>
+            </div>
+          );
+        })}
       </div>
+
+      {showSortControls && (
+        <div className="mt-4 flex items-center gap-3 text-xs text-zinc-500">
+          <SortButton
+            active={sort === "latest"}
+            onClick={() => onSortChange("latest")}
+          >
+            {t("feed.sortNewWorks")}
+          </SortButton>
+          <span aria-hidden className="text-zinc-300">·</span>
+          <SortButton
+            active={sort === "popular"}
+            onClick={() => onSortChange("popular")}
+          >
+            {t("feed.sortResonating")}
+          </SortButton>
+        </div>
+      )}
     </div>
   );
 }
 
-function PillButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`rounded-full px-3.5 py-1.5 text-sm font-medium tracking-tight transition-colors ${
-        active
-          ? "bg-zinc-900 text-white"
-          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-      }`}
-    >
-      {children}
-    </button>
-  );
+function labelKey(key: ExploreTab): string {
+  switch (key) {
+    case "foryou":
+      return "forYou";
+    case "artworks":
+      return "artworks";
+    case "artists":
+      return "artists";
+    case "exhibitions":
+      return "exhibitions";
+    case "all":
+    default:
+      return "all";
+  }
 }
 
 function SortButton({
@@ -138,7 +124,7 @@ function SortButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`text-sm tracking-tight transition-colors ${
+      className={`transition-colors ${
         active
           ? "font-medium text-zinc-900"
           : "font-normal text-zinc-500 hover:text-zinc-700"
@@ -146,33 +132,5 @@ function SortButton({
     >
       {children}
     </button>
-  );
-}
-
-function RefreshGlyph({ spinning }: { spinning: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-      className={spinning ? "animate-spin" : ""}
-    >
-      <path
-        d="M2.5 8a5.5 5.5 0 0 1 9.4-3.9M13.5 8a5.5 5.5 0 0 1-9.4 3.9"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <path
-        d="M11.5 1.5v3h-3M4.5 14.5v-3h3"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
