@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useT } from "@/lib/i18n/useT";
-import { FloorPanel } from "@/components/ds/FloorPanel";
-import { SectionLabel } from "@/components/ds/SectionLabel";
 import { supabase } from "@/lib/supabase/client";
 import { ROLE_OPTIONS } from "@/lib/supabase/artists";
 import { getPersonaCounts, type PersonaCounts } from "@/lib/supabase/personaCounts";
@@ -20,9 +18,11 @@ const EMPTY: PersonaCounts = { artist: 0, curator: 0, gallerist: 0, collector: 0
 /**
  * Live persona-slot counter for the People page.
  *
- * Shows current per-persona headcount on entry (animating up from 0) and
- * ticks up in real time as new members sign up / change roles. Multi-persona
- * members count once per role (server-side `count_personas`).
+ * Kept intentionally small — People's job is connection, so this is a slim
+ * sticky bar (sits just under the global header, persists on scroll) rather
+ * than a large hero panel. Counts animate up on entry and tick in real time
+ * as members sign up / change roles. Multi-persona members count once per
+ * role (server-side `count_personas`).
  */
 export function PersonaCountPanel() {
   const { t } = useT();
@@ -74,19 +74,27 @@ export function PersonaCountPanel() {
   }, []);
 
   return (
-    <FloorPanel padding="sm" className="mb-6">
-      <SectionLabel className="mb-4">{t("people.counts.heading")}</SectionLabel>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {ROLE_OPTIONS.map((role) => (
-          <PersonaStat
-            key={role}
-            label={t(`people.role.${role}`)}
-            value={counts[role]}
-            animate={ready}
-          />
+    <div className="sticky top-14 z-30 -mx-1 mb-6 pt-2">
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 rounded-full border border-zinc-200 bg-white/90 px-3 py-1.5 shadow-sm backdrop-blur">
+        <span className="mr-1 inline-flex items-center gap-1.5 pl-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          </span>
+          {t("people.counts.heading")}
+        </span>
+        {ROLE_OPTIONS.map((role, i) => (
+          <span key={role} className="inline-flex items-center">
+            {i > 0 && <span aria-hidden className="mx-1 text-zinc-200">·</span>}
+            <PersonaStat
+              label={t(`people.role.${role}`)}
+              value={counts[role]}
+              animate={ready}
+            />
+          </span>
         ))}
       </div>
-    </FloorPanel>
+    </div>
   );
 }
 
@@ -101,12 +109,12 @@ function PersonaStat({
 }) {
   const display = useCountUp(value, animate);
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
-      <div className="text-2xl font-semibold tabular-nums text-zinc-900 sm:text-3xl">
+    <span className="inline-flex items-baseline gap-1 px-1">
+      <span className="text-sm font-semibold tabular-nums text-zinc-900">
         {display.toLocaleString()}
-      </div>
-      <div className="mt-0.5 text-xs text-zinc-500">{label}</div>
-    </div>
+      </span>
+      <span className="text-xs text-zinc-500">{label}</span>
+    </span>
   );
 }
 
