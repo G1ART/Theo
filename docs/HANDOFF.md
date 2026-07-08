@@ -1,6 +1,32 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-02
+Last updated: 2026-07-08
+
+## 2026-07-08 — People 페이지 페르소나 실시간 카운터
+
+People 페이지 상단에 페르소나별(아티스트/큐레이터/갤러리스트/컬렉터) 인원을
+실시간으로 카운트업하는 패널 추가.
+
+### 무엇을 했나
+1. **집계 기준: 페르소나 슬롯**(멀티 페르소나는 각 역할 +1, 합계는 미표시).
+   - `roles` 배열이 비어 있으면 `main_role`로 보정. 현재값 34/15/12/10.
+2. **`count_personas()` RPC**(security definer, 집계만 반환 → PII 없음).
+   `getPersonaCounts()` (`src/lib/supabase/personaCounts.ts`)로 호출.
+3. **실시간**: `profiles`를 `supabase_realtime` 퍼블리케이션에 추가. 신규 가입/
+   역할 변경 이벤트 시 디바운스 재조회 → count-up 애니메이션.
+   폴백: 60초 폴링 + 포커스 시 재조회.
+4. **UI**: `PersonaCountPanel.tsx`(진입 시 0→N 카운트업, `prefers-reduced-motion`
+   존중, 무의존성 rAF 구현). `PeopleClient`의 PageHeader 하단에 배치.
+   i18n `people.counts.heading`(지금 함께하는 사람들 / Who's here now).
+
+### Supabase SQL
+- `supabase/migrations/20260708000000_persona_counts_realtime.sql` — **MCP로 적용 완료**
+  (RPC 결과 34/15/12/10 확인, profiles 퍼블리케이션 등록).
+
+### Verified
+- `npx tsc --noEmit` 통과, `npm run build` 통과, RPC 실측 일치.
+
+---
 
 ## 2026-07-02 — QA 리포트 패치 (일괄 업로드 5종 + 외부작가 중복)
 

@@ -33,6 +33,7 @@ import { getProfileSurface } from "@/lib/profile/surface";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PeopleResultCard } from "./PeopleResultCard";
+import { PersonaCountPanel } from "./PersonaCountPanel";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 
 const DEBOUNCE_MS = 250;
@@ -502,6 +503,8 @@ export function PeopleClient() {
           lead={t("people.lead")}
           actions={<TourHelpButton tourId={TOUR_IDS.people} />}
         />
+
+        <PersonaCountPanel />
 
         <div className="mb-8">
           <input
