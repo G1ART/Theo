@@ -2,6 +2,67 @@
 
 Last updated: 2026-07-10
 
+## 2026-07-10 — 소셜/탐색 4개 페이지에 3단 셸 확장 + 페이지별 맥락 레일
+
+### 배경
+와이어프레임 언어 통일 2단계. 기존 3단 AppShell(좌 네비 + 중앙 + 우 레일)은
+`/feed`·`/artwork`·`/e`·`/u` 4개 라우트에만 적용돼 있었고, 다른 소셜/탐색
+페이지들은 여전히 단일 컬럼(제각각의 max-width)이라 데스크톱에서 흐름이
+끊겼음. 폰트(SUIT)는 이미 전역이라 이번 대상 아님.
+
+### 변경
+- **AppShell rightRail 확장** — `boolean` → `ReactNode | boolean`. `true`는
+  기존 공유 RightRail(Theo News + 검색), `false`는 없음, ReactNode는 페이지
+  전용 "맥락 레일". 기존 4개 셸 라우트 동작 불변.
+  (`src/components/shell/AppShell.tsx`, `src/lib/shell/routes.ts`)
+- **셸 라우트에 4개 경로 추가** — `/people`, `/my/network`, `/my/library`,
+  `/my/shortlists`. 서브라우트(`/people/invite`, `/my/library/import`,
+  `/my/shortlists/[id]`)도 같은 셸을 상속.
+- **페이지별 맥락 레일 컴포넌트 4개 신설** (`src/components/shell/context/*`):
+  - `PeopleRail` — 페르소나 슬롯 카운트(재사용: `getPersonaCounts`) + 초대 CTA.
+    데스크톱(xl+)에선 기존 `PersonaCountPanel` 스티키 바를 `xl:hidden`으로
+    감춰 중복 제거. <lg 모바일은 기존 스티키 바 그대로.
+  - `NetworkRail` — 팔로워/팔로잉/대기 요청 수 요약, 탭 딥링크.
+    카운트는 `getMyStats` + `listAccessRequestsForMe` 경량 조회.
+  - `LibraryRail` — 전체/공개/초안 작품 수, 업로드/CSV 가져오기 링크.
+    (필터 패널은 인터랙티브라 메인 컬럼에 유지.)
+  - `ShortlistsRail` — 룸 수(전체/공유/비공개), 관계 데스크 링크.
+- **4개 route에 layout.tsx 추가** — `src/app/people/layout.tsx`,
+  `src/app/my/network/layout.tsx`, `src/app/my/library/layout.tsx`,
+  `src/app/my/shortlists/layout.tsx`. 각자 `<AppShell rightRail={<XxxRail/>}>`.
+  기존 page.tsx 내부는 손대지 않음(중앙 컬럼은 각 페이지의 기존
+  `<main>` 그대로).
+- **i18n** — en/ko `rail.*` 라벨 세트 추가(`src/lib/i18n/messages.ts`).
+
+### 설계 원칙
+- 레일은 **자체 fetch + 상태 비공유**. 메인 컬럼(필터·탭·검색)과 결합되지
+  않아 어느 한쪽이 리렌더/실패해도 서로 영향 없음. 60초 폴링 + focus 시
+  재조회로 신선도 유지.
+- 모바일(<lg/xl)은 사이드바·레일이 숨겨지고 기존 Header+햄버거 유지 →
+  현재 모바일 UX 100% 보존.
+
+### 스코프 밖 (후속)
+- 운영/폼 계열(`/my` 스튜디오, `/settings`, `/upload`, `/my/inquiries`)은
+  이번 범위 아님.
+- `/my/shortlists/[id]` 상세 전용 레일(공유·Pitch Pack·협업)과 `/my/library`
+  소유/공개 세분 필터는 세그먼트 공용 레일에서 v2로 고도화 여지 남김.
+- AppSidebar에 People/Network 항목 추가 여부는 별도 판단(현재 최소 nav 유지).
+
+### Supabase SQL
+- **돌려야 할 것 없음** — 새/수정 `.sql` 파일 없음. 전부 기존 RLS/RPC 활용.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit`, `next build` 통과 (신규 라우트 4개 정적 프리렌더 포함).
+- 신설/터치 파일 eslint 통과 (pre-existing warnings 3건은 무관).
+- dev server 실측: `/feed`(기존 셸), `/people`, `/my/network`, `/my/library`,
+  `/my/shortlists` 모두 HTTP 200 + AppShell `nav[aria-label="Primary"]` 존재
+  + 각 페이지별 레일 헤딩 텍스트 초기 HTML에 렌더 확인.
+
+---
+
 ## 2026-07-10 — 문의(가격 인콰이어리) 끊긴 루프 수리 + 콜드 피드 경로 일관성
 
 ### 배경

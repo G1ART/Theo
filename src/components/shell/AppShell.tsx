@@ -11,17 +11,25 @@ import { RightRail } from "./RightRail";
  *            in the root layout, hidden on desktop for shell routes) handles
  *            mobile navigation, so we don't duplicate it here.
  *
- * `rightRail` defaults to the Theo News placeholder rail; pass `false` to
- * drop the right column (e.g. artwork detail keeps only search per wireframe —
- * but by default we render the shared rail for consistency).
+ * `rightRail`:
+ *   - `true`  (default) — render the shared "Theo News + search" RightRail.
+ *   - `false` — drop the right column entirely.
+ *   - ReactNode — render a page-specific *context* rail (e.g. PeopleRail).
+ *     Kept in the same sticky slot so visual rhythm reads as one language
+ *     across the platform. Rail components should stay side-effect free /
+ *     self-fetching so they don't couple to the main column's state.
  */
 export function AppShell({
   children,
   rightRail = true,
 }: {
   children: ReactNode;
-  rightRail?: boolean;
+  rightRail?: ReactNode | boolean;
 }) {
+  const showRail = rightRail !== false;
+  const railNode =
+    rightRail === true || rightRail === false ? <RightRail /> : rightRail;
+
   return (
     <div className="mx-auto flex w-full max-w-[1440px]">
       <aside className="hidden w-52 shrink-0 pl-6 lg:block">
@@ -35,10 +43,10 @@ export function AppShell({
           and avoids nested <main> landmarks. */}
       <div className="min-w-0 flex-1">{children}</div>
 
-      {rightRail && (
+      {showRail && (
         <aside className="hidden w-[340px] shrink-0 pr-6 xl:block">
           <div className="sticky top-0 max-h-screen overflow-y-auto">
-            <RightRail />
+            {railNode}
           </div>
         </aside>
       )}

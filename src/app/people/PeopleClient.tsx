@@ -504,7 +504,12 @@ export function PeopleClient() {
           actions={<TourHelpButton tourId={TOUR_IDS.people} />}
         />
 
-        <PersonaCountPanel />
+        {/* Rail carries the same counts at xl+ where the right column is
+            visible, so we hide the sticky bar there to avoid duplication.
+            <lg keeps the bar under the mobile header as before. */}
+        <div className="xl:hidden">
+          <PersonaCountPanel />
+        </div>
 
         <div className="mb-8">
           <input

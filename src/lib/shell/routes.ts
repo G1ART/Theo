@@ -7,7 +7,18 @@
  * Keep this list in sync with the pages that actually wrap their content in
  * `<AppShell>` so the two never drift.
  */
-const SHELL_PREFIXES = ["/artwork/", "/e/", "/u/"] as const;
+const SHELL_PREFIXES = [
+  "/artwork/",
+  "/e/",
+  "/u/",
+  // Social / discovery surfaces unified into the shell (2026-07-10). Subroutes
+  // (e.g. `/people/invite`, `/my/library/import`, `/my/shortlists/[id]`) also
+  // adopt the shell — v1 accepts this consistency over per-subpage carve-outs.
+  "/people",
+  "/my/network",
+  "/my/library",
+  "/my/shortlists",
+] as const;
 const SHELL_EXACT = ["/feed"] as const;
 
 export function isShellRoute(pathname: string | null | undefined): boolean {

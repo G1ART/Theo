@@ -24,6 +24,38 @@ export const messages = {
     "shell.newsItemTitle": "Title",
     "shell.newsItemTime": "upload time",
     "shell.newsItemDesc": "Short description",
+
+    "rail.people.heading": "Who's here now",
+    "rail.people.inviteHeading": "Grow the room",
+    "rail.people.inviteHint":
+      "Know an artist, curator, gallerist, or collector? Invite them in.",
+    "rail.people.inviteCta": "Invite by email",
+
+    "rail.network.heading": "Your network",
+    "rail.network.tipHeading": "Tip",
+    "rail.network.tip":
+      "The Relationship Desk collects everything that's happened with each person — inquiries, requests, notes.",
+    "rail.network.openDesk": "Open Relationship Desk",
+
+    "rail.library.heading": "Library",
+    "rail.library.total": "Total works",
+    "rail.library.public": "Published",
+    "rail.library.draft": "Drafts",
+    "rail.library.actionsHeading": "Quick actions",
+    "rail.library.upload": "Upload a work",
+    "rail.library.import": "Import from CSV",
+    "rail.library.tip":
+      "Import moves older inventories in bulk; upload is best for a single new piece.",
+
+    "rail.shortlists.heading": "Rooms",
+    "rail.shortlists.total": "Total rooms",
+    "rail.shortlists.shared": "Shared",
+    "rail.shortlists.private": "Private",
+    "rail.shortlists.tipHeading": "Tip",
+    "rail.shortlists.tip":
+      "Share a room with a collector to open a private, quiet conversation about the works you selected.",
+    "rail.shortlists.openRelationships": "See who you've shared with",
+
     "feed.tab.forYou": "For you",
     "feed.tab.artworks": "Artworks",
     "feed.tab.artists": "Artists",
@@ -2855,6 +2887,38 @@ export const messages = {
     "shell.newsItemTitle": "제목",
     "shell.newsItemTime": "업로드 시간",
     "shell.newsItemDesc": "짧은 설명",
+
+    "rail.people.heading": "지금 함께하는 사람들",
+    "rail.people.inviteHeading": "함께할 사람 초대",
+    "rail.people.inviteHint":
+      "아티스트·큐레이터·갤러리스트·컬렉터를 알고 계신가요? 이메일로 조용히 초대해 보세요.",
+    "rail.people.inviteCta": "이메일로 초대",
+
+    "rail.network.heading": "내 네트워크",
+    "rail.network.tipHeading": "안내",
+    "rail.network.tip":
+      "관계 데스크에는 각 사람과의 문의·요청·비공개 메모가 한자리에 모여요.",
+    "rail.network.openDesk": "관계 데스크 열기",
+
+    "rail.library.heading": "라이브러리",
+    "rail.library.total": "전체 작품",
+    "rail.library.public": "공개",
+    "rail.library.draft": "초안",
+    "rail.library.actionsHeading": "빠른 작업",
+    "rail.library.upload": "작품 업로드",
+    "rail.library.import": "CSV로 가져오기",
+    "rail.library.tip":
+      "과거 컬렉션은 CSV로 한 번에 가져오고, 새 작품은 업로드가 편해요.",
+
+    "rail.shortlists.heading": "룸",
+    "rail.shortlists.total": "전체 룸",
+    "rail.shortlists.shared": "공유됨",
+    "rail.shortlists.private": "비공개",
+    "rail.shortlists.tipHeading": "안내",
+    "rail.shortlists.tip":
+      "선별한 작품을 컬렉터와 공유해, 그 사람만을 위한 조용한 방을 열어보세요.",
+    "rail.shortlists.openRelationships": "공유한 사람 보기",
+
     "feed.tab.forYou": "For you",
     "feed.tab.artworks": "작품",
     "feed.tab.artists": "아티스트",
