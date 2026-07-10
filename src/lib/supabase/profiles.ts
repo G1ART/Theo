@@ -1,6 +1,7 @@
 import { supabase } from "./client";
 import { saveProfileUnified } from "./profileSaveUnified";
 import { PROFILE_ME_SELECT } from "./selectors";
+import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 
 /** Canonical profile row shape returned by getMyProfile (matches PROFILE_ME_SELECT). */
 export type Profile = {
@@ -288,15 +289,25 @@ export async function listPublicProfiles(options: {
     if (createdAt && id) nextCursor = { created_at: createdAt, id };
   }
 
-  const trimmed = rows.slice(0, pageSize).map((r) => ({
-    id: String(r.id ?? ""),
-    username: r.username != null ? String(r.username) : null,
-    display_name: r.display_name != null ? String(r.display_name) : null,
-    avatar_url: r.avatar_url != null ? String(r.avatar_url) : null,
-    main_role: r.main_role != null ? String(r.main_role) : null,
-    roles: Array.isArray(r.roles) ? (r.roles as string[]) : null,
-    bio: r.bio != null ? String(r.bio) : null,
-  }));
+  const trimmed = rows
+    .slice(0, pageSize)
+    .map((r) => ({
+      id: String(r.id ?? ""),
+      username: r.username != null ? String(r.username) : null,
+      display_name: r.display_name != null ? String(r.display_name) : null,
+      avatar_url: r.avatar_url != null ? String(r.avatar_url) : null,
+      main_role: r.main_role != null ? String(r.main_role) : null,
+      roles: Array.isArray(r.roles) ? (r.roles as string[]) : null,
+      bio: r.bio != null ? String(r.bio) : null,
+    }))
+    // Exclude "설정 중인 프로필" (incomplete accounts) from public listings:
+    // no display name AND a placeholder handle → these render as the neutral
+    // "profile being set up" card, which looks empty and isn't linkable.
+    // Cursor is still derived from the raw DB window above, so infinite
+    // scroll keeps advancing correctly.
+    .filter(
+      (p) => (p.display_name ?? "").trim() !== "" || !isPlaceholderUsername(p.username)
+    );
 
   return { data: trimmed, nextCursor, error };
 }
