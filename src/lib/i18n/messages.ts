@@ -2847,7 +2847,7 @@ export const messages = {
     "shell.newsItemDesc": "짧은 설명",
     "feed.tab.forYou": "For you",
     "feed.tab.artworks": "작품",
-    "feed.tab.artists": "작가",
+    "feed.tab.artists": "아티스트",
     "feed.tab.exhibitions": "전시",
     "feed.tab.all": "전체",
     "feed.anonLockCta": "로그인하고 전체 보기",

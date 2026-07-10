@@ -300,14 +300,20 @@ export async function listPublicProfiles(options: {
       roles: Array.isArray(r.roles) ? (r.roles as string[]) : null,
       bio: r.bio != null ? String(r.bio) : null,
     }))
-    // Exclude "설정 중인 프로필" (incomplete accounts) from public listings:
-    // no display name AND a placeholder handle → these render as the neutral
-    // "profile being set up" card, which looks empty and isn't linkable.
-    // Cursor is still derived from the raw DB window above, so infinite
-    // scroll keeps advancing correctly.
-    .filter(
-      (p) => (p.display_name ?? "").trim() !== "" || !isPlaceholderUsername(p.username)
-    );
+    // Minimum-baseline completeness gate for public listings (Artists tab).
+    // Mirrors the platform's canonical `needs_identity_setup = false` rule
+    // (see 20260421120000_identity_completeness.sql): a real (non-placeholder)
+    // handle, a display name, and at least one role. Below-baseline accounts
+    // render as the empty "설정 중인 프로필" card and aren't linkable, so we
+    // don't feature them. Cursor is derived from the raw DB window above, so
+    // infinite scroll keeps advancing correctly.
+    .filter((p) => {
+      const hasName = (p.display_name ?? "").trim() !== "";
+      const hasLinkableHandle = !!p.username && !isPlaceholderUsername(p.username);
+      const hasRole =
+        (p.roles?.length ?? 0) > 0 || (p.main_role ?? "").trim() !== "";
+      return hasName && hasLinkableHandle && hasRole;
+    });
 
   return { data: trimmed, nextCursor, error };
 }
