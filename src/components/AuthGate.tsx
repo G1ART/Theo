@@ -34,6 +34,31 @@ function currentPathWithQuery(): string | null {
   return search ? `${path}${search}` : path;
 }
 
+type ProfileIdentityFields = {
+  username?: string | null;
+  display_name?: string | null;
+  roles?: string[] | null;
+  main_role?: string | null;
+};
+
+/**
+ * Positive incompleteness check against a *loaded* profile row. Mirrors the
+ * server SSOT (get_my_auth_state.needs_identity_setup). Callers must only
+ * invoke this with a row that was actually fetched — a null/errored fetch is
+ * treated as "cannot confirm" (see call sites) so a transient mobile network
+ * blip during token refresh never bounces a complete user to identity setup.
+ */
+function profileIsIncomplete(p: ProfileIdentityFields): boolean {
+  const username = p.username ?? null;
+  return (
+    !username ||
+    isPlaceholderUsername(username) ||
+    !p.display_name?.trim() ||
+    !p.roles?.length ||
+    !p.main_role?.trim()
+  );
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -54,19 +79,21 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       const state = await getMyAuthState();
       if (cancelled) return;
       if (!state) {
-        // RPC failed transiently (schema cache miss, migration lag, etc.).
-        // Fall back to a client-side profile check so placeholder-username
-        // users are never silently let through into product surfaces.
-        const { data: profile } = await getMyProfile();
+        // RPC failed transiently (schema cache miss, migration lag, token
+        // refresh in flight, flaky mobile network). Fall back to a direct
+        // profile read — but FAIL SAFE. If that read also fails or returns no
+        // row we CANNOT confirm a real gap, so we let the page render instead
+        // of bouncing a complete user to /onboarding/identity. Bouncing on a
+        // transient null was the mobile "re-login → identity setup" leak; a
+        // genuinely-incomplete user still has a real row with empty fields and
+        // is caught below (and on the next navigation).
+        const { data: profile, error } = await getMyProfile();
         if (cancelled) return;
-        const p = profile as { username?: string | null; display_name?: string | null; roles?: string[] | null } | null;
-        const username = p?.username ?? null;
-        const needsSetup =
-          !username ||
-          isPlaceholderUsername(username) ||
-          !p?.display_name?.trim() ||
-          !p?.roles?.length;
-        if (needsSetup) {
+        if (
+          !error &&
+          profile &&
+          profileIsIncomplete(profile as ProfileIdentityFields)
+        ) {
           const next = currentPathWithQuery();
           const isAlreadyFinish =
             pathname === IDENTITY_FINISH_PATH ||
@@ -92,25 +119,19 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         // username + display_name + roles + main_role, treat the
         // identity gate as satisfied. This prevents the "/my →
         // /onboarding/identity → /feed → /my (loop)" pattern.
-        const { data: profile } = await getMyProfile();
+        //
+        // FAIL SAFE: only honor the redirect when we can *positively* confirm
+        // the loaded profile is still incomplete. If the double-check read
+        // errors or returns no row (transient token-refresh race, common on
+        // mobile), we do NOT bounce — a stale `needs_identity_setup=true`
+        // combined with a transient null must not trap a complete user.
+        const { data: profile, error } = await getMyProfile();
         if (cancelled) return;
-        const p = profile as
-          | {
-              username?: string | null;
-              display_name?: string | null;
-              roles?: string[] | null;
-              main_role?: string | null;
-            }
-          | null;
-        const profileLooksComplete =
-          !!p &&
-          !!p.username &&
-          !isPlaceholderUsername(p.username) &&
-          !!p.display_name?.trim() &&
-          Array.isArray(p.roles) &&
-          p.roles.length > 0 &&
-          !!p.main_role?.trim();
-        if (!profileLooksComplete) {
+        const confirmedIncomplete =
+          !error &&
+          !!profile &&
+          profileIsIncomplete(profile as ProfileIdentityFields);
+        if (confirmedIncomplete) {
           const next = currentPathWithQuery();
           const isAlreadyFinish =
             pathname === IDENTITY_FINISH_PATH ||

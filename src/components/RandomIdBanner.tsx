@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyProfile } from "@/lib/supabase/profiles";
+import { getMyAuthState } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import { IDENTITY_FINISH_PATH } from "@/lib/identity/routing";
@@ -32,15 +33,32 @@ export function RandomIdBanner() {
       setShow(false);
       return;
     }
-    const { data } = await getMyProfile();
-    const profile = data as
-      | {
-          username?: string | null;
-          display_name?: string | null;
-          roles?: string[] | null;
-          main_role?: string | null;
-        }
-      | null;
+
+    // Authoritative source of truth: the server-side RPC. When it answers we
+    // trust it verbatim — this is the same gate AuthGate / login routing use.
+    const state = await getMyAuthState();
+    if (state) {
+      setShow(!!state.needs_identity_setup);
+      return;
+    }
+
+    // RPC failed transiently (schema-cache miss, token refresh in flight,
+    // flaky mobile network). Fall back to a direct profile read, but FAIL
+    // SAFE: a null/errored fetch must NOT flip the banner on for an
+    // already-complete account. On mobile, onAuthStateChange fires often
+    // (TOKEN_REFRESHED / SIGNED_IN on app resume) and each fired read can
+    // race the refreshing token, momentarily returning no row — treating
+    // that as "needs setup" is exactly what made the orange banner leak
+    // onto 92%-complete profiles. So on any uncertainty we leave the prior
+    // state untouched instead of guessing.
+    const { data, error } = await getMyProfile();
+    if (error || !data) return;
+    const profile = data as {
+      username?: string | null;
+      display_name?: string | null;
+      roles?: string[] | null;
+      main_role?: string | null;
+    };
     const username = profile?.username ?? null;
     const displayName = profile?.display_name ?? null;
     const roles = profile?.roles ?? null;

@@ -1,6 +1,54 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-09
+Last updated: 2026-07-10
+
+## 2026-07-10 — 완성 계정에 프로필 설정 배너/리디렉션이 새는 문제 (모바일)
+
+### 증상
+- 온보딩·기본 설정이 끝난 계정(프로필 완성도 92% 등)인데도 **로그인/재방문 시
+  종종** 오렌지색 "프로필 설정을 완료하세요" 배너가 뜨거나 `/onboarding/identity`
+  로 리디렉션됨. **매번은 아니고 모바일에서 간헐적**.
+
+### 원인
+루트 레이아웃에 상주하는 두 클라이언트 가드가 **일시적 fetch 실패를 "설정 미완료"
+로 오판**하는 것이 핵심. 로그인/`auth/callback`/`page` 경로는 이미 서버 authoritative
+RPC(`get_my_auth_state`) + `routeByAuthState(..., sessionPresent: true)` 로 안전했음.
+
+1. **`RandomIdBanner`(오렌지 배너)**: `getMyProfile()`의 `error`를 무시하고
+   `data`가 `null`이면 `username=null`로 간주 → `needsSetup=true` → 배너 표시.
+   모바일은 앱 복귀·토큰 갱신 시 `onAuthStateChange`(TOKEN_REFRESHED/SIGNED_IN)가
+   자주 발화하고, 그 순간 프로필 읽기가 리프레시 중인 토큰과 경합해 일시적으로
+   row가 안 잡힘 → **완성 계정에도 배너가 깜빡**.
+2. **`AuthGate`**: `get_my_auth_state` RPC가 일시적으로 null이면 `getMyProfile()`
+   폴백을 하는데, 이 읽기마저 일시 실패하면 `username=null` → 리디렉션. `needs_
+   identity_setup=true` 재확인 분기에서도 프로필 읽기가 null이면 미완성으로 판단.
+
+### 패치 (fail-safe)
+- **`RandomIdBanner.refresh()`**: 서버 authoritative RPC(`getMyAuthState`)를 먼저
+  사용해 `needs_identity_setup`을 그대로 신뢰. RPC가 null(일시 실패)일 때만
+  `getMyProfile()` 폴백하되, **`error || !data`면 배너 상태를 바꾸지 않음**(깜빡임
+  방지). 진짜 미완성 계정은 row가 존재하고 필드가 비어 있어 정상 감지.
+- **`AuthGate`**: 두 프로필 재확인 분기 모두 **"확정적으로 로드된 미완성 프로필"일
+  때만 리디렉션**. `error || !profile`(일시 null)이면 리디렉션하지 않고 페이지를
+  렌더(`setReady(true)`). 공통 판정은 `profileIsIncomplete()` 헬퍼로 통일(서버 SSOT
+  와 동일: username/placeholder/display_name/roles/main_role).
+
+### 신규 유저 재로그인 유도 흐름 점검
+- 세션이 있는 재로그인 경로는 정상: 세션 확인 → `getMyAuthState` → `routeByAuthState`
+  → `needs_identity_setup`이면 `/onboarding/identity`로 유도. 미완성 계정은 서버
+  RPC가 안정적으로 true를 반환하므로 이번 fail-safe 이후에도 정상 유도됨.
+- **별도 관찰(미변경)**: `src/app/page.tsx`의 콜드 프론트도어는 세션 없음 시
+  `LOGIN_PATH`로 보냄. `onboarding-smoke.mjs`는 signup-first(`ONBOARDING_PATH`)를
+  기대해 이 항목이 실패로 뜨나, 이는 이전부터 있던 상태이며 이번 버그(완성 계정
+  오탐)와 무관. 콜드 방문자 진입점을 로그인→온보딩으로 바꿀지는 제품 결정 사항이라
+  이번 패치 범위에서 제외.
+
+### Verified
+- `tsc --noEmit` 통과, `npm run build` 통과.
+- `onboarding-banner-refresh.test.ts` ok, `onboarding-routing-runtime.mjs` all hold.
+- Supabase SQL: 이번 패치는 SQL 미변경 — 돌릴 것 없음.
+
+---
 
 ## 2026-07-09 — 피드 "작가" 탭: 미완성 프로필 제외 + 카드 개선
 
