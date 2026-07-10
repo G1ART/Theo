@@ -22,7 +22,30 @@ type Props = {
 function getAvatarUrl(avatarUrl: string | null): string | null {
   if (!avatarUrl) return null;
   if (avatarUrl.startsWith("http")) return avatarUrl;
-  return getArtworkImageUrl(avatarUrl, "avatar");
+  // The Artists grid renders avatars in a large 4:3 tile, so the tiny 96px
+  // "avatar" variant looked badly upscaled. Use "medium" (1200px) for a crisp
+  // fill; external (http) avatars are already full-res.
+  return getArtworkImageUrl(avatarUrl, "medium");
+}
+
+/** Deterministic hue (0–359) from a seed so each person gets a stable color. */
+function hueFromSeed(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) % 360;
+  }
+  return h;
+}
+
+/** First 1–2 display initials, ignoring leading "@" and whitespace. */
+function initialsFrom(name: string): string {
+  const cleaned = name.replace(/^@+/, "").trim();
+  if (!cleaned) return "?";
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return cleaned.slice(0, 2).toUpperCase();
 }
 
 export function ExploreArtistCard({ profile, locked = false }: Props) {
@@ -33,6 +56,8 @@ export function ExploreArtistCard({ profile, locked = false }: Props) {
   const { primary: name, secondary: handle } = formatIdentityPair(profile, t);
   const roleChips = formatRoleChips(profile, t, { max: 2 });
   const avatarUrl = getAvatarUrl(profile.avatar_url);
+  const hue = hueFromSeed(profile.id || profile.username || name || "?");
+  const initials = initialsFrom(name);
 
   function handleClick() {
     if (locked || !profile.username) {
@@ -69,8 +94,19 @@ export function ExploreArtistCard({ profile, locked = false }: Props) {
             className="object-cover transition-transform duration-300 ease-out group-hover:scale-[1.01]"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-4xl font-medium text-zinc-400">
-            {(name || "?").charAt(0).toUpperCase()}
+          <div
+            aria-hidden
+            className="flex h-full w-full items-center justify-center"
+            style={{
+              backgroundImage: `linear-gradient(135deg, hsl(${hue} 58% 90%), hsl(${(hue + 45) % 360} 52% 80%))`,
+            }}
+          >
+            <span
+              className="text-5xl font-semibold tracking-tight transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+              style={{ color: `hsl(${hue} 42% 34%)` }}
+            >
+              {initials}
+            </span>
           </div>
         )}
       </div>
