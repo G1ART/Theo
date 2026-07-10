@@ -432,6 +432,39 @@ export async function listPriceInquiriesForArtist(
   return { data: slice, nextCursor, error: null };
 }
 
+/**
+ * Sent inquiries for the current user (inquirer / collector side).
+ *
+ * RLS `price_inquiries_select_own` (`inquirer_id = auth.uid()`) already
+ * allows the inquirer to read their own inquiries, so no schema change is
+ * needed. This powers the collector "보낸 문의" inbox and gives the
+ * `price_inquiry_reply` notification a real destination for the person
+ * who *sent* the inquiry (the artist-side inbox is `/my/inquiries`).
+ *
+ * Ordered by most-recent activity (last_message_at, then created_at) so
+ * threads with a fresh reply float to the top.
+ */
+export async function listPriceInquiriesForInquirer(
+  limit = 50
+): Promise<{ data: PriceInquiryRow[]; error: unknown }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id) return { data: [], error: null };
+
+  const { data, error } = await supabase
+    .from("price_inquiries")
+    .select(INQUIRY_SELECT)
+    .eq("inquirer_id", session.user.id)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(Math.min(Math.max(1, limit), 100));
+
+  if (error) return { data: [], error };
+  const rows = (data ?? []) as Record<string, unknown>[];
+  return { data: rows.map(normalizeInquiry), error: null };
+}
+
 export async function listPriceInquiryMessages(
   inquiryId: string
 ): Promise<{ data: PriceInquiryMessageRow[]; error: unknown }> {

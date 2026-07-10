@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGate } from "@/components/AuthGate";
+import { supabase } from "@/lib/supabase/client";
 import {
   listNotifications,
   markAllAsRead,
@@ -218,10 +219,23 @@ function notificationLabel(
 
 function notificationLink(
   row: NotificationRow,
-  entitlements: { canSeeBoardSaver: boolean; canSeeBoardPublicActor: boolean }
+  entitlements: { canSeeBoardSaver: boolean; canSeeBoardPublicActor: boolean },
+  viewerId: string | null
 ): string | null {
-  if (row.type === "price_inquiry" || row.type === "price_inquiry_reply") {
+  // A new inquiry only ever notifies the artist / delegates → artist inbox.
+  if (row.type === "price_inquiry") {
     return "/my/inquiries";
+  }
+  // A reply fans out to BOTH the inquirer AND the artist-side recipients
+  // (artist + other delegates). Route the artwork's artist to their inbox;
+  // everyone else (the inquirer who sent it) to the artwork thread, where
+  // their conversation lives. Falls back to the sent inbox if the artwork
+  // link is missing.
+  if (row.type === "price_inquiry_reply") {
+    const artistId = row.artwork?.artist_id ?? null;
+    if (viewerId && artistId && viewerId === artistId) return "/my/inquiries";
+    if (row.artwork_id) return `/artwork/${row.artwork_id}`;
+    return "/my/inquiries/sent";
   }
   if (row.type === "connection_message") {
     return "/my/messages";
@@ -281,6 +295,7 @@ function NotificationsContent() {
   const [list, setList] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
+  const [viewerId, setViewerId] = useState<string | null>(null);
 
   // Resolver-backed gates. We skip the quota lookup for these render-path
   // checks because they are cheap boolean gates, not usage-bearing actions.
@@ -308,6 +323,16 @@ function NotificationsContent() {
     });
     return () => cancelAnimationFrame(t);
   }, [refresh]);
+
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (alive) setViewerId(data.session?.user?.id ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const handleMarkAll = useCallback(async () => {
     setMarkingAll(true);
@@ -353,7 +378,7 @@ function NotificationsContent() {
       ) : (
         <ul className="mt-4 divide-y divide-zinc-100">
           {list.map((row) => {
-            const href = notificationLink(row, entitlements);
+            const href = notificationLink(row, entitlements, viewerId);
             const label = notificationLabel(row, t, entitlements);
             const unread = row.read_at == null;
             const isFollowRequest = row.type === "follow_request";

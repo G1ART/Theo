@@ -582,7 +582,9 @@ function collectorCatalog(): FirstValueAction[] {
       actionKind: "review_inquiries",
       titleKey: "firstValue.collector.reviewInquiries.title",
       descriptionKey: "firstValue.collector.reviewInquiries.desc",
-      href: "/my/inquiries",
+      // Collectors *send* inquiries — the artist inbox (/my/inquiries) is
+      // always empty for them. Route to the inquirer-side "sent" inbox.
+      href: "/my/inquiries/sent",
       priority: 20,
       completionSignal: "collector_inquiry_reviewed",
     }),

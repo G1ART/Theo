@@ -2,6 +2,52 @@
 
 Last updated: 2026-07-10
 
+## 2026-07-10 — 문의(가격 인콰이어리) 끊긴 루프 수리 + 콜드 피드 경로 일관성
+
+### 배경
+Theo 고도화 감사(roadmap 캔버스)에서 발견한 **broken loop(=오류로 간주)** 를
+"다시 돌아올 필요 없게" 수리. 핵심은 컬렉터(문의자) 쪽 경로가 아티스트 전용
+화면으로 dead-end 되던 문제.
+
+### 변경 (버그 수정)
+- **`price_inquiry_reply` 알림 딥링크 persona 분기.** 이 알림은 트리거상
+  **문의자 + 아티스트/대리인 양쪽**에게 발송됨. 기존엔 무조건 `/my/inquiries`
+  (아티스트 전용 = 컬렉터에겐 항상 빈 화면)로 보냈음.
+  → 이제 `notifications` 조인에 `artworks.artist_id` 를 추가하고, **수신자가 작품의
+  작가면 `/my/inquiries`, 그 외(문의를 보낸 컬렉터)는 `/artwork/{id}` 스레드**로 보냄.
+  (`src/app/notifications/page.tsx`, `src/lib/supabase/notifications.ts`)
+- **컬렉터 "보낸 문의" 인박스 신설** — `/my/inquiries/sent`.
+  아티스트 인박스는 `artworks.artist_id` 로 필터해 컬렉터에겐 늘 비어 있었음.
+  RLS `price_inquiries_select_own`(`inquirer_id = auth.uid()`)로 **SQL 변경 없이**
+  문의자가 자기 문의를 조회 가능 → `listPriceInquiriesForInquirer()` 추가,
+  각 행은 작품 스레드(`/artwork/{id}`)로 링크. (`src/lib/supabase/priceInquiries.ts`,
+  `src/app/my/inquiries/sent/page.tsx`)
+- **컬렉터 first-value 카드 href 수정** — `collector.review_inquiries` 가
+  라벨은 "보낸 문의 다시 보기"인데 아티스트 인박스로 가던 dead-end →
+  `/my/inquiries/sent` 로 변경. (`src/lib/persona/actionGrammar.ts`)
+  갤러리의 `review_inquiries`(수신 역할) → `/my/inquiries` 는 올바르므로 유지.
+- **콜드 피드 경로 일관성** — `/feed` 의 "For you" 탭을 비로그인이 누를 때
+  `/login` → `/onboarding` 으로 변경(Explore 카드·LikeButton·`/` 와 동일한
+  signup-first 정책). (`src/app/feed/FeedClient.tsx`)
+
+### 참고 (변경하지 않음)
+- Relationship Desk의 문의 답변 CTA(`/artwork/{id}`)는 작품 상세에 작가용
+  문의 관리/답변 UI가 이미 있어 정상 동작 → 유지.
+- 가격 문의 알림 falloff(수신자 0명) 는 이미 `p0_price_inquiry_artist_id_triple_fallback.sql`
+  로 반영되어 있어 이번 패치 대상 아님.
+
+### Supabase SQL
+- **돌려야 할 것 없음** — 이번 패치는 새/수정 `.sql` 파일 없음(전부 클라이언트/RLS 활용).
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit` / `next build` 통과, `/my/inquiries/sent` 라우트 생성 확인.
+- `test:first-value-paths`, `test:persona-grammar` 통과. 대상 파일 eslint 통과.
+
+---
+
 ## 2026-07-10 — 콜드 프론트도어(`/`) 가입 우선으로 전환 (⚠️ 리보크 가능 결정)
 
 ### 결정

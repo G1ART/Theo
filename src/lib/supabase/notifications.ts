@@ -35,7 +35,7 @@ export type NotificationRow = {
   read_at: string | null;
   created_at: string;
   actor?: { username: string | null; display_name: string | null } | null;
-  artwork?: { id: string; title: string | null } | null;
+  artwork?: { id: string; title: string | null; artist_id: string | null } | null;
 };
 
 const NOTIFICATION_SELECT = `
@@ -49,7 +49,7 @@ const NOTIFICATION_SELECT = `
   read_at,
   created_at,
   profiles!actor_id(username, display_name),
-  artworks!artwork_id(id, title)
+  artworks!artwork_id(id, title, artist_id)
 `;
 
 function normalizeNotification(
@@ -65,9 +65,9 @@ function normalizeNotification(
   const artworks = row.artworks;
   const artwork =
     Array.isArray(artworks) && artworks.length > 0
-      ? (artworks[0] as { id: string; title: string | null })
+      ? (artworks[0] as { id: string; title: string | null; artist_id: string | null })
       : artworks && typeof artworks === "object" && !Array.isArray(artworks)
-        ? (artworks as { id: string; title: string | null })
+        ? (artworks as { id: string; title: string | null; artist_id: string | null })
         : null;
   return {
     id: row.id as string,

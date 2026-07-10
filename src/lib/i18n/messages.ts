@@ -2757,6 +2757,16 @@ export const messages = {
     "firstValue.curator.openRelationships.desc":
       "See what you have already exchanged with each artist or gallery.",
 
+    "inquiriesSent.title": "Sent inquiries",
+    "inquiriesSent.lead":
+      "Works you've asked about. Open one to see the artist's reply and continue the conversation.",
+    "inquiriesSent.empty": "You haven't sent any inquiries yet.",
+    "inquiriesSent.emptyDesc":
+      "When you ask about a work, it will appear here so you can follow up.",
+    "inquiriesSent.statusReplied": "Replied",
+    "inquiriesSent.statusWaiting": "Awaiting reply",
+    "inquiriesSent.statusClosed": "Closed",
+
     "firstValue.collector.saveOrFollow.title": "Save works and follow artists",
     "firstValue.collector.saveOrFollow.desc":
       "Memory comes first — interest can grow into a quiet inquiry later.",
@@ -5562,6 +5572,16 @@ export const messages = {
     "firstValue.curator.openRelationships.title": "관계 맥락 다시 보기",
     "firstValue.curator.openRelationships.desc":
       "지금까지 작가·갤러리와 어떤 대화를 나눴는지 한자리에 모아둬요.",
+
+    "inquiriesSent.title": "보낸 문의",
+    "inquiriesSent.lead":
+      "문의한 작품들이에요. 작품을 열면 작가의 답변을 확인하고 대화를 이어갈 수 있어요.",
+    "inquiriesSent.empty": "아직 보낸 문의가 없어요.",
+    "inquiriesSent.emptyDesc":
+      "작품에 문의하면 여기에 모여, 나중에 다시 이어볼 수 있어요.",
+    "inquiriesSent.statusReplied": "답변 옴",
+    "inquiriesSent.statusWaiting": "답변 대기",
+    "inquiriesSent.statusClosed": "종료",
 
     "firstValue.collector.saveOrFollow.title": "작품 저장·작가 팔로우",
     "firstValue.collector.saveOrFollow.desc":

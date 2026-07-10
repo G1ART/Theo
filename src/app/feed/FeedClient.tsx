@@ -56,7 +56,9 @@ export function FeedClient() {
 
   function handleTabChange(next: ExploreTab) {
     if (next === "foryou" && !userId) {
-      router.push(`/login?next=${encodeURIComponent("/feed?tab=foryou")}`);
+      // Cold-visitor policy: detail/personalized surfaces prompt sign-up,
+      // not login (consistent with Explore cards, LikeButton, and `/`).
+      router.push(`/onboarding?next=${encodeURIComponent("/feed?tab=foryou")}`);
       return;
     }
     const params = new URLSearchParams();
