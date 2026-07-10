@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getSession, getMyAuthState } from "@/lib/supabase/auth";
-import { routeByAuthState, LOGIN_PATH } from "@/lib/identity/routing";
+import { routeByAuthState, ONBOARDING_PATH } from "@/lib/identity/routing";
 import { useT } from "@/lib/i18n/useT";
 
 export default function Home() {
@@ -18,7 +18,13 @@ export default function Home() {
       } = await getSession();
       if (cancelled) return;
       if (!session) {
-        router.replace(LOGIN_PATH);
+        // REVOCABLE DECISION (2026-07-10): cold front-door is signup-first.
+        // A visitor with no session hitting `/` is sent to /onboarding, not
+        // /login — returning users still reach login via the "이미 계정이
+        // 있나요?" link on the onboarding surface. If we ever want the bare
+        // domain to greet returning users with login instead, flip this back
+        // to LOGIN_PATH (and update onboarding-smoke.mjs accordingly).
+        router.replace(ONBOARDING_PATH);
         return;
       }
       const state = await getMyAuthState();

@@ -2,6 +2,27 @@
 
 Last updated: 2026-07-10
 
+## 2026-07-10 — 콜드 프론트도어(`/`) 가입 우선으로 전환 (⚠️ 리보크 가능 결정)
+
+### 결정
+세션 없는 방문자가 **주소창으로 `/` 에 직접 진입**하면 이제 `/login` 이 아니라
+**`/onboarding`(가입 우선)** 으로 보냄. 최초 개선 의도(signup-first front door)와 일치.
+기존 유저는 온보딩 화면의 "이미 계정이 있나요?" 링크로 로그인 진입 가능.
+
+### ⚠️ REVOCABLE DECISION — 되돌리는 법
+나중에 "맨 도메인은 재방문 유저에게 로그인을 먼저 보여주자"로 바꾸고 싶으면:
+- `src/app/page.tsx` 의 no-session 리디렉션을 `ONBOARDING_PATH` → `LOGIN_PATH` 로
+  되돌리고(해당 라인에 `REVOCABLE DECISION (2026-07-10)` 마커 주석 있음),
+- `tests/onboarding-smoke.mjs` 의 front-door 기대치(ONBOARDING_PATH 강제)도 함께 수정.
+
+참고: 이건 "직접 진입" 케이스이고, 피드에서 상세 클릭 시 가입 유도(아래 섹션)와는
+별개 경로. 로그인 성공/`auth/callback` 라우팅은 변경 없음.
+
+### Verified
+- `onboarding-smoke.mjs` all invariants hold, `tsc`/`build` 통과. SQL·env 변경 없음.
+
+---
+
 ## 2026-07-10 — 콜드 방문자: 상세 클릭 시 로그인 → 가입(온보딩)으로 유도
 
 ### 의도
