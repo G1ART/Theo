@@ -222,20 +222,19 @@ function notificationLink(
   entitlements: { canSeeBoardSaver: boolean; canSeeBoardPublicActor: boolean },
   viewerId: string | null
 ): string | null {
-  // A new inquiry only ever notifies the artist / delegates → artist inbox.
-  if (row.type === "price_inquiry") {
-    return "/my/inquiries";
-  }
-  // A reply fans out to BOTH the inquirer AND the artist-side recipients
-  // (artist + other delegates). Route the artwork's artist to their inbox;
-  // everyone else (the inquirer who sent it) to the artwork thread, where
-  // their conversation lives. Falls back to the sent inbox if the artwork
-  // link is missing.
-  if (row.type === "price_inquiry_reply") {
+  // Price-inquiry notifications fan out to several roles, and only the
+  // artwork's ARTIST has a working aggregate inbox at /my/inquiries (it is
+  // filtered by artworks.artist_id). Everyone else — consignment delegates,
+  // OWNS holders (collector/gallery), and the inquirer on a reply — sees and
+  // acts on the thread from the artwork page. Route accordingly so no role
+  // dead-ends on an inbox that is empty for them.
+  if (row.type === "price_inquiry" || row.type === "price_inquiry_reply") {
     const artistId = row.artwork?.artist_id ?? null;
     if (viewerId && artistId && viewerId === artistId) return "/my/inquiries";
     if (row.artwork_id) return `/artwork/${row.artwork_id}`;
-    return "/my/inquiries/sent";
+    // No artwork link (rare): send inquiry senders to their sent inbox,
+    // artist-side recipients to the artist inbox.
+    return row.type === "price_inquiry_reply" ? "/my/inquiries/sent" : "/my/inquiries";
   }
   if (row.type === "connection_message") {
     return "/my/messages";

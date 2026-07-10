@@ -2,6 +2,54 @@
 
 Last updated: 2026-07-10
 
+## 2026-07-10 — 가격 문의 라우팅에 소유(OWNS) 홀더 편입 (⚠️ SQL 수동 실행 필요)
+
+### 배경 (진단)
+개발 철학: (1) 작가 소유·컨틴전시 없음 → 작가에게만 문의/알림, (2) 갤러리 위탁
+또는 갤러리/컬렉터 **소유** → 홀더에게 문의 + 홀더·작가 모두 알림/열람/답변.
+조사 결과 **(2)의 소유(OWNS) 케이스가 라우팅에서 빠져 있었음**:
+- 수신자/열람/답변을 결정하는 공용 헬퍼 `get_current_delegate_ids` 가
+  `INVENTORY/CURATED/EXHIBITED`(위탁류)만 포함하고 **`OWNS`를 제외**.
+- 게다가 `price_inquiry_artist_id`의 fallback 때문에, 소유 작품이라도 작가
+  온보딩 여부에 따라 수신자가 소유자↔작가로 **뒤집히는 비일관** 상태였음.
+
+### 변경
+- **SQL: `20260710000000_price_inquiry_route_to_owners.sql`** — 공용 헬퍼
+  `get_current_delegate_ids` 를 확장해 **confirmed `OWNS` 소유자**(period 무관,
+  소유는 상시 관계)를 포함. 이 헬퍼를 `get_price_inquiry_recipient_ids`,
+  `can_reply_to_price_inquiry`, `can_select_price_inquiry` 가 공유하므로
+  **알림 fan-out + RLS(열람/답변)에 한 번에 전파**됨. 위탁류는 기존과 동일
+  (current period 게이팅 유지). 케이스 (1) 작가-only 도 변화 없음(OWNS 클레임
+  없으면 추가 수신자 없음).
+- **알림 딥링크 보정** (`src/app/notifications/page.tsx`) — 소유자/대리인이
+  새 `price_inquiry` 알림을 받으면 작가 전용 `/my/inquiries`(그들에겐 빈 화면)로
+  가던 dead-end 방지. 이제 `price_inquiry`·`price_inquiry_reply` 모두 **수신자가
+  작품의 작가면 `/my/inquiries`, 그 외(대리인·소유자·문의자)는 `/artwork/{id}`
+  스레드**로 라우팅. 작품 상세엔 이미 RLS 기반 문의 열람/답변 UI가 있어
+  소유자도 그대로 응대 가능.
+
+### ⚠️ REVOCABLE DECISION (2026-07-10)
+컬렉터 소유(2차 시장) 작품에도 **작가에게 알림이 감**(철학 그대로). 재판매
+프라이버시가 중요해지면 되돌리는 법: `get_price_inquiry_recipient_ids`에서
+OWNS를 홀더 역할로 분기(갤러리=작가 알림, 컬렉터=소유자 only). 헬퍼는 그대로 두기.
+마이그레이션 파일 상단에도 동일 마커 있음.
+
+### ⚠️ Supabase SQL — 수동 실행 필요
+- **Supabase Dashboard SQL Editor에서 `20260710000000_price_inquiry_route_to_owners.sql` 실행.**
+  단일 SQL 함수 `create or replace` 1건(루프/다중 plpgsql 아님)이라 **통째로 붙여
+  Run 해도 안전**(섹션 분할 불필요).
+- 실행 전/후 확인: 소유(OWNS, confirmed) 작품에 문의 시 소유자에게 `price_inquiry`
+  알림이 뜨고, 소유자가 작품 페이지에서 문의를 보고 답할 수 있는지.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit`, `next build`, `eslint`(notifications) 통과.
+- 로직 검증: 헬퍼가 문의 전용(다른 소비자 없음)임을 grep으로 확인 → 확장 안전.
+
+---
+
 ## 2026-07-10 — 소셜/탐색 4개 페이지에 3단 셸 확장 + 페이지별 맥락 레일
 
 ### 배경
