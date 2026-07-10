@@ -31,17 +31,18 @@ import { useSizeUnitPref } from "@/lib/size/preference";
  *   - Meta line below: `Title, size medium`.
  *
  * When `locked=true`, the artist/meta info is blurred (identity concealed
- * for anonymous viewers) and clicks route to /login?next=... instead of the
- * artwork detail. The image itself stays sharp because the grid needs to
- * remain browsable — the point is to hide *who made what* until the visitor
- * signs in, matching the product decision in Sprint 2 of the redesign.
+ * for anonymous viewers) and clicks route to /onboarding?next=<artwork>
+ * (signup-first) instead of the artwork detail. The image itself stays sharp
+ * because the grid needs to remain browsable — the point is to hide *who made
+ * what* until the visitor signs up, matching the product decision that a cold
+ * visitor tapping a detail should be sent straight to signup.
  */
 type Props = {
   artwork: ArtworkWithLikes;
   /**
    * When true the card is a public teaser: artist name / meta blurred,
-   * click routes to /login?next=<current>. Also disables outbound artwork
-   * links behind the overlays.
+   * click routes to /onboarding?next=<artwork> (signup-first). Also disables
+   * outbound artwork links behind the overlays.
    */
   locked?: boolean;
   priority?: boolean;
@@ -128,11 +129,12 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
   const captionParts = [artwork.title ?? "", sizePill].filter(Boolean);
   const caption = captionParts.join(", ");
 
+  const signupHref = `/onboarding?next=${encodeURIComponent(`/artwork/${artwork.id}`)}`;
+
   function handleClick(e: React.MouseEvent) {
     if (locked) {
       e.preventDefault();
-      const next = pathname && pathname.length > 0 ? pathname : "/feed";
-      router.push(`/login?next=${encodeURIComponent(next)}`);
+      router.push(signupHref);
       return;
     }
     setArtworkBack(pathname ?? "/feed");
@@ -192,7 +194,7 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
           {locked && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-8 opacity-0 transition-opacity group-hover:opacity-100">
               <Link
-                href={`/login?next=${encodeURIComponent(pathname ?? "/feed")}`}
+                href={signupHref}
                 onClick={(e) => e.stopPropagation()}
                 className="pointer-events-auto rounded-full bg-zinc-900/90 px-3 py-1.5 text-xs font-medium text-white shadow-md hover:bg-zinc-900"
               >

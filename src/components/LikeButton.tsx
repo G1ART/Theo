@@ -89,7 +89,7 @@ export function LikeButton({
   if (showLoginCta) {
     return (
       <Link
-        href="/login"
+        href="/onboarding"
         onClick={(e) => e.stopPropagation()}
         className={`inline-flex items-center gap-1.5 text-zinc-500 hover:text-zinc-800 ${
           size === "sm" ? "text-sm" : "text-base"
@@ -97,7 +97,7 @@ export function LikeButton({
       >
         <span aria-hidden>♡</span>
         <span>{count > 0 ? count : ""}</span>
-        <span>Login to like</span>
+        <span>Sign up to like</span>
       </Link>
     );
   }

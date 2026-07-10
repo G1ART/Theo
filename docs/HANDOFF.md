@@ -2,6 +2,33 @@
 
 Last updated: 2026-07-10
 
+## 2026-07-10 — 콜드 방문자: 상세 클릭 시 로그인 → 가입(온보딩)으로 유도
+
+### 의도
+피드는 비로그인도 열람 가능하되, **상세(작품/전시/작가)를 보려고 클릭하면 곧바로
+가입 페이지로 유도**하는 것이 목적. 기존에는 `/login`으로 보내고 있어 신규 방문자
+전환 흐름이 어긋났음.
+
+### 변경
+- **Explore 카드 3종**의 `locked`(비로그인) 클릭 대상을 `/login` → **`/onboarding`**
+  으로 변경하고, 클릭한 대상을 `next`로 전달해 **가입 완료 후 원래 보려던 상세로
+  착지**하도록 개선:
+  - `ExploreArtworkCard` → `/onboarding?next=/artwork/<id>` (호버 CTA 포함).
+  - `ExploreExhibitionCard` → `/onboarding?next=/e/<id>` (호버 CTA 포함).
+  - `ExploreArtistCard` → `/onboarding?next=/u/<username>` (username 없으면 `/feed`).
+- **문구**: `feed.anonLockCta`/`feed.anonHint` 를 "로그인" → "가입" 표현으로 수정
+  (KO: "가입하고 전체 보기" / "가입하면 작가와 상세 정보를 볼 수 있어요.", EN 동일 취지).
+- **LikeButton** 비로그인 CTA 도 `/login`("Login to like") → `/onboarding`
+  ("Sign up to like") 로 통일.
+- `onboarding` 페이지는 이미 `next` 를 signup 플로우 전체(가입→이메일 확인→
+  `/auth/callback?next=`→identity)에 전달하므로 착지 경로 보존됨.
+
+### Verified
+- `tsc --noEmit` 통과, `npm run build` 통과.
+- Supabase SQL: 이번 패치는 SQL 미변경 — 돌릴 것 없음. 환경 변수 변경 없음.
+
+---
+
 ## 2026-07-10 — 완성 계정에 프로필 설정 배너/리디렉션이 새는 문제 (모바일)
 
 ### 증상

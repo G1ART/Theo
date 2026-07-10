@@ -43,8 +43,9 @@ const PAGE_SIZE = 24;
  * personalization layer getting in the way.
  *
  * `locked` (based on `userId`) blurs the identity slice on each card and
- * routes clicks to `/login?next=/feed`, matching the product decision to
- * make the feed public but tease sign-up on interaction.
+ * routes clicks to `/onboarding?next=<detail>` (signup-first), matching the
+ * product decision to make the feed public but send a cold visitor straight
+ * to signup the moment they tap a detail.
  */
 export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
   const { t } = useT();

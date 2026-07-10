@@ -13,7 +13,7 @@ import { useT } from "@/lib/i18n/useT";
 
 type Props = {
   exhibition: ExhibitionWithCredits;
-  /** Blur meta info + route clicks to /login for anonymous viewers. */
+  /** Blur meta info + route clicks to /onboarding (signup) for anonymous viewers. */
   locked?: boolean;
 };
 
@@ -34,10 +34,12 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
   const year = pickYear(exhibition);
   const curatorLine = getExhibitionHostCuratorLabel(exhibition, t);
 
+  const signupHref = `/onboarding?next=${encodeURIComponent(`/e/${exhibition.id}`)}`;
+
   function handleClick(e: React.MouseEvent) {
     if (locked) {
       e.preventDefault();
-      router.push(`/login?next=${encodeURIComponent(pathname ?? "/feed")}`);
+      router.push(signupHref);
       return;
     }
     setExhibitionBack(pathname ?? "/feed");
@@ -89,7 +91,7 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
           {locked && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-8 opacity-0 transition-opacity group-hover:opacity-100">
               <Link
-                href={`/login?next=${encodeURIComponent(pathname ?? "/feed")}`}
+                href={signupHref}
                 onClick={(e) => e.stopPropagation()}
                 className="pointer-events-auto rounded-full bg-zinc-900/90 px-3 py-1.5 text-xs font-medium text-white shadow-md hover:bg-zinc-900"
               >

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { useT } from "@/lib/i18n/useT";
 import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
@@ -12,9 +12,9 @@ type Props = {
   profile: ProfileListItem;
   /**
    * When true, the identity handle + role chips are blurred and the click
-   * routes to /login. Avatar/silhouette stays visible so the grid still
-   * reads as a wall of people (matches the wireframe intent of encouraging
-   * sign-up without hiding the volume of activity).
+   * routes to /onboarding (signup-first). Avatar/silhouette stays visible so
+   * the grid still reads as a wall of people (matches the wireframe intent of
+   * encouraging sign-up without hiding the volume of activity).
    */
   locked?: boolean;
 };
@@ -50,7 +50,6 @@ function initialsFrom(name: string): string {
 
 export function ExploreArtistCard({ profile, locked = false }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
   const { t } = useT();
 
   const { primary: name, secondary: handle } = formatIdentityPair(profile, t);
@@ -61,7 +60,10 @@ export function ExploreArtistCard({ profile, locked = false }: Props) {
 
   function handleClick() {
     if (locked || !profile.username) {
-      router.push(`/login?next=${encodeURIComponent(pathname ?? "/feed")}`);
+      // Cold visitor tapping an artist → signup. Preserve the intended
+      // profile as `next` so they land on it after completing signup.
+      const next = profile.username ? `/u/${profile.username}` : "/feed";
+      router.push(`/onboarding?next=${encodeURIComponent(next)}`);
       return;
     }
     router.push(`/u/${profile.username}`);
