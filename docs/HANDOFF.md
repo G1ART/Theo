@@ -1,6 +1,86 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-10
+Last updated: 2026-07-20
+
+## 2026-07-20 — 피드 이미지 표준화 (톤 + 프레이밍 통일 + 가이드 크롭) ✅ SQL 자동 적용됨
+
+### 배경
+피드/그리드에서 작품 이미지 명암·대비·채도와 프레이밍(줌·여백)이 업로드마다
+들쭉날쭉이었음. 원인은 두 가지: (1) 톤 표준화 레이어 자체가 없음, (2) 프레이밍
+정책이 3곳(피드 4:5·contain·매트 없음 / Explore 4:3·**cover=크롭됨**·zinc 매트 /
+상세 정사각·contain·zinc 매트) 다 달라, Explore는 작품을 임의로 크롭하는 상태
+였음.
+
+Theo의 §8 정보 정확성 원칙(사용자 대신 지어내거나 추측 금지)과 §0.6 프리뷰
+우선을 지키면서, Artsy/Google Arts(색 충실도 보존)와 인스타/애플 사진(비파괴
+자동 보정+슬라이더+원본 유지)의 합의 지점으로 착지시켰음.
+
+### 설계 원칙 (재확인용)
+- **원본 픽셀은 절대 건드리지 않음.** Storage 파일 재인코딩·교체 없음.
+- 이미지별 `display_adjust jsonb` (b/c/s + optional crop) 메타만 저장.
+- **그리드/피드에서만 CSS `filter` + transform crop으로 적용.**
+- **작품 상세(`ArtworkImageStage`) / 라이트박스는 항상 원본** 렌더 → 색 충실도 보존.
+- 자동값은 **±15% 클램프**로 부드럽게. 언제든 원본으로 리셋 가능.
+
+### 변경 (프론트/데이터/스크립트)
+- **SQL**: `supabase/migrations/20260720000000_artwork_image_display_adjust.sql`
+  — `artwork_images.display_adjust jsonb null`. 단일 `alter table ... add column`
+  이라 통째로 붙여 Run 안전. **원격 프로젝트에 자동 적용 완료** (Supabase MCP).
+- 헬퍼: `src/lib/image/displayAdjust.ts` — 타입/`toFilterCss`/`normalizeDisplayAdjust`
+  /`readDisplayAdjust`. 톤은 0.7–1.3으로 하드 클램프. 중립값은 저장 안 함(null).
+- 클라 분석기: `src/lib/image/analyze.ts` — 다운스케일 캔버스 히스토그램 → 클램프된
+  Theo 표준 b/c 자동값 + 균일-배경 밴드 감지 기반 자동 크롭 제안. 채도 자동 보정
+  없음(=1.0, 색 해석은 작가 몫). 자동 크롭은 남은 프레임 60% 미만이면 스킵.
+- 렌더: `src/components/artwork/CroppedArtworkImage.tsx` — 그리드 전용. next/image
+  `fill object-contain` + inner-wrapper 포지셔닝으로 crop rect가 컨테이너 edge에
+  일치하도록 클립. 크롭 없으면 기존 렌더와 100% 동일.
+- 카드 배선: `FeedArtworkCard`, `ExploreArtworkCard`, `ArtworkCard` 셋 다
+  `CroppedArtworkImage`로 교체. `ArtworkImageStage`(상세)는 손대지 않음(=원본 유지).
+- **프레이밍 통일**: `ExploreArtworkCard` `object-cover`→`object-contain` (작품
+  임의 크롭 제거). aspect·매트는 서피스별 의도 유지.
+- 업로드 UX:
+  - `src/components/upload/ImageStandardizeEditor.tsx` — 라이브 프리뷰 + 밝기(하단
+    가로바)·대비(우측 세로바)·채도 슬라이더 + auto-crop 칩 + Theo 표준 재적용 + 원본
+    리셋. 슬라이더는 실제 `<input type="range">` (§7 접근성).
+  - 단건 `/upload`: 이미지 행에 "느낌 조정" 토글, 확장 시 인라인 에디터. 첨부
+    시 `attachArtworkImage`로 `displayAdjust` 함께 저장.
+  - 벌크 `/upload/bulk`: 업로드 시 각 파일을 사전 분석해 표준값을 자동 적용해서
+    `attachArtworkImage`에 저장(파일이 메모리에 있을 때만 가능). 분석 실패는
+    조용히 무시(업로드는 성공).
+- 백필: `scripts/backfill-image-adjust.ts` — 서비스 롤로 `display_adjust IS NULL`
+  인 행 순회, `sharp().stats()`로 채널 mean/stdev → 휘도 mean/stdev → 클램프된
+  b/c만 기록. **크롭은 절대 백필하지 않음**(사람 확인 없는 자동 크롭은 §0.6·§8
+  위반). Neutral(±2% 내) 행은 스킵. `--dry`로 미리 검증 가능.
+
+### 백필 실행법 (선택)
+```
+SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
+SUPABASE_SERVICE_ROLE_KEY=<service role> \
+  npx tsx scripts/backfill-image-adjust.ts --limit=500 --dry
+```
+문제 없어 보이면 `--dry` 빼고 재실행. 되돌리려면:
+`update artwork_images set display_adjust = null;`
+
+### i18n
+- `upload.imageStandardize.*` en/ko 신규 (edit/hide/appliedChip/title/idleHint/
+  appliedHint/analyzing/analyzeError/brightness/contrast/saturation/autoCrop/
+  clearCrop/reapplyStandard/reset).
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit` 통과.
+- 새 파일 + 수정 파일 대상 `eslint` 통과(기존 baseline warning 외 추가 없음).
+- `next build` 통과.
+- Supabase 마이그레이션 원격 적용 확인(`information_schema.columns`).
+
+### 후속 작업(플랜 밖, 필요 시)
+- 작품 편집 화면(`/artwork/[id]/edit`)에 이미지별 표준화 에디터 진입점 추가
+  (지금은 이미지 UI 자체가 없음).
+- 벌크 업로드 draft 테이블에 항목별 에디터(파일이 메모리에 없어 URL fetch 필요).
+
+---
 
 ## 2026-07-10 — 가격 문의 라우팅에 소유(OWNS) 홀더 편입 (⚠️ SQL 수동 실행 필요)
 

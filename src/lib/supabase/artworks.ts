@@ -72,6 +72,13 @@ export type ArtworkImage = {
    *  Always defined post-migration; legacy reads fall back to
    *  `wall_mounted` (the historical implicit value). */
   view_type?: ArtworkImageViewType | string | null;
+  /**
+   * 2026-07-20 (feed image standardization) — optional per-image display
+   * adjustments (brightness / contrast / saturation / crop) applied on
+   * grid/feed surfaces only. Original storage pixels are never modified.
+   * NULL = render original as before. See `src/lib/image/displayAdjust.ts`.
+   */
+  display_adjust?: import("@/lib/image/displayAdjust").DisplayAdjust | null;
 };
 export type ArtistProfile = {
   id?: string;
@@ -408,7 +415,7 @@ const ARTWORK_SELECT = `
   provenance_visible,
   website_import_provenance,
   likes_count,
-  artwork_images(storage_path, sort_order, view_type),
+  artwork_images(storage_path, sort_order, view_type, display_adjust),
   profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles, is_public),
   artwork_likes(count),
   claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
@@ -1161,7 +1168,7 @@ export async function getArtworkById(
       artist_sort_order,
       created_at,
       provenance_visible,
-      artwork_images(storage_path, sort_order, view_type),
+      artwork_images(storage_path, sort_order, view_type, display_adjust),
       profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles),
       artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
@@ -1205,7 +1212,7 @@ export async function getArtworksByIds(
       artist_sort_order,
       created_at,
       provenance_visible,
-      artwork_images(storage_path, sort_order, view_type),
+      artwork_images(storage_path, sort_order, view_type, display_adjust),
       profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles),
       artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
@@ -1229,14 +1236,46 @@ export async function attachArtworkImage(
     /** QA 2026-06-26 (#5) — perspective tag for the carousel.
      *  Falls back to 'wall_mounted' (the historical implicit value). */
     viewType?: ArtworkImageViewType | string | null;
+    /**
+     * 2026-07-20 (feed image standardization) — optional per-image
+     * display adjustments applied on grid/feed surfaces only. Original
+     * storage pixels are never modified. Pass `null` (or omit) to
+     * render the original as before.
+     */
+    displayAdjust?:
+      | import("@/lib/image/displayAdjust").DisplayAdjust
+      | null;
   },
 ) {
-  return supabase.from("artwork_images").insert({
+  const payload: Record<string, unknown> = {
     artwork_id: artworkId,
     storage_path: storagePath,
     sort_order: opts?.sortOrder ?? 0,
     view_type: opts?.viewType ?? "wall_mounted",
-  });
+  };
+  if (opts?.displayAdjust !== undefined) {
+    payload.display_adjust = opts.displayAdjust;
+  }
+  return supabase.from("artwork_images").insert(payload);
+}
+
+/**
+ * 2026-07-20 (feed image standardization) — patch the `display_adjust`
+ * JSON for a specific `artwork_images` row (identified by artwork +
+ * storage_path). Pass `null` to reset to "render original".
+ */
+export async function updateArtworkImageDisplayAdjust(
+  artworkId: string,
+  storagePath: string,
+  displayAdjust:
+    | import("@/lib/image/displayAdjust").DisplayAdjust
+    | null,
+) {
+  return supabase
+    .from("artwork_images")
+    .update({ display_adjust: displayAdjust })
+    .eq("artwork_id", artworkId)
+    .eq("storage_path", storagePath);
 }
 
 export async function deleteArtwork(artworkId: string) {

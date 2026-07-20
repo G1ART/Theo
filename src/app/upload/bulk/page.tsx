@@ -48,6 +48,7 @@ import {
   UPLOAD_MAX_IMAGE_BYTES,
   UPLOAD_MAX_IMAGE_MB_LABEL,
 } from "@/lib/upload/limits";
+import { analyzeImageFile } from "@/lib/image/analyze";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -324,7 +325,26 @@ export default function BulkUploadPage() {
         // 20260510000000_artworks_storage_account_delegate.sql).
         const storageOwner = actingAsProfileId ?? userId;
         storagePath = await uploadArtworkImage(file, storageOwner);
-        const { error: attachErr } = await attachArtworkImage(artworkId, storagePath);
+        // 2026-07-20 (feed image standardization) — analyze in-memory
+        // File before it goes out of scope so bulk-uploaded works land
+        // on the feed with the "Theo standard" tone applied. The
+        // suggestion is clamped ±15% so a bad read cannot make an
+        // image unreadable; users can reset from the artwork edit
+        // page later. Analysis is best-effort — a failure never
+        // blocks the upload.
+        let displayAdjust: import("@/lib/image/displayAdjust").DisplayAdjust | null = null;
+        try {
+          const analysis = await analyzeImageFile(file);
+          displayAdjust = analysis.suggested;
+        } catch {
+          // Silent: standardization is a nice-to-have on top of a
+          // successful upload; never fail the upload for it.
+        }
+        const { error: attachErr } = await attachArtworkImage(
+          artworkId,
+          storagePath,
+          { displayAdjust },
+        );
         if (attachErr) throw attachErr;
         uploadedIds.push(artworkId);
         setUploadSucceeded((n) => n + 1);

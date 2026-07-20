@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
@@ -11,6 +10,8 @@ import {
   getArtworkArtistLabel,
   getArtworkPriceDisplay,
 } from "@/lib/supabase/artworks";
+import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
+import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import type { ClaimType } from "@/lib/provenance/types";
 import { claimTypeToLabel, claimTypeToByPhrase } from "@/lib/provenance/rpc";
 import { useT } from "@/lib/i18n/useT";
@@ -92,16 +93,14 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
           {dragHandle}
         </div>
       )}
-      <div className="aspect-square w-full bg-zinc-100">
+      <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
           {imageUrl ? (
-            <Image
+            <CroppedArtworkImage
               src={imageUrl}
               alt={artwork.title ?? "Artwork"}
-              width={400}
-              height={400}
               sizes="(max-width: 768px) 100vw, 400px"
               loading="lazy"
-              className="h-full w-full object-contain"
+              adjust={readDisplayAdjust(firstImage?.display_adjust)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-zinc-400">

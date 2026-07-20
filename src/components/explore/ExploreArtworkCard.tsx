@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
@@ -9,6 +8,8 @@ import {
   getPrimaryClaim,
   type ArtworkWithLikes,
 } from "@/lib/supabase/artworks";
+import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
+import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import {
   formatDisplayName,
@@ -157,17 +158,25 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
       aria-label={artwork.title ?? undefined}
       className="group flex h-full cursor-pointer flex-col focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
     >
+      {/* Framing policy (2026-07-20): grid surfaces NEVER crop the
+          artwork. Portrait / landscape / square all fit inside the
+          frame via `object-contain`, and the per-image gentle crop
+          from `display_adjust.crop` (when the uploader has trimmed
+          excess background whitespace) will land here later via
+          `CroppedArtworkImage`. Cover mode cropped works arbitrarily
+          and misrepresented the piece — the compositional integrity
+          of the work is a Theo trust boundary. */}
       <div className="relative w-full overflow-hidden bg-zinc-100">
-        <div className="relative aspect-[4/3] w-full">
+        <div className="relative aspect-[4/3] w-full overflow-hidden">
           {imageUrl ? (
-            <Image
+            <CroppedArtworkImage
               src={imageUrl}
               alt={artwork.title ?? ""}
-              fill
               sizes="(max-width: 768px) 100vw, (max-width: 1280px) 45vw, 380px"
               loading={priority ? "eager" : "lazy"}
               priority={priority}
-              className="object-cover transition-transform duration-300 ease-out group-hover:scale-[1.01]"
+              adjust={readDisplayAdjust(first?.display_adjust)}
+              imgClassName="transition-transform duration-300 ease-out group-hover:scale-[1.01]"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400" />

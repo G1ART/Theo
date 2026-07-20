@@ -27,6 +27,8 @@ import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
+import { ImageStandardizeEditor } from "@/components/upload/ImageStandardizeEditor";
+import type { DisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
@@ -117,6 +119,14 @@ function UploadPageContent() {
     viewType: ArtworkImageViewType;
     /** Object URL for preview thumbnails — revoked on remove/unmount. */
     previewUrl: string;
+    /**
+     * 2026-07-20 (feed image standardization) — non-destructive per-image
+     * display tune (brightness/contrast/saturation/crop) applied on
+     * grid/feed surfaces only. Null = render original.
+     */
+    displayAdjust: DisplayAdjust | null;
+    /** Whether the standardize editor is expanded for this row. */
+    standardizeOpen: boolean;
   };
   const [images, setImages] = useState<PendingImage[]>([]);
   const [title, setTitle] = useState("");
@@ -167,6 +177,8 @@ function UploadPageContent() {
           file: pending.files[0],
           viewType: "wall_mounted",
           previewUrl: URL.createObjectURL(pending.files[0]),
+          displayAdjust: null,
+          standardizeOpen: false,
         },
       ]);
       setStep("form");
@@ -426,7 +438,11 @@ function UploadPageContent() {
         const { error: attachErr } = await attachArtworkImage(
           artworkId,
           storagePath,
-          { sortOrder: i, viewType: pending.viewType },
+          {
+            sortOrder: i,
+            viewType: pending.viewType,
+            displayAdjust: pending.displayAdjust,
+          },
         );
         if (attachErr) {
           await rollback();
@@ -677,6 +693,8 @@ function UploadPageContent() {
                             ? "wall_mounted"
                             : "detail",
                         previewUrl: URL.createObjectURL(f),
+                        displayAdjust: null,
+                        standardizeOpen: false,
                       });
                     });
                     return next;
@@ -695,8 +713,9 @@ function UploadPageContent() {
                   {images.map((img, idx) => (
                     <li
                       key={img.id}
-                      className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white px-2 py-2"
+                      className="rounded-md border border-zinc-200 bg-white px-2 py-2"
                     >
+                    <div className="flex items-center gap-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={img.previewUrl}
@@ -796,6 +815,48 @@ function UploadPageContent() {
                       >
                         ×
                       </button>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 pl-[68px] text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImages((prev) =>
+                            prev.map((p) =>
+                              p.id === img.id
+                                ? { ...p, standardizeOpen: !p.standardizeOpen }
+                                : p,
+                            ),
+                          );
+                        }}
+                        className="rounded-full border border-zinc-300 px-2.5 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-50"
+                      >
+                        {img.standardizeOpen
+                          ? t("upload.imageStandardize.hide")
+                          : t("upload.imageStandardize.edit")}
+                      </button>
+                      {img.displayAdjust && !img.standardizeOpen && (
+                        <span className="text-[11px] text-zinc-500">
+                          {t("upload.imageStandardize.appliedChip")}
+                        </span>
+                      )}
+                    </div>
+                    {img.standardizeOpen && (
+                      <div className="mt-2">
+                        <ImageStandardizeEditor
+                          file={img.file}
+                          value={img.displayAdjust}
+                          onChange={(next) => {
+                            setImages((prev) =>
+                              prev.map((p) =>
+                                p.id === img.id
+                                  ? { ...p, displayAdjust: next }
+                                  : p,
+                              ),
+                            );
+                          }}
+                        />
+                      </div>
+                    )}
                     </li>
                   ))}
                 </ul>

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
@@ -10,6 +9,8 @@ import {
   getPrimaryClaim,
   canEditArtwork,
 } from "@/lib/supabase/artworks";
+import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
+import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import {
   logFeedEvent,
@@ -244,12 +245,11 @@ export function FeedArtworkCard({
       aria-label={artwork.title ?? undefined}
       className="group flex h-full cursor-pointer flex-col focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
     >
-      <div className={`relative w-full ${aspectClass} ${imageWrapClass}`}>
+      <div className={`relative w-full ${aspectClass} overflow-hidden ${imageWrapClass}`}>
         {imageUrl ? (
-          <Image
+          <CroppedArtworkImage
             src={imageUrl}
             alt={artwork.title ?? ""}
-            fill
             sizes={
               isAnchor
                 ? "(max-width: 1024px) 50vw, 600px"
@@ -259,7 +259,8 @@ export function FeedArtworkCard({
             }
             loading={priority ? "eager" : "lazy"}
             priority={priority}
-            className="object-contain transition-transform duration-300 ease-out group-hover:scale-[1.01]"
+            adjust={readDisplayAdjust(first?.display_adjust)}
+            imgClassName="transition-transform duration-300 ease-out group-hover:scale-[1.01]"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
