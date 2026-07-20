@@ -61,6 +61,20 @@ SUPABASE_SERVICE_ROLE_KEY=<service role> \
 문제 없어 보이면 `--dry` 빼고 재실행. 되돌리려면:
 `update artwork_images set display_adjust = null;`
 
+### 백필 1회차 실행 결과 (2026-07-20)
+- 원격 프로젝트 `artwork_images` 349건 중 **275건에 gentle 톤 표준값이 즉시
+  적용됨** (78.8%). 크롭은 정책상 백필 안 함(사람 확인 필요).
+- 실패 74건은 전부 HEIC/HEIF 컨테이너 (`.heic/.heif` 72건 + 확장자만 `.jpg`인
+  HEIC 2건). 로컬 sharp 빌드에 HEIC decoder plugin이 없어 픽셀 통계를 못 냈음.
+  이 행들은 `display_adjust = NULL` 로 남고, `CroppedArtworkImage` 는 그런
+  경우 원본 그대로 렌더링하므로 **기존 동작과 동일 (리스크 0)**.
+  → 서버측 HEIC→JPEG 변환 파이프라인이 붙는 시점에 함께 처리.
+- 서비스 롤이 로컬에 없어서, 이번엔 하이브리드 경로로 진행: 로컬 sharp로 분석 →
+  MCP `execute_sql` 로 배치 UPDATE. 재사용 가능한 분석 스크립트를
+  `scripts/analyze-images-batch.mjs` 로 남겨둠 (stdin 에 storage_path 목록,
+  stdout 에 `{storage_path, b, c, s}` JSON 라인). 필요 시 다시 돌려서 UPDATE
+  만 재발행하면 됨.
+
 ### i18n
 - `upload.imageStandardize.*` en/ko 신규 (edit/hide/appliedChip/title/idleHint/
   appliedHint/analyzing/analyzeError/brightness/contrast/saturation/autoCrop/
