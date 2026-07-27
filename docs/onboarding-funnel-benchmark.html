@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>콜드 유저 온보딩 전환 벤치마크</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif;
+    color: #18181b;
+    line-height: 1.55;
+    font-size: 11px;
+    margin: 0;
+  }
+  .eyebrow {
+    font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #71717a; font-weight: 600; margin: 0 0 6px;
+  }
+  h1 { font-size: 23px; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
+  h3 { font-size: 12.5px; font-weight: 700; margin: 14px 0 4px; }
+  p { margin: 0 0 8px; }
+  .lead { color: #3f3f46; font-size: 11.5px; max-width: 62em; }
+  .muted { color: #71717a; }
+  .small { font-size: 9.5px; color: #a1a1aa; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: #f4f4f5; padding: 1px 4px; border-radius: 3px; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0 4px; }
+  .stat { border: 1px solid #e4e4e7; border-radius: 8px; padding: 12px 14px; }
+  .stat .v { font-size: 22px; font-weight: 700; line-height: 1.1; }
+  .stat .l { font-size: 9.5px; color: #71717a; margin-top: 4px; }
+  .v.warn { color: #b45309; } .v.bad { color: #b91c1c; }
+
+  .callout { border: 1px solid #fcd34d; background: #fffbeb; border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
+  .callout.ok { border-color: #86efac; background: #f0fdf4; }
+  .callout .t { font-weight: 700; margin-bottom: 4px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 10px; }
+  th, td { border: 1px solid #e4e4e7; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #fafafa; font-weight: 700; font-size: 9.5px; color: #3f3f46; }
+  td.c, th.c { text-align: center; }
+  tr { break-inside: avoid; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .d-red { background: #dc2626; } .d-amber { background: #d97706; } .d-blue { background: #2563eb; } .d-green { background: #16a34a; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 8px 0; }
+  .card { border: 1px solid #e4e4e7; border-radius: 8px; padding: 10px 12px; break-inside: avoid; }
+  .card .h { font-weight: 700; font-size: 11px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .tag { font-size: 8.5px; font-weight: 600; color: #52525b; background: #f4f4f5; border-radius: 999px; padding: 2px 7px; white-space: nowrap; }
+  .card p { color: #52525b; font-size: 10px; margin: 0; }
+
+  .section { break-inside: avoid; }
+  .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e4e4e7; }
+  .levers { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+  .pill { border: 1px solid #d4d4d8; border-radius: 999px; padding: 3px 10px; font-size: 10px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <p class="eyebrow">Theo · 콜드 유저 온보딩 UX</p>
+  <h1>콜드 유저 → 온보딩 전환, 얼마나 매끄러운가</h1>
+  <p class="lead">현재 Theo의 비로그인 방문자 퍼널을 유사 플랫폼과 비교하고, 가장 마찰이 적은 온보딩 유도 흐름을 우선순위별로 제안합니다. 코드 실측 기준 (<code>page.tsx</code>, <code>onboarding/page.tsx</code>, Explore 카드, <code>FeedClient</code>).</p>
+
+  <div class="stats">
+    <div class="stat"><div class="v warn">5–6</div><div class="l">진입→상세 도달 단계</div></div>
+    <div class="stat"><div class="v bad">0</div><div class="l">소셜/원탭 로그인</div></div>
+    <div class="stat"><div class="v bad">있음</div><div class="l">이메일 확인 벽</div></div>
+    <div class="stat"><div class="v warn">없음</div><div class="l">맥락형 게이트</div></div>
+  </div>
+
+  <div class="callout">
+    <div class="t">한 줄 진단</div>
+    <div>피드 열람·블러 게이팅·<code>next</code> 연속성까지는 잘 짜였지만, 정작 <b>가입 자체의 마찰이 업계 대비 높습니다</b>. 소셜 로그인 부재 + 이메일 확인 벽 + 맥락 없는 일반 폼 + 2단계 identity가 겹쳐, 클릭으로 데워진 방문자가 폼 앞에서 식습니다.</div>
+  </div>
+
+  <div class="section">
+    <h2>현재 Theo 콜드 유저 퍼널</h2>
+    <table>
+      <thead><tr><th class="c">#</th><th>방문자가 보는 화면</th><th>마찰 요인</th></tr></thead>
+      <tbody>
+        <tr><td class="c"><span class="dot d-blue"></span>1</td><td>피드에서 상세 클릭 → <code>/onboarding</code></td><td>이제 가입으로 유도(개선됨). 단, 무엇을 여는지 화면에 안 보임</td></tr>
+        <tr><td class="c"><span class="dot d-amber"></span>2</td><td>이메일·비밀번호·확인 입력 폼</td><td>필드 3개, 소셜/원탭 없음. 가치 제안·소셜 프루프 부재</td></tr>
+        <tr><td class="c"><span class="dot d-red"></span>3</td><td>“이메일을 확인하세요” 벽</td><td>메일 앱 전환 → 모멘텀 상실. 모바일에서 특히 이탈 큼</td></tr>
+        <tr><td class="c"><span class="dot d-amber"></span>4</td><td>메일 링크 → <code>/auth/callback</code></td><td>컨텍스트 스위치. 시간차 발생 시 혼란</td></tr>
+        <tr><td class="c"><span class="dot d-amber"></span>5</td><td><code>/onboarding/identity</code> (이름·핸들·역할)</td><td>2차 폼을 한 번에 요구. 인지 부하 집중</td></tr>
+        <tr><td class="c"><span class="dot d-green"></span>6</td><td>원래 보려던 상세 도달</td><td><code>next</code> 연속성 확보(개선됨)</td></tr>
+      </tbody>
+    </table>
+    <p class="small">출처: 저장소 코드 실측 · 2026-07-10. 3·5단계가 이탈이 몰리는 지점.</p>
+  </div>
+
+  <div class="section">
+    <h2>유사 플랫폼 벤치마크</h2>
+    <table>
+      <thead><tr><th>플랫폼</th><th>진입 패턴</th><th>인증</th><th>게이팅</th><th>Theo가 훔칠 점</th></tr></thead>
+      <tbody>
+        <tr><td>Pinterest</td><td>브라우즈 우선</td><td>Google 원탭</td><td>맥락형(“더 보려면”)</td><td>관심사 기반·즉시 콘텐츠 복귀</td></tr>
+        <tr><td>Are.na</td><td>공개 열람</td><td>이메일 최소</td><td>부드러운 게이트</td><td>에디토리얼·미니멀 톤(아트 취향)</td></tr>
+        <tr><td>Artsy</td><td>공개 + 개인화</td><td>이메일 + 소셜</td><td>팔로우가 곧 온보딩</td><td>취향(작가·매체) 수집으로 온보딩</td></tr>
+        <tr><td>Behance / Dribbble</td><td>브라우즈 우선</td><td>소셜 원탭</td><td>저장·팔로우 시</td><td>크리에이터 포트폴리오형 게이트</td></tr>
+        <tr><td>Medium / NYT</td><td>미터드 월</td><td>소셜</td><td>N개 열람 후 차단</td><td>가치 맛보게 한 뒤 요청</td></tr>
+        <tr><td>Substack</td><td>이메일 우선</td><td>원필드</td><td>구독 시</td><td>초저마찰 단일 입력</td></tr>
+        <tr><td>Duolingo</td><td>가치 우선(먼저 해봄)</td><td>가입은 나중</td><td>투자 후 가입</td><td>커밋먼트/투자 심리</td></tr>
+        <tr><td>LinkedIn</td><td>—</td><td>소셜</td><td>점진 프로파일링</td><td>identity를 조금씩 나눠 수집</td></tr>
+      </tbody>
+    </table>
+    <p class="small">공통 패턴: (1) 브라우즈 우선, (2) 원탭 인증, (3) 의도의 순간에 맥락형 게이팅, (4) identity는 가입 후 점진 수집.</p>
+  </div>
+
+  <div class="section">
+    <h2>매끄러운 온보딩의 7가지 원칙</h2>
+    <div class="grid2">
+      <div class="card"><div class="h">1. 가치까지의 시간 최소화<span class="tag">TTV</span></div><p>가입은 콘텐츠를 보기 위한 통행료가 아니라 “더 얻기 위한 문”이어야 함. 열람은 계속 열어두고, 가입 순간의 단계 수를 줄인다.</p></div>
+      <div class="card"><div class="h">2. 맥락형 게이팅<span class="tag">Context</span></div><p>의도가 최고조인 “클릭 직후”에 게이트를 걸되, 무엇이 열리는지를 화면에 보여준다(클릭한 작품 썸네일·제목).</p></div>
+      <div class="card"><div class="h">3. 결정 지점의 소셜 프루프<span class="tag">Proof</span></div><p>이미 만든 페르소나 실시간 카운터를 가입 화면에 재활용 — “아티스트 N · 컬렉터 M명이 함께” 형태로 FOMO 자극.</p></div>
+      <div class="card"><div class="h">4. 원탭 인증<span class="tag">1-tap</span></div><p>Google/Apple/Kakao 소셜 로그인은 이메일 확인 벽을 통째로 제거한다. 단일 변경으로 가장 큰 마찰 감소.</p></div>
+      <div class="card"><div class="h">5. 점진적 프로파일링<span class="tag">Progressive</span></div><p>identity 전체를 한 번에 받지 말고, 콘텐츠 잠금 해제에 꼭 필요한 최소치만 받고 나머지는 이후에 인라인으로 수집.</p></div>
+      <div class="card"><div class="h">6. 투자/커밋먼트<span class="tag">Commit</span></div><p>방문자가 먼저 무언가(좋아요·저장·팔로우 시도)를 하게 한 뒤 가입을 청하면, 이미 들인 노력이 완료 동기를 만든다.</p></div>
+    </div>
+    <div class="callout ok"><div class="t">7. 연속성 (이미 구현)</div><div>클릭한 상세를 <code>next</code>로 넘겨 가입 완료 후 그 화면으로 복귀 — 이번 패치로 확보됨. 나머지 6개가 다음 개선 여지.</div></div>
+  </div>
+
+  <div class="section">
+    <h2>우선순위 로드맵</h2>
+    <table>
+      <thead><tr><th class="c">우선</th><th>개선 항목</th><th class="c">임팩트</th><th class="c">노력</th><th>메모</th></tr></thead>
+      <tbody>
+        <tr><td class="c"><span class="dot d-red"></span>P0</td><td>소셜 로그인(Google/Apple/Kakao)</td><td class="c">매우 높음</td><td class="c">중</td><td>Supabase OAuth. 이메일 확인 벽 제거</td></tr>
+        <tr><td class="c"><span class="dot d-red"></span>P0</td><td>맥락형 가입 화면(클릭한 작품 히어로 + 페르소나 카운터)</td><td class="c">높음</td><td class="c">중</td><td><code>next</code> 이미 있음 — 화면만 붙이면 됨</td></tr>
+        <tr><td class="c"><span class="dot d-amber"></span>P1</td><td>이메일 확인 지연(즉시 입장 → 나중 확인)</td><td class="c">높음</td><td class="c">중</td><td>Supabase confirm 설정 + 상단 넛지 배너</td></tr>
+        <tr><td class="c"><span class="dot d-amber"></span>P1</td><td>소프트/미터드 게이트(상세 1–3개 무료 열람)</td><td class="c">중</td><td class="c">중</td><td>가치 맛보기 후 차단</td></tr>
+        <tr><td class="c"><span class="dot d-amber"></span>P1</td><td>브라우즈 우선 재검토(/ → /feed)</td><td class="c">중</td><td class="c">소</td><td>방금 내린 signup-first 결정을 리보크할지 판단</td></tr>
+        <tr><td class="c"><span class="dot d-blue"></span>P2</td><td>점진 프로파일링(identity 최소화)</td><td class="c">중</td><td class="c">중</td><td>이름만 받고 역할·핸들은 이후</td></tr>
+        <tr><td class="c"><span class="dot d-blue"></span>P2</td><td>인증 화면 브랜딩/에디토리얼 폴리시</td><td class="c">중</td><td class="c">소</td><td>2단 레이아웃 + SUIT 타이포 + 이미지</td></tr>
+        <tr><td class="c"><span class="dot d-blue"></span>P2</td><td><code>foryou</code> 탭 anon 클릭도 <code>/onboarding</code> 통일</td><td class="c">소</td><td class="c">소</td><td>현재 <code>/login</code>으로 감(일관성 결함)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>제안: 가장 매끄러운 흐름(To-be)</h2>
+    <div class="grid3">
+      <div class="card"><div class="h">A. 브라우즈</div><p>콜드 방문자는 피드를 자유롭게 열람. 작가명 등만 블러. 상단에 슬림한 실시간 페르소나 카운터로 규모감·FOMO.</p></div>
+      <div class="card"><div class="h">B. 맥락형 게이트</div><p>상세 클릭 시 “이 작품을 계속 보려면” + 작품 썸네일/제목 + <b>Google·Apple 원탭</b>. 이메일은 보조 옵션.</p></div>
+      <div class="card"><div class="h">C. 즉시 입장 · 나중 완성</div><p>원탭이면 확인 벽 없이 바로 입장 → 원래 상세로 복귀. 이름 1필드만 받고 역할·핸들은 이후 인라인 넛지로 점진 수집.</p></div>
+    </div>
+    <div class="levers">
+      <span class="muted" style="font-weight:600;">가장 큰 레버 두 개:</span>
+      <span class="pill">소셜 원탭 로그인</span>
+      <span class="pill">맥락형 가입 화면 + 소셜 프루프</span>
+      <span class="small">이 둘만으로 3·5단계 이탈을 대부분 해소.</span>
+    </div>
+  </div>
+
+  <div class="footer section">
+    <h3>다음 액션 후보</h3>
+    <p class="muted">원하시면 (1) Supabase Google/Apple/Kakao OAuth 연동 + 로그인·온보딩 화면 버튼, (2) <code>next</code>가 작품일 때 히어로+페르소나 카운터를 얹은 맥락형 가입 화면부터 착수할 수 있습니다.</p>
+    <p class="small">Theo · 콜드 유저 온보딩 전환 벤치마크 · 생성일 2026-07-10</p>
+  </div>
+</body>
+</html>
