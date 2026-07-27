@@ -183,6 +183,18 @@ export function NewExhibitionFormShell({
         exhibition_id: data.id,
         from_board: fromBoardId ?? undefined,
       });
+      // QA 2026-07 Phase 2-3: hand off a one-shot "just created" flag so
+      // the destination page can surface "저장됨 · 아직 공개되지 않았어요"
+      // without a fragile router param. sessionStorage clears itself on
+      // read (see readAndClearJustCreatedFlag in exhibition [id]/add page).
+      try {
+        window.sessionStorage.setItem(
+          `theo:exhibition-just-created:${data.id}`,
+          "1"
+        );
+      } catch {
+        // Ignore quota / private mode; toast is nice-to-have not required.
+      }
       const nextPath = fromBoardId
         ? `/my/exhibitions/${data.id}/add?fromBoard=${fromBoardId}`
         : `/my/exhibitions/${data.id}/add`;

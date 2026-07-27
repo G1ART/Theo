@@ -31,6 +31,10 @@ export async function createExternalArtistAndClaim(
   };
   if (args.period_status != null) payload.p_period_status = args.period_status;
   if (args.subjectProfileId) payload.p_subject_profile_id = args.subjectProfileId;
+  // Phase 3-4 (QA 2026-07): pass explicit external_artist_id when the UI
+  // has re-selected an already-invited artist. Server-side migration
+  // 20260727000000 accepts and validates this id, skipping dedupe.
+  if (args.externalArtistId) payload.p_external_artist_id = args.externalArtistId;
   const { data, error } = await supabase.rpc("create_external_artist_and_claim", payload);
   if (error) return { data: null, error };
   return { data: data as CreateExternalArtistAndClaimResult, error: null };

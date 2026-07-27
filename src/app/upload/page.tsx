@@ -8,11 +8,12 @@ import {
   attachArtworkImage,
   createArtwork,
   deleteArtwork,
+  getArtworkImageUrl,
   type ArtworkImageViewType,
   type CreateArtworkPayload,
 } from "@/lib/supabase/artworks";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
-import { searchPeople } from "@/lib/supabase/artists";
+import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import {
   createClaimForExistingArtist,
   createExternalArtistAndClaim,
@@ -28,6 +29,8 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
 import { ImageStandardizeEditor } from "@/components/upload/ImageStandardizeEditor";
+import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
+import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
@@ -87,7 +90,17 @@ function UploadPageContent() {
 
   // Attribution (non-CREATED)
   const [artistSearch, setArtistSearch] = useState("");
-  const [artistResults, setArtistResults] = useState<ArtistOption[]>([]);
+  // Phase 3 (QA 2026-07): unified search results (profile + external).
+  const [artistResults, setArtistResults] = useState<SearchPeopleWithExternalResult[]>([]);
+  /**
+   * Phase 3-4: preselected external artist id when the operator re-selected
+   * an already-invited artist. Forwarded straight to the create claim RPC
+   * so the same external_artists row is reused (no duplicate email).
+   */
+  const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(null);
+  const [reselectedExternalMeta, setReselectedExternalMeta] = useState<
+    { worksCount: number; latestCovers: string[] } | null
+  >(null);
   const [selectedArtist, setSelectedArtist] = useState<ArtistOption | null>(
     preselectedArtistId
       ? {
@@ -206,10 +219,19 @@ function UploadPageContent() {
       return;
     }
     setSearching(true);
-    const { data } = await searchPeople({ q, roles: ["artist"], limit: 10 });
-    setArtistResults((data ?? []).map((p) => ({ id: p.id, username: p.username, display_name: p.display_name })));
+    // Phase 3-3 (QA 2026-07): unified search — surface both onboarded
+    // artists AND already-invited external artists so the operator can
+    // pile new works on the same shadow-account instead of re-inviting.
+    const { data } = await searchPeopleWithExternal({
+      q,
+      roles: ["artist"],
+      limit: 10,
+      includeExternal: true,
+      inviterId: actingAsProfileId ?? null,
+    });
+    setArtistResults(data ?? []);
     setSearching(false);
-  }, [artistSearch]);
+  }, [artistSearch, actingAsProfileId]);
 
   useEffect(() => {
     const t = setTimeout(doSearchArtists, 300);
@@ -353,6 +375,9 @@ function UploadPageContent() {
           // surfaces on their profile (not the operator's). RPC enforces
           // the delegation writer check before honouring this override.
           subjectProfileId: actingAsProfileId ?? undefined,
+          // Phase 3-4: bypass name/email dedupe in the RPC when the
+          // operator explicitly picked an existing external artist card.
+          externalArtistId: preselectedExternalArtistId,
         });
         if (claimErr) {
           await deleteArtwork(artworkId);
@@ -503,14 +528,20 @@ function UploadPageContent() {
   return (
     <AuthGate>
       <div>
+        {/*
+          QA 2026-07 Phase 2-2: dismissible confirmation card that replaces
+          the fleeting 3s toast for external-artist invite outcomes. Same
+          card component the bulk flow uses — single source of truth.
+        */}
         {inviteToast && (
-          <div
-            className={`fixed bottom-4 right-4 rounded-lg px-4 py-2 text-sm text-white shadow-lg ${
-              inviteToast === "sent" ? "bg-zinc-900" : "bg-amber-600"
-            }`}
-          >
-            {inviteToast === "sent" ? t("upload.inviteSent") : t("upload.inviteSentFailed")}
-          </div>
+          <InviteResultCard
+            kind={inviteToast === "sent" ? "sent" : "failed"}
+            artistName={
+              (useExternalArtist ? externalArtistName : "").trim() ||
+              t("upload.externalArtistNamePlaceholder")
+            }
+            onDismiss={() => setInviteToast(null)}
+          />
         )}
 
         <ActingAsChip mode="posting" />
@@ -549,8 +580,11 @@ function UploadPageContent() {
               <button
                 type="button"
                 onClick={() => {
-                  setUseExternalArtist(!useExternalArtist);
-                  if (!useExternalArtist) {
+                  const next = !useExternalArtist;
+                  setUseExternalArtist(next);
+                  setPreselectedExternalArtistId(null);
+                  setReselectedExternalMeta(null);
+                  if (next) {
                     setSelectedArtist(null);
                     setArtistSearch("");
                     setArtistResults([]);
@@ -566,17 +600,51 @@ function UploadPageContent() {
             </div>
             {useExternalArtist ? (
               <div className="space-y-3">
+                {reselectedExternalMeta && preselectedExternalArtistId && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    <p>
+                      {t("upload.externalReselect.addingToExisting")
+                        .replace("{name}", externalArtistName)
+                        .replace("{n}", String(reselectedExternalMeta.worksCount))}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreselectedExternalArtistId(null);
+                        setReselectedExternalMeta(null);
+                        setExternalArtistName("");
+                        setExternalArtistEmail("");
+                        setUseExternalArtist(false);
+                      }}
+                      className="mt-1 text-emerald-700 underline hover:text-emerald-900"
+                    >
+                      {t("upload.externalReselect.chooseDifferent")}
+                    </button>
+                  </div>
+                )}
                 <input
                   type="text"
                   value={externalArtistName}
-                  onChange={(e) => setExternalArtistName(e.target.value)}
+                  onChange={(e) => {
+                    setExternalArtistName(e.target.value);
+                    if (preselectedExternalArtistId) {
+                      setPreselectedExternalArtistId(null);
+                      setReselectedExternalMeta(null);
+                    }
+                  }}
                   placeholder={t("upload.externalArtistNamePlaceholder")}
                   className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
                 />
                 <input
                   type="email"
                   value={externalArtistEmail}
-                  onChange={(e) => setExternalArtistEmail(e.target.value)}
+                  onChange={(e) => {
+                    setExternalArtistEmail(e.target.value);
+                    if (preselectedExternalArtistId) {
+                      setPreselectedExternalArtistId(null);
+                      setReselectedExternalMeta(null);
+                    }
+                  }}
                   placeholder={t("upload.externalArtistEmailPlaceholder")}
                   disabled={externalNoEmail}
                   className="w-full rounded border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
@@ -604,26 +672,88 @@ function UploadPageContent() {
                 {searching && <p className="text-sm text-zinc-500">{t("artists.loading")}</p>}
                 {artistResults.length > 0 && (
                   <ul className="rounded border border-zinc-200 bg-white">
-                    {artistResults.map((a) => (
-                      <li key={a.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedArtist(a);
-                            setArtistResults([]);
-                            setArtistSearch("");
-                          }}
-                          className={`w-full px-4 py-2 text-left text-sm hover:bg-zinc-50 ${
-                            selectedArtist?.id === a.id ? "bg-zinc-100 font-medium" : ""
-                          }`}
-                        >
-                          {formatDisplayName(a)}
-                          {a.username && (
-                            <span className="ml-2 text-zinc-500">{formatUsername(a)}</span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
+                    {artistResults.map((a) => {
+                      if (a.kind === "profile") {
+                        const opt: ArtistOption = { id: a.id, username: a.username, display_name: a.display_name };
+                        return (
+                          <li key={`p-${a.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedArtist(opt);
+                                setPreselectedExternalArtistId(null);
+                                setReselectedExternalMeta(null);
+                                setUseExternalArtist(false);
+                                setArtistResults([]);
+                                setArtistSearch("");
+                              }}
+                              className={`w-full px-4 py-2 text-left text-sm hover:bg-zinc-50 ${
+                                selectedArtist?.id === a.id ? "bg-zinc-100 font-medium" : ""
+                              }`}
+                            >
+                              {formatDisplayName(opt)}
+                              {a.username && (
+                                <span className="ml-2 text-zinc-500">{formatUsername(opt)}</span>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      }
+                      // Phase 3-3: previously-invited external artist row.
+                      // Selecting jumps the operator into the "external"
+                      // branch pre-filled and captures the external_artist_id
+                      // so we later reuse the same shadow account instead of
+                      // spawning a duplicate row on publish.
+                      return (
+                        <li key={`e-${a.id}`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Phase 3-4: don't reveal invite_email — RPC
+                              // withholds it for privacy. Enable "no email"
+                              // so client-side validation passes; the server
+                              // reuses the existing external_artists row
+                              // (including its stored email) via
+                              // p_external_artist_id and does NOT send a new
+                              // invite from this branch.
+                              setUseExternalArtist(true);
+                              setSelectedArtist(null);
+                              setExternalArtistName(a.display_name ?? "");
+                              setExternalArtistEmail("");
+                              setExternalNoEmail(true);
+                              setPreselectedExternalArtistId(a.id);
+                              setReselectedExternalMeta({
+                                worksCount: a.works_count,
+                                latestCovers: a.latest_cover_paths ?? [],
+                              });
+                              setArtistResults([]);
+                              setArtistSearch("");
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span>{a.display_name}</span>
+                              <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
+                                {t("upload.externalReselect.badgePendingWorks").replace("{n}", String(a.works_count))}
+                              </span>
+                            </div>
+                            {a.latest_cover_paths && a.latest_cover_paths.length > 0 && (
+                              <div className="mt-2 flex gap-1">
+                                {a.latest_cover_paths.slice(0, 3).map((p) => (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    key={p}
+                                    src={getArtworkImageUrl(p, "thumb")}
+                                    alt=""
+                                    className="h-8 w-8 rounded object-cover"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 {selectedArtist && (
@@ -647,15 +777,42 @@ function UploadPageContent() {
                 onClick={handleAttributionNext}
                 className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800"
               >
-                {t("common.next")}
+                {t("upload.confirmAttribution")}
               </button>
             </div>
+            {/*
+              Same as bulk/page: reveal invite timing hint when we know an
+              email will actually flow. Reduces surprise between the confirm
+              step and the actual send on publish (QA1).
+            */}
+            {needsAttribution(intent) && useExternalArtist && !externalNoEmail && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(externalArtistEmail.trim()) && (
+              <p className="mt-2 text-xs text-zinc-500">
+                {t("upload.inviteWillSendOnPublish")}
+              </p>
+            )}
           </div>
         )}
 
         {/* Step: Form */}
         {step === "form" && (
           <form onSubmit={handleFormNext} className="space-y-4">
+            {/*
+              QA 2026-07 Phase 2-1: keep "who am I uploading for?" visible
+              during the (often lengthy) form step. Only rendered when
+              attribution was actually needed for this intent.
+            */}
+            {needsAttribution(intent) && (selectedArtist || (useExternalArtist && externalArtistName.trim().length >= 2)) && (
+              <AttributionContextBanner
+                artistName={
+                  useExternalArtist
+                    ? externalArtistName.trim()
+                    : formatDisplayName(selectedArtist)
+                }
+                isExternal={useExternalArtist}
+                externalEmail={useExternalArtist ? externalArtistEmail : null}
+                onChange={() => setStep("attribution")}
+              />
+            )}
             <div>
               <label className="mb-1 block text-sm font-medium">{t("common.imageLabel")}</label>
               <input

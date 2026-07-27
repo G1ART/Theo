@@ -1598,6 +1598,15 @@ export type PublishWithProvenanceOptions = {
   artistProfileId?: string | null;
   externalArtistDisplayName?: string | null;
   externalArtistEmail?: string | null;
+  /**
+   * QA 2026-07 Phase 3-4: when the operator re-selected an already-
+   * invited external artist from the attribution search (see
+   * `search_people_with_external`), pass that row's id through to the
+   * RPC. This skips the name/email dedupe and guarantees the same
+   * external_artists row is reused, even if the display name has tiny
+   * whitespace/case differences from a previous invite.
+   */
+  externalArtistId?: string | null;
   /** For INVENTORY/CURATED/EXHIBITED: past/current/future */
   period_status?: "past" | "current" | "future" | null;
   /**
@@ -1686,6 +1695,8 @@ export async function publishArtworksWithProvenance(
         visibility: "public",
         ...claimPayload,
         subjectProfileId: subjectOverride ?? undefined,
+        // Phase 3-4: forward re-selected external artist id when set.
+        externalArtistId: opts.externalArtistId ?? null,
       });
       claimErr = error;
     } else if (opts.artistProfileId) {

@@ -63,6 +63,80 @@ export async function searchPeople(
   return { data: rows, nextCursor, error: null };
 }
 
+/**
+ * Combined-kind result from `search_people_with_external` RPC.
+ *
+ * `profile` rows correspond to onboarded users (mirror of `PublicProfile`
+ * with a `kind` tag). `external` rows correspond to invited-but-not-yet-
+ * onboarded artists that the caller invited themselves — surfaced so the
+ * operator can re-select an existing invite instead of re-typing name +
+ * email (which historically minted a fresh external_artists row per
+ * upload; QA 2026-07 root fix).
+ *
+ * External rows carry `works_count` (distinct works already attributed
+ * via claims) and `latest_cover_paths` (up to 3 storage paths for a
+ * hover mini-strip). No PII (invite email) is included.
+ */
+export type SearchPeopleWithExternalResult = {
+  kind: "profile" | "external";
+  id: string;
+  display_name: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  main_role: string | null;
+  roles: string[] | null;
+  works_count: number;
+  latest_cover_paths: string[];
+  invited_at: string | null;
+};
+
+/**
+ * Unified search across onboarded profiles + the caller's own invited
+ * external artists. Only surfaces external results when both
+ * `includeExternal=true` AND the caller is authenticated (server enforces
+ * `invited_by = auth.uid()` or an active-writer principal — see the
+ * `search_people_with_external` RPC migration for the privacy boundary).
+ *
+ * Backwards-compat: this is a NEW function; the existing `searchPeople`
+ * (profiles only) still services delegation wizard, host search, etc.
+ * where surfacing external artists would be inappropriate.
+ */
+export async function searchPeopleWithExternal(options: {
+  q: string;
+  roles?: string[];
+  limit?: number;
+  includeExternal?: boolean;
+  /** Acting-as principal id when the caller is a delegate; server verifies. */
+  inviterId?: string | null;
+}): Promise<{ data: SearchPeopleWithExternalResult[]; error: unknown }> {
+  const {
+    q,
+    roles = [],
+    limit = 15,
+    includeExternal = false,
+    inviterId = null,
+  } = options;
+  const normalized = q.trim();
+  if (!normalized) return { data: [], error: null };
+
+  const rolesArr = Array.isArray(roles) ? roles : [];
+  const cleanRoles = rolesArr.filter((r) =>
+    ROLE_OPTIONS.includes(r as (typeof ROLE_OPTIONS)[number])
+  );
+
+  const { data, error } = await supabase.rpc("search_people_with_external", {
+    p_q: normalized,
+    p_roles: cleanRoles,
+    p_include_external: includeExternal,
+    p_inviter_id: inviterId,
+    p_limit: limit,
+  });
+
+  if (error) return { data: [], error };
+  const rows = (data ?? []) as SearchPeopleWithExternalResult[];
+  return { data: rows, error: null };
+}
+
 export async function getFollowingIds(): Promise<{
   data: Set<string>;
   error: unknown;

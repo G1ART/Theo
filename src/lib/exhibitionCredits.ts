@@ -8,6 +8,12 @@ import type { ExhibitionRow } from "@/lib/supabase/exhibitions";
 export type ExhibitionWithCredits = ExhibitionRow & {
   curator?: { display_name?: string | null; username?: string | null } | null;
   host?: { display_name?: string | null; username?: string | null } | null;
+  /**
+   * Optional count of works linked via `exhibition_works`. Populated by
+   * listMyExhibitions so callers can render "임시 저장 / 예정" badges without
+   * an N+1 fetch per row. `null` means "not fetched" (do not conflate with 0).
+   */
+  works_count?: number | null;
 };
 
 function displayName(profile: { display_name?: string | null; username?: string | null } | null | undefined): string {

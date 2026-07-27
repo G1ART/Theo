@@ -25,6 +25,7 @@ import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { ExhibitionDraftAssist } from "@/components/ai/ExhibitionDraftAssist";
 import { ExhibitionReviewPanel } from "@/components/exhibition/ExhibitionReviewPanel";
 import { CreateDelegationWizard } from "@/components/delegation/CreateDelegationWizard";
+import { ExhibitionDraftBanner } from "@/components/exhibitions/ExhibitionDraftBanner";
 import { ActingAsChip } from "@/components/ActingAsChip";
 
 const STATUS_OPTIONS = [
@@ -272,6 +273,21 @@ export default function EditExhibitionPage() {
         <h1 className="mb-6 text-xl font-semibold text-zinc-900">
           {t("common.edit")} {t("exhibition.myExhibitions")}
         </h1>
+
+        {/*
+          QA 2026-07 Phase 2-3: draft banner. Rendered as soon as we know
+          the current status + works — for planned + 0 works the owner
+          sees a positive prompt to add works before publishing.
+          Uses exhibitionWorks.length that's already loaded on this page.
+        */}
+        {exhibition && (
+          <ExhibitionDraftBanner
+            exhibitionId={id}
+            status={status}
+            worksCount={exhibitionWorks.length}
+            className="mb-6"
+          />
+        )}
 
         <ActingAsChip mode="editing" />
 
@@ -636,6 +652,7 @@ export default function EditExhibitionPage() {
           initialProjectId={id}
           initialProjectTitle={title || exhibition?.title || undefined}
           initialPreset="project_co_edit"
+          titleOverride={t("delegation.wizard.titleShareExhibition")}
         />
       )}
     </AuthGate>

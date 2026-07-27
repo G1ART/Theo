@@ -33,6 +33,7 @@ import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { listShortlistItems } from "@/lib/supabase/shortlists";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { CreateDelegationWizard } from "@/components/delegation/CreateDelegationWizard";
+import { ExhibitionDraftBanner } from "@/components/exhibitions/ExhibitionDraftBanner";
 import { useActingAs } from "@/context/ActingAsContext";
 import { getProfileById } from "@/lib/supabase/profiles";
 import { ActingAsChip } from "@/components/ActingAsChip";
@@ -85,6 +86,7 @@ export default function AddWorkToExhibitionPage() {
   const [shareToast, setShareToast] = useState<"sent" | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   const [exhibitionTitle, setExhibitionTitle] = useState<string | null>(null);
+  const [exhibitionStatus, setExhibitionStatus] = useState<string | null>(null);
 
   const fetchArtworks = useCallback(async () => {
     if (!id) return;
@@ -151,7 +153,10 @@ export default function AddWorkToExhibitionPage() {
 
   useEffect(() => {
     if (!id) return;
-    getExhibitionById(id).then(({ data }) => setExhibitionTitle(data?.title ?? null));
+    getExhibitionById(id).then(({ data }) => {
+      setExhibitionTitle(data?.title ?? null);
+      setExhibitionStatus(data?.status ?? null);
+    });
   }, [id]);
 
   useEffect(() => {
@@ -339,6 +344,25 @@ export default function AddWorkToExhibitionPage() {
         <p className="mb-4 text-sm text-zinc-500">
           {t("exhibition.addExistingWork")}
         </p>
+
+        {/*
+          QA 2026-07 Phase 2-3: draft banner + "just created" toast. The
+          /add page is exactly where the owner lands after creating a new
+          exhibition, so this is the most valuable spot for the "saved,
+          not public yet" message.
+
+          Wait until we have both status and works loaded to avoid
+          flashing the amber banner on a fully-loaded live exhibition.
+        */}
+        {exhibitionStatus !== null && (
+          <ExhibitionDraftBanner
+            exhibitionId={id}
+            status={exhibitionStatus}
+            worksCount={doneIds.size}
+            addWorkHref="#works"
+            className="mb-4"
+          />
+        )}
 
         <ActingAsChip mode="editing" />
 
@@ -909,6 +933,7 @@ export default function AddWorkToExhibitionPage() {
           initialProjectId={id}
           initialProjectTitle={exhibitionTitle ?? undefined}
           initialPreset="project_co_edit"
+          titleOverride={t("delegation.wizard.titleShareExhibition")}
         />
       )}
     </AuthGate>

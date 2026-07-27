@@ -253,6 +253,23 @@ export const messages = {
     "exhibition.statusPlanned": "Planned",
     "exhibition.statusLive": "Live",
     "exhibition.statusEnded": "Ended",
+    "exhibition.statusDraft": "Draft",
+    "exhibition.statusDraftHint":
+      "Add at least one work to make this exhibition ready to share.",
+    "exhibition.filterAll": "All",
+    "exhibition.filterDraft": "Draft",
+    "exhibition.filterPlanned": "Planned",
+    "exhibition.filterLive": "Live",
+    "exhibition.filterEnded": "Ended",
+    "exhibition.worksCountShort": "{n} works",
+    "exhibition.notPublicYet": "Not visible on the public feed yet",
+    "exhibition.savedNotPublic": "Saved · not yet public",
+    "exhibition.draftBanner.title": "Draft · not visible on the public feed yet",
+    "exhibition.draftBanner.body":
+      "Add at least one work, then flip status to Live to publish this exhibition.",
+    "exhibition.draftBanner.addWork": "Add work",
+    "exhibition.draftBanner.setLive": "Set to Live",
+    "exhibition.draftBanner.setLiveDisabled": "Add a work first",
     "exhibition.hostName": "Host / venue name",
     "exhibition.curator": "Curator",
     "exhibition.curatorMe": "Me",
@@ -724,6 +741,27 @@ export const messages = {
     "upload.externalArtistNoEmail": "No email — I'll link this artist to their profile later (Invited artists)",
     "upload.inviteSent": "Invite email sent.",
     "upload.inviteSentFailed": "Invite email could not be sent.",
+    "upload.confirmAttribution": "Confirm artist",
+    "upload.inviteWillSendOnPublish":
+      "We'll email the invite to this artist when you publish.",
+    "upload.contextBanner.uploadingFor": "Uploading for {name}",
+    "upload.contextBanner.change": "Change",
+    "upload.contextBanner.pendingInviteChip": "Invite will send at publish",
+    "upload.contextBanner.hasPendingInvite":
+      "Existing invite is pending — no new email will be sent.",
+    "upload.externalReselect.badgePendingWorks":
+      "Pending invite · {n} works already attributed",
+    "upload.externalReselect.addingToExisting":
+      "Adding to {name} — {n} existing works. We'll reuse the same invite (no duplicate email).",
+    "upload.externalReselect.chooseDifferent": "Choose a different artist",
+    "upload.inviteSentCard.title": "Invite sent to {name}",
+    "upload.inviteSentCard.body":
+      "When the artist accepts from their email, their profile will be linked automatically.",
+    "upload.inviteSentCard.manageLink": "Manage invited artists",
+    "upload.inviteSentCard.dismiss": "Dismiss",
+    "upload.inviteFailedCard.title": "Couldn't send the invite email",
+    "upload.inviteFailedCard.body":
+      "The work was published, but the email to {name} didn't go through. You can resend from Invited artists.",
     "upload.publishFallback":
       "Couldn't publish. Please try again, or remove the work and re-upload if the file may be too large.",
     "upload.publishAllFailed": "Couldn't publish any work. {reason}",
@@ -1693,6 +1731,11 @@ export const messages = {
     "delegation.event.delegated_claim_updated": "Updated an ownership claim",
     "delegation.event.unknown": "Delegation activity was recorded",
     "delegation.wizard.title": "Create delegation",
+    "delegation.wizard.titleShareExhibition": "Share exhibition access",
+    "delegation.wizard.subtitleShareExhibition":
+      "Give co-editing access for {title} · You can revoke access at any time.",
+    "delegation.wizard.toastSentProject":
+      "Invitation sent. Once accepted, they can co-edit this exhibition.",
     "delegation.wizard.next": "Next",
     "delegation.wizard.back": "Back",
     "delegation.wizard.submit": "Send invitation",
@@ -3134,6 +3177,23 @@ export const messages = {
     "exhibition.statusPlanned": "예정",
     "exhibition.statusLive": "진행 중",
     "exhibition.statusEnded": "종료",
+    "exhibition.statusDraft": "임시 저장",
+    "exhibition.statusDraftHint":
+      "작품을 한 점 이상 추가하면 공개할 준비가 완료돼요.",
+    "exhibition.filterAll": "전체",
+    "exhibition.filterDraft": "임시 저장",
+    "exhibition.filterPlanned": "예정",
+    "exhibition.filterLive": "진행 중",
+    "exhibition.filterEnded": "종료",
+    "exhibition.worksCountShort": "작품 {n}점",
+    "exhibition.notPublicYet": "아직 공개 피드에 노출되지 않음",
+    "exhibition.savedNotPublic": "저장됨 · 아직 공개되지 않았어요",
+    "exhibition.draftBanner.title": "임시 저장 · 공개 피드에 노출되지 않아요",
+    "exhibition.draftBanner.body":
+      "작품을 한 점 이상 추가한 뒤 상태를 진행 중으로 바꾸면 공개할 수 있어요.",
+    "exhibition.draftBanner.addWork": "작품 추가",
+    "exhibition.draftBanner.setLive": "진행 중으로 전환",
+    "exhibition.draftBanner.setLiveDisabled": "먼저 작품을 추가하세요",
     "exhibition.hostName": "주최 / 장소명",
     "exhibition.curator": "큐레이터",
     "exhibition.curatorMe": "나",
@@ -3604,6 +3664,26 @@ export const messages = {
     "upload.externalArtistNoEmail": "이메일 없음 — 작가 프로필과 나중에 직접 연결할게요 (초대한 작가 메뉴)",
     "upload.inviteSent": "초대 이메일을 보냈습니다.",
     "upload.inviteSentFailed": "이메일 발송에 실패했습니다.",
+    "upload.confirmAttribution": "작가 정보 확인",
+    "upload.inviteWillSendOnPublish": "게시하면 이 작가에게 초대장이 발송됩니다.",
+    "upload.contextBanner.uploadingFor": "{name} 작가를 위해 업로드 중",
+    "upload.contextBanner.change": "변경",
+    "upload.contextBanner.pendingInviteChip": "게시 시 초대장 발송 예정",
+    "upload.contextBanner.hasPendingInvite":
+      "이미 대기 중인 초대장이 있어요 — 새 이메일은 발송되지 않습니다.",
+    "upload.externalReselect.badgePendingWorks":
+      "초대 대기 · 이미 작품 {n}점",
+    "upload.externalReselect.addingToExisting":
+      "{name}님(작품 {n}점)에 이어서 추가해요. 기존 초대장을 재사용하고 새 이메일은 발송하지 않습니다.",
+    "upload.externalReselect.chooseDifferent": "다른 작가 선택",
+    "upload.inviteSentCard.title": "{name} 작가에게 초대장을 보냈어요",
+    "upload.inviteSentCard.body":
+      "작가가 이메일에서 수락하면 자동으로 계정이 연결됩니다.",
+    "upload.inviteSentCard.manageLink": "초대한 작가 관리",
+    "upload.inviteSentCard.dismiss": "닫기",
+    "upload.inviteFailedCard.title": "초대 이메일 발송에 실패했어요",
+    "upload.inviteFailedCard.body":
+      "작품은 게시되었지만, {name}님께 이메일이 전달되지 않았어요. 초대한 작가 관리에서 재발송할 수 있어요.",
     "upload.publishFallback":
       "게시에 실패했어요. 잠시 후 다시 시도하거나, 파일이 너무 크면 작품을 지우고 더 작은 이미지로 다시 올려 주세요.",
     "upload.publishAllFailed": "한 점도 게시하지 못했어요. {reason}",
@@ -4570,6 +4650,11 @@ export const messages = {
     "delegation.event.delegated_claim_updated": "소유권 클레임을 처리했어요",
     "delegation.event.unknown": "위임 활동이 기록되었어요",
     "delegation.wizard.title": "새 위임 만들기",
+    "delegation.wizard.titleShareExhibition": "전시 권한 공유",
+    "delegation.wizard.subtitleShareExhibition":
+      "{title} 전시의 공동 편집 권한을 공유해요 · 언제든 해제할 수 있어요.",
+    "delegation.wizard.toastSentProject":
+      "초대를 보냈어요. 상대가 수락하면 이 전시를 함께 편집할 수 있어요.",
     "delegation.wizard.next": "다음",
     "delegation.wizard.back": "이전",
     "delegation.wizard.submit": "초대 보내기",

@@ -83,6 +83,17 @@ export type CreateExternalArtistAndClaimArgs = {
    * (self) writes.
    */
   subjectProfileId?: string | null;
+  /**
+   * Phase 3-4 (QA 2026-07): explicit external_artist_id when the operator
+   * re-selected an already-invited external artist from search results
+   * (`search_people_with_external`). When set, the RPC skips the
+   * name/email dedupe lookup and uses this id directly — eliminating race
+   * conditions from tiny name/whitespace differences that could otherwise
+   * mint a fresh external_artists row. The server verifies the id
+   * belongs to an unclaimed row invited by the operator (or by the
+   * acting-as principal); invalid ids fall back to the standard dedupe.
+   */
+  externalArtistId?: string | null;
 };
 
 export type CreateClaimForExistingArtistArgs = {

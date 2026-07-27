@@ -21,7 +21,7 @@ import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
-import { searchPeople } from "@/lib/supabase/artists";
+import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
@@ -37,6 +37,8 @@ import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { WebsiteImportPanel } from "@/components/upload/WebsiteImportPanel";
 import { BulkUploadGuidance } from "@/components/upload/BulkUploadGuidance";
+import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
+import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import { BetaFeedbackPrompt } from "@/components/beta";
 import { formatBulkFileUploadFailure } from "@/lib/upload/formatUploadError";
 import { formatSupabaseError } from "@/lib/errors/supabase";
@@ -102,6 +104,15 @@ export default function BulkUploadPage() {
   const [pendingFiles, setPendingFiles] = useState<{ id: string; file: File }[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  /**
+   * Post-publish confirmation card for external-artist invites (QA 2026-07
+   * Phase 2-2). Replaces the fleeting 3s toast so the operator has a
+   * clear record of what happened and a direct action to /my/artists.
+   * `null` = no card, `sent`/`failed` = show that variant.
+   */
+  const [inviteCard, setInviteCard] = useState<
+    { kind: "sent" | "failed"; artistName: string } | null
+  >(null);
   // Bumped after a *bulk* apply so the draft table rows remount and reflect
   // the newly saved values. Per-row onBlur edits deliberately do NOT bump
   // this (rows use uncontrolled defaultValue inputs) so typing keeps focus.
@@ -133,7 +144,10 @@ export default function BulkUploadPage() {
     fromExhibition && addToExhibitionId ? "CURATED" : null
   );
   const [artistSearch, setArtistSearch] = useState("");
-  const [artistResults, setArtistResults] = useState<ArtistOption[]>([]);
+  // Unified search results (profiles + external), replacing the old
+  // `ArtistOption[]` state. External rows carry works_count +
+  // latest_cover_paths for the re-selection UX (Phase 3-3).
+  const [artistResults, setArtistResults] = useState<SearchPeopleWithExternalResult[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<ArtistOption | null>(
     fromExhibition && preselectedArtistId
       ? {
@@ -147,6 +161,18 @@ export default function BulkUploadPage() {
   const [useExternalArtist, setUseExternalArtist] = useState(!!(fromExhibition && preselectedExternalName));
   const [externalArtistName, setExternalArtistName] = useState(preselectedExternalName ?? "");
   const [externalArtistEmail, setExternalArtistEmail] = useState(preselectedExternalEmail ?? "");
+  /**
+   * Phase 3 (QA 2026-07): id of the invited external artist that the
+   * operator just re-selected from the unified search results. Non-null
+   * means the publish flow should hand this id to the RPC directly
+   * instead of dedupe-by-name. Cleared whenever the operator manually
+   * edits `externalArtistName` (drift → we can no longer trust the id).
+   */
+  const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(null);
+  /** Snapshot of external re-selection metadata for the UI banner. */
+  const [reselectedExternalMeta, setReselectedExternalMeta] = useState<
+    { worksCount: number; latestCovers: string[] } | null
+  >(null);
   // Soft-required email (2026-07-01) — opt out to link manually later via /my/artists.
   const [externalNoEmail, setExternalNoEmail] = useState(false);
   const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
@@ -164,10 +190,21 @@ export default function BulkUploadPage() {
       return;
     }
     setSearching(true);
-    const { data } = await searchPeople({ q, roles: ["artist"], limit: 10 });
-    setArtistResults((data ?? []).map((p) => ({ id: p.id, username: p.username, display_name: p.display_name })));
+    // Phase 3-3: unified search — surface both onboarded artists and the
+    // operator's own invited external artists. External rows come with
+    // works_count + latest_cover_paths so the UI can render a
+    // "이미 초대한 작가 · 작품 N점" hint mini-strip and let the operator
+    // pick up where they left off instead of retyping.
+    const { data } = await searchPeopleWithExternal({
+      q,
+      roles: ["artist"],
+      limit: 10,
+      includeExternal: true,
+      inviterId: actingAsProfileId ?? null,
+    });
+    setArtistResults(data ?? []);
     setSearching(false);
-  }, [artistSearch]);
+  }, [artistSearch, actingAsProfileId]);
 
   useEffect(() => {
     const t = setTimeout(doSearchArtists, 300);
@@ -653,6 +690,11 @@ export default function BulkUploadPage() {
           artistProfileId: selectedArtist?.id ?? null,
           externalArtistDisplayName: useExternalArtist ? externalArtistName.trim() : null,
           externalArtistEmail: useExternalArtist ? externalArtistEmail.trim() || null : null,
+          // Phase 3-4 (QA 2026-07): when the operator re-selected an
+          // already-invited external artist from unified search, pass the
+          // id straight through so the server RPC skips name-dedupe and
+          // guarantees the exact same external_artists row is reused.
+          externalArtistId: useExternalArtist ? preselectedExternalArtistId : null,
           // Drafts were created on behalf of the principal when acting-as;
           // publish path must keep the same subject so claims/artist_id stay
           // consistent. RLS / RPC verify delegation rights server-side.
@@ -684,8 +726,13 @@ export default function BulkUploadPage() {
           );
         }
         if (inviteSent) {
-          setToast(t("upload.inviteSent"));
-          setTimeout(() => setToast(null), 3000);
+          // QA 2026-07 Phase 2-2: replace fleeting 3s toast with a
+          // dismissible confirmation card so the operator has a clear
+          // record + one-click path to /my/artists.
+          setInviteCard({
+            kind: "sent",
+            artistName: (useExternalArtist ? externalArtistName : "").trim() || t("upload.externalArtistNamePlaceholder"),
+          });
           if (useExternalArtist && externalArtistEmail.trim()) {
             await sendArtistInviteEmailClient({
               toEmail: externalArtistEmail.trim(),
@@ -694,8 +741,10 @@ export default function BulkUploadPage() {
             });
           }
         } else if (inviteFailed) {
-          setToast(t("upload.inviteSentFailed"));
-          setTimeout(() => setToast(null), 3000);
+          setInviteCard({
+            kind: "failed",
+            artistName: (useExternalArtist ? externalArtistName : "").trim() || t("upload.externalArtistNamePlaceholder"),
+          });
         }
       } else {
         const { error } = await publishArtworks(ids, {
@@ -855,6 +904,18 @@ export default function BulkUploadPage() {
   return (
     <AuthGate>
       <div>
+        {/*
+          Post-publish confirmation card (QA 2026-07 Phase 2-2). Rendered
+          at the layout root so it stays visible across the drafts table,
+          exhibition picker, etc. Auto-dismisses in 10s or on user action.
+        */}
+        {inviteCard && (
+          <InviteResultCard
+            kind={inviteCard.kind}
+            artistName={inviteCard.artistName}
+            onDismiss={() => setInviteCard(null)}
+          />
+        )}
         {addToExhibitionId && (
           <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 px-4 py-3 text-sm">
             <span className="text-zinc-600">{t("exhibition.addingWorksContext")}</span>
@@ -912,6 +973,8 @@ export default function BulkUploadPage() {
                   } else {
                     setExternalArtistName("");
                     setExternalArtistEmail("");
+                    setPreselectedExternalArtistId(null);
+                    setReselectedExternalMeta(null);
                   }
                 }}
                 className="text-sm text-zinc-600 underline hover:text-zinc-900"
@@ -921,10 +984,49 @@ export default function BulkUploadPage() {
             </div>
             {useExternalArtist ? (
               <div className="space-y-3">
+                {/*
+                  Phase 3-3: re-selection banner. Signals "you're adding a
+                  work to an artist you've already invited" so the operator
+                  understands no new email will fire and the works pile onto
+                  the existing shadow-account. `[Choose a different artist]`
+                  clears the preselected id + form back to a blank slate.
+                */}
+                {preselectedExternalArtistId && reselectedExternalMeta && (
+                  <div className="max-w-md rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                    <div className="flex items-start justify-between gap-3">
+                      <p>
+                        {t("upload.externalReselect.addingToExisting")
+                          .replace("{name}", externalArtistName.trim() || "—")
+                          .replace("{n}", String(reselectedExternalMeta.worksCount))}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreselectedExternalArtistId(null);
+                          setReselectedExternalMeta(null);
+                          setExternalArtistName("");
+                          setExternalArtistEmail("");
+                        }}
+                        className="shrink-0 whitespace-nowrap text-[11px] font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-900"
+                      >
+                        {t("upload.externalReselect.chooseDifferent")}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <input
                   type="text"
                   value={externalArtistName}
-                  onChange={(e) => setExternalArtistName(e.target.value)}
+                  onChange={(e) => {
+                    setExternalArtistName(e.target.value);
+                    // Manual edits invalidate the re-selection: the user is
+                    // fixing a typo or renaming, so we must fall back to
+                    // dedupe-by-name (which may still match the same row).
+                    if (preselectedExternalArtistId) {
+                      setPreselectedExternalArtistId(null);
+                      setReselectedExternalMeta(null);
+                    }
+                  }}
                   placeholder={t("upload.externalArtistNamePlaceholder")}
                   className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm"
                 />
@@ -958,21 +1060,90 @@ export default function BulkUploadPage() {
                 />
                 {searching && <p className="text-sm text-zinc-500">{t("artists.loading")}</p>}
                 {artistResults.length > 0 && (
-                  <ul className="max-w-md rounded border border-zinc-200 bg-white">
+                  <ul className="max-w-md divide-y divide-zinc-100 rounded border border-zinc-200 bg-white">
                     {artistResults.map((a) => (
-                      <li key={a.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedArtist(a);
-                            setArtistResults([]);
-                            setArtistSearch("");
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
-                        >
-                          {formatDisplayName(a)}
-                          {a.username && <span className="ml-2 text-zinc-500">{formatUsername(a)}</span>}
-                        </button>
+                      <li key={`${a.kind}-${a.id}`}>
+                        {a.kind === "profile" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedArtist({
+                                id: a.id,
+                                username: a.username,
+                                display_name: a.display_name,
+                              });
+                              setArtistResults([]);
+                              setArtistSearch("");
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
+                          >
+                            {formatDisplayName({
+                              display_name: a.display_name,
+                              username: a.username,
+                            })}
+                            {a.username && (
+                              <span className="ml-2 text-zinc-500">
+                                {formatUsername({
+                                  display_name: a.display_name,
+                                  username: a.username,
+                                })}
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          // Phase 3-3: external (invited) artist row. Selecting
+                          // this switches attribution into external mode with
+                          // the invited id preserved, so publish reuses the
+                          // exact row instead of re-inviting (dedupe-safe).
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUseExternalArtist(true);
+                              setSelectedArtist(null);
+                              setExternalArtistName(a.display_name?.trim() ?? "");
+                              // Email stays as-is (user can still edit); server
+                              // will backfill it into the row on publish if
+                              // supplied. We deliberately do NOT auto-fill it
+                              // here because the RPC doesn't return PII.
+                              setPreselectedExternalArtistId(a.id);
+                              setReselectedExternalMeta({
+                                worksCount: a.works_count ?? 0,
+                                latestCovers: a.latest_cover_paths ?? [],
+                              });
+                              setArtistResults([]);
+                              setArtistSearch("");
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-medium text-zinc-900">
+                                  {a.display_name?.trim() || "—"}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-zinc-500">
+                                  {t("upload.externalReselect.badgePendingWorks")
+                                    .replace("{n}", String(a.works_count ?? 0))}
+                                </p>
+                              </div>
+                              {a.latest_cover_paths && a.latest_cover_paths.length > 0 && (
+                                <div className="flex shrink-0 gap-1">
+                                  {a.latest_cover_paths.slice(0, 3).map((p, i) => {
+                                    const url = getArtworkImageUrl(p, "thumb");
+                                    return (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        key={`${p}-${i}`}
+                                        src={url}
+                                        alt=""
+                                        className="h-8 w-8 rounded object-cover"
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -1006,6 +1177,8 @@ export default function BulkUploadPage() {
                   setExternalArtistEmail("");
                   setArtistSearch("");
                   setArtistResults([]);
+                  setPreselectedExternalArtistId(null);
+                  setReselectedExternalMeta(null);
                 }}
                 className="rounded-full border border-zinc-300 px-4 py-2 text-sm"
               >
@@ -1022,9 +1195,21 @@ export default function BulkUploadPage() {
                 }}
                 className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {t("common.next")}
+                {t("upload.confirmAttribution")}
               </button>
             </div>
+            {/*
+              Explicit signal: "Next" reads as "send" for gallerists.
+              When we know an external artist + email is set, tell the user
+              exactly when the invite gets sent — at Publish, not at this
+              confirm step. Keeps QA1's mental model correct without moving
+              the actual send timing.
+            */}
+            {useExternalArtist && externalEmailValid && externalArtistEmail.trim() && (
+              <p className="mt-2 text-xs text-zinc-500">
+                {t("upload.inviteWillSendOnPublish")}
+              </p>
+            )}
           </div>
         )}
           </div>
@@ -1033,6 +1218,28 @@ export default function BulkUploadPage() {
         {/* Main bulk UI */}
         {showMain && (
           <>
+        {/*
+          Persistent attribution context bar (QA 2026-07 Phase 2-1). Keeps
+          the "who am I uploading for?" answer visible once the operator
+          leaves the attribution step. Only shown when attribution actually
+          picked someone (i.e. intent needed attribution).
+        */}
+        {needsAttribution && (selectedArtist || (useExternalArtist && externalArtistName.trim().length >= 2)) && (
+          <AttributionContextBanner
+            artistName={
+              useExternalArtist
+                ? externalArtistName.trim()
+                : formatDisplayName(selectedArtist)
+            }
+            isExternal={useExternalArtist}
+            externalEmail={useExternalArtist ? externalArtistEmail : null}
+            onChange={() => {
+              // Reset back to attribution step. Mirror the "back" button
+              // in the attribution step to keep state hygiene consistent.
+              setAttributionStepDone(false);
+            }}
+          />
+        )}
         <BulkUploadGuidance t={t} pendingCount={pendingFiles.length} draftCount={drafts.length} />
 
         <div data-tour="upload-website-import">

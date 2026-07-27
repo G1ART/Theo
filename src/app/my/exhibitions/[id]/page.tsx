@@ -34,6 +34,7 @@ import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { ExhibitionThumbStack } from "@/components/ExhibitionThumbStack";
 import { ExhibitionReviewPanel } from "@/components/exhibition/ExhibitionReviewPanel";
+import { ExhibitionDraftBanner } from "@/components/exhibitions/ExhibitionDraftBanner";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { BetaFeedbackPrompt } from "@/components/beta";
@@ -402,6 +403,19 @@ export default function ExhibitionDetailPage() {
           <p className="text-zinc-600">{error ?? "Exhibition not found."}</p>
         ) : (
           <>
+            {/*
+              QA 2026-07 Phase 2-3: draft banner surfaces when this
+              exhibition is planned + has 0 works. Owner sees a positive
+              prompt to add works + a "just created" toast when routed
+              here right after creation.
+            */}
+            <ExhibitionDraftBanner
+              exhibitionId={id}
+              status={exhibition.status}
+              worksCount={works.length}
+              className="mb-6"
+            />
+
             <header data-tour="exhibition-detail-header" className="mb-8">
               <h1 className="text-xl font-semibold text-zinc-900">{exhibition.title}</h1>
               <p className="mt-1 text-sm text-zinc-500">

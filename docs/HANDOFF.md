@@ -1,6 +1,107 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-20
+Last updated: 2026-07-27
+
+## 2026-07-27 — QA 4건 · 외부 작가 흐름 고도화 · 위임 UX 정합화 (Phase 1-3) ✅ SQL 자동 적용됨
+
+### 배경
+QA 리포트 4건 (bulk upload 「다음」 오해, 전시 정보 폼 한/영 필드 부재,
+"새 위임 만들기" 카피 혼란, 외부 작가 재선택 불가)을 한 뿌리 문제로 압축.
+외부 작가는 서버 층(`external_artists` + `get_or_create_external_artist`
+dedupe)에서는 안정적인 엔티티인데, UX 층에서는 매번 새로 그리는 그림자
+상태였음. 갤러리스트가 같은 미온보딩 작가의 새 작품을 올리면 매번
+새 초대를 발송하는 것처럼 오해했고, 이름 오타로 external_artists 행이
+분리되는 케이스도 있었음. 위임 팝업은 `titleOverride` prop 이 있는데 배선
+안 돼서 항상 "새 위임 만들기" 로 fallback 됐음.
+
+### Phase 1 — 즉시 하드픽스 (스키마 무변경)
+- **위임 팝업 titleOverride 배선** (QA 3):
+  `src/app/my/exhibitions/[id]/edit/page.tsx`,
+  `src/app/my/exhibitions/[id]/add/page.tsx` 의 `CreateDelegationWizard`
+  호출에 `titleOverride={t("delegation.wizard.titleShareExhibition")}` 전달.
+  헤더 하단에 "○○ 전시의 공동 편집 권한 · 언제든 해제 가능" 서브라인 노출.
+  성공 토스트도 프로젝트 컨텍스트 인식으로 확장.
+- **업로드 「다음」 라벨 정합화** (QA 1):
+  `src/app/upload/page.tsx`, `src/app/upload/bulk/page.tsx` 의 attribution
+  step 버튼을 `common.next` → `upload.confirmAttribution` ("작가 정보 확인")
+  로 교체. external + 이메일 유효 시 버튼 아래 얇은 힌트 노출: "게시 시
+  이메일로 초대장이 발송됩니다".
+- **/my/exhibitions 상태 배지 + 필터** (QA 4-a):
+  `src/lib/supabase/exhibitions.ts` 의 `listMyExhibitions` 에 `works_count`
+  배치 카운트 쿼리 추가 (N+1 방지). 리스트에 `임시 저장` (planned+works=0) /
+  `예정` (planned+works≥1) / `라이브` / `종료` 배지 + 필터 탭 추가. 임시
+  저장 배지 옆에 툴팁 힌트.
+
+### Phase 2 — 컨텍스트 지속성 UX (스키마 무변경)
+- **AttributionContextBanner** 신규 컴포넌트: 업로드 form step 상단에
+  얇은 sticky bar. "○○ 작가를 위해 업로드 중 [변경]" + external+이메일
+  이면 "게시 시 초대장 발송 예정" chip. 단·벌크 업로드 양쪽 배선.
+- **InviteResultCard** 신규 컴포넌트: 기존 3초 flash toast → sticky
+  하단 dismissible 카드로 대체. Publish 후 external 작가 초대 결과를
+  10초 auto-dismiss 또는 X 로 명시적 종료. "[초대한 작가 관리]"
+  링크 → `/my/artists`. 실패 시 별도 카피.
+- **ExhibitionDraftBanner** 신규 컴포넌트: planned + works=0 인 전시
+  편집·add 페이지 상단에 앰버 배너 노출: "임시 저장 · 공개 피드에
+  노출되지 않음 · 작품을 추가하면 공개할 준비가 됩니다" + `[작품 추가]`.
+  전시 신규 생성 직후 (`NewExhibitionFormShell` 에서 `sessionStorage`
+  `theo:exhibition-just-created` 플래그) `add` 페이지 첫 방문 시 별도
+  toast "저장됨 · 아직 공개되지 않았어요" 노출.
+
+### Phase 3 — 외부 작가 재선택 통합 (QA 4 핵심)
+- **신규 RPC `search_people_with_external`**
+  (`supabase/migrations/20260727000000_search_people_with_external.sql`,
+  이후 enum 캐스팅 hotfix 포함해 총 3건 remote 적용됨):
+  attribution 검색을 "온보딩 유저 + 내가 (또는 delegate 시 principal 이)
+  이미 초대한 external artist" 로 확장. 결과에 `kind` 로 구분해 한 리스트로
+  표시. External 결과에는 `works_count` + `latest_cover_paths` (최근 3개
+  primary cover) 를 포함해 "이 작가의 기존 작품" 을 근거로 재선택할 수
+  있게 함. 프라이버시: `SECURITY DEFINER` 이지만 본문에서
+  `invited_by = v_inviter` 강제 필터, `invite_email` 은 결과에서 제외.
+- **`create_external_artist_and_claim` v3** — 명시적 `p_external_artist_id`
+  파라미터 추가. 넘어오면 이름/이메일 dedupe 대신 그 id 그대로 사용
+  (unclaimed + invited_by 검증 후). 이름 오타/공백 race 원천 차단.
+  옛 10-arg 시그니처는 명시적으로 drop 해 오버로드 충돌 방지.
+- 클라이언트: `src/lib/supabase/artists.ts` 에 `searchPeopleWithExternal`
+  wrapper + `SearchPeopleWithExternalResult` 타입.
+  `src/lib/provenance/rpc.ts` + `.../types.ts` 에 `externalArtistId?` 옵션
+  추가. `publishArtworksWithProvenance` (`artworks.ts`) 도 이 id 를 전달.
+- UI: `src/app/upload/bulk/page.tsx`, `src/app/upload/page.tsx` 의 아티스트
+  검색을 통합 검색으로 교체. External 결과에는 우측 상단 amber
+  "초대 대기 · 이미 작품 N점" 배지 + 하단에 커버 3개 mini-strip.
+  재선택 시 external 모드로 전환하고 이름·이메일 자동 fill,
+  `preselectedExternalArtistId` 저장 후 publish 시 서버에 forward.
+  Email 은 프라이버시상 노출하지 않고 `externalNoEmail=true` 로 세팅해
+  중복 발송 자연 차단. 이름·이메일을 수동 편집하거나 모드 토글하면
+  preselected 상태 자동 해제.
+
+### 결과 (변경 요약)
+- QA 1: 「다음」이 발송으로 오해되던 지점 해소. Attribution context 배너
+  + Publish 후 dismissible 카드로 시점 명확화.
+- QA 3: 위임 팝업이 이제 컨텍스트에 맞게 "전시 권한 공유" 로 표시.
+- QA 4: 통합 검색으로 이미 초대한 외부 작가를 이름 두 글자만 쳐도 재선택
+  가능. 새 초대장 발송 없이 같은 external_artists 행에 새 작품을 계속
+  붙일 수 있음. 서버 dedupe 결정을 UI 가 명시적 id 로 확정.
+- 전시 목록에 실제 상태 (`임시 저장`/`예정`/`라이브`/`종료`) 를 배지+필터로
+  드러내 planned 전시가 "왜 공개 안 되지?" 혼란 해소.
+
+### Supabase SQL 적용 필요
+없음. 관련 마이그레이션 3건 (`20260727193906`, `20260727193925`,
+`20260727194001`) 모두 Supabase MCP 로 원격 프로젝트에 자동 적용 완료.
+
+### 환경 변수 추가/변경
+없음.
+
+### Non-goals / 후속
+- 이메일 발송 시점은 Publish 유지 (사용자 확정).
+- 전시 별도 draft status 컬럼은 추가하지 않음 (planned UX 강화만).
+- QA 2 (bilingual titles/작가명) 는 Phase 4 스코프. 사용자 승인 대기.
+
+### Verified
+- 타입체크 `npx tsc --noEmit` 통과.
+- 변경 파일 lint 통과 (기존 warning 은 pre-existing).
+- Remote RPC 시그니처 확인 (`search_people_with_external`,
+  `create_external_artist_and_claim` v3).
+
 
 ## 2026-07-20 — 피드 이미지 표준화 (톤 + 프레이밍 통일 + 가이드 크롭) ✅ SQL 자동 적용됨
 

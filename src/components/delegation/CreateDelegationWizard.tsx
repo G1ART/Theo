@@ -390,21 +390,35 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
         aria-label={titleText}
         className="relative flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
-        <header className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
-          <div className="flex items-center gap-3 text-sm">
-            <h2 className="text-base font-semibold text-zinc-900">{titleText}</h2>
-            {!emailFailedResult && (
-              <StepDots step={step} scope={scope} skipExhibitionPick={!!initialProjectId} />
-            )}
+        <header className="border-b border-zinc-100 px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex min-w-0 items-center gap-3 text-sm">
+              <h2 className="truncate text-base font-semibold text-zinc-900">{titleText}</h2>
+              {!emailFailedResult && (
+                <StepDots step={step} scope={scope} skipExhibitionPick={!!initialProjectId} />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={emailFailedResult ? handleFallbackDone : onClose}
+              className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+              aria-label={t("delegation.wizard.cancel")}
+            >
+              ✕
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={emailFailedResult ? handleFallbackDone : onClose}
-            className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-            aria-label={t("delegation.wizard.cancel")}
-          >
-            ✕
-          </button>
+          {/*
+            When a caller opens the wizard already scoped to one exhibition
+            (e.g. from the "Share exhibition access" CTA), surface a subline
+            that reminds the user this is a per-exhibition share, not an
+            account-wide delegation. Keeps the underlying "delegation" term
+            visible in copy but reframes it in the entry context.
+          */}
+          {!emailFailedResult && titleOverride && scope === "project" && initialProjectId && projectTitle && (
+            <p className="mt-1 truncate text-xs text-zinc-500">
+              {t("delegation.wizard.subtitleShareExhibition").replace("{title}", projectTitle)}
+            </p>
+          )}
         </header>
 
         {emailFailedResult && (

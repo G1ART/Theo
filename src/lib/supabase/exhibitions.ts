@@ -128,6 +128,28 @@ export async function listMyExhibitions(
   const merged = Array.from(byId.values()).sort(
     (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
   );
+
+  // Enrich with per-exhibition works_count (single batched query — no N+1).
+  // We fetch just the `exhibition_id` column for all rows and count client-side.
+  // This is cheap (rows are tiny) and doesn't require any new SQL migration.
+  // works_count is used to distinguish "임시 저장" (planned + 0 works) from
+  // "예정" (planned + ≥1 work) badges in the exhibition list UI.
+  if (merged.length > 0) {
+    const ids = merged.map((e) => e.id);
+    const { data: workRows } = await supabase
+      .from("exhibition_works")
+      .select("exhibition_id")
+      .in("exhibition_id", ids);
+    const countMap = new Map<string, number>();
+    for (const r of (workRows ?? []) as Array<{ exhibition_id: string | null }>) {
+      if (!r.exhibition_id) continue;
+      countMap.set(r.exhibition_id, (countMap.get(r.exhibition_id) ?? 0) + 1);
+    }
+    for (const e of merged) {
+      e.works_count = countMap.get(e.id) ?? 0;
+    }
+  }
+
   return { data: merged, error: null };
 }
 
