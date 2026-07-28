@@ -2,6 +2,110 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — 업로드 자동 압축 (WebP 4K + 원본 백업) ✅ SQL 자동 적용됨
+
+### 배경
+지금까지 아트워크 이미지는 원본 그대로 Supabase Storage 로 전송되어
+`supabase/config.toml` 의 `[storage] file_size_limit = "50MiB"` 벽에
+정면으로 부딪혔다. 아티스트가 100MB 스캔이나 iPhone RAW 를 올리면 아예
+업로드 불가. 표시 성능은 Supabase Storage Image Transform 이 이미 해결
+하고 있어 실질 병목은 (a) 50MB 벽, (b) 업로드 시간, (c) 스토리지 비용.
+
+### 정책 (사용자 승인)
+- **원본 백업 유지** (스토리지 2배지만 아티스트 신뢰 우선). 아티스트가
+  나중에 원본 다운로드/재편집 가능.
+- **표시본 스펙**: 롱엣지 4096 px + WebP quality 88 (프린트/줌 감상까지
+  손실 없음).
+- **자동, silent** (opt-in 아님). 압축 결과 크기만 UI 에 조용한 chip 으로
+  표시.
+- **iterative quality drop 안전망**: 88 → 82 → 76 → 70 → 62. 반드시
+  50 MiB 이하로 landing.
+- **폴백**: 지원 안 되는 포맷 (HEIC / 애니메이션 GIF / decode 실패) 은
+  원본 그대로 업로드하고 legacy 50 MB 벽 유지.
+- **압축 가능 포맷 상한**: 200 MB (클라이언트에서 원천 거절).
+
+### DB 스키마 (`20260728100000_artwork_images_auto_compression.sql`)
+`public.artwork_images` 에 4개 nullable 컬럼 추가 (모두 additive):
+- `original_storage_path text` — 원본 백업 경로 (`{userId}/original/...`).
+  NULL 이면 legacy row 이거나 압축이 skipped 되어 `storage_path` 자체가
+  원본.
+- `display_bytes bigint` — 표시본 크기 (관측용).
+- `original_bytes bigint` — 원본 크기.
+- `compression_meta jsonb` — `{ algo, quality, longEdge, sourceMime,
+  sourceWidth, sourceHeight, outWidth, outHeight, iterations }`. NULL 이면
+  압축 skipped.
+
+Storage RLS (`can_manage_artworks_storage_path`) 는 첫 세그먼트가
+`auth.uid()` 인지만 확인하므로 `{userId}/original/...` 도 자동으로
+정책이 커버. 새 bucket 이나 새 policy 필요 없음.
+
+### 클라이언트 파이프라인
+- 신규: `src/lib/image/compress.ts` — `compressArtworkImage(file)` +
+  `isCompressibleMime(mime)`. zero-dependency (`createImageBitmap` +
+  `OffscreenCanvas` (fallback `HTMLCanvasElement`) + `convertToBlob`).
+  메모리 안전: `createImageBitmap` 의 `resizeWidth/Height` 로 native
+  decode 시점 downscale 하여 8000×6000 원본도 모바일 Safari 에서 크래시
+  없음.
+- 확장: `src/lib/supabase/storage.ts` `uploadArtworkImage` 가 이제
+  `{ displayPath, displayBytes, originalPath, originalBytes,
+  compressionMeta, skippedReason? }` 반환. 원본 백업은 best-effort —
+  실패해도 표시본은 저장되고 `originalPath = null` 반환.
+- 확장: `attachArtworkImage` (`src/lib/supabase/artworks.ts`) 가
+  `originalStoragePath`, `displayBytes`, `originalBytes`,
+  `compressionMeta` 옵션 수용.
+- 확장: `src/lib/upload/limits.ts` — `UPLOAD_MAX_COMPRESSIBLE_BYTES =
+  200MB`, `getUploadCeilingBytes(file)` 헬퍼로 MIME 별 상한 결정.
+
+### 업데이트된 호출 지점
+- `src/app/upload/page.tsx` (single upload) — 새 wrapper 사용, rollback
+  경로에 originalPath 도 포함, pre-check `getUploadCeilingBytes`.
+- `src/app/upload/bulk/page.tsx` — 동일 + 실패 시 원본 슬롯도 clean-up.
+- `src/components/upload/BulkUploadGuidance.tsx` — 200MB 상한으로 안내
+  copy 갱신.
+- 새 컴포넌트 없음 — UI 힌트는 기존 pending files 리스트 내 chip 으로만
+  추가 (사용자 선택: quiet chip).
+
+### UI (quiet chip)
+- Single upload 이미지 리스트 각 아이템에 `47.2 MB` 원본 크기 표시.
+  5MB 이상 & 압축 가능 포맷 이면 `자동 압축` 배지 (emerald).
+- Bulk pending files list 도 동일 chip 배선.
+- 신규 i18n: `upload.autoCompressChip`, `upload.autoCompressHint`,
+  `upload.fileTooLarge` / `bulk.dropzoneHint` /
+  `bulk.filesSkippedOversized` / `bulk.guidance.sizeNote` 문구 갱신.
+
+### 마이그레이션 (자동 적용됨)
+- `20260728100000_artwork_images_auto_compression`
+
+**Supabase SQL 별도 실행 필요 없음** — MCP `apply_migration` 으로 배포
+완료.
+
+### 환경 변수
+- 변경 없음. (`supabase/config.toml [storage] file_size_limit = "50MiB"`
+  그대로 유지 — 압축 후 크기가 반드시 이하가 되므로 사용자에겐 이 벽이
+  안 걸림.)
+
+### Verified
+- `npx tsc --noEmit` — 통과
+- `npm run lint` — 신규/수정 파일 clean (기존 codebase pre-existing
+  에러만 잔존).
+
+### 스토리지 비용 영향 (참고)
+표시본 (WebP q88 4K) 은 원본 대비 대개 50–80% 작아짐. 원본 백업까지
+합치면 **원본 크기의 약 1.5–1.8배** 정도 스토리지 사용 예상. 예:
+평균 원본 8 MB → 표시본 2 MB + 원본 8 MB = 10 MB (원본만 저장했을 때
+8 MB 대비 +25%).
+
+### 후속 여지 (미포함)
+- 원본 다운로드 UI (아티스트가 `original_storage_path` 를 실제로
+  받을 수 있는 surface). 지금은 컬럼만 저장.
+- 압축 실패 (skippedReason) 케이스에 대한 사용자 안내. 지금은 조용히
+  원본 폴백.
+- Cloudflare Images 등 서버측 파이프라인으로 이관 (모바일 CPU 절감).
+- 옛 row 백필 스크립트 (기존 `storage_path` 만 있는 아트워크에
+  `original_storage_path = storage_path` 로 marker 만 넣거나, 재압축).
+
+---
+
 ## 2026-07-28 — 외부 작가 dedupe/온보딩 정합화 (5단계 패치) ✅ SQL 자동 적용됨
 
 ### 배경

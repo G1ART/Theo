@@ -40,7 +40,12 @@ import { parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
-import { UPLOAD_MAX_IMAGE_BYTES, UPLOAD_MAX_IMAGE_MB_LABEL } from "@/lib/upload/limits";
+import {
+  UPLOAD_MAX_IMAGE_MB_LABEL,
+  UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
+  getUploadCeilingBytes,
+} from "@/lib/upload/limits";
+import { isCompressibleMime } from "@/lib/image/compress";
 import { formatSingleUploadFailure } from "@/lib/upload/formatUploadError";
 
 type UploadStep = "intent" | "attribution" | "form" | "dedup";
@@ -485,10 +490,11 @@ function UploadPageContent() {
 
       for (let i = 0; i < images.length; i++) {
         const pending = images[i];
-        let storagePath: string | null = null;
+        let upload: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
         try {
-          storagePath = await uploadArtworkImage(pending.file, storageOwner);
-          uploadedPaths.push(storagePath);
+          upload = await uploadArtworkImage(pending.file, storageOwner);
+          uploadedPaths.push(upload.displayPath);
+          if (upload.originalPath) uploadedPaths.push(upload.originalPath);
         } catch (uploadErr) {
           await rollback();
           setError(formatSingleUploadFailure(uploadErr, t));
@@ -497,11 +503,15 @@ function UploadPageContent() {
         }
         const { error: attachErr } = await attachArtworkImage(
           artworkId,
-          storagePath,
+          upload.displayPath,
           {
             sortOrder: i,
             viewType: pending.viewType,
             displayAdjust: pending.displayAdjust,
+            originalStoragePath: upload.originalPath,
+            displayBytes: upload.displayBytes,
+            originalBytes: upload.originalBytes,
+            compressionMeta: upload.compressionMeta,
           },
         );
         if (attachErr) {
@@ -876,12 +886,21 @@ function UploadPageContent() {
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
                   e.target.value = "";
-                  const oversize = files.find((f) => f.size > UPLOAD_MAX_IMAGE_BYTES);
+                  // 2026-07-28 auto-compression: compressible formats
+                  // now have a 200 MB ceiling (compressor guarantees the
+                  // display file lands ≤ 50 MiB); uncompressible formats
+                  // (HEIC/animated GIF) still use the 50 MB legacy cap.
+                  const oversize = files.find(
+                    (f) => f.size > getUploadCeilingBytes(f),
+                  );
                   if (oversize) {
+                    const ceilingMb = isCompressibleMime(oversize.type)
+                      ? UPLOAD_MAX_COMPRESSIBLE_MB_LABEL
+                      : UPLOAD_MAX_IMAGE_MB_LABEL;
                     setError(
                       t("upload.fileTooLarge").replace(
                         "{maxMb}",
-                        String(UPLOAD_MAX_IMAGE_MB_LABEL),
+                        String(ceilingMb),
                       ),
                     );
                     return;
@@ -934,13 +953,30 @@ function UploadPageContent() {
                         className="h-14 w-14 shrink-0 rounded object-cover"
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs text-zinc-700">
+                        <div className="flex items-center gap-1.5 truncate text-xs text-zinc-700">
                           {idx === 0 && (
                             <span className="mr-1 rounded bg-zinc-900 px-1 py-0.5 text-[10px] font-medium text-white">
                               {t("upload.imagePrimaryChip")}
                             </span>
                           )}
-                          {img.file.name}
+                          <span className="truncate">{img.file.name}</span>
+                          {/*
+                            2026-07-28 auto-compression quiet chip.
+                            Only rendered when the file is a compressible
+                            format AND above 5 MB, so it doesn't clutter
+                            small file rows.
+                          */}
+                          <span className="shrink-0 text-[10px] text-zinc-400">
+                            {(img.file.size / (1024 * 1024)).toFixed(1)} MB
+                          </span>
+                          {isCompressibleMime(img.file.type) && img.file.size > 5 * 1024 * 1024 && (
+                            <span
+                              className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+                              title={t("upload.autoCompressHint")}
+                            >
+                              {t("upload.autoCompressChip")}
+                            </span>
+                          )}
                         </div>
                         <label className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
                           <span>{t("upload.imageViewTypeLabel")}</span>

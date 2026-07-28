@@ -3,7 +3,7 @@
 import {
   BULK_MAX_FILES_PER_BATCH,
   BULK_MY_DRAFTS_QUERY_LIMIT,
-  UPLOAD_MAX_IMAGE_MB_LABEL,
+  UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
 } from "@/lib/upload/limits";
 
 type T = (key: string) => string;
@@ -18,7 +18,7 @@ type Props = {
  * Prominent, scannable limits for bulk upload — file size, batch size, list cap, website match.
  */
 export function BulkUploadGuidance({ t, pendingCount, draftCount }: Props) {
-  const sizeNote = t("bulk.guidance.sizeNote").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL));
+  const sizeNote = t("bulk.guidance.sizeNote").replace("{maxMb}", String(UPLOAD_MAX_COMPRESSIBLE_MB_LABEL));
   const batchNote = t("bulk.guidance.batchNote").replace("{n}", String(BULK_MAX_FILES_PER_BATCH));
   const listNote = t("bulk.guidance.listNote").replace("{n}", String(BULK_MY_DRAFTS_QUERY_LIMIT));
   const matchNote = t("bulk.guidance.matchNote");

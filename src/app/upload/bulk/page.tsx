@@ -48,10 +48,11 @@ import {
   BULK_MAX_FILES_PER_BATCH,
   BULK_MY_DRAFTS_QUERY_LIMIT,
   BULK_WEBSITE_STAGED_IDS_MAX,
-  UPLOAD_MAX_IMAGE_BYTES,
-  UPLOAD_MAX_IMAGE_MB_LABEL,
+  UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
+  getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { analyzeImageFile } from "@/lib/image/analyze";
+import { isCompressibleMime } from "@/lib/image/compress";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -227,13 +228,17 @@ export default function BulkUploadPage() {
         setUploadError(t("bulk.pickImageTypes"));
         return;
       }
-      const ok = arr.filter((f) => f.size <= UPLOAD_MAX_IMAGE_BYTES);
+      // 2026-07-28 auto-compression: compressible formats ceiling raised
+      // to 200 MB; uncompressible stay at 50 MB. See lib/upload/limits.ts.
+      const ok = arr.filter((f) => f.size <= getUploadCeilingBytes(f));
       const skipped = arr.length - ok.length;
       if (skipped > 0) {
+        // Use the larger of the two ceilings in the message so users
+        // aren't misled about compressible formats.
         setUploadError(
           t("bulk.filesSkippedOversized")
             .replace("{n}", String(skipped))
-            .replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL)),
+            .replace("{maxMb}", String(UPLOAD_MAX_COMPRESSIBLE_MB_LABEL)),
         );
       } else {
         setUploadError(null);
@@ -380,7 +385,7 @@ export default function BulkUploadPage() {
       const { file } = slot;
       const title = deriveTitle(file.name);
       let artworkId: string | null = null;
-      let storagePath: string | null = null;
+      let uploadResult: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
       try {
         const { data: id, error: createErr } = await createDraftArtwork(
           { title },
@@ -396,7 +401,9 @@ export default function BulkUploadPage() {
         // active account-scope writer delegates to upload here (see
         // 20260510000000_artworks_storage_account_delegate.sql).
         const storageOwner = actingAsProfileId ?? userId;
-        storagePath = await uploadArtworkImage(file, storageOwner);
+        // 2026-07-28 auto-compression — returns { displayPath, originalPath,
+        // meta, bytes... }. Original is backed up under `{userId}/original/`.
+        uploadResult = await uploadArtworkImage(file, storageOwner);
         // 2026-07-20 (feed image standardization) — analyze in-memory
         // File before it goes out of scope so bulk-uploaded works land
         // on the feed with the "Theo standard" tone applied. The
@@ -414,8 +421,14 @@ export default function BulkUploadPage() {
         }
         const { error: attachErr } = await attachArtworkImage(
           artworkId,
-          storagePath,
-          { displayAdjust },
+          uploadResult.displayPath,
+          {
+            displayAdjust,
+            originalStoragePath: uploadResult.originalPath,
+            displayBytes: uploadResult.displayBytes,
+            originalBytes: uploadResult.originalBytes,
+            compressionMeta: uploadResult.compressionMeta,
+          },
         );
         if (attachErr) throw attachErr;
         uploadedIds.push(artworkId);
@@ -427,8 +440,11 @@ export default function BulkUploadPage() {
         setUploadError(message);
         failures.push({ name: file.name, message });
         setUploadFailures([...failures]);
-        if (storagePath) {
-          try { await removeStorageFile(storagePath); } catch {}
+        if (uploadResult?.displayPath) {
+          try { await removeStorageFile(uploadResult.displayPath); } catch {}
+        }
+        if (uploadResult?.originalPath) {
+          try { await removeStorageFile(uploadResult.originalPath); } catch {}
         }
         if (artworkId) {
           try { await deleteArtwork(artworkId); } catch {}
@@ -1350,7 +1366,7 @@ export default function BulkUploadPage() {
           <p className="mt-2 text-xs leading-relaxed text-zinc-500">
             {t("bulk.dropzoneHint")
               .replace("{batch}", String(BULK_MAX_FILES_PER_BATCH))
-              .replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+              .replace("{maxMb}", String(UPLOAD_MAX_COMPRESSIBLE_MB_LABEL))}
           </p>
         </div>
 
@@ -1359,22 +1375,43 @@ export default function BulkUploadPage() {
           <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
             <h3 className="mb-2 text-sm font-medium">{t("bulk.pendingFiles")} ({pendingFiles.length})</h3>
             <div className="mb-3 flex flex-wrap gap-2">
-              {pendingFiles.map(({ id, file }) => (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-sm text-zinc-700"
-                >
-                  {file.name}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); removePendingFile(id); }}
-                    className="text-red-600 hover:text-red-800"
-                    aria-label={t("bulk.removePending")}
+              {pendingFiles.map(({ id, file }) => {
+                // 2026-07-28 auto-compression — quiet chip: show the
+                // pre-upload size so the operator can eyeball what's
+                // about to happen. For compressible formats above ~5 MB
+                // we hint that auto-compression will run, without being
+                // preachy about it.
+                const mb = file.size / (1024 * 1024);
+                const compressible = isCompressibleMime(file.type);
+                const willCompress = compressible && file.size > 5 * 1024 * 1024;
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1 text-sm text-zinc-700"
                   >
-                    ×
-                  </button>
-                </span>
-              ))}
+                    <span className="min-w-0 truncate">{file.name}</span>
+                    <span className="text-[11px] text-zinc-400">
+                      {mb < 0.1 ? "<0.1" : mb.toFixed(1)} MB
+                    </span>
+                    {willCompress && (
+                      <span
+                        className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+                        title={t("upload.autoCompressHint")}
+                      >
+                        {t("upload.autoCompressChip")}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removePendingFile(id); }}
+                      className="text-red-600 hover:text-red-800"
+                      aria-label={t("bulk.removePending")}
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
             </div>
             <div className="flex gap-2">
               <button

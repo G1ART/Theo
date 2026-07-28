@@ -1245,6 +1245,19 @@ export async function attachArtworkImage(
     displayAdjust?:
       | import("@/lib/image/displayAdjust").DisplayAdjust
       | null;
+    /**
+     * 2026-07-28 auto-compression — path of the untouched original
+     * (backed up under `{userId}/original/...`). NULL when compression
+     * was skipped (e.g. HEIC/animated GIF) — in that case `storagePath`
+     * itself is already the original.
+     */
+    originalStoragePath?: string | null;
+    /** Bytes of the file stored at `storagePath` (post-compression). */
+    displayBytes?: number | null;
+    /** Bytes of the untouched original. */
+    originalBytes?: number | null;
+    /** Compression algorithm metadata for observability. NULL if skipped. */
+    compressionMeta?: Record<string, unknown> | null;
   },
 ) {
   const payload: Record<string, unknown> = {
@@ -1255,6 +1268,18 @@ export async function attachArtworkImage(
   };
   if (opts?.displayAdjust !== undefined) {
     payload.display_adjust = opts.displayAdjust;
+  }
+  if (opts?.originalStoragePath !== undefined) {
+    payload.original_storage_path = opts.originalStoragePath;
+  }
+  if (opts?.displayBytes !== undefined && opts.displayBytes !== null) {
+    payload.display_bytes = opts.displayBytes;
+  }
+  if (opts?.originalBytes !== undefined && opts.originalBytes !== null) {
+    payload.original_bytes = opts.originalBytes;
+  }
+  if (opts?.compressionMeta !== undefined) {
+    payload.compression_meta = opts.compressionMeta;
   }
   return supabase.from("artwork_images").insert(payload);
 }

@@ -1,4 +1,19 @@
 import { supabase } from "./client";
+import { compressArtworkImage } from "@/lib/image/compress";
+
+/** Serializable subset of the compressor's meta — matches the DB
+ *  `artwork_images.compression_meta` jsonb shape. */
+export type ArtworkImageCompressionMeta = {
+  algo: "canvas-webp";
+  quality: number;
+  longEdge: number;
+  sourceMime: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  outWidth: number;
+  outHeight: number;
+  iterations: number;
+};
 
 const BUCKET = "artworks";
 
@@ -13,17 +28,113 @@ function sanitizeFilename(name: string): string {
   return (sanitized || "image") + ext;
 }
 
+/**
+ * 2026-07-28 — 자동 압축 + 원본 백업 업로드 결과.
+ *
+ * `displayPath` 는 표시용 (WebP, 4K, ≤ 50 MiB) 이고, 코드베이스 전체가
+ * 지금까지 다뤄온 `artwork_images.storage_path` 에 저장된다. `originalPath`
+ * 는 아티스트가 나중에 다운로드/재편집 가능하도록 `{userId}/original/...`
+ * 밑에 보관한 untouched 원본 (nullable — 압축이 skipped 된 케이스에서는
+ * displayPath === 원본 경로 하나만 존재).
+ */
+export type ArtworkImageUploadResult = {
+  displayPath: string;
+  displayBytes: number;
+  originalPath: string | null;
+  originalBytes: number;
+  /** NULL 이면 압축이 skipped (원본이 그대로 표시본). */
+  compressionMeta: ArtworkImageCompressionMeta | null;
+  /** 압축이 어떤 이유로 skip 되었는지 (정상 압축 완료면 undefined). */
+  skippedReason?: "unsupported-mime" | "decode-failed" | "encode-failed" | "still-too-large" | "no-canvas-api" | "animated";
+};
+
+/**
+ * 아트워크 이미지 업로드 (자동 압축 + 원본 백업).
+ *
+ * 파이프라인:
+ *   1. 클라이언트에서 `compressArtworkImage` 로 표시용 파일 생성
+ *      (WebP 4K q88, 반드시 ≤ 50 MiB). 원본은 그대로 유지.
+ *   2. 표시본을 `{userId}/{uuid}-<name>.webp` 로 upload.
+ *   3. (압축이 skipped 되지 않은 경우) 원본을 `{userId}/original/{uuid}-<name>`
+ *      로 upload. 원본 upload 가 실패해도 표시본은 이미 저장됐으므로
+ *      artwork 자체는 정상 노출되며, `originalPath = null` 로 반환 →
+ *      caller 가 감지 후 나중에 재시도할 수 있다 (지금은 로깅만).
+ *
+ * Storage RLS 정책 (`can_manage_artworks_storage_path`) 은 첫 세그먼트가
+ * auth.uid() 인지 확인하므로 `{userId}/original/...` 도 자동으로 커버.
+ * 새 정책이나 새 bucket 이 필요하지 않다.
+ *
+ * 압축이 skipped 되고 원본이 서버 상한 (50 MiB) 을 넘는 경우, 표시본
+ * upload 자체가 서버에서 튕겨지며 여기서 그대로 throw. Caller 는 pre-check
+ * 에서 `isCompressibleMime` false 이고 파일 > 50 MiB 인 조합을 먼저 걸러야
+ * 한다 (limits.ts).
+ */
 export async function uploadArtworkImage(
   file: File,
   userId: string
-): Promise<string> {
-  const safeName = sanitizeFilename(file.name);
-  const path = `${userId}/${crypto.randomUUID()}-${safeName}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    upsert: false,
-  });
-  if (error) throw error;
-  return path;
+): Promise<ArtworkImageUploadResult> {
+  const compressed = await compressArtworkImage(file);
+  const uuid = crypto.randomUUID();
+
+  if (compressed.skipped) {
+    // 압축 폴백 — 원본 자체를 표시본으로 쓴다. 원본 백업 별도 저장 안 함
+    // (같은 파일이므로).
+    const safeName = sanitizeFilename(file.name);
+    const displayPath = `${userId}/${uuid}-${safeName}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
+      upsert: false,
+    });
+    if (error) throw error;
+    return {
+      displayPath,
+      displayBytes: compressed.originalBytes,
+      originalPath: null,
+      originalBytes: compressed.originalBytes,
+      compressionMeta: null,
+      skippedReason: compressed.reason,
+    };
+  }
+
+  // 정상 압축 경로: 표시본 + 원본 별도 slot
+  const safeDisplayName = sanitizeFilename(compressed.displayFile.name);
+  const safeOriginalName = sanitizeFilename(file.name);
+  const displayPath = `${userId}/${uuid}-${safeDisplayName}`;
+  const originalPath = `${userId}/original/${uuid}-${safeOriginalName}`;
+
+  const { error: displayErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(displayPath, compressed.displayFile, {
+      upsert: false,
+      contentType: "image/webp",
+    });
+  if (displayErr) throw displayErr;
+
+  // 원본 백업 — 실패해도 artwork 는 정상 노출되므로 log 만.
+  // (Caller 가 나중에 재시도 UI 를 붙일 수 있게 originalPath=null 반환.)
+  let savedOriginalPath: string | null = null;
+  try {
+    const { error: originalErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(originalPath, file, {
+        upsert: false,
+        contentType: file.type || "application/octet-stream",
+      });
+    if (!originalErr) {
+      savedOriginalPath = originalPath;
+    } else {
+      console.warn("[storage] original backup upload failed", originalErr);
+    }
+  } catch (originalCatch) {
+    console.warn("[storage] original backup upload threw", originalCatch);
+  }
+
+  return {
+    displayPath,
+    displayBytes: compressed.displayBytes,
+    originalPath: savedOriginalPath,
+    originalBytes: compressed.originalBytes,
+    compressionMeta: compressed.meta,
+  };
 }
 
 /** Upload exhibition media image. Path: exhibition-media/{exhibitionId}/{uuid}-{name}. Uses same bucket as artworks. */
