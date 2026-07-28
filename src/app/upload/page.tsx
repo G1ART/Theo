@@ -19,6 +19,7 @@ import {
   createExternalArtistAndClaim,
   searchWorksForDedup,
 } from "@/lib/provenance/rpc";
+import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { addWorkToExhibition } from "@/lib/supabase/exhibitions";
@@ -101,6 +102,12 @@ function UploadPageContent() {
   const [reselectedExternalMeta, setReselectedExternalMeta] = useState<
     { worksCount: number; latestCovers: string[] } | null
   >(null);
+  /**
+   * QA 2026-07-28 Phase B: PII-safe "이 이메일로 이미 초대된 외부 작가가
+   * 있어요" 감지. 배너 chip 으로 노출해 큐레이터가 새 초대장이 발송된다고
+   * 오해하지 않고 기존 계정에 연결된다는 사실을 이해하게 함.
+   */
+  const [pendingInviteForEmail, setPendingInviteForEmail] = useState(false);
   const [selectedArtist, setSelectedArtist] = useState<ArtistOption | null>(
     preselectedArtistId
       ? {
@@ -237,6 +244,34 @@ function UploadPageContent() {
     const t = setTimeout(doSearchArtists, 300);
     return () => clearTimeout(t);
   }, [artistSearch, doSearchArtists]);
+
+  /**
+   * QA 2026-07-28 Phase B: debounced existence probe. Only queries when
+   * the operator is in "invite by email" mode and the input parses as an
+   * email. Reselected (Phase 3) rows already carry `pendingInviteForEmail`
+   * implicitly via `preselectedExternalArtistId`, so this probe defers to
+   * them and does not fire on those cases.
+   */
+  useEffect(() => {
+    if (!useExternalArtist || externalNoEmail || preselectedExternalArtistId) {
+      setPendingInviteForEmail(false);
+      return;
+    }
+    const raw = externalArtistEmail.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(raw)) {
+      setPendingInviteForEmail(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const { data } = await externalArtistEmailExists(raw);
+      if (!cancelled) setPendingInviteForEmail(!!data);
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [useExternalArtist, externalNoEmail, externalArtistEmail, preselectedExternalArtistId]);
 
   const needsAttribution = (v: IntentType | null) => v !== "CREATED";
 
@@ -659,6 +694,18 @@ function UploadPageContent() {
                   />
                   <span>{t("upload.externalArtistNoEmail")}</span>
                 </label>
+                {/*
+                  QA 2026-07-28 Phase C: no-email invites bypass all
+                  dedupe + auto-onboarding-link. Flag this explicitly so
+                  the operator understands the trade-off. Reselected
+                  external artists (Phase 3) legitimately hide their email
+                  for privacy, so the warning is suppressed there.
+                */}
+                {externalNoEmail && !preselectedExternalArtistId && (
+                  <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                    {t("upload.externalArtist.noEmailWarning")}
+                  </p>
+                )}
               </div>
             ) : (
               <>
@@ -787,7 +834,9 @@ function UploadPageContent() {
             */}
             {needsAttribution(intent) && useExternalArtist && !externalNoEmail && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(externalArtistEmail.trim()) && (
               <p className="mt-2 text-xs text-zinc-500">
-                {t("upload.inviteWillSendOnPublish")}
+                {(preselectedExternalArtistId || pendingInviteForEmail)
+                  ? t("upload.emailAlreadyInvitedHint")
+                  : t("upload.inviteWillSendOnPublish")}
               </p>
             )}
           </div>
@@ -810,6 +859,11 @@ function UploadPageContent() {
                 }
                 isExternal={useExternalArtist}
                 externalEmail={useExternalArtist ? externalArtistEmail : null}
+                hasPendingInviteForEmail={
+                  // Phase 3 재선택은 이미 기존 초대장을 재사용하는 것이
+                  // 확정. Phase B 의 email 존재 probe 도 같은 사실을 알린다.
+                  Boolean(preselectedExternalArtistId) || pendingInviteForEmail
+                }
                 onChange={() => setStep("attribution")}
               />
             )}

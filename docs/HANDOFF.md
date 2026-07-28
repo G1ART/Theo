@@ -1,6 +1,158 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-27
+Last updated: 2026-07-28
+
+## 2026-07-28 — 외부 작가 dedupe/온보딩 정합화 (5단계 패치) ✅ SQL 자동 적용됨
+
+### 배경
+사용자가 실제 시나리오로 지적한 근본 문제:
+- 갤러리 B가 미온보딩 작가 A(email=a@x.com) 를 업로드 흐름으로 초대
+- 이후 큐레이터 C 가 같은 이름·이메일로 A 참조 → 지금까지 어떻게 됐는가?
+- A 가 나중에 온보딩하면 B·C 양쪽 초대 작품이 하나의 A 프로필로 정말
+  뭉쳐지는가?
+
+코드 추적 결과 두 가지 실질 버그를 발견:
+
+1. **하드 버그** — Phase 3 (2026-07-27 `20260727000000_search_people_with_external.sql`) 로
+   교체한 `create_external_artist_and_claim` v3 가 fallback lookup 을
+   **per-inviter** (`invited_by = v_uid`) 로 인라인 재작성해 `20260702000000`
+   의 전역 email dedupe 를 우회. 결과: C 의 upload 가 `uq_external_artists_email_global`
+   unique violation 으로 실패 (RPC 에 `exception when unique_violation`
+   handler 없음). C 의 작품은 draft 로 남거나 그대로 lost.
+2. **온보딩 사각지대** — 이메일 없이 이름만으로 초대된 external_artists
+   행은 email 기반 auth signup 트리거가 절대 회수하지 못함. no-email
+   invitee 는 온보딩 후에도 orphan 상태로 남음.
+
+### Phase A — global email dedupe hotfix (버그 1 즉시 해결)
+- 신규: `supabase/migrations/20260728000000_external_artist_and_claim_global_email_dedupe.sql`
+- `create_external_artist_and_claim` v4 로 교체. fallback lookup 을
+  아예 제거하고 **`get_or_create_external_artist(name, email)`** 을 호출해
+  전역 email dedupe + `unique_violation` retry 를 위임. 명시적
+  `p_external_artist_id` 재선택 경로는 그대로 유지.
+- 결과: C 가 같은 email 로 upload 하면 B 가 만든 row 를 재사용, 새 claim
+  이 그 row 에 붙어 A 온보딩 시 auth 트리거가 정상 이관.
+
+### Phase B — cross-inviter email 힌트 (PII-safe)
+- 신규 RPC: `external_artist_email_exists(p_email text) → boolean`
+  (`20260728000001_external_artist_email_exists_rpc.sql`). 반환값은
+  boolean 하나. 초대자·이름·초대시각 등 어떤 식별 정보도 노출하지 않음.
+- 클라이언트 wrapper: `externalArtistEmailExists(email)` 를
+  `src/lib/provenance/externalArtists.ts` 에 추가.
+- Upload 화면 (`upload/page.tsx`, `upload/bulk/page.tsx`) 에 350ms
+  debounced 이메일 존재 probe 배선. 존재 시:
+  - `AttributionContextBanner` 의 `hasPendingInviteForEmail` prop 활성화 →
+    "이미 이 이메일로 초대장이 대기 중" 회색 chip 표시.
+  - 확인 버튼 밑 힌트가 `upload.inviteWillSendOnPublish` 대신
+    `upload.emailAlreadyInvitedHint` ("이미 초대 대기 중인 이메일이에요 —
+    새 이메일은 발송되지 않고, 이 작품은 같은 작가 계정에 연결됩니다.") 로 전환.
+- Phase 3 재선택 (`preselectedExternalArtistId`) 경로는 이미 확정이므로
+  probe 를 스킵.
+
+### Phase C — no-email 초대 amber 경고
+- Upload 화면 두 곳에서 "이메일이 없다" 체크박스 옆에 amber 경고 카드:
+  `upload.externalArtist.noEmailWarning` ("이메일 없이 초대하면 다른
+  큐레이터가 나중에 같은 작가를 찾을 때 재사용되지 않고, 온보딩 시
+  자동 연결도 되지 않아요."). Phase 3 재선택 경로는 privacy 상 email 이
+  숨겨진 케이스라 경고 억제.
+
+### Phase D — 온보딩 후 orphan 초대장 self-claim
+- 신규 마이그레이션: `supabase/migrations/20260728000002_orphan_external_artist_claim.sql`.
+- 신규 notification type: `orphan_external_claimed` (check constraint
+  확장 포함).
+- 신규 RPC (SECURITY DEFINER):
+  - `search_orphan_external_artists_for_me(p_q text default null)` —
+    caller 의 프로필 display_name (또는 임의 검색어) 과 이름이 유사한
+    unclaimed external_artists 를 반환. `nullif(trim(invite_email), '') is null`
+    만 대상 (email 있는 건 auth 트리거의 관할). 반환: 초대자
+    display_name / username, 작품 수, 최근 3 개 primary cover paths.
+  - `claim_orphan_external_artist_as_self(p_external_artist_id uuid)` —
+    caller 가 자기 프로필로 orphan row 를 흡수. **가드**: caller 프로필
+    display_name 이 대상 행의 display_name / KO / EN 중 하나와
+    case-insensitive 로 정확 일치해야 함. 이관 로직은 auth 트리거와
+    동일 (claims + artworks + external_artists.status='claimed'). 완료 후
+    원 inviter 에게 `orphan_external_claimed` notification 발송 (실패해도
+    claim 은 롤백하지 않음).
+- 신규 클라이언트 wrapper: `searchOrphanExternalArtistsForMe`,
+  `claimOrphanExternalArtistAsSelf` (`src/lib/provenance/externalArtists.ts`).
+- 신규 UI:
+  - `src/components/onboarding/OrphanInvitesBanner.tsx` — /my 진입 시
+    한 번 조회, 후보가 있으면 amber 카드 (dismissible) 로 "본인 것일 수
+    있는 초대장 N 건이 확인을 기다립니다" 안내 + `/my/orphan-invites` 링크.
+    후보 0 건이면 아무것도 렌더하지 않음.
+  - `src/app/my/orphan-invites/page.tsx` — 검색창 (기본값: 내 이름) + 후보
+    카드 (초대자, 작품 수, 최근 cover 3개) + confirm dialog 로 "이건
+    저예요" claim.
+  - `/my/artists` 에 `/my/orphan-invites` 로 가는 소개 링크 추가.
+  - `/my` 페이지에서 `actingAsProfileId` 없을 때 배너 렌더.
+- 신규 i18n 키: `orphanInvites.*` (title/subtitle/searchPlaceholder/
+  searchCta/empty/invitedBy/invitedByUnknown/worksCount/claimCta/
+  confirmTitle/confirmBody/confirmCta/claimed/claimFailed/banner.*).
+- 신규 i18n 키: `upload.emailAlreadyInvitedHint`,
+  `upload.externalArtist.noEmailWarning`.
+
+### Phase E — 관리자용 병합 도구 (역사적 duplicate 정리)
+- 신규 마이그레이션: `supabase/migrations/20260728000003_admin_merge_external_artists.sql`.
+- 신규 테이블: `public.platform_admins (profile_id, granted_at, note)`.
+  RLS: 자기 자신 read only. **비어있음** — ops 는 SQL Editor 에서 수동
+  seed 필요:
+
+  ```sql
+  insert into public.platform_admins (profile_id, note)
+  values ('<your-profile-uuid>', 'ops');
+  ```
+
+- 신규 RPC (모두 `is_ops_user()` gate):
+  - `is_ops_user() → boolean`
+  - `admin_search_external_artist_duplicates()` — bucket 별 duplicate
+    후보 그룹 반환 (`noemail-name`, `mixed-email-noemail`).
+  - `admin_fetch_external_artist_batch(p_ids uuid[])` — 상세 batch 조회.
+  - `admin_merge_external_artists(p_source_ids uuid[], p_target_id uuid)` —
+    최대 20 개까지 source 를 target 에 병합. claims 재지정 +
+    메타(website/instagram/display_name_ko/en) backfill (target 이 비어있을 때만) +
+    source 는 `status='merged'`, `invite_email=null` (unique slot 회수),
+    display_name 앞에 `[merged->{target}]` 감사 marker. Roll back 불가.
+- 신규 클라이언트 wrapper: `src/lib/provenance/adminExternalArtists.ts`
+  (`isOpsUser`, `adminSearchExternalArtistDuplicates`,
+  `adminFetchExternalArtistBatch`, `adminMergeExternalArtists`).
+- 신규 UI: `src/app/my/ops/external-artists/page.tsx` — 그룹 목록 →
+  Inspect → target radio 선택 → confirm dialog → merge. Ops
+  allowlist 에 없으면 "no access" 카드만 렌더. `/my/ops` 에 진입 링크
+  추가.
+
+### 마이그레이션 파일 (Supabase MCP 로 자동 적용됨)
+- `20260728000000_external_artist_and_claim_global_email_dedupe`
+- `20260728000001_external_artist_email_exists_rpc`
+- `20260728000002_orphan_external_artist_claim`
+- `20260728000003_admin_merge_external_artists` (+ 사후 `admin_fetch_external_artist_batch`)
+
+**Supabase SQL 별도 실행 불필요** (전부 MCP `apply_migration` 으로 적용
+완료). Local 마이그레이션 파일들도 rebuild 시 동일 결과가 나오도록
+유지됨.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `npx tsc --noEmit` — 통과
+- `npm run lint` — 새 코드에서는 `/my/orphan-invites/page.tsx:62`
+  (`fetchList` 를 useEffect 안에서 호출) 만 report. 기존 `/my/artists/page.tsx`
+  와 정확히 같은 패턴이라 관례 준수 (다른 pre-existing 에러들과 동일 부류).
+- `is_ops_user()` 정상 반환 확인, `admin_search_external_artist_duplicates()`
+  정상 실행 (service_role 컨텍스트에서 auth.uid() null 이라 조기 return).
+- 5 개 신규 RPC 모두 `pg_proc` 등록 확인.
+
+### 후속 (미포함)
+- `orphan_external_claimed` notification 을 알림 센터 (/my/alerts) UI 에
+  렌더링하는 케이스 추가 (지금은 payload 만 저장됨, 알림 목록 컴포넌트에서
+  type 별 렌더 케이스 추가 필요).
+- Phase D 의 "훔치기 방지" 는 현재 case-insensitive 정확 이름 매칭만.
+  더 강한 방어가 필요하면 초대자 approve 워크플로우로 확장 가능 (현
+  시나리오에는 과잉).
+- `/my/ops` 는 여전히 authenticated 이면 누구나 접근 가능. Phase E 는
+  새 admin RPC 에만 gate 를 적용. 기존 ops UI 의 access model 은 별도
+  하드닝 필요.
+
+---
 
 ## 2026-07-27 — QA 2 Bilingual titles (Phase 4, 스코프 B) ✅ SQL 자동 적용됨
 

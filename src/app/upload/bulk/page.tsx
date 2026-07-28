@@ -22,6 +22,7 @@ import { getSession } from "@/lib/supabase/auth";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
+import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
@@ -169,6 +170,13 @@ export default function BulkUploadPage() {
    * edits `externalArtistName` (drift → we can no longer trust the id).
    */
   const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(null);
+  /**
+   * QA 2026-07-28 Phase B: PII-safe existence probe. Fires whenever the
+   * operator has typed a valid email in the invite path AND has not just
+   * re-selected an existing external artist (Phase 3). See src/lib/
+   * provenance/externalArtists.ts `externalArtistEmailExists`.
+   */
+  const [pendingInviteForEmail, setPendingInviteForEmail] = useState(false);
   /** Snapshot of external re-selection metadata for the UI banner. */
   const [reselectedExternalMeta, setReselectedExternalMeta] = useState<
     { worksCount: number; latestCovers: string[] } | null
@@ -285,6 +293,33 @@ export default function BulkUploadPage() {
   useEffect(() => {
     fetchDrafts();
   }, [fetchDrafts]);
+
+  /**
+   * QA 2026-07-28 Phase B: PII-safe email-existence probe. Debounced
+   * on the invite email input. Skips when the operator has already
+   * selected an existing external artist (Phase 3), since that case is
+   * already conclusive.
+   */
+  useEffect(() => {
+    if (!useExternalArtist || externalNoEmail || preselectedExternalArtistId) {
+      setPendingInviteForEmail(false);
+      return;
+    }
+    const raw = externalArtistEmail.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(raw)) {
+      setPendingInviteForEmail(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const { data } = await externalArtistEmailExists(raw);
+      if (!cancelled) setPendingInviteForEmail(!!data);
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [useExternalArtist, externalNoEmail, externalArtistEmail, preselectedExternalArtistId]);
 
   // When coming from exhibition add with dropped files, pre-fill pending files
   useEffect(() => {
@@ -1048,6 +1083,17 @@ export default function BulkUploadPage() {
                   />
                   <span>{t("upload.externalArtistNoEmail")}</span>
                 </label>
+                {/*
+                  Phase C: no-email invites lose both cross-inviter dedupe
+                  and auto-linking on onboarding. Warn unless the operator
+                  is explicitly re-using an existing external artist row
+                  (Phase 3) where the email is hidden for privacy reasons.
+                */}
+                {externalNoEmail && !preselectedExternalArtistId && (
+                  <p className="max-w-md rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                    {t("upload.externalArtist.noEmailWarning")}
+                  </p>
+                )}
               </div>
             ) : (
               <>
@@ -1207,7 +1253,9 @@ export default function BulkUploadPage() {
             */}
             {useExternalArtist && externalEmailValid && externalArtistEmail.trim() && (
               <p className="mt-2 text-xs text-zinc-500">
-                {t("upload.inviteWillSendOnPublish")}
+                {(preselectedExternalArtistId || pendingInviteForEmail)
+                  ? t("upload.emailAlreadyInvitedHint")
+                  : t("upload.inviteWillSendOnPublish")}
               </p>
             )}
           </div>
@@ -1233,6 +1281,9 @@ export default function BulkUploadPage() {
             }
             isExternal={useExternalArtist}
             externalEmail={useExternalArtist ? externalArtistEmail : null}
+            hasPendingInviteForEmail={
+              Boolean(preselectedExternalArtistId) || pendingInviteForEmail
+            }
             onChange={() => {
               // Reset back to attribution step. Mirror the "back" button
               // in the attribution step to keep state hygiene consistent.

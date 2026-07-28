@@ -101,7 +101,16 @@ export default function MyArtistsPage() {
           ← {t("myArtists.back")}
         </Link>
         <h1 className="mb-2 text-xl font-semibold text-zinc-900">{t("myArtists.title")}</h1>
-        <p className="mb-6 text-sm text-zinc-500">{t("myArtists.subtitle")}</p>
+        <p className="mb-4 text-sm text-zinc-500">{t("myArtists.subtitle")}</p>
+        <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+          <span className="mr-2">{t("orphanInvites.title")}</span>
+          <Link
+            href="/my/orphan-invites"
+            className="font-semibold text-zinc-800 underline-offset-2 hover:underline"
+          >
+            {t("orphanInvites.banner.cta")} →
+          </Link>
+        </div>
 
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
         {notice && <p className="mb-4 text-sm text-emerald-700">{notice}</p>}

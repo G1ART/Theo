@@ -96,6 +96,15 @@ function OpsContent() {
       </Link>
       <h1 className="mb-4 text-xl font-semibold text-zinc-900">Ops <span className="text-sm font-normal text-zinc-400">(internal)</span></h1>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Link
+          href="/my/ops/external-artists"
+          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
+        >
+          External artist merge →
+        </Link>
+      </div>
+
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-lg border border-zinc-200 bg-white p-3 text-center">
           <p className="text-2xl font-bold text-zinc-900">{stats.total}</p>

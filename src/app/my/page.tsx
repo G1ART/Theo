@@ -62,6 +62,7 @@ import { BetaFeedbackPrompt } from "@/components/beta";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { hasAnyRole, isArtistRole } from "@/lib/identity/roles";
 import { DelegationBriefPanel } from "@/components/delegation/DelegationBriefPanel";
+import { OrphanInvitesBanner } from "@/components/onboarding/OrphanInvitesBanner";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { FloorPanel } from "@/components/ds/FloorPanel";
@@ -607,6 +608,14 @@ export default function MyPage() {
             principalName={profile.display_name ?? profile.username ?? null}
           />
         )}
+
+        {/*
+          QA 2026-07-28 Phase D: surface any name-only invitations that
+          may belong to this artist so they can consolidate their catalog
+          under a single profile. Renders nothing if there are no
+          candidates.
+        */}
+        {!actingAsProfileId && <OrphanInvitesBanner />}
 
         {/* Sprint 6.2 — the owner-mode entry to network surfaces is
             now the calm "네트워크" pill on the StudioHero action row.
