@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { compressArtworkImage } from "@/lib/image/compress";
+import { renderPdfFirstPageAsWebp } from "@/lib/pdf/renderThumbnail";
 
 /** Serializable subset of the compressor's meta — matches the DB
  *  `artwork_images.compression_meta` jsonb shape. */
@@ -137,18 +138,232 @@ export async function uploadArtworkImage(
   };
 }
 
-/** Upload exhibition media image. Path: exhibition-media/{exhibitionId}/{uuid}-{name}. Uses same bucket as artworks. */
+/**
+ * 2026-07-28 (QA) — exhibition media 업로드 결과.
+ *
+ * 이미지: artwork 와 동일한 4K/WebP 자동 압축 파이프라인을 태우고
+ *   `original_storage_path` 슬롯에 원본 백업. `mediaKind='image'`.
+ * PDF (포스터/도록/초대장 등): 클라이언트 pdf.js 로 첫 페이지를 WebP
+ *   썸네일로 렌더 후 `displayPath` 에 업로드, 원본 PDF 는
+ *   `originalPath` 에 백업. UI 는 썸네일을 `<Image>` 로 그리고
+ *   'PDF' 배지 + click → 원본 PDF 새 탭 오픈. `mediaKind='pdf'`.
+ *   썸네일 렌더 실패 (암호화/손상) 시 원본 PDF 를 `displayPath` 에
+ *   두고 `originalPath = null` — UI 는 아이콘 카드로 폴백.
+ *
+ * 경로 규약:
+ *   - 표시본 : `exhibition-media/{exhibition_id}/{uuid}-<name>`
+ *   - 원본 백업: `exhibition-media/{exhibition_id}/original/{uuid}-<name>`
+ *
+ * Storage RLS (`can_manage_artworks_storage_path` — see
+ * 20260701000003_artwork_storage_current_owner.sql) 는 이미
+ * `exhibition-media/{uuid}/...` 를 커버하므로 `original/` 서브 세그먼트도
+ * 자동 허용. 새 policy 필요 없음.
+ */
+export type ExhibitionMediaUploadResult = {
+  displayPath: string;
+  displayBytes: number;
+  originalPath: string | null;
+  originalBytes: number;
+  mediaKind: "image" | "pdf";
+  compressionMeta: ArtworkImageCompressionMeta | null;
+  /**
+   * PDF 케이스에서 pdf.js 로 첫 페이지 썸네일이 정상 생성됐는지. UI 가
+   * "썸네일 대신 아이콘 카드로 폴백" 을 판단할 때 참고.
+   */
+  pdfThumbnailReady?: boolean;
+  /** 압축이 skipped 된 이유 (이미지에 한함). PDF 는 애초에 압축 시도 안 함. */
+  skippedReason?: "unsupported-mime" | "decode-failed" | "encode-failed" | "still-too-large" | "no-canvas-api" | "animated";
+};
+
+const EXHIBITION_MEDIA_PDF_MAX_BYTES = 50 * 1024 * 1024;
+
+function isPdfFile(file: File): boolean {
+  if (file.type === "application/pdf") return true;
+  return /\.pdf$/i.test(file.name);
+}
+
+/** 원본 PDF 파일명에서 `.pdf` 확장자를 떼서 `<basename>.webp` 로 변환. */
+function derivePdfThumbnailName(pdfFileName: string): string {
+  const base = pdfFileName.replace(/\.pdf$/i, "") || "poster";
+  return `${base}.webp`;
+}
+
+export class ExhibitionMediaValidationError extends Error {
+  readonly code: "pdf_too_large" | "unsupported_mime";
+  readonly limitBytes?: number;
+  constructor(code: "pdf_too_large" | "unsupported_mime", message: string, limitBytes?: number) {
+    super(message);
+    this.code = code;
+    this.limitBytes = limitBytes;
+    this.name = "ExhibitionMediaValidationError";
+  }
+}
+
+/**
+ * Upload exhibition media (image or PDF poster/attachment).
+ *
+ * 이미지: 압축 + 원본 백업 (artwork 와 동일 파이프라인).
+ * PDF: pdf.js 로 첫 페이지 WebP 썸네일 생성 → 썸네일을 `displayPath` 에
+ *   업로드, 원본 PDF 를 `originalPath` 에 백업. 실패 시 원본만 저장.
+ *
+ * Caller 는 반환 결과의 `mediaKind` / `displayPath` / `originalPath` 를
+ * `insertExhibitionMedia` 에 그대로 넘겨 저장한다.
+ */
 export async function uploadExhibitionMedia(
   file: File,
   exhibitionId: string
-): Promise<string> {
-  const safeName = sanitizeFilename(file.name);
-  const path = `exhibition-media/${exhibitionId}/${crypto.randomUUID()}-${safeName}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    upsert: false,
-  });
-  if (error) throw error;
-  return path;
+): Promise<ExhibitionMediaUploadResult> {
+  const uuid = crypto.randomUUID();
+
+  if (isPdfFile(file)) {
+    if (file.size > EXHIBITION_MEDIA_PDF_MAX_BYTES) {
+      throw new ExhibitionMediaValidationError(
+        "pdf_too_large",
+        `PDF is over the ${(EXHIBITION_MEDIA_PDF_MAX_BYTES / (1024 * 1024)).toFixed(0)} MB limit.`,
+        EXHIBITION_MEDIA_PDF_MAX_BYTES
+      );
+    }
+
+    // Step 1: try to render a WebP thumbnail of page 1. Failures
+    // (encrypted / corrupt / worker unreachable) fall back to
+    // "PDF-only, no thumbnail" so the upload still succeeds and the UI
+    // shows an icon card.
+    let thumbnailBlob: Blob | null = null;
+    try {
+      const thumb = await renderPdfFirstPageAsWebp(file);
+      thumbnailBlob = thumb.blob;
+    } catch (err) {
+      console.warn("[storage] pdf thumbnail generation failed, falling back to icon card", err);
+    }
+
+    const safeOriginalName = sanitizeFilename(file.name);
+    const originalPath = `exhibition-media/${exhibitionId}/original/${uuid}-${safeOriginalName}`;
+
+    // Step 2: upload the display asset first. If we have a thumbnail
+    // it's a compact WebP; otherwise it's the raw PDF at the display
+    // path (legacy icon-card path).
+    if (thumbnailBlob) {
+      const safeThumbName = sanitizeFilename(derivePdfThumbnailName(file.name));
+      const displayPath = `exhibition-media/${exhibitionId}/${uuid}-${safeThumbName}`;
+      const { error: displayErr } = await supabase.storage.from(BUCKET).upload(
+        displayPath,
+        thumbnailBlob,
+        { upsert: false, contentType: "image/webp" },
+      );
+      if (displayErr) throw displayErr;
+
+      // Step 3: upload the untouched PDF as the "original". Best-effort:
+      // failure here means the display thumbnail exists but the "open
+      // original PDF" link won't resolve. Return with originalPath=null
+      // so the caller stores that state and the UI can degrade quietly.
+      let savedOriginalPath: string | null = null;
+      try {
+        const { error: originalErr } = await supabase.storage.from(BUCKET).upload(
+          originalPath,
+          file,
+          { upsert: false, contentType: "application/pdf" },
+        );
+        if (!originalErr) {
+          savedOriginalPath = originalPath;
+        } else {
+          console.warn("[storage] pdf original upload failed after thumbnail success", originalErr);
+        }
+      } catch (originalCatch) {
+        console.warn("[storage] pdf original upload threw", originalCatch);
+      }
+
+      return {
+        displayPath,
+        displayBytes: thumbnailBlob.size,
+        originalPath: savedOriginalPath,
+        originalBytes: file.size,
+        mediaKind: "pdf",
+        compressionMeta: null,
+        pdfThumbnailReady: true,
+      };
+    }
+
+    // Fallback: no thumbnail available. Upload the raw PDF as the
+    // display path so callers/UI still find something at storage_path.
+    // The UI renders an icon card for PDFs when pdfThumbnailReady is
+    // false (or when storage_path ends with `.pdf`).
+    const displayPath = `exhibition-media/${exhibitionId}/${uuid}-${safeOriginalName}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
+      upsert: false,
+      contentType: "application/pdf",
+    });
+    if (error) throw error;
+    return {
+      displayPath,
+      displayBytes: file.size,
+      originalPath: null,
+      originalBytes: file.size,
+      mediaKind: "pdf",
+      compressionMeta: null,
+      pdfThumbnailReady: false,
+    };
+  }
+
+  // Image path: reuse the compression pipeline built for artworks.
+  const compressed = await compressArtworkImage(file);
+
+  if (compressed.skipped) {
+    // 압축 폴백 (HEIC/애니메이션 GIF/decode 실패 등) — 원본 자체를 표시본으로.
+    const safeName = sanitizeFilename(file.name);
+    const displayPath = `exhibition-media/${exhibitionId}/${uuid}-${safeName}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
+      upsert: false,
+    });
+    if (error) throw error;
+    return {
+      displayPath,
+      displayBytes: compressed.originalBytes,
+      originalPath: null,
+      originalBytes: compressed.originalBytes,
+      mediaKind: "image",
+      compressionMeta: null,
+      skippedReason: compressed.reason,
+    };
+  }
+
+  const safeDisplayName = sanitizeFilename(compressed.displayFile.name);
+  const safeOriginalName = sanitizeFilename(file.name);
+  const displayPath = `exhibition-media/${exhibitionId}/${uuid}-${safeDisplayName}`;
+  const originalPath = `exhibition-media/${exhibitionId}/original/${uuid}-${safeOriginalName}`;
+
+  const { error: displayErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(displayPath, compressed.displayFile, {
+      upsert: false,
+      contentType: "image/webp",
+    });
+  if (displayErr) throw displayErr;
+
+  let savedOriginalPath: string | null = null;
+  try {
+    const { error: originalErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(originalPath, file, {
+        upsert: false,
+        contentType: file.type || "application/octet-stream",
+      });
+    if (!originalErr) {
+      savedOriginalPath = originalPath;
+    } else {
+      console.warn("[storage] exhibition-media original backup upload failed", originalErr);
+    }
+  } catch (originalCatch) {
+    console.warn("[storage] exhibition-media original backup upload threw", originalCatch);
+  }
+
+  return {
+    displayPath,
+    displayBytes: compressed.displayBytes,
+    originalPath: savedOriginalPath,
+    originalBytes: compressed.originalBytes,
+    mediaKind: "image",
+    compressionMeta: compressed.meta,
+  };
 }
 
 export async function removeStorageFile(path: string): Promise<void> {

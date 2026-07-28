@@ -54,6 +54,16 @@ export type ExhibitionMediaRow = {
   storage_path: string;
   sort_order: number | null;
   created_at: string;
+  /**
+   * 2026-07-28 (QA) — 첨부 종류. 'image' (기본) 는 썸네일 렌더링,
+   * 'pdf' 는 아이콘 카드 + 열기 링크. 옛 row 는 default 'image' 로
+   * 저장돼 legacy 렌더링이 그대로 유지된다.
+   */
+  media_kind: "image" | "pdf";
+  /** 자동 압축 시 원본 백업 경로 (image 만). */
+  original_storage_path: string | null;
+  display_bytes: number | null;
+  original_bytes: number | null;
 };
 
 export type ExhibitionMediaBucketRow = {
@@ -823,7 +833,9 @@ export async function listExhibitionMedia(exhibitionId: string): Promise<{
 }> {
   const { data, error } = await supabase
     .from("exhibition_media")
-    .select("id, exhibition_id, type, bucket_title, storage_path, sort_order, created_at")
+    .select(
+      "id, exhibition_id, type, bucket_title, storage_path, sort_order, created_at, media_kind, original_storage_path, display_bytes, original_bytes"
+    )
     .eq("exhibition_id", exhibitionId)
     .order("sort_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true });
@@ -847,7 +859,12 @@ export function groupExhibitionMediaByBucket(
   bucketRows?: ExhibitionMediaBucketRow[]
 ): ExhibitionMediaBucket[] {
   const byKey = new Map<string, ExhibitionMediaRow[]>();
+  // 2026-07-28 (QA) — poster 를 default 버킷으로 승격. 스키마의 type
+  // check 는 여전히 ('installation'|'side_event'|'custom') 이라 poster
+  // 는 `type='custom'` + `bucket_title='poster'` (key='poster') 로 저장
+  // 한다. 여기서 표시 이름만 i18n key 로 매핑.
   const defaultTitles: Record<string, string> = {
+    poster: "exhibition.posters",
     installation: "exhibition.installationViews",
     side_event: "exhibition.sideEvents",
   };
@@ -858,25 +875,38 @@ export function groupExhibitionMediaByBucket(
   }
   const buckets = Array.from(byKey.entries()).map(([key, items]) => {
     const first = items[0];
+    // installation / side_event 는 스키마 type 그대로. poster 는
+    // 'custom' 슬롯에 얹혀서 저장되므로 insertType='custom' + bucket_title='poster'.
     const insertType: "installation" | "side_event" | "custom" =
-      key === "installation" ? "installation" : key === "side_event" ? "side_event" : "custom";
+      key === "installation"
+        ? "installation"
+        : key === "side_event"
+          ? "side_event"
+          : "custom";
     return {
       key,
       title: defaultTitles[key] ? t(defaultTitles[key]) : key,
       items,
       insertType,
-      insertBucketTitle: insertType === "custom" ? (first?.bucket_title?.trim() || key) : null,
+      insertBucketTitle:
+        insertType === "custom"
+          ? (first?.bucket_title?.trim() || key)
+          : null,
     };
   });
-  // Ensure installation and side_event exist (for "add photo" UI even when empty)
-  for (const k of ["installation", "side_event"]) {
+  // Ensure default buckets exist even when empty so the "add photo/PDF"
+  // UI is always discoverable. Poster is first so exhibition posters
+  // (인바이트/도록/전시 대표 이미지) are the top-of-page attachment slot.
+  for (const k of ["poster", "installation", "side_event"]) {
     if (!byKey.has(k)) {
       buckets.push({
         key: k,
         title: defaultTitles[k] ? t(defaultTitles[k]) : k,
         items: [],
-        insertType: k as "installation" | "side_event",
-        insertBucketTitle: null,
+        insertType: (k === "installation" || k === "side_event"
+          ? k
+          : "custom") as "installation" | "side_event" | "custom",
+        insertBucketTitle: k === "poster" ? "poster" : null,
       });
     }
   }
@@ -907,16 +937,37 @@ export async function insertExhibitionMedia(args: {
   bucket_title?: string | null;
   storage_path: string;
   sort_order?: number | null;
+  /** 2026-07-28 (QA) — 'pdf' 첨부일 경우 명시. 생략 시 default 'image'. */
+  media_kind?: "image" | "pdf";
+  /** 자동 압축 원본 백업 경로 (image 만). */
+  original_storage_path?: string | null;
+  display_bytes?: number | null;
+  original_bytes?: number | null;
+  compression_meta?: Record<string, unknown> | null;
 }): Promise<{ data: { id: string } | null; error: unknown }> {
+  const payload: Record<string, unknown> = {
+    exhibition_id: args.exhibition_id,
+    type: args.type,
+    bucket_title: args.bucket_title?.trim() || null,
+    storage_path: args.storage_path,
+    sort_order: args.sort_order ?? 0,
+    media_kind: args.media_kind ?? "image",
+  };
+  if (args.original_storage_path !== undefined) {
+    payload.original_storage_path = args.original_storage_path;
+  }
+  if (args.display_bytes !== undefined && args.display_bytes !== null) {
+    payload.display_bytes = args.display_bytes;
+  }
+  if (args.original_bytes !== undefined && args.original_bytes !== null) {
+    payload.original_bytes = args.original_bytes;
+  }
+  if (args.compression_meta !== undefined) {
+    payload.compression_meta = args.compression_meta;
+  }
   const { data, error } = await supabase
     .from("exhibition_media")
-    .insert({
-      exhibition_id: args.exhibition_id,
-      type: args.type,
-      bucket_title: args.bucket_title?.trim() || null,
-      storage_path: args.storage_path,
-      sort_order: args.sort_order ?? 0,
-    })
+    .insert(payload)
     .select("id")
     .single();
   if (error) return { data: null, error };
@@ -931,9 +982,14 @@ export async function deleteExhibitionMedia(id: string): Promise<{ error: unknow
 
 /** Ensure fixed default buckets exist for this exhibition. */
 export async function ensureDefaultExhibitionMediaBuckets(exhibitionId: string): Promise<{ error: unknown }> {
+  // 2026-07-28 (QA) — poster 를 default 로 승격. sort_order 0 (맨 위)
+  // 이라 사용자가 새 전시에 접속했을 때 "포스터 여기 올리세요" 슬롯이
+  // 즉시 보임. type='custom' 슬롯을 재활용하고 (schema 변경 회피) key
+  // 로만 poster 를 구분한다.
   const rows = [
-    { exhibition_id: exhibitionId, key: "installation", title: "installation", type: "installation", sort_order: 0 },
-    { exhibition_id: exhibitionId, key: "side_event", title: "side_event", type: "side_event", sort_order: 1 },
+    { exhibition_id: exhibitionId, key: "poster",       title: "poster",       type: "custom",       sort_order: 0 },
+    { exhibition_id: exhibitionId, key: "installation", title: "installation", type: "installation", sort_order: 1 },
+    { exhibition_id: exhibitionId, key: "side_event",   title: "side_event",   type: "side_event",   sort_order: 2 },
   ];
   const { error } = await supabase
     .from("exhibition_media_buckets")

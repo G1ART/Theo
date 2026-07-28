@@ -2,6 +2,117 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — 전시 미디어: PDF 첨부(썸네일 렌더) + 자동 압축 + 포스터 버킷 + 파일별 진행률 ✅ SQL 자동 적용됨
+
+### 배경 (QA)
+> "전시 탭에서 installation/포스터 업로드시 pdf, jpg 업로드가 안됩니다.
+> (draft 생성시까지 오래걸림, 이후 최종업로드가 안됨)"
+
+디버깅 결과 4가지 원인이 얽혀 있었음:
+1. `<input accept="image/*">` — PDF 는 파일 대화상자에서 처음부터 노출조차 안 됨.
+2. 대용량 JPG (수십 MB) 가 Supabase Storage 서버 벽 (50 MiB) 에서 튕겨나감.
+3. Draft 생성이 "오래 걸리는" 것처럼 보이는 이유: 대용량 이미지 blob preview URL 생성 + `<Image>` 로 큐에 그리는 렌더 부담.
+4. 여러 파일을 한번에 올릴 때 어떤 파일에서 실패했는지 UI 로 알 방법 없음.
+
+### 새 의존성 ⚠️
+- **`pdfjs-dist` (^4.10.38)** — 새로 설치. `npm install pdfjs-dist`.
+  Dynamic import 라 초기 번들에 포함되지 않음 (사용자가 PDF 를 고른 순간에만 로드).
+  Worker 는 `https://cdn.jsdelivr.net/npm/pdfjs-dist@{version}/build/pdf.worker.min.mjs` (installed 버전에 pinned).
+  로컬/Vercel 모두 재설정 필요 없음. cmap/standard fonts 도 같은 CDN 에서 fetch — 한국어/일본어 포스터가 tofu 없이 렌더됨.
+
+### DB (`20260728200000_exhibition_media_pdf_and_compression.sql`) — 자동 적용됨
+`public.exhibition_media` 에 5개 컬럼 추가:
+- `media_kind text not null default 'image'` — `check (media_kind in ('image','pdf'))`.
+- `original_storage_path text` — 이미지: 압축 전 원본 백업. PDF: 원본 PDF 파일.
+- `display_bytes bigint`, `original_bytes bigint`, `compression_meta jsonb` — 관측용.
+
+`storage_path` (표시본) 의미가 media_kind 에 따라 다름:
+- `image`: 압축된 WebP (또는 압축 skip 시 원본).
+- `pdf` + 썸네일 렌더 성공: pdf.js 로 만든 WebP 썸네일 (`.webp`). 클릭 → `original_storage_path` (실제 PDF) 새 탭.
+- `pdf` + 썸네일 렌더 실패 (암호화/손상): 원본 PDF 를 그대로 표시본 자리에 두고 `original_storage_path = null`. UI 는 📄 아이콘 카드로 폴백.
+
+### 새로 만든 파일
+- **`src/lib/pdf/renderThumbnail.ts`** — `renderPdfFirstPageAsWebp(file, { longEdge?, quality? })`:
+  - Dynamic import 로 pdf.js 지연 로드 (`loadPdfjs()` 캐시).
+  - `getDocument({ data, cMapUrl, standardFontDataUrl, disableStream, disableAutoFetch })`.
+  - Page 1 → viewport scaled so `Math.max(w,h) === longEdge` (기본 2000 px; 큐 preview 는 1200 px).
+  - OffscreenCanvas 우선, 폴백 HTMLCanvasElement. 배경 흰색 fill → 투명 배경 PDF 도 어색하지 않음.
+  - `image/webp` q=0.9 (또는 caller 지정) 인코딩.
+  - `pdf.destroy()` finally 로 워커 캐시 해제.
+
+### 확장된 storage 헬퍼 (`src/lib/supabase/storage.ts`)
+- `uploadExhibitionMedia(file, exhibitionId)` 가 `ExhibitionMediaUploadResult` 반환:
+  ```ts
+  { displayPath, displayBytes, originalPath, originalBytes,
+    mediaKind: 'image' | 'pdf', compressionMeta,
+    pdfThumbnailReady?, skippedReason? }
+  ```
+  - 이미지 분기: 기존 `compressArtworkImage` 파이프라인 재사용 + 원본 백업.
+  - PDF 분기: `renderPdfFirstPageAsWebp` → WebP 를 `displayPath` 로, 원본 PDF 를 `originalPath` 로.
+    렌더 실패 시 원본 PDF 를 `displayPath` 로 두고 `originalPath = null` (icon-card 폴백).
+- 새 에러: `ExhibitionMediaValidationError` (`code: 'pdf_too_large' | 'unsupported_mime'`).
+- 상한: **PDF 는 50 MB** (서버 storage vault 벽 그대로). 이보다 큰 PDF 는 pre-check 에서 튕기고 사용자에게 "내부 이미지 품질을 낮춰서 압축 후 재시도" 안내.
+
+### 확장된 exhibitions 데이터 레이어 (`src/lib/supabase/exhibitions.ts`)
+- `ExhibitionMediaRow` 에 `media_kind`, `original_storage_path`, `display_bytes`, `original_bytes` 필드 추가.
+- `listExhibitionMedia` select 컬럼 확장.
+- `insertExhibitionMedia` 가 새 필드들 옵션으로 수용.
+- `ensureDefaultExhibitionMediaBuckets` — **`poster` 를 기본 첫 버킷으로 추가** (sort_order 0, installation 1, side_event 2). 큐레이터가 "포스터"라는 개념을 커스텀 버킷으로 매번 만들 필요 없음.
+- `groupExhibitionMediaByBucket` — poster 버킷을 default title 매핑 (`exhibition.posters`) 에 등록.
+
+### 업로드 UI (`src/app/my/exhibitions/[id]/page.tsx`)
+- `<input accept={EXHIBITION_MEDIA_ACCEPT}>` — 이제 `image/jpeg,image/png,image/webp,image/gif,application/pdf`. 파일 대화상자에서 PDF 정상 선택 가능.
+- Buttons 라벨을 `exhibition.addPhotoOrPdf` ("Add photos or PDF" / "사진·PDF 추가") 로 갈아끼움.
+- Upload queue (draft) UI:
+  - **파일별 상태 chip**: `PDF`, `자동 압축`, `업로드 중…`, `완료`, `실패`.
+  - **파일별 진행률**: 개별 아이템의 status (`pending → uploading → done | error`) 를 UI 에 반영. 실패 시 border 붉게 + 실패 사유 라벨.
+  - **일부 실패 rollback**: 어느 하나 실패해도 나머지는 저장. 완료 항목만 서버에 남고 실패 항목은 큐에 유지되어 "실패한 N개 재시도" 로 재실행 가능.
+  - PDF preview lazy: 큐에 넣는 순간에는 📄 아이콘, 그 뒤 pdf.js 로 첫 페이지 WebP 를 백그라운드에서 렌더해 blob URL 로 갈아치움 (`<Image unoptimized>` 로 그려짐).
+- Bucket 별 카드 렌더:
+  - PDF row 는 `<Image>` 로 WebP 썸네일 + 왼쪽 위 파란 `PDF` 배지 + 클릭 → 원본 PDF 새 탭.
+  - 썸네일 렌더 실패 (`storage_path` 가 `.pdf` 로 끝남) row 는 📄 아이콘 카드 폴백 (동일한 클릭 → PDF 열기).
+
+### 공개 전시 상세 페이지 (`src/app/e/[id]/page.tsx`)
+- `ExhibitionPhotosCarousel` 이 이제 `media_kind`, `original_storage_path` 를 받고 렌더 시 동일한 규칙 적용:
+  - PDF 썸네일: 이미지처럼 crops-and-scrolls, PDF 배지 오버레이, 클릭 → 원본 PDF 새 탭.
+  - PDF icon fallback: 📄 카드 + "PDF 열기" 라벨.
+- Poster 버킷도 default 로 노출되므로 방문자가 곧바로 큰 포스터를 슬라이드에서 볼 수 있음.
+
+### i18n (KO + EN, 톤앤매너 통일)
+새 키:
+- `exhibition.posters`, `exhibition.addPhotoOrPdf`, `exhibition.mediaUnsupported`,
+  `exhibition.mediaSomeRejected`, `exhibition.mediaSomeFailed`,
+  `exhibition.pdfTooLarge`, `exhibition.pdfOpen`, `exhibition.pdfOpenHint`, `exhibition.pdfBadgeHint`,
+  `exhibition.uploadQueueTitle`, `exhibition.uploadQueueHint`, `exhibition.uploadInProgress`,
+  `exhibition.uploadItemUploading`, `exhibition.uploadItemDone`, `exhibition.uploadItemFailed`,
+  `exhibition.uploadRetryFailed`, `exhibition.uploadDismissDone`, `exhibition.uploadSummary`.
+
+톤: "자동 최적화" 를 은근하게 안내하고, 실패 사유는 사용자 액션 가능하게 (예: "PDF 내부 이미지 품질을 낮춰서 다시 시도").
+
+### 사이드 이펙트/롤백
+- 이미 저장된 legacy `exhibition_media` row 는 `media_kind = 'image'` default 로 안전히 흘러감.
+- Storage RLS 는 `exhibition-media/{exhibition_id}/...` 만 봄 → `original/` 서브 세그먼트 자동 커버.
+- pdf.js 워커가 CDN 에서 fetch 실패해도 (예: 사무실 방화벽) 업로드는 계속 진행됨 — 썸네일만 icon 폴백으로 대체.
+
+### Verified
+- `npx tsc --noEmit` 통과.
+- `npm run lint` 신규/수정 파일 신규 에러 0 (선행되던 `useT.ts` / `preference.ts` / `e/[id]/page.tsx` 의 `react-hooks/set-state-in-effect` 는 이 patch 이전부터 있던 warning-level 이슈, 이 patch 에서 새로 유입된 것 없음).
+- `information_schema.columns` 로 확인: `exhibition_media` 에 `media_kind`, `original_storage_path`, `display_bytes`, `original_bytes`, `compression_meta` 모두 존재.
+
+### Supabase SQL
+- `20260728200000_exhibition_media_pdf_and_compression.sql` — 이미 MCP 로 적용됨. 수동 실행 불필요.
+- 새 마이그레이션 (다른 릴리즈에서 등장하면) 은 기존 프로세스 그대로.
+
+### 환경 변수
+- 변경 없음. `pdfjs-dist` 워커 URL 은 코드에 pinned (`import.meta` 없이 문자열 리터럴), 별도 env 필요 없음.
+
+### Follow-ups (선택)
+- pdf.js 워커를 Vercel 자체 정적 자산으로 셀프 호스팅 (CDN 벤더 락인 회피 + offline dev 지원). 현재는 jsdelivr 로 충분.
+- PDF 첨부의 다중 페이지 preview (2–3 페이지 grid). 지금은 page 1 만.
+- 압축 결과에 대한 관리자 관찰 뷰 — `compression_meta.iterations > 3` 이면 원본이 매우 노이지 하다는 신호.
+
+---
+
 ## 2026-07-28 — 업로드 자동 압축 (WebP 4K + 원본 백업) ✅ SQL 자동 적용됨
 
 ### 배경

@@ -23,6 +23,7 @@ import {
   type ExhibitionWorkRow,
 } from "@/lib/supabase/exhibitions";
 import { getArtworksByIds, getArtworkImageUrl, getArtworkArtistLabel, getArtworkArtistGroupKey, type ArtworkWithLikes } from "@/lib/supabase/artworks";
+import { getPublicImageUrl } from "@/lib/supabase/storage";
 import { ExploreArtworkCard } from "@/components/explore/ExploreArtworkCard";
 import { getSession } from "@/lib/supabase/auth";
 import { listMyDelegations } from "@/lib/supabase/delegations";
@@ -255,8 +256,19 @@ export default function PublicExhibitionPage() {
               </h2>
               <ExhibitionPhotosCarousel
                 items={mediaBuckets.flatMap((b) =>
-                  b.items.map((m) => ({ id: m.id, storage_path: m.storage_path }))
+                  b.items.map((m) => ({
+                    id: m.id,
+                    storage_path: m.storage_path,
+                    // 2026-07-28 (QA) — PDF row: 클릭 시 원본 PDF 새 탭 오픈.
+                    // pdf.js 썸네일이 실패해 storage_path 가 .pdf 로 끝나면
+                    // 이미지가 아니라 아이콘 카드로 폴백 (isIconFallback).
+                    media_kind: m.media_kind,
+                    original_storage_path: m.original_storage_path,
+                  }))
                 )}
+                pdfBadgeLabel="PDF"
+                pdfOpenHint={t("exhibition.pdfOpenHint")}
+                pdfOpenLabel={t("exhibition.pdfOpen")}
               />
             </section>
           )}
@@ -286,7 +298,12 @@ export default function PublicExhibitionPage() {
   );
 }
 
-type CarouselItem = { id: string; storage_path: string };
+type CarouselItem = {
+  id: string;
+  storage_path: string;
+  media_kind?: "image" | "pdf";
+  original_storage_path?: string | null;
+};
 
 /**
  * Simple horizontal carousel for exhibition photos. Uses native scroll
@@ -295,7 +312,17 @@ type CarouselItem = { id: string; storage_path: string };
  * external deps — the exhibition detail page is otherwise lightweight
  * and we don't want to pull in a slider lib for a low-frequency surface.
  */
-function ExhibitionPhotosCarousel({ items }: { items: CarouselItem[] }) {
+function ExhibitionPhotosCarousel({
+  items,
+  pdfBadgeLabel,
+  pdfOpenHint,
+  pdfOpenLabel,
+}: {
+  items: CarouselItem[];
+  pdfBadgeLabel: string;
+  pdfOpenHint: string;
+  pdfOpenLabel: string;
+}) {
   const trackRef = useRef<HTMLDivElement>(null);
 
   function scrollBy(dir: -1 | 1) {
@@ -310,20 +337,63 @@ function ExhibitionPhotosCarousel({ items }: { items: CarouselItem[] }) {
         ref={trackRef}
         className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2"
       >
-        {items.map((m) => (
-          <div
-            key={m.id}
-            className="relative aspect-[16/9] w-[85%] shrink-0 snap-start overflow-hidden rounded-md border border-zinc-200 bg-zinc-100 sm:w-[70%] lg:w-[60%]"
-          >
-            <Image
-              src={getArtworkImageUrl(m.storage_path, "medium")}
-              alt=""
-              fill
-              className="object-cover"
-              sizes="(max-width: 640px) 85vw, (max-width: 1280px) 70vw, 60vw"
-            />
-          </div>
-        ))}
+        {items.map((m) => {
+          const isPdf = m.media_kind === "pdf";
+          const isIconFallback = isPdf && /\.pdf$/i.test(m.storage_path);
+          const pdfOpenPath = m.original_storage_path ?? (isPdf ? m.storage_path : null);
+          const pdfOpenUrl = pdfOpenPath ? getPublicImageUrl(pdfOpenPath) : null;
+          return (
+            <div
+              key={m.id}
+              className="relative aspect-[16/9] w-[85%] shrink-0 snap-start overflow-hidden rounded-md border border-zinc-200 bg-zinc-100 sm:w-[70%] lg:w-[60%]"
+            >
+              {isIconFallback ? (
+                <a
+                  href={pdfOpenUrl ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-full w-full flex-col items-center justify-center gap-2 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                  title={pdfOpenHint}
+                >
+                  <span aria-hidden="true" className="text-5xl">📄</span>
+                  <span className="text-sm font-medium">{pdfOpenLabel}</span>
+                </a>
+              ) : isPdf && pdfOpenUrl ? (
+                <a
+                  href={pdfOpenUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block h-full w-full"
+                  title={pdfOpenHint}
+                >
+                  <Image
+                    src={getArtworkImageUrl(m.storage_path, "medium")}
+                    alt=""
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 640px) 85vw, (max-width: 1280px) 70vw, 60vw"
+                  />
+                </a>
+              ) : (
+                <Image
+                  src={getArtworkImageUrl(m.storage_path, "medium")}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 640px) 85vw, (max-width: 1280px) 70vw, 60vw"
+                />
+              )}
+              {isPdf && (
+                <span
+                  className="pointer-events-none absolute left-2 top-2 rounded bg-blue-600/90 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white shadow"
+                  title={pdfOpenHint}
+                >
+                  {pdfBadgeLabel}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
       {items.length > 1 && (
         <>

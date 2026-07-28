@@ -30,7 +30,13 @@ import {
   type ExhibitionWorkRow,
 } from "@/lib/supabase/exhibitions";
 import { getArtworksByIds, getArtworkImageUrl, getArtworkArtistLabel, getArtworkArtistGroupKey, type ArtworkWithLikes } from "@/lib/supabase/artworks";
-import { removeStorageFile, uploadExhibitionMedia } from "@/lib/supabase/storage";
+import {
+  removeStorageFile,
+  uploadExhibitionMedia,
+  ExhibitionMediaValidationError,
+  getPublicImageUrl,
+} from "@/lib/supabase/storage";
+import { isCompressibleMime } from "@/lib/image/compress";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { ExhibitionThumbStack } from "@/components/ExhibitionThumbStack";
@@ -46,16 +52,38 @@ const STATUS_LABELS: Record<string, string> = {
   ended: "exhibition.statusEnded",
 };
 
+/**
+ * 2026-07-28 (QA) — per-item state so the upload UI can show progress
+ * ("2/5 업로드 중"), highlight per-file failures, and let the user
+ * retry only the failed ones. `kind` is derived at pick time so the
+ * PDF card can render before upload.
+ */
 type UploadQueueItem = {
   id: string;
   file: File;
-  previewUrl: string;
+  previewUrl: string | null; // null for PDFs
+  kind: "image" | "pdf";
+  status: "pending" | "uploading" | "done" | "error";
+  errorMsg?: string;
 };
 
 type UploadQueue = {
   bucket: ExhibitionMediaBucket;
   items: UploadQueueItem[];
 };
+
+/**
+ * Accept string reused by every exhibition-media file input on this
+ * page (`installation`, `poster`, `side_event`, and custom buckets).
+ * Also used as the drag-drop filter.
+ */
+const EXHIBITION_MEDIA_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+
+function classifyExhibitionMediaFile(file: File): "image" | "pdf" | null {
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) return "pdf";
+  if (file.type.startsWith("image/")) return "image";
+  return null;
+}
 
 function moveInArray<T>(arr: T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return arr;
@@ -289,49 +317,160 @@ export default function ExhibitionDetailPage() {
     await fetchData();
   }
 
-  function prepareBucketUpload(bucket: ExhibitionMediaBucket, files: FileList | null) {
+  async function prepareBucketUpload(bucket: ExhibitionMediaBucket, files: FileList | null) {
     if (!files || files.length === 0) return;
-    const items: UploadQueueItem[] = Array.from(files).map((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      previewUrl: URL.createObjectURL(file),
-    }));
-    setUploadQueue({ bucket, items });
+    // 2026-07-28 (QA) — accept 는 image/*+pdf. drag-drop 이나 os 대화상자에서
+    // 다른 형식이 섞여 들어오는 경우가 있어 클라이언트에서 한 번 더 필터.
+    const supported: UploadQueueItem[] = [];
+    let rejectedCount = 0;
+    for (const file of Array.from(files)) {
+      const kind = classifyExhibitionMediaFile(file);
+      if (!kind) {
+        rejectedCount += 1;
+        continue;
+      }
+      supported.push({
+        id: crypto.randomUUID(),
+        file,
+        // 이미지는 즉시 blob URL. PDF 는 pdf.js 로 첫 페이지 렌더 → WebP
+        // blob URL 을 만들어 그리드에 삽입. 렌더 실패 (암호화/손상/느린
+        // 회선) 시 previewUrl 은 null 로 남고 UI 는 아이콘 카드로 폴백.
+        previewUrl: kind === "image" ? URL.createObjectURL(file) : null,
+        kind,
+        status: "pending",
+      });
+    }
+    if (supported.length === 0) {
+      if (rejectedCount > 0) setError(t("exhibition.mediaUnsupported"));
+      return;
+    }
+    if (rejectedCount > 0) {
+      setError(
+        t("exhibition.mediaSomeRejected").replace("{n}", String(rejectedCount)),
+      );
+    } else {
+      setError(null);
+    }
+    setUploadQueue({ bucket, items: supported });
+
+    // PDF 썸네일을 병렬로 lazy 렌더 → 준비되는 대로 previewUrl 을 patch.
+    // pdf.js 는 dynamic import 라 첫 파일에서만 CDN warm-up 비용을 냄.
+    // 큐가 도중에 취소되거나 다른 큐로 교체되면 patch 는 조용히 무시된다
+    // (setUploadQueue callback 에서 해당 itemId 를 못 찾음).
+    const pdfItems = supported.filter((s) => s.kind === "pdf");
+    if (pdfItems.length === 0) return;
+    const { renderPdfFirstPageAsWebp } = await import("@/lib/pdf/renderThumbnail");
+    await Promise.all(
+      pdfItems.map(async (item) => {
+        try {
+          const thumb = await renderPdfFirstPageAsWebp(item.file, { longEdge: 1200, quality: 0.85 });
+          const url = URL.createObjectURL(thumb.blob);
+          setUploadQueue((prev) => {
+            if (!prev) return prev;
+            const target = prev.items.find((x) => x.id === item.id);
+            if (!target) {
+              // 큐가 교체됐다면 blob URL 을 남기지 않도록 정리.
+              URL.revokeObjectURL(url);
+              return prev;
+            }
+            // 이전 blob URL (있다면) 은 만든 적 없으니 그냥 갈아끼우기만 하면 됨.
+            return {
+              ...prev,
+              items: prev.items.map((x) => (x.id === item.id ? { ...x, previewUrl: url } : x)),
+            };
+          });
+        } catch (err) {
+          console.warn("[exhibition-media] pdf preview render failed", err);
+        }
+      }),
+    );
   }
 
   async function uploadQueueItems() {
     if (!id || !uploadQueue || uploadQueue.items.length === 0) return;
     setUploading(true);
     setError(null);
+    // 스냅샷 (state closure) — for 루프에서는 이 로컬 items 를 만지고
+    // 아이템별 setUploadQueue 로 UI 동기화.
+    const bucket = uploadQueue.bucket;
+    let anyError = false;
+
+    const setItemStatus = (
+      itemId: string,
+      patch: Partial<Pick<UploadQueueItem, "status" | "errorMsg">>,
+    ) => {
+      setUploadQueue((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((x) => (x.id === itemId ? { ...x, ...patch } : x)),
+        };
+      });
+    };
+
     try {
+      // 버킷 등록은 첫 파일 업로드 전에 한 번만.
       await upsertExhibitionMediaBucket({
         exhibition_id: id,
-        key: uploadQueue.bucket.key,
-        title: uploadQueue.bucket.title,
-        type: uploadQueue.bucket.insertType,
-        sort_order: mediaBucketOrder.indexOf(uploadQueue.bucket.key) >= 0
-          ? mediaBucketOrder.indexOf(uploadQueue.bucket.key)
-          : mediaBucketOrder.length,
+        key: bucket.key,
+        title: bucket.title,
+        type: bucket.insertType,
+        sort_order:
+          mediaBucketOrder.indexOf(bucket.key) >= 0
+            ? mediaBucketOrder.indexOf(bucket.key)
+            : mediaBucketOrder.length,
       });
       const maxSort = media.reduce((mx, m) => Math.max(mx, m.sort_order ?? 0), 0);
-      for (let i = 0; i < uploadQueue.items.length; i++) {
-        const q = uploadQueue.items[i];
-        const storagePath = await uploadExhibitionMedia(q.file, id);
-        const { error: err } = await insertExhibitionMedia({
-          exhibition_id: id,
-          type: uploadQueue.bucket.insertType,
-          bucket_title: uploadQueue.bucket.insertBucketTitle,
-          storage_path: storagePath,
-          sort_order: maxSort + i + 1,
-        });
-        if (err) {
-          setError(formatSupabaseError(err, t, "common.errorUpload"));
-          setUploading(false);
-          return;
+      const items = uploadQueue.items;
+      for (let i = 0; i < items.length; i++) {
+        const q = items[i];
+        if (q.status === "done") continue; // 재시도 시 이미 성공한 것 건너뜀
+        setItemStatus(q.id, { status: "uploading", errorMsg: undefined });
+        try {
+          const upload = await uploadExhibitionMedia(q.file, id);
+          const { error: insertErr } = await insertExhibitionMedia({
+            exhibition_id: id,
+            type: bucket.insertType,
+            bucket_title: bucket.insertBucketTitle,
+            storage_path: upload.displayPath,
+            sort_order: maxSort + i + 1,
+            media_kind: upload.mediaKind,
+            original_storage_path: upload.originalPath,
+            display_bytes: upload.displayBytes,
+            original_bytes: upload.originalBytes,
+            compression_meta: upload.compressionMeta,
+          });
+          if (insertErr) {
+            // 롤백: display + original 스토리지 정리 (best-effort).
+            try { await removeStorageFile(upload.displayPath); } catch {}
+            if (upload.originalPath) {
+              try { await removeStorageFile(upload.originalPath); } catch {}
+            }
+            throw insertErr;
+          }
+          setItemStatus(q.id, { status: "done" });
+        } catch (err) {
+          anyError = true;
+          let msg: string;
+          if (err instanceof ExhibitionMediaValidationError && err.code === "pdf_too_large") {
+            msg = t("exhibition.pdfTooLarge");
+          } else if (err instanceof Error) {
+            msg = err.message;
+          } else {
+            msg = t("common.errorUpload");
+          }
+          setItemStatus(q.id, { status: "error", errorMsg: msg });
         }
       }
-      uploadQueue.items.forEach((q) => URL.revokeObjectURL(q.previewUrl));
-      setUploadQueue(null);
+      if (anyError) {
+        setError(t("exhibition.mediaSomeFailed"));
+      } else {
+        // 전부 성공: 프리뷰 URL 정리하고 큐 비운다.
+        uploadQueue.items.forEach((q) => {
+          if (q.previewUrl) URL.revokeObjectURL(q.previewUrl);
+        });
+        setUploadQueue(null);
+      }
       await fetchData();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.errorUpload"));
@@ -342,7 +481,9 @@ export default function ExhibitionDetailPage() {
 
   function clearUploadQueue() {
     if (!uploadQueue) return;
-    uploadQueue.items.forEach((q) => URL.revokeObjectURL(q.previewUrl));
+    uploadQueue.items.forEach((q) => {
+      if (q.previewUrl) URL.revokeObjectURL(q.previewUrl);
+    });
     setUploadQueue(null);
   }
 
@@ -524,55 +665,155 @@ export default function ExhibitionDetailPage() {
               </div>
             </section>
 
-            {uploadQueue && (
-              <section className="mb-8 rounded-lg border border-zinc-300 bg-white p-4">
-                <h3 className="mb-2 text-sm font-semibold text-zinc-900">
-                  {uploadQueue.bucket.title} · 업로드 대기 ({uploadQueue.items.length})
-                </h3>
-                <p className="mb-3 text-xs text-zinc-500">드래그로 업로드 전 순서를 조정할 수 있습니다.</p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {uploadQueue.items.map((q, idx) => (
-                    <div
-                      key={q.id}
-                      draggable
-                      onDragStart={() => setDragQueueItemId(q.id)}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => {
-                        if (!dragQueueItemId || dragQueueItemId === q.id || !uploadQueue) return;
-                        const from = uploadQueue.items.findIndex((x) => x.id === dragQueueItemId);
-                        const to = uploadQueue.items.findIndex((x) => x.id === q.id);
-                        const next = moveInArray(uploadQueue.items, from, to);
-                        setUploadQueue({ ...uploadQueue, items: next });
-                      }}
-                      className="relative aspect-square overflow-hidden rounded border border-zinc-200 bg-zinc-100"
+            {uploadQueue && (() => {
+              const doneCount = uploadQueue.items.filter((q) => q.status === "done").length;
+              const errorCount = uploadQueue.items.filter((q) => q.status === "error").length;
+              const totalCount = uploadQueue.items.length;
+              return (
+                <section className="mb-8 rounded-lg border border-zinc-300 bg-white p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-zinc-900">
+                    {uploadQueue.bucket.title} · {t("exhibition.uploadQueueTitle").replace("{n}", String(totalCount))}
+                  </h3>
+                  <p className="mb-3 text-xs text-zinc-500">
+                    {uploading
+                      ? t("exhibition.uploadInProgress")
+                          .replace("{done}", String(doneCount))
+                          .replace("{total}", String(totalCount))
+                      : t("exhibition.uploadQueueHint")}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {uploadQueue.items.map((q, idx) => {
+                      const mb = q.file.size / (1024 * 1024);
+                      const willCompress =
+                        q.kind === "image" &&
+                        isCompressibleMime(q.file.type) &&
+                        q.file.size > 5 * 1024 * 1024;
+                      return (
+                        <div
+                          key={q.id}
+                          draggable={!uploading}
+                          onDragStart={() => !uploading && setDragQueueItemId(q.id)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={() => {
+                            if (uploading) return;
+                            if (!dragQueueItemId || dragQueueItemId === q.id || !uploadQueue) return;
+                            const from = uploadQueue.items.findIndex((x) => x.id === dragQueueItemId);
+                            const to = uploadQueue.items.findIndex((x) => x.id === q.id);
+                            const next = moveInArray(uploadQueue.items, from, to);
+                            setUploadQueue({ ...uploadQueue, items: next });
+                          }}
+                          className={`relative aspect-square overflow-hidden rounded border ${
+                            q.status === "error"
+                              ? "border-red-300 bg-red-50/60"
+                              : q.status === "done"
+                                ? "border-emerald-300 bg-emerald-50/60"
+                                : "border-zinc-200 bg-zinc-100"
+                          }`}
+                        >
+                          {q.previewUrl ? (
+                            // 이미지 blob 이거나 pdf.js 로 렌더된 WebP blob URL.
+                            // <Image> unoptimized 는 blob: URL 이 remotePatterns 를
+                            // 통과하지 못하기 때문에 필수.
+                            <Image
+                              src={q.previewUrl}
+                              alt={q.file.name}
+                              fill
+                              unoptimized
+                              className="object-cover"
+                              sizes="120px"
+                            />
+                          ) : (
+                            // PDF 썸네일 렌더가 아직 진행 중이거나 실패했을 때의
+                            // 폴백. 파일명 tail 을 남겨 operator 가 무엇이
+                            // 큐잉되어 있는지 알 수 있게 한다.
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center">
+                              <span aria-hidden="true" className="text-2xl">📄</span>
+                              <span className="line-clamp-2 break-all text-[10px] leading-tight text-zinc-600">
+                                {q.file.name}
+                              </span>
+                            </div>
+                          )}
+                          <div className="absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
+                            {idx + 1}
+                          </div>
+                          {/* Status/kind chips (top-right) */}
+                          <div className="absolute right-1 top-1 flex flex-col items-end gap-1">
+                            {q.kind === "pdf" && (
+                              <span className="rounded-full bg-blue-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                PDF
+                              </span>
+                            )}
+                            {willCompress && q.status === "pending" && (
+                              <span className="rounded-full bg-emerald-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white" title={t("upload.autoCompressHint")}>
+                                {t("upload.autoCompressChip")}
+                              </span>
+                            )}
+                            {q.status === "uploading" && (
+                              <span className="rounded-full bg-zinc-900/85 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                {t("exhibition.uploadItemUploading")}
+                              </span>
+                            )}
+                            {q.status === "done" && (
+                              <span className="rounded-full bg-emerald-600/95 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                {t("exhibition.uploadItemDone")}
+                              </span>
+                            )}
+                            {q.status === "error" && (
+                              <span className="rounded-full bg-red-600/95 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                {t("exhibition.uploadItemFailed")}
+                              </span>
+                            )}
+                          </div>
+                          {/* Bottom-right size hint */}
+                          <div className="absolute bottom-1 right-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white">
+                            {mb < 0.1 ? "<0.1" : mb.toFixed(1)} MB
+                          </div>
+                          {q.status === "error" && q.errorMsg && (
+                            <div className="absolute inset-x-0 bottom-6 mx-1 rounded bg-red-600/90 px-1.5 py-1 text-[10px] leading-tight text-white line-clamp-3" title={q.errorMsg}>
+                              {q.errorMsg}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={uploading}
+                      onClick={uploadQueueItems}
+                      className="rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                     >
-                      <Image src={q.previewUrl} alt={q.file.name} fill className="object-cover" sizes="120px" />
-                      <div className="absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
-                        {idx + 1}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    disabled={uploading}
-                    onClick={uploadQueueItems}
-                    className="rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    {uploading ? t("common.loading") : t("my.exhibitionUploadRun")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={uploading}
-                    onClick={clearUploadQueue}
-                    className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    {t("common.cancel")}
-                  </button>
-                </div>
-              </section>
-            )}
+                      {uploading
+                        ? t("exhibition.uploadInProgress")
+                            .replace("{done}", String(doneCount))
+                            .replace("{total}", String(totalCount))
+                        : errorCount > 0
+                          ? t("exhibition.uploadRetryFailed").replace("{n}", String(errorCount))
+                          : t("my.exhibitionUploadRun")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={uploading}
+                      onClick={clearUploadQueue}
+                      className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {errorCount > 0 && doneCount > 0
+                        ? t("exhibition.uploadDismissDone")
+                        : t("common.cancel")}
+                    </button>
+                    {(doneCount > 0 || errorCount > 0) && !uploading && (
+                      <span className="text-xs text-zinc-500">
+                        {t("exhibition.uploadSummary")
+                          .replace("{done}", String(doneCount))
+                          .replace("{failed}", String(errorCount))
+                          .replace("{total}", String(totalCount))}
+                      </span>
+                    )}
+                  </div>
+                </section>
+              );
+            })()}
 
             {byArtist.length > 0 && (
               <section data-tour="exhibition-detail-media" className="mb-8">
@@ -688,42 +929,100 @@ export default function ExhibitionDetailPage() {
                   <p className="rounded border border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-500">{t("exhibition.noMediaYet")}</p>
                 ) : (
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                    {bucket.items.map((m) => (
-                      <div
-                        key={m.id}
-                        draggable
-                        onDragStart={() => setDragMediaItem({ bucketKey: bucket.key, itemId: m.id })}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={async () => {
-                          if (!dragMediaItem || dragMediaItem.bucketKey !== bucket.key || dragMediaItem.itemId === m.id) return;
-                          const currentIds = mediaItemOrder[bucket.key] ?? bucket.items.map((x) => x.id);
-                          const from = currentIds.indexOf(dragMediaItem.itemId);
-                          const to = currentIds.indexOf(m.id);
-                          const nextIds = moveInArray(currentIds, from, to);
-                          const nextItemOrder = { ...mediaItemOrder, [bucket.key]: nextIds };
-                          setMediaItemOrder(nextItemOrder);
-                          setDragMediaItem(null);
-                          await persistMediaOrder(mediaBucketOrder, nextItemOrder);
-                        }}
-                        className="relative aspect-square overflow-hidden rounded border border-zinc-200 bg-zinc-100"
-                      >
-                        <Image src={getArtworkImageUrl(m.storage_path, "thumb")} alt="" fill className="object-cover" sizes="150px" />
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteMedia(m)}
-                          disabled={deletingMediaId === m.id}
-                          className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-black/70 disabled:opacity-50"
+                    {bucket.items.map((m) => {
+                      // 2026-07-28 (QA) — PDF row rendering.
+                      //  * `media_kind === 'pdf'` + storage_path 가 .pdf 로
+                      //    끝나면 썸네일 생성 실패 (레거시 폴백) → 아이콘
+                      //    카드.
+                      //  * 그 외 pdf 는 storage_path 가 WebP 썸네일이라
+                      //    <Image> 로 그대로 그림 + 'PDF' 배지 + 클릭 →
+                      //    original PDF 새 탭 오픈.
+                      const isPdfRow = m.media_kind === "pdf";
+                      const isIconFallback = isPdfRow && /\.pdf$/i.test(m.storage_path);
+                      const pdfOpenPath = m.original_storage_path ?? (isPdfRow ? m.storage_path : null);
+                      const pdfOpenUrl = pdfOpenPath ? getPublicImageUrl(pdfOpenPath) : null;
+                      return (
+                        <div
+                          key={m.id}
+                          draggable
+                          onDragStart={() => setDragMediaItem({ bucketKey: bucket.key, itemId: m.id })}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={async () => {
+                            if (!dragMediaItem || dragMediaItem.bucketKey !== bucket.key || dragMediaItem.itemId === m.id) return;
+                            const currentIds = mediaItemOrder[bucket.key] ?? bucket.items.map((x) => x.id);
+                            const from = currentIds.indexOf(dragMediaItem.itemId);
+                            const to = currentIds.indexOf(m.id);
+                            const nextIds = moveInArray(currentIds, from, to);
+                            const nextItemOrder = { ...mediaItemOrder, [bucket.key]: nextIds };
+                            setMediaItemOrder(nextItemOrder);
+                            setDragMediaItem(null);
+                            await persistMediaOrder(mediaBucketOrder, nextItemOrder);
+                          }}
+                          className="relative aspect-square overflow-hidden rounded border border-zinc-200 bg-zinc-100"
                         >
-                          {deletingMediaId === m.id ? "..." : "삭제"}
-                        </button>
-                      </div>
-                    ))}
+                          {isIconFallback ? (
+                            <a
+                              href={pdfOpenUrl ?? "#"}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center text-zinc-700 hover:bg-zinc-50"
+                              title={t("exhibition.pdfOpenHint")}
+                            >
+                              <span aria-hidden="true" className="text-3xl">📄</span>
+                              <span className="line-clamp-2 break-all text-[10px] leading-tight text-zinc-500">
+                                {t("exhibition.pdfOpen")}
+                              </span>
+                            </a>
+                          ) : isPdfRow && pdfOpenUrl ? (
+                            <a
+                              href={pdfOpenUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block h-full w-full"
+                              title={t("exhibition.pdfOpenHint")}
+                            >
+                              <Image
+                                src={getArtworkImageUrl(m.storage_path, "thumb")}
+                                alt=""
+                                fill
+                                className="object-cover"
+                                sizes="150px"
+                              />
+                            </a>
+                          ) : (
+                            <Image
+                              src={getArtworkImageUrl(m.storage_path, "thumb")}
+                              alt=""
+                              fill
+                              className="object-cover"
+                              sizes="150px"
+                            />
+                          )}
+                          {isPdfRow && (
+                            <span
+                              className="pointer-events-none absolute left-1 top-1 rounded bg-blue-600/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm"
+                              title={t("exhibition.pdfBadgeHint")}
+                            >
+                              PDF
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMedia(m)}
+                            disabled={deletingMediaId === m.id}
+                            className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-black/70 disabled:opacity-50"
+                          >
+                            {deletingMediaId === m.id ? "..." : "삭제"}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 <label className="mt-2 inline-block">
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={EXHIBITION_MEDIA_ACCEPT}
                     multiple
                     className="sr-only"
                     disabled={uploading}
@@ -733,7 +1032,7 @@ export default function ExhibitionDetailPage() {
                     }}
                   />
                   <span className="inline-block cursor-pointer rounded border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50">
-                    {t("exhibition.addPhoto")} (일괄)
+                    {t("exhibition.addPhotoOrPdf")}
                   </span>
                 </label>
               </section>
@@ -753,7 +1052,7 @@ export default function ExhibitionDetailPage() {
                 <label className="inline-block">
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={EXHIBITION_MEDIA_ACCEPT}
                     multiple
                     className="sr-only"
                     disabled={!newBucketTitle.trim() || uploading}
@@ -773,7 +1072,7 @@ export default function ExhibitionDetailPage() {
                     }}
                   />
                   <span className="inline-block cursor-pointer rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700">
-                    {t("exhibition.addPhoto")} (일괄)
+                    {t("exhibition.addPhotoOrPdf")}
                   </span>
                 </label>
               </div>
