@@ -229,15 +229,22 @@ export default function BulkUploadPage() {
         return;
       }
       // 2026-07-28 auto-compression: compressible formats ceiling raised
-      // to 200 MB; uncompressible stay at 50 MB. See lib/upload/limits.ts.
+      // to 200 MB; uncompressible (HEIC/animated GIF) stay at 50 MB.
+      // Split the skipped-message so users know whether the fix is
+      // "even bigger files are welcome via auto-compress" (only if their
+      // file was really over 200 MB) vs "convert HEIC/GIF to JPEG/PNG".
+      const skippedFiles = arr.filter((f) => f.size > getUploadCeilingBytes(f));
       const ok = arr.filter((f) => f.size <= getUploadCeilingBytes(f));
-      const skipped = arr.length - ok.length;
-      if (skipped > 0) {
-        // Use the larger of the two ceilings in the message so users
-        // aren't misled about compressible formats.
+      if (skippedFiles.length > 0) {
+        const anyUnsupported = skippedFiles.some(
+          (f) => !isCompressibleMime(f.type),
+        );
+        const key = anyUnsupported
+          ? "bulk.filesSkippedUnsupported"
+          : "bulk.filesSkippedCompressible";
         setUploadError(
-          t("bulk.filesSkippedOversized")
-            .replace("{n}", String(skipped))
+          t(key)
+            .replace("{n}", String(skippedFiles.length))
             .replace("{maxMb}", String(UPLOAD_MAX_COMPRESSIBLE_MB_LABEL)),
         );
       } else {

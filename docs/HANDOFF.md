@@ -69,9 +69,28 @@ Storage RLS (`can_manage_artworks_storage_path`) 는 첫 세그먼트가
 - Single upload 이미지 리스트 각 아이템에 `47.2 MB` 원본 크기 표시.
   5MB 이상 & 압축 가능 포맷 이면 `자동 압축` 배지 (emerald).
 - Bulk pending files list 도 동일 chip 배선.
-- 신규 i18n: `upload.autoCompressChip`, `upload.autoCompressHint`,
-  `upload.fileTooLarge` / `bulk.dropzoneHint` /
-  `bulk.filesSkippedOversized` / `bulk.guidance.sizeNote` 문구 갱신.
+- 신규 i18n: `upload.autoCompressChip`, `upload.autoCompressHint`.
+
+### 메시지 리톤 (2026-07-28 후속 patch — 톤앤매너 재정비)
+사용자 지적: "여전히 50MB 상한 · 리사이즈해서 다시 올려주세요" 톤이
+남아있었음. 신규/기존 메시지 전면 리톤:
+- **케이스별 분리** — pre-check 에서 초과 파일이 압축 가능 포맷인지 vs
+  HEIC/GIF 인지에 따라 서로 다른 메시지 표시 (사용자 대응 방법이 다름).
+- 신규 키:
+  - `upload.fileTooLargeCompressible` — 압축 가능 포맷 > 200 MB
+  - `upload.fileTooLargeUnsupported` — HEIC/GIF > 50 MB
+  - `bulk.filesSkippedCompressible` — bulk 프리체크 초과 (전부 압축 가능)
+  - `bulk.filesSkippedUnsupported` — bulk 프리체크 초과 (HEIC/GIF 포함)
+- 갱신 키 (한/영 모두):
+  - `upload.screenSizeHint` — "JPEG/PNG/WebP up to 200 MB welcome,
+    ≥5MB quietly auto-compresses" 톤으로 재작성.
+  - `upload.failedOversized` / `bulk.uploadFailedFileOversized` —
+    서버 rejection 문구. "HEIC/GIF 라면 변환, 그 외라면 조금 줄여" 톤.
+  - `bulk.guidance.sizeNote` / `bulk.dropzoneHint` — 자동 압축 안내.
+- Legacy 삭제: `upload.fileTooLarge`, `bulk.filesSkippedOversized`
+  (기존 코드에서 참조 없음 확인 후 제거).
+- 라우팅 코드: `src/app/upload/page.tsx` + `src/app/upload/bulk/page.tsx`
+  프리체크 로직에서 `isCompressibleMime` 로 케이스 분기해 새 키 선택.
 
 ### 마이그레이션 (자동 적용됨)
 - `20260728100000_artwork_images_auto_compression`

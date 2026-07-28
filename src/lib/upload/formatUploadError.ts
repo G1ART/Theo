@@ -26,6 +26,19 @@ export function classifyUploadFailureMessage(message: string): "oversized" | "pa
   return "unknown";
 }
 
+/**
+ * 2026-07-28 — 서버 rejection 문구.
+ *
+ * 자동 압축 도입 이후 이 케이스는 사실상:
+ *   * HEIC / animated GIF 처럼 압축이 skipped 되고 원본이 50 MiB 를
+ *     초과한 파일. (프리체크에서 걸러야 정상. 여기까지 오면 안전망.)
+ *   * 압축기 iterative drop 이 5회까지 실패한 극단 이미지.
+ *
+ * 둘 다 사용자 관점에서 대응 방법은 같음: "이 형식은 자동 압축이
+ * 지원되지 않아 원본 그대로 저장되니, 50MB 이하로 줄이거나 지원 포맷
+ * 으로 변환해 주세요."
+ */
+
 /** User-facing sentence for a single failed file in bulk upload. */
 export function formatBulkFileUploadFailure(fileName: string, err: unknown, t: T): string {
   const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";

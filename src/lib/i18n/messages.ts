@@ -777,8 +777,8 @@ export const messages = {
     "upload.multiImageHint":
       "Add one image per upload, or several to build a multi-view carousel (front, detail, in-situ). Max {maxMb} MB per image. GIFs are supported.",
     "upload.imagePrimaryChip": "Primary",
-    "upload.autoCompressChip": "auto-compress",
-    "upload.autoCompressHint": "This image will be auto-compressed to a 4K WebP display copy. Your original is safely backed up for later download or re-edit.",
+    "upload.autoCompressChip": "Auto-compress",
+    "upload.autoCompressHint": "This image will be auto-compressed to a 4K WebP display copy on upload. Your untouched original is safely kept for later download or re-edit.",
     "upload.imageViewTypeLabel": "View",
     "upload.imageMoveUp": "Move up",
     "upload.imageMoveDown": "Move down",
@@ -808,9 +808,13 @@ export const messages = {
     "upload.viewType.other": "Other",
     "upload.selectedArtist": "Selected",
     "upload.screenSizeHint":
-      "One image per upload. Each file may be up to {maxMb} MB—enough for sharp display online. If your file is larger, export a smaller copy first.",
-    "upload.fileTooLarge": "This file is over the {maxMb} MB limit. Export a smaller copy and try again.  (JPEG/PNG/WebP up to 200 MB auto-compress; HEIC/GIF stay at 50 MB.)",
-    "upload.failedOversized": "That file is over the {maxMb} MB limit. Export a smaller copy and try again.",
+      "Drop a JPEG, PNG, or WebP up to {maxMb} MB — anything above ~5 MB is quietly auto-compressed to a 4K WebP display copy on upload, and your untouched original is safely kept for later download or re-edit.",
+    "upload.fileTooLargeCompressible":
+      "This file is bigger than {maxMb} MB, which is more than we can hold as a safe backup. Please export a slightly smaller copy and try again.",
+    "upload.fileTooLargeUnsupported":
+      "HEIC and animated GIF files are stored untouched (no auto-compression), so each one has to be under {maxMb} MB. Please convert to JPEG, PNG, or WebP — or export a smaller copy — and try again.",
+    "upload.failedOversized":
+      "This file is too large to store as-is. If it's a HEIC or GIF, convert to JPEG/PNG/WebP (those auto-compress up to 200 MB); otherwise please shrink it a little and try again.",
     "upload.failedNetwork": "We could not reach the server. Check your connection and try again.",
     "upload.failedAuth": "Your session expired. Sign in again and retry.",
     "upload.failedGeneric": "Something went wrong while uploading. Please try again.",
@@ -937,7 +941,7 @@ export const messages = {
     "bulk.guidance.title": "How bulk upload works here",
     "bulk.guidance.lead": "Four simple rules keep things fast and predictable.",
     "bulk.guidance.sizeNote":
-      "Each image may be up to {maxMb} MB. Anything above ~5 MB is auto-compressed to a 4K WebP display copy on upload; your untouched original is safely kept for later download or re-edit.",
+      "Bring your best files — JPEG, PNG, and WebP up to {maxMb} MB are welcome. Anything above ~5 MB is quietly auto-compressed to a 4K WebP display copy on upload, and your untouched original is safely kept for later download or re-edit. (HEIC and animated GIF are stored untouched, so those stay capped at 50 MB.)",
     "bulk.guidance.batchNote":
       "Stage at most {n} files at a time. Upload that batch, tidy the drafts, then add the next batch—avoid piling hundreds into one queue.",
     "bulk.guidance.listNote":
@@ -948,15 +952,17 @@ export const messages = {
     "bulk.guidance.draftListFull":
       "You are viewing the maximum number of drafts this page can list. Publish or delete from this list to bring older drafts back into view.",
     "bulk.pickImageTypes": "Choose image files only (for example JPG, PNG, or WebP).",
-    "bulk.filesSkippedOversized":
-      "{n} file(s) were skipped—each must be under {maxMb} MB. (JPEG/PNG/WebP up to 200 MB auto-compress; HEIC/GIF cap 50 MB.)",
+    "bulk.filesSkippedCompressible":
+      "{n} file(s) were skipped for being over {maxMb} MB. That's more than we hold as a safe backup — export slightly smaller copies and add them again.",
+    "bulk.filesSkippedUnsupported":
+      "{n} file(s) were skipped. HEIC and animated GIF are stored untouched (no auto-compression), so each has to be under 50 MB. Convert to JPEG/PNG/WebP (auto-compress up to {maxMb} MB) or shrink first, then add again.",
     "bulk.pendingQueueFull":
       "This batch is already full (100 files). Upload or clear the queue before adding more.",
     "bulk.batchCapPartialAdd":
       "Only {added} file(s) were added; this batch holds at most {max}. Upload the current batch first, then add the rest.",
     "bulk.uploadNotAuthenticated": "Please sign in again to upload.",
     "bulk.uploadFailedFileOversized":
-      "“{name}” is over the {maxMb} MB limit. Export a smaller copy and try again.",
+      "“{name}” could not be stored as-is. If it's a HEIC or GIF, convert to JPEG/PNG/WebP (those auto-compress up to 200 MB); otherwise please shrink it a little and try again.",
     "bulk.uploadFailedFileNetwork":
       "Could not reach the server for “{name}”. Check your connection and try again.",
     "bulk.uploadFailedFileAuth":
@@ -966,7 +972,7 @@ export const messages = {
     "bulk.uploadFailedUnnamedFile": "this file",
     "bulk.dropzone": "Drop images or click to select",
     "bulk.dropzoneHint":
-      "Up to {batch} images in this queue · {maxMb} MB max per file (large photos auto-compress; originals safely backed up)",
+      "Up to {batch} images per batch · up to {maxMb} MB each — large photos are quietly auto-compressed and your originals are safely kept",
     "bulk.uploadProgress": "Uploading {current} of {total}...",
     "bulk.uploadDone": "Uploaded {total} drafts",
     "bulk.uploadDoneWithFailures": "Uploaded {ok} of {total} · {failed} failed",
@@ -3726,7 +3732,7 @@ export const messages = {
       "이미지를 한 장씩, 또는 여러 장(정면·디테일·설치 컷)을 함께 올려 캐러셀로 보여줄 수 있어요. 한 장당 최대 {maxMb}MB, GIF 도 지원됩니다.",
     "upload.imagePrimaryChip": "대표",
     "upload.autoCompressChip": "자동 압축",
-    "upload.autoCompressHint": "이 이미지는 4K WebP 표시본으로 자동 압축됩니다. 원본은 별도 보관되어 나중에 다운로드/재편집할 수 있어요.",
+    "upload.autoCompressHint": "이 이미지는 업로드할 때 4K WebP 표시본으로 자동 압축돼요. 원본은 그대로 별도 보관되어 나중에 다운로드하거나 다시 편집할 수 있어요.",
     "upload.imageViewTypeLabel": "구도",
     "upload.imageMoveUp": "위로 이동",
     "upload.imageMoveDown": "아래로 이동",
@@ -3756,9 +3762,13 @@ export const messages = {
     "upload.viewType.other": "기타",
     "upload.selectedArtist": "선택됨",
     "upload.screenSizeHint":
-      "한 번에 한 장만 올릴 수 있어요. 파일당 최대 {maxMb}MB까지 허용됩니다. 화면용으로는 충분한 크기예요. 더 크면 편집기에서 줄인 뒤 선택해 주세요.",
-    "upload.fileTooLarge": "이 파일은 {maxMb}MB를 넘어요. (JPEG/PNG/WebP 는 200MB 까지 자동 압축, HEIC/GIF 는 50MB 유지.)",
-    "upload.failedOversized": "{maxMb}MB를 넘는 파일이에요. 줄인 뒤 다시 시도해 주세요.",
+      "JPEG, PNG, WebP 파일을 최대 {maxMb}MB까지 올릴 수 있어요. 5MB 넘는 이미지는 업로드할 때 4K WebP 표시본으로 조용히 자동 압축되고, 원본은 그대로 별도 보관되어 나중에 다운로드하거나 다시 편집할 수 있어요.",
+    "upload.fileTooLargeCompressible":
+      "이 파일은 {maxMb}MB를 넘어서 원본을 안전하게 보관할 수 있는 크기를 초과해요. 조금만 줄여서 다시 시도해 주세요.",
+    "upload.fileTooLargeUnsupported":
+      "HEIC과 애니메이션 GIF는 자동 압축이 지원되지 않아 원본 그대로 저장돼요. 그래서 이 형식은 {maxMb}MB 이하만 가능해요. JPEG, PNG, WebP로 변환하거나 크기를 조금 줄인 뒤 다시 올려 주세요.",
+    "upload.failedOversized":
+      "이 파일은 지금 크기 그대로 저장하기 어려워요. HEIC이나 GIF라면 JPEG/PNG/WebP로 변환해 주세요 (이 형식들은 200MB까지 자동 압축돼요). 그 외 형식이라면 크기를 조금 줄인 뒤 다시 시도해 주세요.",
     "upload.failedNetwork": "서버에 연결하지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.",
     "upload.failedAuth": "로그인이 만료된 것 같아요. 다시 로그인한 뒤 시도해 주세요.",
     "upload.failedGeneric": "업로드 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
@@ -3885,7 +3895,7 @@ export const messages = {
     "bulk.guidance.title": "이 화면에서 일괄 업로드가 이렇게 동작해요",
     "bulk.guidance.lead": "속도와 안정을 위해 네 가지만 기억해 주세요.",
     "bulk.guidance.sizeNote":
-      "파일 하나당 최대 {maxMb}MB까지 가능해요. 5MB 이상 이미지는 업로드 시 4K WebP 표시본으로 자동 압축되고, 원본은 그대로 별도 보관되어 나중에 다운로드/재편집할 수 있어요.",
+      "가장 좋은 파일을 그대로 올려 주세요 — JPEG, PNG, WebP는 최대 {maxMb}MB까지 가능해요. 5MB가 넘는 이미지는 업로드할 때 4K WebP 표시본으로 조용히 자동 압축되고, 원본은 그대로 별도 보관되어 나중에 다운로드하거나 다시 편집할 수 있어요. (HEIC과 애니메이션 GIF는 원본 그대로 저장돼서 50MB까지만 가능해요.)",
     "bulk.guidance.batchNote":
       "한 번에 대기 목록에는 최대 {n}장까지 넣을 수 있어요. 이 묶음을 업로드하고 정리한 다음, 다음 묶음을 이어서 넣는 방식이 가장 수월합니다.",
     "bulk.guidance.listNote":
@@ -3896,15 +3906,17 @@ export const messages = {
     "bulk.guidance.draftListFull":
       "지금 목록에 보이는 초안이 화면이 담을 수 있는 최대치예요. 여기서 일부를 게시하거나 지우면, 그만큼 비워진 뒤 이전 초안이 다시 보일 수 있어요.",
     "bulk.pickImageTypes": "이미지 파일만 선택해 주세요 (예: JPG, PNG, WebP).",
-    "bulk.filesSkippedOversized":
-      "{n}장은 건너뛰었어요. 각 파일은 {maxMb}MB 이하여야 해요. (JPEG/PNG/WebP 는 200MB 까지 자동 압축, HEIC/GIF 는 50MB 제한.)",
+    "bulk.filesSkippedCompressible":
+      "{n}장은 {maxMb}MB를 넘어서 건너뛰었어요. 원본을 안전하게 보관하기에 너무 큰 크기예요. 조금 줄인 뒤 다시 추가해 주세요.",
+    "bulk.filesSkippedUnsupported":
+      "{n}장은 건너뛰었어요. HEIC과 애니메이션 GIF는 원본 그대로 저장돼서 파일당 50MB 이하만 가능해요. JPEG/PNG/WebP로 변환하거나 (이 형식들은 {maxMb}MB까지 자동 압축돼요) 크기를 조금 줄인 뒤 다시 추가해 주세요.",
     "bulk.pendingQueueFull":
       "이번 묶음은 이미 100장이 꽉 찼어요. 지금 목록을 업로드하거나 비운 뒤에 이어서 넣어 주세요.",
     "bulk.batchCapPartialAdd":
       "{added}장만 추가했어요. 한 묶음에는 최대 {max}장까지 넣을 수 있어요. 먼저 업로드를 마친 뒤 나머지를 넣어 주세요.",
     "bulk.uploadNotAuthenticated": "다시 로그인한 뒤 업로드해 주세요.",
     "bulk.uploadFailedFileOversized":
-      "「{name}」이(가) {maxMb}MB 한도를 넘겼어요. 줄인 파일로 다시 시도해 주세요.",
+      "「{name}」은(는) 지금 크기 그대로 저장하기 어려워요. HEIC이나 GIF라면 JPEG/PNG/WebP로 변환해 주세요 (이 형식들은 200MB까지 자동 압축돼요). 그 외 형식이라면 크기를 조금 줄인 뒤 다시 시도해 주세요.",
     "bulk.uploadFailedFileNetwork":
       "「{name}」 업로드 중 서버에 연결하지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.",
     "bulk.uploadFailedFileAuth":
@@ -3914,7 +3926,7 @@ export const messages = {
     "bulk.uploadFailedUnnamedFile": "이 파일",
     "bulk.dropzone": "이미지를 놓거나 클릭하여 선택",
     "bulk.dropzoneHint":
-      "이번 대기 목록은 최대 {batch}장 · 파일당 {maxMb}MB까지 (큰 사진은 자동 압축, 원본은 별도 보관)",
+      "한 묶음에 최대 {batch}장 · 파일당 {maxMb}MB까지 — 큰 사진은 조용히 자동 압축되고, 원본은 그대로 보관돼요",
     "bulk.uploadProgress": "업로드 중 {current} / {total}...",
     "bulk.uploadDone": "{total}개 초안 업로드 완료",
     "bulk.uploadDoneWithFailures": "{total}개 중 {ok}개 업로드 완료 · {failed}개 실패",

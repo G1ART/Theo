@@ -890,19 +890,21 @@ function UploadPageContent() {
                   // now have a 200 MB ceiling (compressor guarantees the
                   // display file lands ≤ 50 MiB); uncompressible formats
                   // (HEIC/animated GIF) still use the 50 MB legacy cap.
+                  // Split messaging by case so the guidance is accurate:
+                  // "auto-compress covers this" vs "convert to a
+                  // supported format".
                   const oversize = files.find(
                     (f) => f.size > getUploadCeilingBytes(f),
                   );
                   if (oversize) {
-                    const ceilingMb = isCompressibleMime(oversize.type)
+                    const compressible = isCompressibleMime(oversize.type);
+                    const ceilingMb = compressible
                       ? UPLOAD_MAX_COMPRESSIBLE_MB_LABEL
                       : UPLOAD_MAX_IMAGE_MB_LABEL;
-                    setError(
-                      t("upload.fileTooLarge").replace(
-                        "{maxMb}",
-                        String(ceilingMb),
-                      ),
-                    );
+                    const key = compressible
+                      ? "upload.fileTooLargeCompressible"
+                      : "upload.fileTooLargeUnsupported";
+                    setError(t(key).replace("{maxMb}", String(ceilingMb)));
                     return;
                   }
                   setError(null);
