@@ -9,6 +9,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { backToLabel } from "@/lib/i18n/back";
 import { getExhibitionBack } from "@/lib/exhibitionBack";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import {
   ensureDefaultExhibitionMediaBuckets,
   getExhibitionById,
@@ -186,7 +187,7 @@ export default function PublicExhibitionPage() {
               {(exhibition.cover_image_paths ?? [])[0] ? (
                 <Image
                   src={getArtworkImageUrl(exhibition.cover_image_paths![0], "medium")}
-                  alt={exhibition.title ?? ""}
+                  alt={pickLocalizedTitle(exhibition, locale) || exhibition.title || ""}
                   fill
                   className="object-cover"
                   sizes="(max-width: 640px) 100vw, 220px"
@@ -198,7 +199,7 @@ export default function PublicExhibitionPage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-                {exhibition.title}
+                {pickLocalizedTitle(exhibition, locale) || exhibition.title}
               </h1>
               <dl className="mt-3 space-y-1 text-sm text-zinc-600">
                 <div className="flex gap-2">

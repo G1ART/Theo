@@ -2,6 +2,89 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — QA 2 Bilingual titles (Phase 4, 스코프 B) ✅ SQL 자동 적용됨
+
+### 배경
+QA 리포트 2 (전시 정보 폼 한/영 필드 부재) 해소. 스코프 B (사용자 승인):
+`projects.title` + `external_artists.display_name` 을 additive 로 KO/EN
+쌍으로 확장. 기존 legacy 컬럼(`title`, `display_name`) 은 그대로 두고,
+저장 시 첫 번째 채워진 언어로 sync 하여 아직 bilingual 필드를 읽지
+않는 코드 경로(검색, SEO, 옛 리스트 뷰) 도 계속 동작.
+
+### Additive 스키마 (자동 적용됨)
+- `supabase/migrations/20260727200000_bilingual_titles.sql` — remote
+  프로젝트에 이미 적용 (`bilingual_titles_phase4` 마이그레이션).
+- `public.projects` : `title_ko text`, `title_en text` (+ `lower()` 인덱스 2개)
+- `public.external_artists` : `display_name_ko text`, `display_name_en text`
+  (+ `lower()` 인덱스 2개)
+- 트리거 없음. Sync 는 클라이언트 저장 시점 책임.
+
+### 신규 helper
+- `src/lib/i18n/pickLocalized.ts`
+  - `pickLocalizedTitle(row, locale)` : `title_ko|title_en|title` 순서로
+    fallback. locale 기준 우선순위 (KO → KO/EN/legacy, EN → EN/KO/legacy).
+  - `pickLocalizedDisplayName(row, locale)` : 동일 패턴 for external_artists.
+  - `pickLegacyTitleForSave({title_ko, title_en})` : KO 우선. 저장 시
+    legacy `title` 를 sync 하는 용도.
+  - `pickLegacyDisplayNameForSave` : external_artists 용.
+
+### 폼 UX (progressive disclosure)
+- `src/components/exhibitions/NewExhibitionFormShell.tsx` — title 입력을
+  bilingual state (`titleKo`, `titleEn`) 로 교체. 기본은 현재 UI locale
+  기준 primary 슬롯 하나. `[+ 다른 언어 추가]` 링크 클릭 시 두 번째 필드
+  노출. 각 필드에 `KO`/`EN` 배지. 저장 시 `pickLegacyTitleForSave` 로
+  legacy `title` sync. 보드 프로모션 seed 도 primary language 슬롯에.
+- `src/app/my/exhibitions/[id]/edit/page.tsx` — 동일 progressive
+  disclosure. 로드 시 두 언어가 모두 채워져 있으면 자동 확장 표시.
+- `src/app/my/exhibitions/[id]/add/page.tsx` — external artist 초대 row
+  가 이제 `{name_ko, name_en, email, showOther}` 구조. 저장 시
+  `createExternalArtistAndClaim` 로 primary language 를 legacy 로 전달
+  (기존 dedupe 유지), 이어서 반환된 external artist id 로
+  `display_name_ko/en` UPDATE. RLS: `invited_by = auth.uid()` 인 행만
+  updatable → 소유권 보장. 참여 작가 버킷 label 도 locale 우선.
+- 신규 i18n: `exhibition.titleAddOtherLang`,
+  `exhibition.titleOtherLangPlaceholderKo`,
+  `exhibition.titleOtherLangPlaceholderEn`.
+
+### Display 사이트 (bilingual read)
+- 공개 전시 페이지 `src/app/e/[id]/page.tsx` — H1 + og alt 를
+  `pickLocalizedTitle(exhibition, locale)` 로. legacy `title` fallback.
+- `src/components/explore/ExploreExhibitionCard.tsx` — 카드 label + alt +
+  aria-label 통일.
+- `src/app/my/exhibitions/page.tsx` — 목록 title.
+- `src/app/my/exhibitions/[id]/page.tsx` — owner view H1.
+- `src/components/feed/ExhibitionMemoryStrip.tsx` — 피드 hero.
+- 그 외 소비처 (`ExhibitionMemoryStrip` 외의 feed 항목, artwork edit,
+  AI assist, tour registry, invite email 등) 는 legacy `title` 을 계속
+  읽음. Sync-on-save 로 안전.
+
+### CreateExhibition / UpdateExhibition 시그니처 확장
+- `createExhibition(args)` 에 `title_ko?`, `title_en?` 추가.
+- `updateExhibition(id, patch)` 의 patch 에 `title_ko`, `title_en`
+  optional. `null` 로 명시하면 clear.
+- `SELECT_WITH_CREDITS` 에 두 언어 컬럼 포함 → 모든 read 경로가 두
+  값을 함께 hydrate.
+
+### Non-goals (Phase 4)
+- 프로필 display_name bilingual (스코프 C 로 미룸)
+- artworks.title bilingual (스코프 D 로 미룸)
+- 단·벌크 업로드의 external artist name row bilingual UI — QA 원문 직접
+  대상 아님. Phase 3 의 재선택 UX 가 사실상 이 문제를 대부분 해결.
+
+### Supabase SQL 적용 필요
+없음. `bilingual_titles_phase4` 마이그레이션 Supabase MCP 로 자동
+적용 완료.
+
+### 환경 변수 추가/변경
+없음.
+
+### Verified
+- `npx tsc --noEmit` 통과.
+- `npm run build` (production) 성공.
+- Remote 컬럼 확인 (`projects.title_ko/en`, `external_artists.display_name_ko/en`).
+
+---
+
 ## 2026-07-27 — QA 4건 · 외부 작가 흐름 고도화 · 위임 UX 정합화 (Phase 1-3) ✅ SQL 자동 적용됨
 
 ### 배경

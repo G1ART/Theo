@@ -16,6 +16,13 @@ export type ExhibitionRow = {
   id: string;
   project_type: string;
   title: string;
+  /**
+   * QA 2026-07 Phase 4 (스코프 B) — bilingual title columns. Legacy
+   * `title` remains as the primary fallback; consumers should prefer
+   * `pickLocalizedTitle(row, locale)` from `@/lib/i18n/pickLocalized`.
+   */
+  title_ko: string | null;
+  title_en: string | null;
   start_date: string | null;
   end_date: string | null;
   status: string;
@@ -28,7 +35,7 @@ export type ExhibitionRow = {
 
 /** Select + curator/host profile joins for credits label. */
 const SELECT_WITH_CREDITS =
-  "id, project_type, title, start_date, end_date, status, curator_id, host_name, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, username), host:profiles!host_profile_id(display_name, username)";
+  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, username), host:profiles!host_profile_id(display_name, username)";
 
 export type ExhibitionWorkRow = {
   id: string;
@@ -156,6 +163,14 @@ export async function listMyExhibitions(
 /** Create an exhibition (project). Curator/host can be set explicitly; otherwise caller is curator (or forProfileId when acting as). */
 export async function createExhibition(args: {
   title: string;
+  /**
+   * QA 2026-07 Phase 4 (스코프 B). When provided, the bilingual columns
+   * are written alongside the legacy `title` field. The legacy `title`
+   * is set by the caller (`pickLegacyTitleForSave`) so old readers see
+   * a usable string until they migrate to `pickLocalizedTitle`.
+   */
+  title_ko?: string | null;
+  title_en?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   status?: string;
@@ -175,6 +190,8 @@ export async function createExhibition(args: {
     .insert({
       project_type: "exhibition",
       title: args.title.trim(),
+      title_ko: args.title_ko?.trim() || null,
+      title_en: args.title_en?.trim() || null,
       start_date: args.start_date ?? null,
       end_date: args.end_date ?? null,
       status: args.status ?? "planned",
@@ -212,7 +229,7 @@ export async function createExhibition(args: {
 /** Update exhibition (title, dates, status, curator, host). */
 export async function updateExhibition(
   id: string,
-  patch: Partial<Pick<ExhibitionRow, "title" | "start_date" | "end_date" | "status" | "curator_id" | "host_name" | "host_profile_id" | "cover_image_paths">>,
+  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "start_date" | "end_date" | "status" | "curator_id" | "host_name" | "host_profile_id" | "cover_image_paths">>,
   options?: {
     /** Principal profile id when operator is acting-as. Audit-only. */
     actingSubjectProfileId?: string | null;
@@ -220,6 +237,9 @@ export async function updateExhibition(
 ): Promise<{ error: unknown }> {
   const payload: Record<string, unknown> = {};
   if (patch.title !== undefined) payload.title = patch.title.trim();
+  // Phase 4: allow explicit null to clear a bilingual field.
+  if (patch.title_ko !== undefined) payload.title_ko = patch.title_ko?.trim() || null;
+  if (patch.title_en !== undefined) payload.title_en = patch.title_en?.trim() || null;
   if (patch.start_date !== undefined) payload.start_date = patch.start_date;
   if (patch.end_date !== undefined) payload.end_date = patch.end_date;
   if (patch.status !== undefined) payload.status = patch.status;

@@ -10,6 +10,7 @@ import {
 } from "@/lib/exhibitionCredits";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 
 type Props = {
   exhibition: ExhibitionWithCredits;
@@ -27,12 +28,15 @@ function pickYear(row: { start_date?: string | null; created_at?: string | null 
 export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
   const router = useRouter();
   const pathname = usePathname();
-  const { t } = useT();
+  const { t, locale } = useT();
 
   const cover = (exhibition.cover_image_paths ?? [])[0] ?? null;
   const imageUrl = cover ? getArtworkImageUrl(cover, "medium") : null;
   const year = pickYear(exhibition);
   const curatorLine = getExhibitionHostCuratorLabel(exhibition, t);
+  // Phase 4: prefer the locale-appropriate title, gracefully falling back
+  // to whichever language was filled and finally to the legacy `title`.
+  const displayTitle = pickLocalizedTitle(exhibition, locale) || exhibition.title || "";
 
   const signupHref = `/onboarding?next=${encodeURIComponent(`/e/${exhibition.id}`)}`;
 
@@ -59,7 +63,7 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      aria-label={exhibition.title ?? undefined}
+      aria-label={displayTitle || undefined}
       className="group flex h-full cursor-pointer flex-col focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
     >
       <div className="relative w-full overflow-hidden bg-zinc-100">
@@ -67,7 +71,7 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
           {imageUrl ? (
             <Image
               src={imageUrl}
-              alt={exhibition.title ?? ""}
+              alt={displayTitle}
               fill
               sizes="(max-width: 768px) 100vw, (max-width: 1280px) 45vw, 380px"
               loading="lazy"
@@ -107,7 +111,7 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
           locked ? "select-none blur-sm" : ""
         }`}
       >
-        {exhibition.title ?? ""}
+        {displayTitle}
       </p>
     </article>
   );

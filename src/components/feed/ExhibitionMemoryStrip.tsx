@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
 import {
   type ExhibitionWithCredits,
@@ -40,7 +41,7 @@ type Props = {
  * or an empty placeholder grid.
  */
 export function ExhibitionMemoryStrip({ exhibition, feedContext }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const pathname = usePathname();
   const period =
     exhibition.start_date && exhibition.end_date
@@ -98,7 +99,7 @@ export function ExhibitionMemoryStrip({ exhibition, feedContext }: Props) {
               </p>
             )}
             <h3 className="mt-1 line-clamp-2 text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
-              {exhibition.title}
+              {pickLocalizedTitle(exhibition, locale) || exhibition.title}
             </h3>
             {period && (
               <p className="mt-1.5 line-clamp-1 text-xs tracking-tight text-zinc-500">

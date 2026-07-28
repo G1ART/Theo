@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import {
   deleteExhibitionMedia,
@@ -66,7 +67,7 @@ function moveInArray<T>(arr: T[], from: number, to: number): T[] {
 
 export default function ExhibitionDetailPage() {
   const params = useParams();
-  const { t } = useT();
+  const { t, locale } = useT();
   const id = typeof params.id === "string" ? params.id : "";
   const [exhibition, setExhibition] = useState<ExhibitionRow | null>(null);
   const [works, setWorks] = useState<ExhibitionWorkRow[]>([]);
@@ -417,7 +418,9 @@ export default function ExhibitionDetailPage() {
             />
 
             <header data-tour="exhibition-detail-header" className="mb-8">
-              <h1 className="text-xl font-semibold text-zinc-900">{exhibition.title}</h1>
+              <h1 className="text-xl font-semibold text-zinc-900">
+                {pickLocalizedTitle(exhibition, locale) || exhibition.title}
+              </h1>
               <p className="mt-1 text-sm text-zinc-500">
                 {exhibition.start_date && exhibition.end_date
                   ? `${exhibition.start_date} – ${exhibition.end_date}`

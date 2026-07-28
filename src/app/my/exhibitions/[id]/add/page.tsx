@@ -19,6 +19,7 @@ import {
   type ArtworkWithLikes,
 } from "@/lib/supabase/artworks";
 import { getMyProfile } from "@/lib/supabase/me";
+import { supabase as supabaseClient } from "@/lib/supabase/client";
 import { searchPeople } from "@/lib/supabase/artists";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
@@ -73,10 +74,18 @@ export default function AddWorkToExhibitionPage() {
 
   // 외부 작가 초대 (아직 온보딩되지 않은 작가)
   const [useExternalInvite, setUseExternalInvite] = useState(false);
-  const [externalRows, setExternalRows] = useState<{ name: string; email: string }[]>([
-    { name: "", email: "" },
-  ]);
+  /**
+   * QA 2026-07 Phase 4 — external artist rows carry both KO and EN
+   * display names. Legacy `name` is derived from the primary language on
+   * save. `showOther` per row so the operator can add the second language
+   * only where relevant, matching the exhibition-title progressive
+   * disclosure UX.
+   */
+  const [externalRows, setExternalRows] = useState<
+    { name_ko: string; name_en: string; email: string; showOther: boolean }[]
+  >([{ name_ko: "", name_en: "", email: "", showOther: false }]);
   const [invitingExternal, setInvitingExternal] = useState(false);
+  const externalPrimaryLang: "ko" | "en" = locale === "ko" ? "ko" : "en";
 
   // 작품 검색 (제목/설명/매체/키워드 기반 텍스트 검색; 자연어 검색의 1차 버전)
   const [workQuery, setWorkQuery] = useState("");
@@ -512,54 +521,119 @@ export default function AddWorkToExhibitionPage() {
                   <p className="text-xs text-zinc-500">
                     {t("exhibition.externalArtistsHint")}
                   </p>
-                  {externalRows.map((row, idx) => (
-                    <div key={idx} className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        type="text"
-                        value={row.name}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setExternalRows((prev) => {
-                            const next = [...prev];
-                            next[idx] = { ...next[idx], name: v };
-                            return next;
-                          });
-                        }}
-                        placeholder={t("upload.externalArtistNamePlaceholder")}
-                        className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm"
-                      />
-                      <input
-                        type="email"
-                        value={row.email}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setExternalRows((prev) => {
-                            const next = [...prev];
-                            next[idx] = { ...next[idx], email: v };
-                            return next;
-                          });
-                        }}
-                        placeholder={t("upload.externalArtistEmailPlaceholder")}
-                        className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm"
-                      />
-                      {externalRows.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExternalRows((prev) => prev.filter((_, i) => i !== idx))
-                          }
-                          className="text-xs text-zinc-500 hover:text-zinc-800"
-                        >
-                          {t("common.remove")}
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {externalRows.map((row, idx) => {
+                    const primaryValue =
+                      externalPrimaryLang === "ko" ? row.name_ko : row.name_en;
+                    const otherValue =
+                      externalPrimaryLang === "ko" ? row.name_en : row.name_ko;
+                    const setPrimary = (v: string) =>
+                      setExternalRows((prev) => {
+                        const next = [...prev];
+                        next[idx] = {
+                          ...next[idx],
+                          ...(externalPrimaryLang === "ko"
+                            ? { name_ko: v }
+                            : { name_en: v }),
+                        };
+                        return next;
+                      });
+                    const setOther = (v: string) =>
+                      setExternalRows((prev) => {
+                        const next = [...prev];
+                        next[idx] = {
+                          ...next[idx],
+                          ...(externalPrimaryLang === "ko"
+                            ? { name_en: v }
+                            : { name_ko: v }),
+                        };
+                        return next;
+                      });
+                    return (
+                      <div key={idx} className="space-y-2 rounded border border-zinc-200 bg-white p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              value={primaryValue}
+                              onChange={(e) => setPrimary(e.target.value)}
+                              placeholder={t("upload.externalArtistNamePlaceholder")}
+                              className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+                              lang={externalPrimaryLang}
+                            />
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                              {externalPrimaryLang}
+                            </span>
+                          </div>
+                          <input
+                            type="email"
+                            value={row.email}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setExternalRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], email: v };
+                                return next;
+                              });
+                            }}
+                            placeholder={t("upload.externalArtistEmailPlaceholder")}
+                            className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm"
+                          />
+                          {externalRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExternalRows((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              className="text-xs text-zinc-500 hover:text-zinc-800"
+                            >
+                              {t("common.remove")}
+                            </button>
+                          )}
+                        </div>
+                        {row.showOther ? (
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={otherValue}
+                              onChange={(e) => setOther(e.target.value)}
+                              placeholder={t(
+                                externalPrimaryLang === "ko"
+                                  ? "exhibition.titleOtherLangPlaceholderEn"
+                                  : "exhibition.titleOtherLangPlaceholderKo"
+                              )}
+                              className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+                              lang={externalPrimaryLang === "ko" ? "en" : "ko"}
+                            />
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                              {externalPrimaryLang === "ko" ? "en" : "ko"}
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExternalRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], showOther: true };
+                                return next;
+                              })
+                            }
+                            className="text-xs text-zinc-500 underline hover:text-zinc-800"
+                          >
+                            {t("exhibition.titleAddOtherLang")}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                   <div className="flex items-center justify-between">
                     <button
                       type="button"
                       onClick={() =>
-                        setExternalRows((prev) => [...prev, { name: "", email: "" }])
+                        setExternalRows((prev) => [
+                          ...prev,
+                          { name_ko: "", name_en: "", email: "", showOther: false },
+                        ])
                       }
                       className="text-xs text-zinc-700 hover:text-zinc-900"
                     >
@@ -581,30 +655,65 @@ export default function AddWorkToExhibitionPage() {
                 onClick={async () => {
                   // 외부 작가 초대 처리 (이름 있는 행만)
                   if (useExternalInvite) {
+                    // Phase 4: derive primary display name from the UI
+                    // locale's field; the row must have at least one
+                    // language filled. `nameForLegacy` is what feeds
+                    // the RPC's legacy `p_display_name` and is later
+                    // overwritten by a follow-up UPDATE that also fills
+                    // the OTHER language column if provided.
                     const rows = externalRows
-                      .map((r) => ({
-                        name: r.name.trim(),
-                        email: r.email.trim(),
-                      }))
-                      .filter((r) => r.name);
+                      .map((r) => {
+                        const ko = r.name_ko.trim();
+                        const en = r.name_en.trim();
+                        const primary = externalPrimaryLang === "ko" ? ko : en;
+                        const nameForLegacy = primary || ko || en;
+                        return {
+                          nameForLegacy,
+                          name_ko: ko || null,
+                          name_en: en || null,
+                          email: r.email.trim(),
+                        };
+                      })
+                      .filter((r) => !!r.nameForLegacy);
                     if (rows.length > 0) {
                       try {
                         setInvitingExternal(true);
                         for (const row of rows) {
-                          const { error: extErr } = await createExternalArtistAndClaim({
-                            displayName: row.name,
-                            inviteEmail: row.email || null,
-                            claimType: "CURATED",
-                            workId: null,
-                            projectId: id,
-                            visibility: "public",
-                            period_status: "current",
-                          });
+                          const { data: extData, error: extErr } =
+                            await createExternalArtistAndClaim({
+                              displayName: row.nameForLegacy,
+                              inviteEmail: row.email || null,
+                              claimType: "CURATED",
+                              workId: null,
+                              projectId: id,
+                              visibility: "public",
+                              period_status: "current",
+                            });
                           if (extErr) {
                             logSupabaseError(
                               "createExternalArtistAndClaim (exhibition participants)",
                               extErr
                             );
+                            continue;
+                          }
+                          // Phase 4: fill bilingual columns on the row we
+                          // just created / reused. RLS: owner (invited_by
+                          // = auth.uid()) can update their invited rows.
+                          const extId = extData?.external_artist?.id;
+                          if (extId && (row.name_ko || row.name_en)) {
+                            const { error: upErr } = await supabaseClient
+                              .from("external_artists")
+                              .update({
+                                display_name_ko: row.name_ko,
+                                display_name_en: row.name_en,
+                              })
+                              .eq("id", extId);
+                            if (upErr) {
+                              logSupabaseError(
+                                "update external_artists bilingual names",
+                                upErr
+                              );
+                            }
                           }
                         }
                       } finally {
@@ -651,7 +760,8 @@ export default function AddWorkToExhibitionPage() {
             {/* 작가 단위 버킷: 드롭 존 + 단일/일괄 버튼 */}
             <div className="mb-6 space-y-4">
               <p className="text-sm font-semibold text-zinc-800">{t("exhibition.addWorksByArtist")}</p>
-              {(participants.length > 0 || externalRows.some((r) => r.name.trim())) ? (
+              {(participants.length > 0 ||
+                externalRows.some((r) => r.name_ko.trim() || r.name_en.trim())) ? (
                 <ul className="grid gap-4 sm:grid-cols-2">
                   {participants.map((p) => {
                     const bucketKey = p.id;
@@ -726,7 +836,25 @@ export default function AddWorkToExhibitionPage() {
                     );
                   })}
                   {externalRows
-                    .map((r) => ({ name: r.name.trim(), email: r.email.trim() }))
+                    .map((r) => {
+                      // Phase 4: bucket label prefers the current locale;
+                      // falls back to the other language so a KO-only row
+                      // still displays a name in an EN session (and vice
+                      // versa). URL params keep using the display name so
+                      // downstream upload matching remains stable.
+                      const primary =
+                        externalPrimaryLang === "ko"
+                          ? r.name_ko.trim()
+                          : r.name_en.trim();
+                      const fallback =
+                        externalPrimaryLang === "ko"
+                          ? r.name_en.trim()
+                          : r.name_ko.trim();
+                      return {
+                        name: primary || fallback,
+                        email: r.email.trim(),
+                      };
+                    })
                     .filter((r) => r.name)
                     .map((r, idx) => {
                       const bucketKey = `ext-${idx}`;

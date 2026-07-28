@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
+import { pickLegacyTitleForSave } from "@/lib/i18n/pickLocalized";
 import { backToLabel } from "@/lib/i18n/back";
 import {
   deleteExhibitionKeepWorks,
@@ -45,6 +46,20 @@ export default function EditExhibitionPage() {
   const [exhibition, setExhibition] = useState<ExhibitionWithCredits | null>(null);
   const [myProfileId, setMyProfileId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
+  /**
+   * QA 2026-07 Phase 4 — bilingual titles alongside the legacy `title`.
+   * `title` is retained as the AI-assist input and legacy sync source.
+   */
+  const [titleKo, setTitleKo] = useState("");
+  const [titleEn, setTitleEn] = useState("");
+  const [showOtherLangTitle, setShowOtherLangTitle] = useState(false);
+  const primaryLang: "ko" | "en" = locale === "ko" ? "ko" : "en";
+  const primaryTitleField = primaryLang === "ko" ? titleKo : titleEn;
+  const otherTitleField = primaryLang === "ko" ? titleEn : titleKo;
+  const setPrimaryTitleField = (v: string) =>
+    primaryLang === "ko" ? setTitleKo(v) : setTitleEn(v);
+  const setOtherTitleField = (v: string) =>
+    primaryLang === "ko" ? setTitleEn(v) : setTitleKo(v);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState<"planned" | "live" | "ended">("planned");
@@ -116,6 +131,13 @@ export default function EditExhibitionPage() {
         const data = exData as ExhibitionWithCredits;
         setExhibition(data);
         setTitle(data.title);
+        setTitleKo(data.title_ko ?? "");
+        setTitleEn(data.title_en ?? "");
+        // If both are already filled, expand automatically so the operator
+        // sees the whole picture (avoids "why is my EN title missing?" 오해).
+        if ((data.title_ko?.trim().length ?? 0) > 0 && (data.title_en?.trim().length ?? 0) > 0) {
+          setShowOtherLangTitle(true);
+        }
         setStartDate(data.start_date ?? "");
         setEndDate(data.end_date ?? "");
         setStatus((data.status as "planned" | "live" | "ended") || "planned");
@@ -190,7 +212,12 @@ export default function EditExhibitionPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!id || !title.trim()) return;
+    // Phase 4: allow save when either language is filled.
+    const legacyTitle = pickLegacyTitleForSave({
+      title_ko: titleKo,
+      title_en: titleEn,
+    }) ?? (title.trim() || null);
+    if (!id || !legacyTitle) return;
     if (!curatorMe && !curatorSelected) {
       setError(t("common.pleaseSelectArtist") ?? "Please select or search for a curator.");
       return;
@@ -211,7 +238,9 @@ export default function EditExhibitionPage() {
     const { error: err } = await updateExhibition(
       id,
       {
-        title: title.trim(),
+        title: legacyTitle,
+        title_ko: titleKo.trim() || null,
+        title_en: titleEn.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
         status,
@@ -305,14 +334,61 @@ export default function EditExhibitionPage() {
               <label className="mb-1 block text-sm font-medium text-zinc-700">
                 {t("exhibition.title")} *
               </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t("exhibition.titlePlaceholder")}
-                className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-                required
-              />
+              {/*
+                Phase 4: bilingual title with progressive disclosure.
+                Primary slot matches UI locale; hidden slot appears on
+                explicit expand OR when both languages were already
+                stored (auto-expanded during load).
+              */}
+              <div className="space-y-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={primaryTitleField}
+                    onChange={(e) => {
+                      setPrimaryTitleField(e.target.value);
+                      // Keep legacy `title` in sync as user types the
+                      // primary-language field so the AI assist and
+                      // downstream reads reflect the latest text.
+                      setTitle(e.target.value);
+                    }}
+                    placeholder={t("exhibition.titlePlaceholder")}
+                    className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+                    required
+                    lang={primaryLang}
+                  />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                    {primaryLang}
+                  </span>
+                </div>
+                {showOtherLangTitle ? (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={otherTitleField}
+                      onChange={(e) => setOtherTitleField(e.target.value)}
+                      placeholder={t(
+                        primaryLang === "ko"
+                          ? "exhibition.titleOtherLangPlaceholderEn"
+                          : "exhibition.titleOtherLangPlaceholderKo"
+                      )}
+                      className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+                      lang={primaryLang === "ko" ? "en" : "ko"}
+                    />
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                      {primaryLang === "ko" ? "en" : "ko"}
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowOtherLangTitle(true)}
+                    className="text-xs text-zinc-500 underline hover:text-zinc-800"
+                  >
+                    {t("exhibition.titleAddOtherLang")}
+                  </button>
+                )}
+              </div>
               <div className="mt-3">
                 <ExhibitionDraftAssist
                   title={title}

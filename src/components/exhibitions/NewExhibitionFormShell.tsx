@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
+import { pickLegacyTitleForSave } from "@/lib/i18n/pickLocalized";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { createExhibition } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
@@ -53,11 +54,30 @@ export function NewExhibitionFormShell({
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromBoardId = searchParams.get("fromBoard");
-  const { t } = useT();
+  const { t, locale } = useT();
   const [boardContext, setBoardContext] = useState<{ title: string; artworkCount: number } | null>(null);
   const { actingAsProfileId } = useActingAs();
   const [myProfileId, setMyProfileId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
+  /**
+   * QA 2026-07 Phase 4 (스코프 B) — bilingual titles with progressive
+   * disclosure. Default: one input in the current UI language. The
+   * operator can reveal the second language via `[+ 다른 언어 추가]`.
+   *
+   * Legacy `title` is kept in sync on save using pickLegacyTitleForSave
+   * (KO wins on tie), so callers that haven't migrated to bilingual
+   * fields still surface a usable string.
+   */
+  const [titleKo, setTitleKo] = useState("");
+  const [titleEn, setTitleEn] = useState("");
+  const [showOtherLangTitle, setShowOtherLangTitle] = useState(false);
+  const primaryLang: "ko" | "en" = locale === "ko" ? "ko" : "en";
+  const primaryTitle = primaryLang === "ko" ? titleKo : titleEn;
+  const otherTitle = primaryLang === "ko" ? titleEn : titleKo;
+  const setPrimaryTitle = (v: string) =>
+    primaryLang === "ko" ? setTitleKo(v) : setTitleEn(v);
+  const setOtherTitle = (v: string) =>
+    primaryLang === "ko" ? setTitleEn(v) : setTitleKo(v);
+  const hasAnyTitle = titleKo.trim().length > 0 || titleEn.trim().length > 0;
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState<"planned" | "live" | "ended">("planned");
@@ -98,12 +118,20 @@ export function NewExhibitionFormShell({
       if (cancelled || !sl) return;
       const artworkCount = items.filter((i) => i.artwork_id).length;
       setBoardContext({ title: sl.title, artworkCount });
-      setTitle((prev) => (prev.trim().length > 0 ? prev : sl.title));
+      // Seed the primary-language title only when no title has been typed
+      // yet, so manual edits are never overwritten. Depend on `locale`
+      // via primaryLang so an SSR-hydrated user opening in KO still gets
+      // the seed in the right slot.
+      if (primaryLang === "ko") {
+        setTitleKo((prev) => (prev.trim().length > 0 ? prev : sl.title));
+      } else {
+        setTitleEn((prev) => (prev.trim().length > 0 ? prev : sl.title));
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [fromBoardId]);
+  }, [fromBoardId, primaryLang]);
 
   const runCuratorSearch = useCallback(async () => {
     const q = curatorSearch.trim();
@@ -145,7 +173,11 @@ export function NewExhibitionFormShell({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) return;
+    const legacyTitle = pickLegacyTitleForSave({
+      title_ko: titleKo,
+      title_en: titleEn,
+    });
+    if (!legacyTitle) return;
     if (!curatorMe && !curatorSelected) {
       setError(t("common.pleaseSelectArtist") ?? "Please select or search for a curator.");
       return;
@@ -164,7 +196,9 @@ export function NewExhibitionFormShell({
           ? hostSelected?.id ?? null
           : null;
     const { data, error: err } = await createExhibition({
-      title: title.trim(),
+      title: legacyTitle,
+      title_ko: titleKo.trim() || null,
+      title_en: titleEn.trim() || null,
       start_date: startDate || null,
       end_date: endDate || null,
       status,
@@ -233,18 +267,56 @@ export function NewExhibitionFormShell({
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div data-tour="exhibition-form-title">
+        <div data-tour="exhibition-form-title" className="space-y-2">
           <label className="mb-1 block text-sm font-medium text-zinc-700">
             {t("exhibition.title")} *
           </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={t("exhibition.titlePlaceholder")}
-            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-            required
-          />
+          {/*
+            Primary language input (matches current UI locale). Chip on the
+            right marks which language this slot represents so it's clear
+            once the secondary field is revealed.
+          */}
+          <div className="relative">
+            <input
+              type="text"
+              value={primaryTitle}
+              onChange={(e) => setPrimaryTitle(e.target.value)}
+              placeholder={t("exhibition.titlePlaceholder")}
+              className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+              required
+              lang={primaryLang}
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+              {primaryLang}
+            </span>
+          </div>
+          {showOtherLangTitle ? (
+            <div className="relative">
+              <input
+                type="text"
+                value={otherTitle}
+                onChange={(e) => setOtherTitle(e.target.value)}
+                placeholder={t(
+                  primaryLang === "ko"
+                    ? "exhibition.titleOtherLangPlaceholderEn"
+                    : "exhibition.titleOtherLangPlaceholderKo"
+                )}
+                className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+                lang={primaryLang === "ko" ? "en" : "ko"}
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                {primaryLang === "ko" ? "en" : "ko"}
+              </span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowOtherLangTitle(true)}
+              className="text-xs text-zinc-500 underline hover:text-zinc-800"
+            >
+              {t("exhibition.titleAddOtherLang")}
+            </button>
+          )}
         </div>
 
         <div data-tour="exhibition-form-dates" className="grid gap-4 sm:grid-cols-2">
@@ -463,7 +535,7 @@ export function NewExhibitionFormShell({
           )}
         </div>
 
-        {title.trim().length > 0 && (
+        {hasAnyTitle && (
           <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/70">
             <button
               type="button"
@@ -497,7 +569,7 @@ export function NewExhibitionFormShell({
             {showDraftAssist && (
               <div className="border-t border-zinc-200 px-4 py-3">
                 <ExhibitionDraftAssist
-                  title={title}
+                  title={primaryTitle || otherTitle}
                   startDate={startDate}
                   endDate={endDate}
                   curatorLabel={
@@ -513,7 +585,7 @@ export function NewExhibitionFormShell({
                       : hostName || null
                   }
                   works={[]}
-                  onApplyTitle={(text) => setTitle(text)}
+                  onApplyTitle={(text) => setPrimaryTitle(text)}
                 />
               </div>
             )}
@@ -525,7 +597,7 @@ export function NewExhibitionFormShell({
             type="submit"
             disabled={
               submitting ||
-              !title.trim() ||
+              !hasAnyTitle ||
               (curatorMe ? !effectiveProfileId : !curatorSelected)
             }
             className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"

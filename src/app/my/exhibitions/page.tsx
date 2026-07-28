@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import { listMyExhibitions, type ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { ExhibitionThumbStack } from "@/components/ExhibitionThumbStack";
@@ -76,7 +77,7 @@ function stateBadgeClasses(s: ExhibitionUiState): string {
 }
 
 export default function MyExhibitionsPage() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [list, setList] = useState<ExhibitionWithCredits[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,7 +203,9 @@ export default function MyExhibitionsPage() {
                   >
                     <ExhibitionThumbStack paths={ex.cover_image_paths} className="mb-3" />
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="min-w-0 font-medium text-zinc-900">{ex.title}</p>
+                      <p className="min-w-0 font-medium text-zinc-900">
+                        {pickLocalizedTitle(ex, locale) || ex.title}
+                      </p>
                       {/*
                         Badge + tooltip. Draft badge uses `title` attr so the
                         hover message ("작품을 추가하면…") is discoverable but
