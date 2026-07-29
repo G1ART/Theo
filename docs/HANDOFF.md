@@ -2,6 +2,119 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — 전시 서문(preface) 필드 추가 + AI 문안 도우미 크래시 안정화 ✅ SQL 자동 적용됨
+
+### 배경 (QA)
+> 1. "전시 정보 업데이트 화면에 서문(preface)/초안 타이핑 칸이 없다." — 편집 화면엔 title/dates/status/curator/host 만 있어서 큐레이터가 서문을 붙여넣을 곳이 없었음.
+> 2. "AI 소개문 초안작성 클릭 시 Application error: a client-side exception has occurred." — 문안 도우미 버튼을 누르면 전시 화면 전체가 white-screen. 페이지에 error boundary 가 전혀 없어 어떤 자식 컴포넌트라도 throw 하면 뿌리까지 무너짐.
+
+### DB 변경 ⚠️ (MCP 로 자동 적용됨 — 수동 SQL 실행 불필요)
+
+`supabase/migrations/20260728230000_project_preface.sql`
+- `projects.preface_ko text` / `projects.preface_en text` **additive**. 기존 title 처럼 legacy 단일 컬럼 fallback 은 두지 않고 두 언어를 각각 nullable text 로 둠 (`pickLocalizedPreface` 가 locale 우선, 상대 언어 fallback 순서).
+- 트리거/제약 없음, 인덱스 없음 (서문은 검색 대상 아님). RLS 는 `projects` 의 기존 정책이 그대로 적용됨.
+
+### Client 변경
+
+**서문(preface) 배선**
+- `src/lib/i18n/pickLocalized.ts` — `pickLocalizedPreface(row, locale)` 추가.
+- `src/lib/supabase/exhibitions.ts` — `ExhibitionRow.preface_ko/en` 추가, `SELECT_WITH_CREDITS` 에 두 컬럼 포함, `createExhibition` / `updateExhibition` 페이로드에 additive 두 키 추가. 기존 시그니처 이동/이름변경 없음 (concurrent subagent 와 병행 안전).
+- `src/components/exhibitions/NewExhibitionFormShell.tsx` — title 아래에 서문 bilingual textarea. `min-h-[140px]` + `resize-y`, 언어 chip 오른쪽 상단, "다른 언어 추가" progressive disclosure. AI 초안 apply 시 preface 필드로 흘러 들어가도록 `ExhibitionDraftAssist` 에 `onApplyDescription`/`currentDescription` 전달.
+- `src/app/my/exhibitions/[id]/edit/page.tsx` — hydrate 시 두 언어 모두 로드 (둘 다 값이 있으면 auto-expand), 저장 시 두 컬럼 explicit null 로 clear 가능. AI 도우미도 편집 화면에서 preface 로 흘러가도록 wire.
+- `src/app/e/[id]/page.tsx` (공개 상세) — header 아래에 서문 렌더 (`whitespace-pre-line`, `text-[15px] leading-relaxed`). 값이 비면 아예 렌더 안 함.
+
+**AI 크래시 원인 + 방어층**
+- `src/components/ai/ExhibitionDraftAssist.tsx` (재작성)
+  - **Root cause 후보 2가지 모두 봉인**:
+    1. 모델이 간혹 `drafts` 를 `string[]` 이 아닌 `{body|text: string}[]` 이나 object 로 반환. 기존 코드는 그대로 `drafts.map` 을 태워 render 중 throw → 전체 트리 crash. 새 `normalizeDrafts()` 가 `Array.isArray` + item 별 shape guard 로 항상 clean `string[]` 을 만든다.
+    2. `aiApi.exhibitionDraft` 자체는 reject 하지 않도록 설계됐지만 그 위임 체인이 throw 하는 경우 UI 가 그대로 붕괴. `trigger` 를 `try/catch` 로 감싸서 실패 시 synthetic degraded result (`{degraded: true, reason: "error", drafts: []}`) 로 폴백 → `AiDraftPanel` 이 amber "잠시 후 다시 시도" 라인을 그림.
+  - **컴포넌트 자체를 ErrorBoundary 로 감쌈** — future crash 도 페이지 전체 대신 문안 도우미 카드 자리에만 fallback 표시 + "다시 시도" 버튼.
+- `src/components/ErrorBoundary.tsx` (new) — 최소 class component. `getDerivedStateFromError` + `componentDidCatch` + `reset()`. Fallback 은 옵션 (default: amber 카드 + retry). Never resets on prop change (broken subtree 가 매 렌더마다 flap 하는 것 방지).
+- `src/app/my/exhibitions/[id]/edit/error.tsx` (new) / `src/app/my/exhibitions/new/error.tsx` (new) — route-level Next.js boundary. 페이지 전체 crash 시 shell + 뒤로가기 링크는 살려 두고 amber "이 화면에서 예기치 못한 오류가 발생했어요" + `error.digest` + reset() 버튼만 렌더.
+
+### 새 i18n 키 (KO/EN)
+- `exhibition.preface` / `prefaceHint` / `prefacePlaceholder`
+- `exhibition.prefaceOtherLangPlaceholderKo` / `prefaceOtherLangPlaceholderEn` / `prefaceAddOtherLang`
+- `ai.exhibition.applyDescription`
+- `ai.exhibition.assistCrashed` / `ai.exhibition.retryAssist`
+
+톤: 실용/따뜻/정중, success silent. 서문 placeholder 는 "예: 이번 전시는…" 처럼 큐레이터가 그대로 대체하고 싶어지는 짧은 힌트.
+
+### Verified
+- `npx tsc --noEmit` clean.
+- `npm run lint` (touched files): 이 패치가 새로 도입한 error/warning 0개. 남아 있는 3 errors + 3 warnings 는 전부 baseline (e.g. `set-state-in-effect` in `/e/[id]/page.tsx`, `ExhibitionRow` unused import in edit page).
+- MCP `execute_sql` 로 `preface_ko`/`preface_en` 컬럼 존재 확인.
+
+### 환경 변수
+없음. 새 패키지 없음.
+
+---
+
+## 2026-07-28 — `/my/exhibitions/[id]/add` 참여자 진실원을 DB 로 이관 (dedupe + hydrate + blur-save) ✅ SQL 자동 적용됨
+
+### 배경 (QA)
+> "그룹 전시 → 초대한 외부 작가 정보가 안 남는 이슈 확인 부탁. 백엔드에 쓸데없는 데이터가 계속 쌓이는 거 같은 느낌."
+
+3단 원인:
+1. **로컬 state 만**: `AddWorkToExhibitionPage` 의 `externalRows`/`participants` 는 `useState` 안에만 존재. `/upload/bulk` 왕복 후 컴포넌트 remount → 초기화. 사용자는 같은 명단을 다시 입력.
+2. **중복 INSERT**: 재입력 후 "다음: 작품 선택" 을 다시 누르면 `create_external_artist_and_claim` 이 project-scope CURATED claim 을 또 INSERT. `external_artists` 는 이메일 전역 dedupe 로 안전했지만 `claims` 는 unique 제약 부재.
+3. **잘못된 리다이렉트**: 업로드 성공 후 `/my/exhibitions/{id}` (관리 홈) 로 튐 → 사용자는 다시 "관리" → "작품 추가" 를 눌러야 함 → 다시 remount → 다시 명단 입력.
+
+프로덕션 스냅숏 (backfill 직전):
+- project-only CURATED claim 그룹 19개 중 9개 (47%) 중복.
+- 잉여 row 55개, 워스트 케이스 28× (한 사람 × 한 전시).
+
+### DB 변경 ⚠️ (전부 MCP 로 자동 적용됨 — 수동 SQL 실행 불필요)
+
+`supabase/migrations/20260728220000_exhibition_participant_dedupe.sql`
+- **SECTION 1 — backfill**: `do $backfill$` 로 (project_id × external_artist_id) / (project_id × artist_profile_id) 각 축 duplicate 를 canonical 1행(earliest `created_at`) 으로 병합. `notifications.claim_id` 는 `on delete set null` 이라 cascade 위험 없음. 실측 결과 **ext 55, prof 0 row 삭제**.
+- **SECTION 2 — partial unique indexes**:
+  - `uq_claims_project_curated_ext` on `(project_id, external_artist_id, claim_type) where work_id is null and claim_type='CURATED' and external_artist_id is not null`
+  - `uq_claims_project_curated_prof` on `(project_id, artist_profile_id, claim_type) where work_id is null and claim_type='CURATED' and artist_profile_id is not null`
+- **SECTION 3-4 — RPC idempotency**: `create_external_artist_and_claim` (v5) 와 `create_claim_for_existing_artist` (v3) 의 project-scope path 에 `on conflict ... do nothing` 추가. 반환 claim row 는 canonical (기존/신규 무관) 을 SELECT 로 재조회. work-scope path 는 기존 동작 유지. 시그니처 그대로.
+
+`supabase/migrations/20260728220001_exhibition_participants_rpcs.sql`
+- **SECTION 1 — `is_exhibition_manager(project_id) -> (is_manager, is_owner)`**: curator/host = manager+owner, 활성 project delegation (`manage_works`|`edit_metadata`) = manager only. PII 게이팅용.
+- **SECTION 2 — `list_exhibition_participants(project_id)`**: `/add` hydrate 소스. profile / external 두 갈래를 union all 로 반환하고 `works_count` 를 서브쿼리로 인라인 집계. `invite_email` 은 `is_owner` 일 때만 노출 (다른 external_artists RPC 와 동일 PII posture).
+- **SECTION 3 — `remove_exhibition_participant(claim_id, delete_external default false)`**: project-only CURATED claim 을 검증 → 해당 subject 로 이 전시에 attribute 된 work-scope claim 이 있으면 `raise 'works_present: N ...'`. 삭제 후 옵션에 따라 external_artists row 도 정리 (남은 claim 이 전혀 없고 caller 가 inviter 인 경우).
+
+### Client 변경
+
+`src/lib/supabase/exhibitionParticipants.ts` (new)
+- `listExhibitionParticipants(projectId)` / `removeExhibitionParticipant(claimId, { deleteExternal })` typed wrappers.
+- `works_present` 예외는 파싱해서 `{ok:false, kind:'works_present', worksCount}` 구조화 outcome 으로 반환 → UI 가 서버 영문 메시지를 파싱할 필요 없음.
+
+`src/app/my/exhibitions/[id]/add/page.tsx` (재작성)
+- `ExternalRow` 타입에 `claimId`, `externalArtistId`, `saveStatus`, `savedSnapshot`, `worksCount` 추가.
+- `hydrateParticipants()`: mount 시 + `id`/`actingAsProfileId` 변경 시 + window focus 시 자동 재조회. 미저장 tail row 는 hydration 중에도 보존.
+- **Blur-save 흐름**: name / email `onBlur` 마다 500ms 없이 즉시 `persistExternalRow(clientId)` 실행 (schedule 함수는 debounce 여지 있지만 blur 이벤트 자체가 이미 debounce 성격). `savedSnapshot` 비교로 no-op 스킵. 중복이 흡수되면 `duplicate` 상태로 표시. `externalRowsRef` 로 stale closure 회피.
+- 프로필 참여자 추가/삭제도 서버 왕복 (optimistic). RPC 는 idempotent 이므로 중복 클릭 안전.
+- ×(삭제) 버튼: `works_present` 반환 시 인라인 chip 으로 `removeBlocked` 안내 + 상단 toast.
+- "다음: 작품 선택" 버튼은 **더 이상 batch INSERT 하지 않음** — 미저장 dirty tail row 만 flush 후 step 전환.
+
+`src/app/upload/page.tsx` / `src/app/upload/bulk/page.tsx`
+- `addToExhibitionId` 가 있으면 업로드 성공 후 `/my/exhibitions/{id}/add` 로 복귀 (기존: 관리 홈). `fromBoard` 파라미터가 있으면 그대로 유지.
+- 복귀 전 `sessionStorage.setItem('exhibitionAddReturnToast', 'bulk.doneReturnToExhibition')` → `/add` 마운트 시 consume 해서 조용한 landing toast 표시 (하드 리로드 안전).
+
+### 새 i18n 키 (KO/EN)
+- `exhibition.participants.autoSaved` / `savingInline` / `savedInline`
+- `exhibition.participants.duplicateAbsorbed`
+- `exhibition.participants.removeCta` / `removeBlocked` (플레이스홀더 `{n}`)
+- `exhibition.participants.bulkDoneReturnToast`
+
+톤: 조용한 성공, 필요한 순간에만 말함 (`autoSaved` 는 목록 상단에 한 번, `saved` 상태는 chip 자체가 색으로 알려주고 텍스트는 works 가 붙었을 때만 등장, `removeBlocked` 는 원인 + 사용자가 할 일).
+
+### Verified
+- `npx tsc --noEmit` clean.
+- `npm run lint`: 이 패치가 새로 도입한 `set-state-in-effect` 경고는 이 파일의 기존 패턴 (line 614/703) 과 동일. 그 외 lint 오류는 전부 baseline.
+- Post-migration MCP sanity: `uq_claims_project_curated_ext` / `uq_claims_project_curated_prof` 존재 확인, 재조회 시 duplicate 그룹 0. Backfill 로 정확히 55개 row 정리됨.
+- 두 신규 RPC 모두 `pg_proc` 에 등록 확인 (arg count 일치).
+
+### 환경 변수
+없음. 새 패키지 없음.
+
+---
+
 ## 2026-07-28 — 전시 미디어: PDF 첨부(썸네일 렌더) + 자동 압축 + 포스터 버킷 + 파일별 진행률 ✅ SQL 자동 적용됨
 
 ### 배경 (QA)

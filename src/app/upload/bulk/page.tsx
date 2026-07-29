@@ -87,6 +87,7 @@ export default function BulkUploadPage() {
   const preselectedArtistUsername = searchParams.get("artistUsername");
   const preselectedExternalName = searchParams.get("externalName");
   const preselectedExternalEmail = searchParams.get("externalEmail");
+  const preservedFromBoard = searchParams.get("fromBoard");
 
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
@@ -868,8 +869,26 @@ export default function BulkUploadPage() {
         }
         // All published — mirror single-upload navigation instead of
         // stranding the user on the draft table / add page (QA 2026-07-01).
+        //
+        // QA 2026-07-28: exhibition-context bulk upload now returns to
+        // the /add page (not the detail page) so the curator can keep
+        // adding participants/works without hunting for the "관리" link.
+        // A sessionStorage flag lets /add surface a quiet toast.
         if (addToExhibitionId) {
-          router.push(`/my/exhibitions/${addToExhibitionId}`);
+          if (typeof window !== "undefined") {
+            try {
+              window.sessionStorage.setItem(
+                "exhibitionAddReturnToast",
+                "bulk.doneReturnToExhibition",
+              );
+            } catch {
+              // sessionStorage disabled (Safari private mode etc.) — silent.
+            }
+          }
+          const qs = new URLSearchParams();
+          if (preservedFromBoard) qs.set("fromBoard", preservedFromBoard);
+          const suffix = qs.toString() ? `?${qs.toString()}` : "";
+          router.push(`/my/exhibitions/${addToExhibitionId}/add${suffix}`);
           return;
         }
         const { getMyProfile, getProfileById } = await import("@/lib/supabase/profiles");

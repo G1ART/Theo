@@ -335,6 +335,13 @@ export const messages = {
     "exhibition.addExternalRow": "Add another artist",
     "exhibition.sendingInvites": "Sending invites…",
     "exhibition.gotoWorksStep": "Next: choose works",
+    "exhibition.participants.autoSaved": "Rows are saved as you type — no “Save” needed.",
+    "exhibition.participants.savingInline": "Saving…",
+    "exhibition.participants.savedInline": "Saved",
+    "exhibition.participants.duplicateAbsorbed": "Same person already on the list — merged.",
+    "exhibition.participants.removeCta": "Remove from exhibition",
+    "exhibition.participants.removeBlocked": "Can’t remove yet — {n} work(s) still attached. Remove the works first.",
+    "exhibition.participants.bulkDoneReturnToast": "Uploads finished. Back to the exhibition.",
     "exhibition.filterByArtist": "Filter by artist",
     "exhibition.selectedArtistsWorksOnly": "Showing works by selected artists only.",
     "exhibition.searchWorksPlaceholder": "Search works by title, medium, story, or keywords…",
@@ -2972,6 +2979,22 @@ export const messages = {
     "empty.visibility.whatNext":
       "Start from a preset; you can refine individual fields later, work by work.",
     "empty.visibility.cta": "Pick a preset",
+
+    // QA 2026-07-28 — Exhibition preface (서문) + AI assist hardening
+    "exhibition.preface": "Preface",
+    "exhibition.prefaceHint":
+      "A short intro readers see above the works. Type freely, or use the writing assistant.",
+    "exhibition.prefacePlaceholder":
+      "e.g. This exhibition traces a season of drawings made between studio and shore…",
+    "exhibition.prefaceOtherLangPlaceholderKo":
+      "한국어 서문 (선택). 위 내용을 다른 언어로도 남기고 싶을 때만 채우면 돼요.",
+    "exhibition.prefaceOtherLangPlaceholderEn":
+      "English preface (optional). Add it only if you'd like a second-language version.",
+    "exhibition.prefaceAddOtherLang": "+ Add another language",
+    "ai.exhibition.applyDescription": "Use this preface",
+    "ai.exhibition.assistCrashed":
+      "The writing assistant hit an unexpected error. Please try again.",
+    "ai.exhibition.retryAssist": "Try again",
   },
   ko: {
     "nav.feed": "피드",
@@ -3309,6 +3332,13 @@ export const messages = {
     "exhibition.addExternalRow": "작가 추가",
     "exhibition.sendingInvites": "초대 이메일을 보내는 중…",
     "exhibition.gotoWorksStep": "다음: 작품 선택",
+    "exhibition.participants.autoSaved": "입력하면 자동으로 저장돼요 — 별도의 저장 버튼 없이 계속 진행하세요.",
+    "exhibition.participants.savingInline": "저장 중…",
+    "exhibition.participants.savedInline": "저장됨",
+    "exhibition.participants.duplicateAbsorbed": "이미 명단에 있는 분이에요. 하나로 합쳤어요.",
+    "exhibition.participants.removeCta": "명단에서 빼기",
+    "exhibition.participants.removeBlocked": "작품 {n}점이 아직 이 전시에 있어요. 먼저 작품을 정리한 뒤 다시 시도해 주세요.",
+    "exhibition.participants.bulkDoneReturnToast": "업로드를 마쳤어요. 전시 화면으로 돌아왔습니다.",
     "exhibition.filterByArtist": "작가별 필터",
     "exhibition.selectedArtistsWorksOnly": "선정한 작가의 작품만 표시됩니다.",
     "exhibition.searchWorksPlaceholder": "제목, 매체, 스토리, 키워드로 작품 검색…",
@@ -5930,6 +5960,22 @@ export const messages = {
     "empty.visibility.whatNext":
       "프리셋에서 출발해보세요. 작품마다의 세부 항목은 나중에 천천히 다듬을 수 있어요.",
     "empty.visibility.cta": "프리셋 고르기",
+
+    // QA 2026-07-28 — 전시 서문(preface) + AI 도우미 안정화
+    "exhibition.preface": "서문",
+    "exhibition.prefaceHint":
+      "관람객이 작품 위에서 먼저 읽는 짧은 소개예요. 직접 쓰거나, 아래 문안 도우미로 초안을 만들 수 있어요.",
+    "exhibition.prefacePlaceholder":
+      "예: 이번 전시는 스튜디오와 바닷가 사이에서 한 계절 동안 그려진 드로잉들을 모았어요…",
+    "exhibition.prefaceOtherLangPlaceholderKo":
+      "한국어 서문 (선택). 위 내용을 다른 언어로도 남기고 싶을 때만 채우면 돼요.",
+    "exhibition.prefaceOtherLangPlaceholderEn":
+      "English preface (optional). 두 언어를 나란히 보이고 싶을 때만 채우세요.",
+    "exhibition.prefaceAddOtherLang": "+ 다른 언어 추가",
+    "ai.exhibition.applyDescription": "이 서문 채택",
+    "ai.exhibition.assistCrashed":
+      "문안 도우미에서 예기치 못한 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
+    "ai.exhibition.retryAssist": "다시 시도",
   },
 } as const;
 

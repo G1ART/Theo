@@ -88,6 +88,7 @@ function UploadPageContent() {
   const preselectedArtistUsername = searchParams.get("artistUsername");
   const preselectedExternalName = searchParams.get("externalName");
   const preselectedExternalEmail = searchParams.get("externalEmail");
+  const preservedFromBoard = searchParams.get("fromBoard");
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [userId, setUserId] = useState<string | null>(null);
@@ -542,11 +543,34 @@ function UploadPageContent() {
         ? await getProfileById(actingAsProfileId)
         : await getMyProfile();
       const username = (profile as { username?: string | null } | null)?.username?.trim();
+      // QA 2026-07-28: exhibition-context uploads now return to the
+      // `/add` page (not the detail page) so the curator lands back on
+      // the participant/works console without having to hunt for the
+      // manage link. A lightweight sessionStorage flag lets the /add
+      // page surface a quiet "돌아왔어요" toast.
+      const exhibitionReturnUrl = addToExhibitionId?.trim()
+        ? (() => {
+            const qs = new URLSearchParams();
+            if (preservedFromBoard) qs.set("fromBoard", preservedFromBoard);
+            const suffix = qs.toString() ? `?${qs.toString()}` : "";
+            return `/my/exhibitions/${addToExhibitionId.trim()}/add${suffix}`;
+          })()
+        : null;
+      if (exhibitionReturnUrl && typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(
+            "exhibitionAddReturnToast",
+            "bulk.doneReturnToExhibition",
+          );
+        } catch {
+          // sessionStorage disabled (Safari private mode etc.) — silent.
+        }
+      }
       if (inviteSent || inviteSendFailed) {
         setInviteToast(inviteSent ? "sent" : "failed");
         setTimeout(() => {
-          if (addToExhibitionId?.trim()) {
-            router.push(`/my/exhibitions/${addToExhibitionId.trim()}`);
+          if (exhibitionReturnUrl) {
+            router.push(exhibitionReturnUrl);
           } else if (username) {
             router.push(`/u/${username}`);
           } else {
@@ -555,8 +579,8 @@ function UploadPageContent() {
           }
         }, 2000);
       } else {
-        if (addToExhibitionId?.trim()) {
-          router.push(`/my/exhibitions/${addToExhibitionId.trim()}`);
+        if (exhibitionReturnUrl) {
+          router.push(exhibitionReturnUrl);
         } else if (username) {
           router.push(`/u/${username}`);
         } else {
