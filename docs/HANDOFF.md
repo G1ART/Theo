@@ -1,6 +1,65 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
+
+## 2026-07-29 — 이중언어 채택 UX (기존 유저 대상 4-계층 유도) ⚠️ SQL 수동 실행 필요
+
+### 배경
+2026-07-28 에 KO/EN 병기 인프라 (schema + 헬퍼 + authoring chip + AI draft + display retrofit + 온보딩 상속) 가 랜딩했으나, 기존 유저 데이터는 대부분 monolingual 상태 (`profiles` 41/52, `artworks` 304/304 titled 모두 backfill split single-language, `bio`/`artist_statement` mostly monolingual). 표시 surface 는 `pickLocalized*` fallback 으로 정상 렌더되지만, 소유자에게 "다른 언어를 추가할 수 있다" 는 신호가 전혀 없어 이중언어 채택이 정체됨.
+
+### 원칙 (설계 결정)
+1. **Push 하지 않기** — 자동 번역·자동 저장 절대 없음. 소유자가 원할 때만 채운다.
+2. **네 계층 progressive disclosure** — (1) 온보딩 상속·claim 확인 [기존] → (2) 발견 배너 (홈, 1회) → (3) 소유자 전용 컨텍스트 넛지 → (4) 벌크 정리 대시보드.
+4. **Dismissal 은 서버 상태** — `user_ui_dismissals` 테이블 + RPC 로 크로스디바이스 스누즈/영구 dismiss 관리. Layer 3 은 세션 안에서 sessionStorage 도 병행.
+5. **오너 전용** — Layer 3 컨텍스트 넛지는 `viewer.id === subject.id` 일 때만 렌더. 방문자에게 절대 노출되지 않음 (프라이버시).
+6. **AI 초안 metering** — `ai.translate_draft` entitlement 로 free 계정 하루 15 / 월 200회 캡. 대시보드에 남은 quota chip 노출.
+
+### 커밋 요약 (역시간순)
+- `7f7adba` — **Track δ**: 이중언어 벌크 정리 대시보드 (`/settings/bilingual`).
+- `d8b5e10` — **Track γ**: 본인 오너 컨텍스트 이중언어 넛지 (프로필/작품).
+- `c905669` — **Track β**: 이중언어 발견 배너 (홈).
+- `10f7e45` — **Track α**: `user_ui_dismissals` + AI `translate_draft` metering.
+
+### Supabase SQL — ⚠️ 수동 실행 필요
+아래 마이그레이션 두 개는 아직 프로덕션에 적용되지 않음. Supabase Dashboard SQL Editor 에서 순서대로 실행 필요:
+
+1. `supabase/migrations/20260729010000_user_ui_dismissals.sql` — `user_ui_dismissals` 테이블 + RLS (`user_id = auth.uid()`) + `record_ui_dismissal(text, int)` RPC. 단일 함수라 통째로 붙여 실행하면 됨.
+2. `supabase/migrations/20260729010001_ai_translate_draft_feature_keys.sql` — `plan_feature_matrix` 에 `ai.translate_draft` seed (모든 plan `allow=true`) + `plan_quota_matrix` 에 free/plus 캡 seed. 단순 upsert 라 통째로 실행.
+
+### 새 표면 (QA spot-check 대상)
+- **홈 (`/feed`)** — 로그인 세션이 있고 `bilingual_discovery_banner_v1` dismissal 이 없을 때 배너 노출. CTA: `[지금 정리하기 / Set it up now]` → `/settings/bilingual` + 영구 dismiss, `[나중에]` → 7일 스누즈 (최대 3회 후 자동 영구 dismiss), `[숨기기]` → 영구 dismiss.
+- **본인 프로필 (`/u/{me}`)** — display_name / bio / artist_statement 각 필드마다 현재 UI 로케일 슬롯이 비고 반대 슬롯이 채워졌으면 넛지 chip 노출. dismiss 는 세션 즉시 + 30일 크로스세션.
+- **본인 작품 상세 (`/artwork/{id}`)** — title / medium / story 각 필드마다 동일 조건. `viewerIsOwner=false` (방문자) 인 경우 절대 렌더되지 않음.
+- **`/settings/bilingual`** — 세 묶음 (프로필 / 작품 / 전시) 의 gap row 목록 + 묶음별 AI 벌크 초안 + 저장. 상단 quota chip.
+- **좌측 사이드바** — "설정" 아래에 `이중언어 정리 / Bilingual tidy-up` 링크 추가.
+
+### AI Metering 설정
+- Feature key: `ai.translate_draft` (신규).
+- Usage event key: `ai.translate_draft.generated` (기록은 `/api/ai/translate-draft` 라우트에서 성공 draft 마다).
+- 캡 (30일 window): free = **40회**, `artist_pro` = **300회**, `discovery_pro` = **60회**, `hybrid_pro` = **300회**, `gallery_workspace` = **무제한** (`limit: null`).
+- 벌크 draft 는 요청 3개 동시 pool (`Promise.all`). 실패 조용히 스킵.
+
+### 환경 변수
+- 없음. 신규 dependency 없음. `.env.example` 변동 없음.
+
+### 남긴 결정 (모호했던 부분)
+- **Layer 3 는 오너 전용** — 방문자에게 넛지를 노출하면 프라이버시 이슈 (해당 작가의 미완결 상태를 외부에 공개하는 셈) 라 확실히 오너로 제한. (브리프에서도 명시됨.)
+- **대시보드 저장 성공 시 row 를 제거** — 진행률이 실시간 반영되어야 자연스러움. "저장했지만 여전히 목록에 남음" 상태가 혼란스러움.
+- **AI 벌크 초안은 저장까지 자동으로 이어지지 않음** — Guardrail (`NEVER auto-fill silently`) 를 따라, 초안 후에도 저장은 사용자 클릭 필요. 향후 "선택된 draft 일괄 저장" 기능은 별도 릴리즈에서.
+- **레거시 컬럼 fallback** — 아직 backfill 이 KO/EN 슬롯을 채우지 않은 legacy row 는 `title`/`medium`/`story` 를 KO 슬롯으로 취급 (trigger 규약과 동일). 사용자가 대시보드에서 반대 언어를 추가하면 자연스럽게 정상 상태가 됨.
+
+### 남은 인바리언트 (수동 팔로업)
+- [ ] SQL 마이그레이션 두 파일을 Supabase Dashboard 에서 순서대로 실행.
+- [ ] 실행 후 spot check: `select * from public.user_ui_dismissals limit 1;` 은 익명으로 실패해야 하고, 로그인 유저는 자기 row 만 리턴. `select p.feature_key from public.plan_feature_matrix p where p.feature_key = 'ai.translate_draft';` 이 5 rows (plan 별) 리턴.
+- [ ] 첫 유저가 배너를 dismiss 한 후 `user_ui_dismissals` 에 row 가 실제 기록됐는지 확인.
+- [ ] 오너 넛지가 방문자 세션에서 절대 노출되지 않는지 QA.
+- [ ] `/settings/bilingual` 로드 시 프로필/작품/전시 row 가 gap-only 상태로 잘 필터되는지 확인 (25 rows/group + load-more).
+
+### Verified
+- `npx tsc --noEmit` clean.
+- `npx eslint` 신규/수정 파일 (`src/components/bilingual/**`, `src/app/settings/bilingual/**`, `src/components/shell/AppSidebar.tsx` 변경분) clean. (`AppSidebar.tsx` 파일 자체에 사전 존재하는 `react-hooks/set-state-in-effect` warning 이 있지만 본 릴리즈와 무관.)
+
+---
 
 ## 2026-07-28 — KO/EN 이중언어 대규모 랜딩 (Track A → D) ✅ SQL 자동 적용됨
 
