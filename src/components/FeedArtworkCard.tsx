@@ -13,6 +13,10 @@ import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import {
+  pickLocalizedArtworkTitle,
+  pickLocalizedMedium,
+} from "@/lib/i18n/pickLocalized";
+import {
   logFeedEvent,
   setFeedSource,
   type FeedSort,
@@ -93,6 +97,11 @@ type ArtistProfileLite = {
   id?: string;
   username?: string | null;
   display_name?: string | null;
+  /** QA 2026-07-28 — 이중언어 슬롯. feed select 는 이미 두 컬럼을
+   *  같이 fetch 하므로 (`src/lib/supabase/artworks.ts:12`) 여기선
+   *  받는 형태만 넓혀 두면 된다. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   main_role?: string | null;
   roles?: string[] | null;
 };
@@ -172,19 +181,63 @@ export function FeedArtworkCard({
 
   const artistProfile = (artwork as { profiles?: ArtistProfileLite | null }).profiles ?? null;
   const primaryClaim = getPrimaryClaim(artwork);
-  const externalName = primaryClaim
+  /**
+   * QA 2026-07-28 — external artist 도 KO/EN 슬롯을 함께 읽어서
+   * pickLocalizedDisplayName 이 로케일 우선순위에 따라 골라준다.
+   * legacy `display_name` 은 240004 트리거로 sync 되어 fallback
+   * chain 의 마지막 슬롯을 채운다.
+   */
+  const externalRow = primaryClaim
     ? ((artwork.claims ?? []).find(
         (c) =>
-          (c as { external_artists?: { display_name?: string | null } }).external_artists
-            ?.display_name
-      ) as { external_artists?: { display_name?: string | null } } | undefined)
-        ?.external_artists?.display_name ?? null
+          (
+            c as {
+              external_artists?: {
+                display_name?: string | null;
+                display_name_ko?: string | null;
+                display_name_en?: string | null;
+              };
+            }
+          ).external_artists?.display_name ||
+          (
+            c as {
+              external_artists?: {
+                display_name_ko?: string | null;
+              };
+            }
+          ).external_artists?.display_name_ko ||
+          (
+            c as {
+              external_artists?: {
+                display_name_en?: string | null;
+              };
+            }
+          ).external_artists?.display_name_en,
+      ) as
+        | {
+            external_artists?: {
+              display_name?: string | null;
+              display_name_ko?: string | null;
+              display_name_en?: string | null;
+            };
+          }
+        | undefined)?.external_artists ?? null
     : null;
+  const externalName = externalRow?.display_name ?? null;
 
-  const artistIdentityInput = externalName
-    ? { display_name: externalName, username: null }
+  const artistIdentityInput = externalRow
+    ? {
+        display_name: externalRow.display_name ?? null,
+        display_name_ko: externalRow.display_name_ko ?? null,
+        display_name_en: externalRow.display_name_en ?? null,
+        username: null,
+      }
     : artistProfile;
-  const { primary: artistName } = formatIdentityPair(artistIdentityInput, t);
+  const { primary: artistName } = formatIdentityPair(
+    artistIdentityInput,
+    t,
+    locale,
+  );
   const artistRoleChips = formatRoleChips(artistIdentityInput, t, { max: 1 });
   const artistUsername = hasPublicLinkableUsername(artistProfile)
     ? artistProfile?.username ?? ""
@@ -295,7 +348,7 @@ export function FeedArtworkCard({
       {isMini ? (
         <div className="flex flex-1 flex-col gap-0.5 px-0.5 pt-2">
           <h3 className="truncate text-xs font-medium text-zinc-900">
-            {artwork.title ?? ""}
+            {pickLocalizedArtworkTitle(artwork, locale)}
           </h3>
         </div>
       ) : (
@@ -307,7 +360,7 @@ export function FeedArtworkCard({
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate text-sm font-medium tracking-tight text-zinc-900">
               <ArtworkArtistName
-                name={externalName ? artistName : (artistName || formatDisplayName(artistIdentityInput, t))}
+                name={externalName ? artistName : (artistName || formatDisplayName(artistIdentityInput, t, locale))}
                 isExternal={!!externalName}
                 artistUsername={externalName ? null : artistUsername}
                 uploader={artistProfile}
@@ -327,16 +380,18 @@ export function FeedArtworkCard({
           </div>
 
           <h3 className="truncate text-sm font-normal tracking-tight text-zinc-700">
-            {artwork.title ?? ""}
+            {pickLocalizedArtworkTitle(artwork, locale)}
           </h3>
 
-          {(artwork.year || artwork.medium) && (
+          {(artwork.year || pickLocalizedMedium(artwork, locale)) && (
             // Two-column mobile tiles must read as restrained thumbnails — the
             // Sprint 1 work order calls for "minimal metadata only" there. We
             // hide year·medium below `md:` so a phone shows artist + title and
             // nothing else; tablet+ regains the full caption.
             <p className="hidden truncate text-xs tracking-tight text-zinc-500 md:block">
-              {[artwork.year, artwork.medium].filter(Boolean).join(" · ")}
+              {[artwork.year, pickLocalizedMedium(artwork, locale) || null]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           )}
 

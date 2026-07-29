@@ -50,6 +50,11 @@ import { listExhibitionsForWork } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { useT } from "@/lib/i18n/useT";
+import {
+  pickLocalizedArtworkTitle,
+  pickLocalizedMedium,
+  pickLocalizedStory,
+} from "@/lib/i18n/pickLocalized";
 import { logFeedEvent, peekFeedSource } from "@/lib/feed/telemetry";
 import { peekRoomSource, setRoomSource } from "@/lib/room/source";
 import type { InquirySource } from "@/lib/supabase/priceInquiries";
@@ -733,7 +738,7 @@ function ArtworkDetailContent() {
         <div className="mx-auto w-full max-w-xl">
           <ArtworkImageStage
             sortedImages={sortedImages}
-            title={artwork.title}
+            title={pickLocalizedArtworkTitle(artwork, locale) || artwork.title}
             isDesktop={isDesktop}
             fullSizeOpen={fullSizeOpen}
             onOpenFullSize={() => setFullSizeOpen(true)}
@@ -744,10 +749,10 @@ function ArtworkDetailContent() {
         <div>
           <div>
             <h1 className="text-2xl font-semibold text-zinc-900">
-              {artwork.title ?? t("common.untitled")}
+              {pickLocalizedArtworkTitle(artwork, locale) || t("common.untitled")}
             </h1>
             {(() => {
-              const identity = formatIdentityPair(artist ?? null);
+              const identity = formatIdentityPair(artist ?? null, t, locale);
               const chips = formatRoleChips(artist ?? null, t, { max: 2 });
               // External (invited, not-yet-onboarded) artist: the artist_id /
               // profiles point at the uploading account (e.g. a gallery), so we
@@ -804,7 +809,9 @@ function ArtworkDetailContent() {
               );
             })()}
             <p className="mt-3 text-sm text-zinc-600">
-              {[artwork.year, artwork.medium].filter(Boolean).join(" · ")}
+              {[artwork.year, pickLocalizedMedium(artwork, locale) || null]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
             {sizeDisplay && (
               <p className="mt-1 text-sm text-zinc-600">{sizeDisplay}</p>
@@ -1100,10 +1107,13 @@ function ArtworkDetailContent() {
                             </button>
                             <InquiryReplyAssist
                               artwork={{
-                                title: artwork.title ?? null,
+                                title:
+                                  pickLocalizedArtworkTitle(artwork, locale) ||
+                                  artwork.title ||
+                                  null,
                                 artistName:
                                   artistLabel ||
-                                  formatIdentityPair(artist ?? null).primary,
+                                  formatIdentityPair(artist ?? null, t, locale).primary,
                               }}
                               thread={(artistInquiryMessages[row.id] ?? [])
                                 .slice(-3)
@@ -1175,8 +1185,12 @@ function ArtworkDetailContent() {
                     {provenanceClaims.map((c, i) => {
                       const byPhrase = claimTypeToByPhrase(c.claim_type as ClaimType);
                       const label = byPhrase
-                        ? `${byPhrase} ${formatIdentityPair(c.profiles).primary}`
-                        : (c.claim_type === "CREATED" && artwork?.profiles?.display_name) || "—";
+                        ? `${byPhrase} ${formatIdentityPair(c.profiles, t, locale).primary}`
+                        : (c.claim_type === "CREATED" && (
+                            artwork?.profiles?.display_name_ko ||
+                            artwork?.profiles?.display_name_en ||
+                            artwork?.profiles?.display_name
+                          )) || "—";
                       const date = c.created_at
                         ? new Date(c.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
                         : "";
@@ -1432,8 +1446,9 @@ function ArtworkDetailContent() {
           // tells us whether a story would have existed pre-redaction.
           const eff = descriptionResolution ?? PENDING_RESOLUTION;
           if (eff.canView) {
-            if (!artwork.story) return null;
-            return <p className="text-sm text-zinc-600">{artwork.story}</p>;
+            const localizedStory = pickLocalizedStory(artwork, locale);
+            if (!localizedStory) return null;
+            return <p className="text-sm text-zinc-600">{localizedStory}</p>;
           }
           if (!fieldPresence?.description) return null;
           return (

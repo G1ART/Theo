@@ -3059,9 +3059,10 @@ export const messages = {
     // Onboarding inherit — curator-entered KO/EN pair.
     "bilingual.inheritConfirmTitle": "How you were introduced",
     "bilingual.inheritConfirmBody":
-      "A curator registered you as [KO] {ko} / [EN] {en}. Use this on your profile?",
+      "A curator registered you with these names. Use them on your profile?",
     "bilingual.inheritConfirmUse": "Use as-is",
     "bilingual.inheritConfirmEdit": "Edit",
+    "bilingual.inheritConfirmSaved": "Bilingual name applied to your profile.",
   },
   ko: {
     "nav.feed": "피드",
@@ -6107,9 +6108,10 @@ export const messages = {
     // 온보딩 상속 — 큐레이터가 남긴 KO/EN 이름 상속 확인.
     "bilingual.inheritConfirmTitle": "이렇게 소개되어 있어요",
     "bilingual.inheritConfirmBody":
-      "큐레이터가 이 작가님을 [KO] {ko} / [EN] {en} 로 등록했어요. 이대로 프로필에 반영할까요?",
+      "큐레이터가 이 작가님을 이렇게 등록했어요. 이대로 프로필에 반영할까요?",
     "bilingual.inheritConfirmUse": "이대로 사용",
     "bilingual.inheritConfirmEdit": "편집",
+    "bilingual.inheritConfirmSaved": "프로필 이름에 이중언어를 적용했어요.",
   },
 } as const;
 

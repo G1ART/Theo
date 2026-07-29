@@ -11,6 +11,7 @@ import {
 import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import {
   formatDisplayName,
   formatIdentityPair,
@@ -96,29 +97,52 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
     id?: string;
     username?: string | null;
     display_name?: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
     main_role?: string | null;
     roles?: string[] | null;
   } | null }).profiles ?? null;
   const primaryClaim = getPrimaryClaim(artwork);
-  const externalName = primaryClaim
-    ? ((artwork.claims ?? []).find(
-        (c) =>
-          (c as { external_artists?: { display_name?: string | null } })
-            .external_artists?.display_name
-      ) as { external_artists?: { display_name?: string | null } } | undefined)
-        ?.external_artists?.display_name ?? null
+  // QA 2026-07-28 — external_artists 도 KO/EN 슬롯을 함께 읽는다.
+  const externalRow = primaryClaim
+    ? ((artwork.claims ?? []).find((c) => {
+        const ea = (
+          c as {
+            external_artists?: {
+              display_name?: string | null;
+              display_name_ko?: string | null;
+              display_name_en?: string | null;
+            };
+          }
+        ).external_artists;
+        return ea?.display_name || ea?.display_name_ko || ea?.display_name_en;
+      }) as
+        | {
+            external_artists?: {
+              display_name?: string | null;
+              display_name_ko?: string | null;
+              display_name_en?: string | null;
+            };
+          }
+        | undefined)?.external_artists ?? null
     : null;
+  const externalName = externalRow?.display_name ?? null;
 
-  const identity = externalName
-    ? { display_name: externalName, username: null }
+  const identity = externalRow
+    ? {
+        display_name: externalRow.display_name ?? null,
+        display_name_ko: externalRow.display_name_ko ?? null,
+        display_name_en: externalRow.display_name_en ?? null,
+        username: null,
+      }
     : artistProfile;
-  const { primary: displayName } = formatIdentityPair(identity, t);
+  const { primary: displayName } = formatIdentityPair(identity, t, locale);
   const artistUsername = hasPublicLinkableUsername(artistProfile)
     ? artistProfile?.username ?? ""
     : "";
   const artistHandle = artistUsername
     ? `@${artistUsername}`
-    : displayName || formatDisplayName(identity, t) || "";
+    : displayName || formatDisplayName(identity, t, locale) || "";
 
   const year = pickYear(artwork);
   const sizePill = extractSizePill(
@@ -127,7 +151,8 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
     locale,
     sizePref
   );
-  const captionParts = [artwork.title ?? "", sizePill].filter(Boolean);
+  const localizedTitle = pickLocalizedArtworkTitle(artwork, locale);
+  const captionParts = [localizedTitle, sizePill].filter(Boolean);
   const caption = captionParts.join(", ");
 
   const signupHref = `/onboarding?next=${encodeURIComponent(`/artwork/${artwork.id}`)}`;
@@ -155,7 +180,7 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      aria-label={artwork.title ?? undefined}
+      aria-label={localizedTitle || artwork.title || undefined}
       className="group flex h-full cursor-pointer flex-col focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
     >
       {/* Framing policy (2026-07-20): grid surfaces NEVER crop the
@@ -171,7 +196,7 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
           {imageUrl ? (
             <CroppedArtworkImage
               src={imageUrl}
-              alt={artwork.title ?? ""}
+              alt={localizedTitle || artwork.title || ""}
               sizes="(max-width: 768px) 100vw, (max-width: 1280px) 45vw, 380px"
               loading={priority ? "eager" : "lazy"}
               priority={priority}
@@ -220,7 +245,7 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
           locked ? "select-none blur-sm" : ""
         }`}
       >
-        {caption || (artwork.title ?? "")}
+        {caption || localizedTitle || (artwork.title ?? "")}
       </p>
     </article>
   );

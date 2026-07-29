@@ -16,6 +16,11 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useT } from "@/lib/i18n/useT";
+import {
+  pickLocalizedBio,
+  pickLocalizedStatement,
+  pickLocalizedTitle,
+} from "@/lib/i18n/pickLocalized";
 import { getSession } from "@/lib/supabase/auth";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import type { ProfilePublic } from "@/lib/supabase/profiles";
@@ -90,7 +95,7 @@ export function UserProfileContent({
   initialReorderMode = false,
   initialTabParam = null,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const router = useRouter();
   const pathname = usePathname();
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -375,7 +380,7 @@ export function UserProfileContent({
     }
   }, []);
 
-  const { primary: displayName, secondary: usernameHandle } = formatIdentityPair(profile, t);
+  const { primary: displayName, secondary: usernameHandle } = formatIdentityPair(profile, t, locale);
   const avatarUrl = getAvatarUrl(profile.avatar_url);
   const roleChips = formatRoleChips(profile, t, { max: 6 });
 
@@ -565,11 +570,14 @@ export function UserProfileContent({
           )}
         </div>
 
-        {profile.bio ? (
-          <p className="whitespace-pre-line text-sm text-zinc-700">{profile.bio}</p>
-        ) : (
-          <p className="text-sm text-zinc-400">{t("profile.noBio")}</p>
-        )}
+        {(() => {
+          const localizedBio = pickLocalizedBio(profile, locale);
+          return localizedBio ? (
+            <p className="whitespace-pre-line text-sm text-zinc-700">{localizedBio}</p>
+          ) : (
+            <p className="text-sm text-zinc-400">{t("profile.noBio")}</p>
+          );
+        })()}
 
         {roleChips.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -647,7 +655,7 @@ export function UserProfileContent({
           Also suppressed when the visitor picked the Collector role tab. */}
       {roleTab === "artist" && isArtistRole({ main_role: profile.main_role ?? null, roles }) && (
         <ProfileSurfaceCards
-          statement={profile.artist_statement ?? null}
+          statement={pickLocalizedStatement(profile, locale) || null}
           heroImagePath={profile.artist_statement_hero_image_url ?? null}
           education={profile.education ?? null}
           exhibitionsCv={profile.exhibitions_cv ?? null}
@@ -897,7 +905,7 @@ export function UserProfileContent({
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-zinc-900">{ex.title}</p>
+                      <p className="truncate text-sm font-semibold text-zinc-900">{pickLocalizedTitle(ex, locale) || ex.title}</p>
                       <p className="truncate text-xs text-zinc-500">
                         {ex.start_date && ex.end_date ? `${ex.start_date} – ${ex.end_date}` : ex.start_date ?? ex.status}
                         {" · "}
