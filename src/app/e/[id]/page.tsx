@@ -36,6 +36,48 @@ const STATUS_LABELS: Record<string, string> = {
   ended: "exhibition.statusEnded",
 };
 
+/**
+ * 2026-07-29 hotfix — 대표 썸네일 방어적 렌더링.
+ *
+ * `exhibition.cover_image_paths` 는 exhibition_media / artwork_images 가
+ * 나중에 삭제돼도 즉시 정리되지 않을 수 있다 (DB 트리거가 새로 생겼지만,
+ * 과거에 이미 orphan 이 된 참조나 아직 백필 전인 데이터가 있을 수 있음).
+ * 그런 경우 `<Image>` 가 404 storage 경로를 그려 큰 깨진 프레임을 보여주는
+ * 대신, 다음 후보 경로로 순차 폴백하고 전부 실패하면 커버가 없을 때와
+ * 동일한 빈 상태를 보여준다. `failedIndex` 는 useState 로만 전진하므로
+ * (되돌아가지 않음) 재렌더가 반복 루프를 만들지 않는다.
+ */
+function ExhibitionPosterTile({ paths, alt }: { paths: string[]; alt: string }) {
+  const [failedIndex, setFailedIndex] = useState(0);
+
+  // 참고: paths 가 바뀔 때 (다른 전시로 이동, refetch 후 커버 교체 등)
+  // failedIndex 를 초기화해야 하는데, 이펙트+setState 로 하면 리렌더가
+  // 한 번 더 캐스케이드된다 (react-hooks/set-state-in-effect). 대신
+  // 호출부(PublicExhibitionPage)에서 paths 내용을 key 로 넘겨 경로가
+  // 바뀌면 이 컴포넌트 자체를 리마운트시켜 failedIndex 를 자연스럽게
+  // 초기 상태(0)로 되돌린다.
+  const activePath = paths[failedIndex];
+
+  if (!activePath) {
+    // 모든 후보가 소진됨 (전부 orphan 이거나 원래 커버가 없음) — 커버
+    // 없음일 때와 동일한 빈 상태.
+    return <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400" />;
+  }
+
+  return (
+    <Image
+      key={activePath}
+      src={getArtworkImageUrl(activePath, "medium")}
+      alt={alt}
+      fill
+      className="object-cover"
+      sizes="(max-width: 640px) 100vw, 220px"
+      priority
+      onError={() => setFailedIndex((i) => i + 1)}
+    />
+  );
+}
+
 export default function PublicExhibitionPage() {
   const params = useParams();
   const { t, locale } = useT();
@@ -185,18 +227,11 @@ export default function PublicExhibitionPage() {
               right. On mobile the two halves stack vertically. */}
           <header className="mb-10 grid gap-6 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-start">
             <div className="relative aspect-[3/4] w-full overflow-hidden rounded-md border border-zinc-200 bg-zinc-100">
-              {(exhibition.cover_image_paths ?? [])[0] ? (
-                <Image
-                  src={getArtworkImageUrl(exhibition.cover_image_paths![0], "medium")}
-                  alt={pickLocalizedTitle(exhibition, locale) || exhibition.title || ""}
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 640px) 100vw, 220px"
-                  priority
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400" />
-              )}
+              <ExhibitionPosterTile
+                key={(exhibition.cover_image_paths ?? []).join("|")}
+                paths={exhibition.cover_image_paths ?? []}
+                alt={pickLocalizedTitle(exhibition, locale) || exhibition.title || ""}
+              />
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">

@@ -2,6 +2,37 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — 전시 상세 포스터 깨짐 hotfix (cover_image_paths ghost 참조) ⚠️ SQL 수동 적용 필요
+
+### 증상
+전시 상세 페이지(`/e/[id]`)에서 대표 썸네일(포스터) 자리에 깨진 이미지 타일이 렌더됨. 확인된 사례: project id `9eb67d7a-328e-415c-a04d-ffc904963001` ("남겨진 흔적").
+
+### Root cause
+`/my/exhibitions/[id]` 의 "대표 썸네일" 피커(`toggleCoverPath` → `saveCoverDraft` → `updateExhibition({ cover_image_paths })`)는 `exhibition_media.storage_path` (또는 `artwork_images.storage_path`) 값을 `projects.cover_image_paths` 에 그대로 복사해 저장한다. 그런데 `handleDeleteMedia` 는 `exhibition_media` 행 + 스토리지 파일만 지우고 `projects.cover_image_paths` 의 참조는 정리하지 않았다. 그 결과 스토리지에 파일이 없는 경로를 `/e/[id]` 가 `getArtworkImageUrl(cover_image_paths[0], "medium")` 로 계속 그리려다 404 → 깨진 타일. 피드/리스트 쪽은 `enrichExhibitionsCoversFromWorks` (구 `src/lib/supabase/exhibitions.ts`) 가 부족한 커버를 작품 이미지로 패딩해줘서 증상이 가려져 있었음 (피드 쪽은 이번 수정 대상 아님, 그대로 둠).
+
+### 수정
+1. **DB (신규 마이그레이션 `supabase/migrations/20260729090000_projects_cover_image_paths_cleanup_and_sync.sql`)** — ⚠️ **Supabase SQL Editor 에서 수동 적용 필요** (섹션 배너 단위로 하나씩 highlight → Run):
+   - SECTION 1 — 백필: 모든 `projects.cover_image_paths` 에서 `storage.objects` (bucket `artworks`) 에 존재하지 않는 orphan 경로를 제거. `do $backfill$` 블록 안에서 `raise notice` 로 정리 전/후 orphan 개수를 출력.
+   - SECTION 2 — 트리거 `exhibition_media_prune_project_cover` (`prune_project_cover_on_media_delete`): `exhibition_media` DELETE 시 삭제된 `storage_path` 를 해당 전시의 `cover_image_paths` 에서 자동 제거. 이번 버그의 주 트리거 케이스.
+   - SECTION 3 — 트리거 `artwork_images_prune_project_cover` (`prune_project_cover_on_artwork_image_delete`): `artwork_images` DELETE 시 (작품이 전시에서 빠지거나 이미지 교체 등) 같은 유형의 ghost 참조를 방지. `exhibition_works.work_id` (컬럼명 주의, `artwork_id` 아님) 를 통해 연결된 모든 전시를 갱신.
+2. **클라이언트 방어 (belt & suspenders, DB 트리거로 이미 해결되지만 즉시 반영 + 과거 백필 이전 데이터 대비)**:
+   - `src/app/my/exhibitions/[id]/page.tsx` `handleDeleteMedia` — 미디어 삭제 성공 시 로컬 `coverDraft` 에서도 해당 `storage_path` 를 제거. 삭제된 경로가 이미 대표 썸네일로 저장돼 있던 경우에만 `updateExhibition` 도 즉시 호출 (no-op write 방지).
+   - `src/app/e/[id]/page.tsx` — 포스터 타일을 `ExhibitionPosterTile` 컴포넌트로 분리. `<Image onError>` 로 실패 시 `cover_image_paths` 의 다음 후보로 순차 폴백, 전부 실패하면 커버 없음과 동일한 빈 상태 렌더. `paths` 내용을 부모에서 `key` 로 넘겨 리마운트시키는 방식으로 폴백 상태를 초기화 (`useEffect` 안에서 `setState` 하지 않도록 — lint `react-hooks/set-state-in-effect` 회피).
+
+### Supabase SQL 수동 적용 필요 ⚠️
+`supabase/migrations/20260729090000_projects_cover_image_paths_cleanup_and_sync.sql` 전체를 SQL Editor 에 한 번에 붙여넣지 말고, 파일 안의 `== SECTION 1/2/3 ==` 배너 단위로 하나씩 하이라이트 → Run. 각 섹션은 독립적으로 idempotent.
+
+### Verify (적용 후 운영자가 직접 실행)
+```sql
+select id, title, cover_image_paths from public.projects where id = '9eb67d7a-328e-415c-a04d-ffc904963001';
+```
+기대 결과: `cover_image_paths` 가 `{}` (빈 배열). 이후 상세 페이지는 깨진 타일 대신 빈 상태를 렌더하며, 큐레이터가 포스터를 다시 올리면 정상 노출된다.
+
+### 환경 변수
+없음.
+
+---
+
 ## 2026-07-29 — 🚨 Feed 500 hotfix (external_artists SELECT + main_role btrim) ✅ SQL 자동 적용됨
 
 ### 증상 (QA)

@@ -509,6 +509,22 @@ export default function ExhibitionDetailPage() {
       setError(formatSupabaseError(err, t, "common.errorDelete"));
       return;
     }
+    // 2026-07-29 hotfix — exhibition_media 행이 삭제되면 DB 트리거
+    // (prune_project_cover_on_media_delete, 20260729090000 마이그레이션)가
+    // projects.cover_image_paths 의 ghost 참조를 정리하지만, 로컬
+    // coverDraft 는 그 사실을 모른 채 남아있던 storage_path 를 계속
+    // 보여줄 수 있다 (다음 fetchData 전까지). 삭제된 경로가 마침 draft
+    // 에 선택돼 있었다면 즉시 제거하고, 대표 썸네일로 저장까지 돼 있던
+    // 경우엔 no-op write 를 피하기 위해 그 때만 updateExhibition 도
+    // 호출해 즉시 반영한다 (트리거가 이미 처리해도 중복 실행은 안전).
+    if (id && coverDraft.includes(m.storage_path)) {
+      const nextCoverDraft = coverDraft.filter((p) => p !== m.storage_path);
+      setCoverDraft(nextCoverDraft);
+      const { error: coverErr } = await updateExhibition(id, { cover_image_paths: nextCoverDraft });
+      if (coverErr) {
+        logSupabaseError("updateExhibition(coverDraftPrune)", coverErr);
+      }
+    }
     await fetchData();
   }
 
