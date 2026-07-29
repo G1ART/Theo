@@ -3063,6 +3063,92 @@ export const messages = {
     "bilingual.inheritConfirmUse": "Use as-is",
     "bilingual.inheritConfirmEdit": "Edit",
     "bilingual.inheritConfirmSaved": "Bilingual name applied to your profile.",
+
+    // QA 2026-07-29 — Bilingual adoption UX (기존 사용자가 자기 데이터를
+    // 두 언어로 정리하도록 돕는 세 계층: 발견 배너 / 컨텍스트 넛지 / 벌크
+    // 대시보드). 톤: 따뜻·인내심 있음·존중. "필수"·"미완성" 금지, "선택"
+    // 과 "표현의 폭이 넓어져요" 프레이밍.
+    "bilingual.discovery.title":
+      "🌏 Now you can register your profile and works in both languages",
+    "bilingual.discovery.body":
+      "Author-owned — Theo never translates anything silently. Add another language whenever you want more reach; skip it whenever you don't.",
+    "bilingual.discovery.ctaSetUp": "Set it up now",
+    "bilingual.discovery.ctaLater": "Later",
+    "bilingual.discovery.ctaHide": "Hide",
+
+    // Layer 3 — contextual nudge. 소유자에게만 보이고, 현재 언어 슬롯이
+    // 비어 있을 때만. "다른 이름/제목이 있나요?" 톤.
+    "bilingual.nudge.cta": "Add",
+    "bilingual.nudge.dismiss": "Dismiss",
+    "bilingual.nudge.displayNameToEn":
+      "Is there an English name you go by too?",
+    "bilingual.nudge.displayNameToKo":
+      "한국어로 다르게 불리는 이름이 있나요?",
+    "bilingual.nudge.bioToEn":
+      "Would you like to keep an English version of your bio as well?",
+    "bilingual.nudge.bioToKo":
+      "이 소개를 한국어로도 남겨 두시겠어요?",
+    "bilingual.nudge.statementToEn":
+      "Would you like to keep an English version of your statement as well?",
+    "bilingual.nudge.statementToKo":
+      "이 작가의 말을 한국어로도 남겨 두시겠어요?",
+    "bilingual.nudge.titleToEn":
+      "Does this work have an English title too?",
+    "bilingual.nudge.titleToKo":
+      "이 작품에 한국어 제목이 있나요?",
+    "bilingual.nudge.mediumToEn":
+      "Prefer an English medium note as well?",
+    "bilingual.nudge.mediumToKo":
+      "매체 정보를 한국어로도 두시겠어요?",
+    "bilingual.nudge.storyToEn":
+      "Would you like an English version of this story too?",
+    "bilingual.nudge.storyToKo":
+      "이 이야기를 한국어로도 남겨 두시겠어요?",
+
+    // Layer 4 — bulk dashboard at /settings/bilingual.
+    "bilingual.dashboard.title": "Bilingual — one place to tidy both languages",
+    "bilingual.dashboard.subtitle":
+      "Add the other-language version wherever you'd like. Nothing is required — leave any row as-is if the single language is enough.",
+    "bilingual.dashboard.progress":
+      "{done} of {total} fields have both languages",
+    "bilingual.dashboard.allComplete":
+      "Both languages are set everywhere Theo checks. Add more only if a new work or exhibition arrives.",
+    "bilingual.dashboard.emptyState":
+      "No fields to tidy right now — anything you write in either language stays yours.",
+    "bilingual.dashboard.groupProfile": "Profile",
+    "bilingual.dashboard.groupArtworks": "Artworks",
+    "bilingual.dashboard.groupExhibitions": "Exhibitions",
+    "bilingual.dashboard.field.displayName": "Display name",
+    "bilingual.dashboard.field.bio": "Bio",
+    "bilingual.dashboard.field.statement": "Artist statement",
+    "bilingual.dashboard.field.title": "Title",
+    "bilingual.dashboard.field.medium": "Medium",
+    "bilingual.dashboard.field.story": "Story",
+    "bilingual.dashboard.field.hostName": "Host name",
+    "bilingual.dashboard.statusComplete": "Both languages",
+    "bilingual.dashboard.statusOneSide": "One language",
+    "bilingual.dashboard.currentValueLabel": "Current ({lang})",
+    "bilingual.dashboard.targetInputLabel": "Add ({lang})",
+    "bilingual.dashboard.batchDraft": "Draft this group with AI",
+    "bilingual.dashboard.batchDraftPending": "Drafting…",
+    "bilingual.dashboard.saveRow": "Save",
+    "bilingual.dashboard.saveRowPending": "Saving…",
+    "bilingual.dashboard.saveRowDone": "Saved",
+    "bilingual.dashboard.rowError":
+      "Save didn't go through. Please try again in a moment.",
+    "bilingual.dashboard.quotaChip":
+      "{remaining} AI drafts left this month",
+    "bilingual.dashboard.quotaChipUnlimited":
+      "AI drafts available (unlimited)",
+    "bilingual.dashboard.quotaExhausted":
+      "AI drafts are out for this month; you can still write translations yourself.",
+    "bilingual.dashboard.loadMore": "Load more",
+    "bilingual.dashboard.emptySection":
+      "Nothing to tidy in this group yet.",
+    "bilingual.dashboard.backToSettings": "Back to settings",
+    "bilingual.dashboard.settingsNavLabel": "Bilingual tidy-up",
+    "bilingual.dashboard.settingsNavHint":
+      "Add another-language names, titles, or prose whenever you'd like.",
   },
   ko: {
     "nav.feed": "피드",
@@ -6112,6 +6198,87 @@ export const messages = {
     "bilingual.inheritConfirmUse": "이대로 사용",
     "bilingual.inheritConfirmEdit": "편집",
     "bilingual.inheritConfirmSaved": "프로필 이름에 이중언어를 적용했어요.",
+
+    // QA 2026-07-29 — 이중언어 채택 UX (기존 사용자를 위한 발견 배너 /
+    // 컨텍스트 넛지 / 벌크 대시보드). 톤: 따뜻·인내심 있음·존중.
+    "bilingual.discovery.title":
+      "🌏 이제 프로필과 작품을 두 언어로 등록할 수 있어요",
+    "bilingual.discovery.body":
+      "작가님이 이름을 소유합니다 — Theo 는 자동 번역을 하지 않아요. 다른 언어를 두고 싶을 때만 채워 두세요.",
+    "bilingual.discovery.ctaSetUp": "지금 정리하기",
+    "bilingual.discovery.ctaLater": "나중에",
+    "bilingual.discovery.ctaHide": "숨기기",
+
+    "bilingual.nudge.cta": "추가하기",
+    "bilingual.nudge.dismiss": "닫기",
+    "bilingual.nudge.displayNameToEn":
+      "영어권에서 다르게 불리는 이름이 있나요?",
+    "bilingual.nudge.displayNameToKo":
+      "한국어로 다르게 불리는 이름이 있나요?",
+    "bilingual.nudge.bioToEn":
+      "이 소개를 영어로도 남겨 두시겠어요?",
+    "bilingual.nudge.bioToKo":
+      "이 소개를 한국어로도 남겨 두시겠어요?",
+    "bilingual.nudge.statementToEn":
+      "이 작가의 말을 영어로도 남겨 두시겠어요?",
+    "bilingual.nudge.statementToKo":
+      "이 작가의 말을 한국어로도 남겨 두시겠어요?",
+    "bilingual.nudge.titleToEn":
+      "이 작품의 영어 제목이 있나요?",
+    "bilingual.nudge.titleToKo":
+      "이 작품의 한국어 제목이 있나요?",
+    "bilingual.nudge.mediumToEn":
+      "매체 정보를 영어로도 두시겠어요?",
+    "bilingual.nudge.mediumToKo":
+      "매체 정보를 한국어로도 두시겠어요?",
+    "bilingual.nudge.storyToEn":
+      "이 이야기를 영어로도 남겨 두시겠어요?",
+    "bilingual.nudge.storyToKo":
+      "이 이야기를 한국어로도 남겨 두시겠어요?",
+
+    "bilingual.dashboard.title": "이중언어 — 두 언어를 한자리에서 정리",
+    "bilingual.dashboard.subtitle":
+      "다른 언어 버전을 두고 싶은 곳만 채우면 돼요. 한 언어만으로 충분하면 그대로 두어도 괜찮습니다.",
+    "bilingual.dashboard.progress":
+      "{total}개 필드 중 {done}개가 두 언어 모두 등록됨",
+    "bilingual.dashboard.allComplete":
+      "지금 확인 가능한 곳은 모두 두 언어가 채워져 있어요. 새 작품이나 전시가 생기면 여기로 돌아오세요.",
+    "bilingual.dashboard.emptyState":
+      "정리할 필드가 아직 없어요. 어느 언어로 쓰든 그대로 작가님의 것으로 남아요.",
+    "bilingual.dashboard.groupProfile": "프로필",
+    "bilingual.dashboard.groupArtworks": "작품",
+    "bilingual.dashboard.groupExhibitions": "전시",
+    "bilingual.dashboard.field.displayName": "활동명",
+    "bilingual.dashboard.field.bio": "소개",
+    "bilingual.dashboard.field.statement": "작가의 말",
+    "bilingual.dashboard.field.title": "제목",
+    "bilingual.dashboard.field.medium": "매체",
+    "bilingual.dashboard.field.story": "이야기",
+    "bilingual.dashboard.field.hostName": "주최명",
+    "bilingual.dashboard.statusComplete": "두 언어 모두",
+    "bilingual.dashboard.statusOneSide": "한쪽만",
+    "bilingual.dashboard.currentValueLabel": "현재 ({lang})",
+    "bilingual.dashboard.targetInputLabel": "{lang} 추가",
+    "bilingual.dashboard.batchDraft": "이 묶음 AI 초안 만들기",
+    "bilingual.dashboard.batchDraftPending": "초안 작성 중…",
+    "bilingual.dashboard.saveRow": "저장",
+    "bilingual.dashboard.saveRowPending": "저장 중…",
+    "bilingual.dashboard.saveRowDone": "저장됨",
+    "bilingual.dashboard.rowError":
+      "저장이 잘 되지 않았어요. 잠시 후 다시 시도해 주세요.",
+    "bilingual.dashboard.quotaChip":
+      "이번 달 AI 초안 {remaining}회 남음",
+    "bilingual.dashboard.quotaChipUnlimited":
+      "AI 초안 이용 가능 (무제한)",
+    "bilingual.dashboard.quotaExhausted":
+      "이번 달 AI 초안이 소진됐어요. 직접 번역해 저장하는 건 계속 가능합니다.",
+    "bilingual.dashboard.loadMore": "더 보기",
+    "bilingual.dashboard.emptySection":
+      "이 묶음에서 정리할 것은 아직 없어요.",
+    "bilingual.dashboard.backToSettings": "설정으로 돌아가기",
+    "bilingual.dashboard.settingsNavLabel": "이중언어 정리",
+    "bilingual.dashboard.settingsNavHint":
+      "이름·제목·산문을 원할 때 다른 언어로도 두어 보세요.",
   },
 } as const;
 

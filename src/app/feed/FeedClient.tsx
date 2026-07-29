@@ -7,6 +7,7 @@ import { FeedContent } from "@/components/FeedContent";
 import { ExploreTaxonomyContent } from "@/components/ExploreTaxonomyContent";
 import { PageShell } from "@/components/ds/PageShell";
 import { FeedHeader, type ExploreTab } from "@/components/feed/FeedHeader";
+import { BilingualDiscoveryBanner } from "@/components/bilingual/BilingualDiscoveryBanner";
 
 const NEW_TABS: readonly ExploreTab[] = [
   "foryou",
@@ -87,6 +88,14 @@ export function FeedClient() {
         onSortChange={handleSortChange}
         showSortControls={showSortControls}
       />
+
+      {/*
+        QA 2026-07-29 — Layer 2 이중언어 발견 배너. 로그인된 사용자에게만,
+        dismiss 되지 않았을 때만 렌더한다. 컴포넌트 내부에서 세션/RLS 를
+        신뢰하는 dismissal 상태를 스스로 조회하므로 여기서는 세션 게이팅만
+        하면 된다. 익명 방문자에겐 노출되지 않아 anon UI 를 흐리지 않는다.
+      */}
+      {sessionReady && userId && <BilingualDiscoveryBanner />}
 
       {!sessionReady ? null : tab === "foryou" ? (
         <FeedContent
