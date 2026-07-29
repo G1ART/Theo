@@ -15,7 +15,13 @@ export type ProfileSaveUnifiedArgs = {
 /** Whitelist for base. Include username only when caller explicitly sets a non-empty value (e.g. onboarding). */
 const BASE_KEYS = new Set([
   "display_name",
+  // QA 2026-07-28 bilingual — the 240004 trigger keeps legacy display_name /
+  // bio / artist_statement in sync when any of these are written.
+  "display_name_ko",
+  "display_name_en",
   "bio",
+  "bio_ko",
+  "bio_en",
   "location",
   "website",
   "avatar_url",
@@ -28,6 +34,8 @@ const BASE_KEYS = new Set([
   "cover_image_url",
   "cover_image_position_y",
   "artist_statement",
+  "artist_statement_ko",
+  "artist_statement_en",
   "artist_statement_hero_image_url",
 ]);
 
@@ -53,8 +61,16 @@ const NULLABLE_BASE_KEYS = new Set([
   // upsert_my_profile 은 nullif(trim(...), '') 으로 이 키들을 안전히 NULL 처리하므로
   // NULLABLE 으로 승격해도 23502 위험이 없다.
   "bio",
+  "bio_ko",
+  "bio_en",
   "location",
   "website",
+  // QA 2026-07-28 bilingual: allow explicit clear of KO/EN name/statement
+  // slots. Legacy display_name / artist_statement stay in sync via trigger.
+  "display_name_ko",
+  "display_name_en",
+  "artist_statement_ko",
+  "artist_statement_en",
 ]);
 
 /**

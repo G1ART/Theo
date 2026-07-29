@@ -41,9 +41,16 @@ export function getArtworkImageUrl(
 export type ArtworkRow = {
   id: string;
   title: string | null;
+  /** QA 2026-07-28 bilingual — see 240001 migration + pickLocalizedArtworkTitle. */
+  title_ko?: string | null;
+  title_en?: string | null;
   year: number | null;
   medium: string | null;
+  medium_ko?: string | null;
+  medium_en?: string | null;
   story: string | null;
+  story_ko?: string | null;
+  story_en?: string | null;
   pricing_mode: string | null;
   is_price_public: boolean | null;
   price_usd: number | null;
@@ -84,8 +91,15 @@ export type ArtistProfile = {
   id?: string;
   username: string;
   display_name?: string | null;
+  /** QA 2026-07-28 bilingual (240000). Consumers should route through
+   *  `pickLocalizedDisplayName` / `pickLocalizedBio` from `@/lib/i18n/pickLocalized`
+   *  instead of reading these directly. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url?: string | null;
   bio?: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   main_role?: string | null;
   roles?: string[] | null;
 } | null;
@@ -103,10 +117,21 @@ export type ArtworkClaim = {
   period_status?: string | null;
   start_date?: string | null;
   end_date?: string | null;
-  profiles: { username: string | null; display_name: string | null } | null;
+  profiles: {
+    username: string | null;
+    display_name: string | null;
+    /** QA 2026-07-28 bilingual. */
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  } | null;
   // QA 2026-06-27: invite_email is intentionally NOT embedded in public
   // artwork payloads (PII). Read it via getExternalArtistInviteEmail (owner only).
-  external_artists?: { display_name: string } | null;
+  external_artists?: {
+    display_name: string;
+    /** QA 2026-07-28 bilingual. */
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  } | null;
 };
 
 const CLAIM_STATUS_CONFIRMED = "confirmed";
@@ -115,12 +140,19 @@ const CLAIM_STATUS_CONFIRMED = "confirmed";
 export type Artwork = {
   id: string;
   title: string | null;
+  /** QA 2026-07-28 bilingual — read via `pickLocalizedArtworkTitle`. */
+  title_ko?: string | null;
+  title_en?: string | null;
   year: number | null;
   medium: string | null;
+  medium_ko?: string | null;
+  medium_en?: string | null;
   size: string | null;
   /** 사용자 입력 단위 보존: 'cm' | 'in' | null (null = 기존/호수 등) */
   size_unit?: "cm" | "in" | null;
   story: string | null;
+  story_ko?: string | null;
+  story_en?: string | null;
   visibility: string | null;
   /** 업로드 당사자(레코드 생성자). 삭제 권한에 사용 */
   created_by?: string | null;
@@ -223,9 +255,22 @@ export function getPrimaryClaim(artwork: Artwork): ArtworkClaim | null {
  * 1) External artist name from any claim (pre-onboarding invited artist)
  * 2) Artist profile display_name
  * 3) Artist profile username (as @username)
+ *
+ * QA 2026-07-28 — the optional `locale` argument routes both the external
+ * artist name and the profile name through the KO/EN pickers so callers
+ * that pass their UI locale get the author-owned localized label. Legacy
+ * callers that omit the argument keep the previous behaviour (reads the
+ * legacy `display_name` column which the 240004 trigger keeps in sync).
  */
+type ExternalArtistLocalized = {
+  display_name?: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
+
 export function getArtworkArtistLabel(
-  artwork: Artwork | ArtworkWithLikes
+  artwork: Artwork | ArtworkWithLikes,
+  locale?: import("@/lib/i18n/locale").Locale,
 ): { label: string | null; profileUsername: string | null } {
   const claims = (artwork as any).claims as ArtworkClaim[] | undefined;
   if (claims && claims.length > 0) {
@@ -235,9 +280,19 @@ export function getArtworkArtistLabel(
         (c as any).external_artists &&
         typeof (c as any).external_artists.display_name === "string" &&
         (c as any).external_artists.display_name.trim() !== ""
-    ) as (ArtworkClaim & { external_artists?: { display_name?: string | null } }) | undefined;
-    if (withExternal && withExternal.external_artists?.display_name) {
-      const name = withExternal.external_artists.display_name.trim();
+    ) as (ArtworkClaim & { external_artists?: ExternalArtistLocalized }) | undefined;
+    if (withExternal && withExternal.external_artists) {
+      const ext = withExternal.external_artists;
+      let name = "";
+      if (locale) {
+        if (locale === "ko") {
+          name = (ext.display_name_ko ?? ext.display_name_en ?? ext.display_name ?? "").trim();
+        } else {
+          name = (ext.display_name_en ?? ext.display_name_ko ?? ext.display_name ?? "").trim();
+        }
+      } else {
+        name = (ext.display_name ?? "").trim();
+      }
       if (name) {
         return { label: name, profileUsername: null };
       }
@@ -246,10 +301,26 @@ export function getArtworkArtistLabel(
 
   const artist = (artwork as any).profiles as ArtistProfile | null | undefined;
   const username = artist?.username ?? null;
-  const displayName =
-    typeof artist?.display_name === "string" && artist.display_name.trim()
-      ? artist.display_name.trim()
-      : null;
+  let displayName: string | null = null;
+  if (artist) {
+    if (locale) {
+      const rec = artist as {
+        display_name?: string | null;
+        display_name_ko?: string | null;
+        display_name_en?: string | null;
+      };
+      const picked =
+        locale === "ko"
+          ? (rec.display_name_ko ?? rec.display_name_en ?? rec.display_name ?? "").trim()
+          : (rec.display_name_en ?? rec.display_name_ko ?? rec.display_name ?? "").trim();
+      displayName = picked || null;
+    } else {
+      displayName =
+        typeof artist.display_name === "string" && artist.display_name.trim()
+          ? artist.display_name.trim()
+          : null;
+    }
+  }
   const label = displayName || (username ? "@" + username : null);
   return { label, profileUsername: username };
 }
@@ -394,11 +465,17 @@ type ListOptions = {
 const ARTWORK_SELECT = `
   id,
   title,
+  title_ko,
+  title_en,
   year,
   medium,
+  medium_ko,
+  medium_en,
   size,
   size_unit,
   story,
+  story_ko,
+  story_en,
   visibility,
   created_by,
   pricing_mode,
@@ -416,9 +493,9 @@ const ARTWORK_SELECT = `
   website_import_provenance,
   likes_count,
   artwork_images(storage_path, sort_order, view_type, display_adjust),
-  profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles, is_public),
+  profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles, is_public),
   artwork_likes(count),
-  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
+  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
 `;
 
 export async function listPublicArtworks(
@@ -1063,12 +1140,25 @@ const KRW_TO_USD_RATE =
 
 export type CreateArtworkPayload = {
   title: string;
+  /**
+   * QA 2026-07-28 bilingual — optional KO/EN slots. When either is sent
+   * the 240004 trigger keeps the legacy `title` column in sync (KO wins).
+   * `title` remains required as the legacy fallback for search / old
+   * renderers; callers that only have one language should still pass it
+   * verbatim through `title`.
+   */
+  title_ko?: string | null;
+  title_en?: string | null;
   year: number;
   medium: string;
+  medium_ko?: string | null;
+  medium_en?: string | null;
   size: string;
   /** 사용자 입력 단위: 'cm' | 'in' | null */
   size_unit?: "cm" | "in" | null;
   story?: string | null;
+  story_ko?: string | null;
+  story_en?: string | null;
   ownership_status: string;
   pricing_mode: "fixed" | "inquire";
   is_price_public?: boolean;
@@ -1118,11 +1208,21 @@ export async function createArtwork(
       artist_id: artistId,
       created_by: session.user.id,
       title: payload.title,
+      // QA 2026-07-28 bilingual — pass through when caller provides. Empty
+      // string collapses to null so the trigger sync doesn't KO-preserve
+      // an empty slot. Callers that only send legacy `title` keep the old
+      // behaviour (trigger only runs when *_ko / *_en is written).
+      title_ko: payload.title_ko?.trim() || null,
+      title_en: payload.title_en?.trim() || null,
       year: payload.year,
       medium: payload.medium,
+      medium_ko: payload.medium_ko?.trim() || null,
+      medium_en: payload.medium_en?.trim() || null,
       size: payload.size,
       size_unit: payload.size_unit ?? null,
       story: payload.story ?? null,
+      story_ko: payload.story_ko?.trim() || null,
+      story_en: payload.story_en?.trim() || null,
       visibility: "public",
       ownership_status: payload.ownership_status,
       pricing_mode: payload.pricing_mode,
@@ -1149,11 +1249,17 @@ export async function getArtworkById(
       `
       id,
       title,
+      title_ko,
+      title_en,
       year,
       medium,
+      medium_ko,
+      medium_en,
       size,
       size_unit,
       story,
+      story_ko,
+      story_en,
       visibility,
       created_by,
       pricing_mode,
@@ -1169,9 +1275,9 @@ export async function getArtworkById(
       created_at,
       provenance_visible,
       artwork_images(storage_path, sort_order, view_type, display_adjust),
-      profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles),
+      profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
-      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
+      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
     `
     )
     .eq("id", id)
@@ -1195,10 +1301,16 @@ export async function getArtworksByIds(
       `
       id,
       title,
+      title_ko,
+      title_en,
       year,
       medium,
+      medium_ko,
+      medium_en,
       size,
       story,
+      story_ko,
+      story_en,
       visibility,
       pricing_mode,
       is_price_public,
@@ -1213,9 +1325,9 @@ export async function getArtworksByIds(
       created_at,
       provenance_visible,
       artwork_images(storage_path, sort_order, view_type, display_adjust),
-      profiles!artist_id(id, username, display_name, avatar_url, bio, main_role, roles),
+      profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
-      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name), external_artists(display_name))
+      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
     `
     )
     .in("id", ids);
@@ -1477,11 +1589,19 @@ export async function createDraftArtwork(
 
 export type UpdateArtworkPayload = Partial<{
   title: string | null;
+  /** QA 2026-07-28 bilingual — additive. The 240004 trigger keeps
+   *  legacy `title` in sync (KO wins) whenever any of these are written. */
+  title_ko: string | null;
+  title_en: string | null;
   year: number | null;
   medium: string | null;
+  medium_ko: string | null;
+  medium_en: string | null;
   size: string | null;
   size_unit: "cm" | "in" | null;
   story: string | null;
+  story_ko: string | null;
+  story_en: string | null;
   ownership_status: string | null;
   pricing_mode: "fixed" | "inquire" | null;
   is_price_public: boolean;

@@ -37,6 +37,10 @@ export type ExhibitionRow = {
   status: string;
   curator_id: string;
   host_name: string | null;
+  /** QA 2026-07-28 bilingual (240002). Consumers should use
+   *  `pickLocalizedHostName` from `@/lib/i18n/pickLocalized`. */
+  host_name_ko?: string | null;
+  host_name_en?: string | null;
   host_profile_id: string | null;
   cover_image_paths: string[] | null;
   created_at: string | null;
@@ -44,7 +48,10 @@ export type ExhibitionRow = {
 
 /** Select + curator/host profile joins for credits label. */
 const SELECT_WITH_CREDITS =
-  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, host_name, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, username), host:profiles!host_profile_id(display_name, username)";
+  // QA 2026-07-28 — additive bilingual columns for host_name and the
+  // joined curator/host profile display_name. The 240004 trigger keeps
+  // the legacy `host_name` / `display_name` in sync (KO wins).
+  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username)";
 
 export type ExhibitionWorkRow = {
   id: string;
@@ -202,6 +209,9 @@ export async function createExhibition(args: {
   status?: string;
   curator_id?: string | null;
   host_name?: string | null;
+  /** QA 2026-07-28 bilingual host label. 240004 trigger keeps legacy in sync. */
+  host_name_ko?: string | null;
+  host_name_en?: string | null;
   host_profile_id?: string | null;
   forProfileId?: string;
 }): Promise<{ data: { id: string } | null; error: unknown }> {
@@ -225,6 +235,8 @@ export async function createExhibition(args: {
       status: args.status ?? "planned",
       curator_id: curatorId,
       host_name: args.host_name?.trim() || null,
+      host_name_ko: args.host_name_ko?.trim() || null,
+      host_name_en: args.host_name_en?.trim() || null,
       host_profile_id: args.host_profile_id ?? null,
       cover_image_paths: [],
     })
@@ -257,7 +269,7 @@ export async function createExhibition(args: {
 /** Update exhibition (title, dates, status, curator, host). */
 export async function updateExhibition(
   id: string,
-  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "host_name" | "host_profile_id" | "cover_image_paths">>,
+  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "host_name" | "host_name_ko" | "host_name_en" | "host_profile_id" | "cover_image_paths">>,
   options?: {
     /** Principal profile id when operator is acting-as. Audit-only. */
     actingSubjectProfileId?: string | null;
@@ -277,6 +289,9 @@ export async function updateExhibition(
   if (patch.status !== undefined) payload.status = patch.status;
   if (patch.curator_id !== undefined) payload.curator_id = patch.curator_id;
   if (patch.host_name !== undefined) payload.host_name = patch.host_name?.trim() || null;
+  // QA 2026-07-28 bilingual host — trigger keeps legacy `host_name` in sync.
+  if (patch.host_name_ko !== undefined) payload.host_name_ko = patch.host_name_ko?.trim() || null;
+  if (patch.host_name_en !== undefined) payload.host_name_en = patch.host_name_en?.trim() || null;
   if (patch.host_profile_id !== undefined) payload.host_profile_id = patch.host_profile_id;
   if (patch.cover_image_paths !== undefined) payload.cover_image_paths = patch.cover_image_paths ?? [];
 

@@ -11,10 +11,19 @@
 import type { RoleKey } from "./roles";
 import { normalizeRoleList, roleLabel } from "./roles";
 import { isPlaceholderUsername } from "./placeholder";
+import type { Locale } from "@/lib/i18n/locale";
+import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 
 export type IdentityInput = {
   id?: string | null;
   display_name?: string | null;
+  /** QA 2026-07-28 bilingual. When supplied together with `locale`,
+   *  `formatDisplayName` / `formatIdentityPair` return the author-owned
+   *  localized name. Legacy `display_name` is kept in sync by the 240004
+   *  DB trigger so callers that don't pass locale keep their existing
+   *  behaviour. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   username?: string | null;
   main_role?: string | null;
   roles?: string[] | null;
@@ -52,13 +61,21 @@ export function formatUsername(profile: IdentityInput | null | undefined): strin
 }
 
 /** The single line to show as the person's primary name.
- *  Preference order: display_name → @username (suppressing placeholder) → neutral label.
+ *  Preference order: (localized display_name if locale) → display_name →
+ *  @username (suppressing placeholder) → neutral label.
  *  Pass `t` to localize the placeholder / unknown fallback via
- *  `identity.incompletePlaceholder`. */
+ *  `identity.incompletePlaceholder`.
+ *  Pass `locale` (QA 2026-07-28) to return the author-owned KO/EN name;
+ *  omit for the legacy behaviour. */
 export function formatDisplayName(
   profile: IdentityInput | null | undefined,
-  t?: Translator
+  t?: Translator,
+  locale?: Locale,
 ): string {
+  if (locale && profile) {
+    const localized = pickLocalizedDisplayName(profile, locale).trim();
+    if (localized) return localized;
+  }
   const dn = cleanStr(profile?.display_name);
   if (dn) return dn;
   const u = formatUsername(profile);
@@ -71,16 +88,21 @@ export function formatDisplayName(
 
 /**
  * Primary + secondary identity pair for hero/card layouts.
- *   primary   = display_name (falls back to @handle, suppresses placeholders)
+ *   primary   = localized display_name (or legacy display_name), falling back
+ *               to @handle, suppressing placeholders
  *   secondary = @handle (only if we already used display_name as primary)
  * Placeholder usernames never appear in either slot. Pass `t` to
- * localize the neutral placeholder label.
+ * localize the neutral placeholder label. Pass `locale` (QA 2026-07-28)
+ * for author-owned KO/EN name resolution.
  */
 export function formatIdentityPair(
   profile: IdentityInput | null | undefined,
-  t?: Translator
+  t?: Translator,
+  locale?: Locale,
 ): { primary: string; secondary: string } {
-  const dn = cleanStr(profile?.display_name);
+  const dn = locale && profile
+    ? (pickLocalizedDisplayName(profile, locale).trim() || cleanStr(profile?.display_name))
+    : cleanStr(profile?.display_name);
   const handle = formatUsername(profile);
   if (dn && handle) return { primary: dn, secondary: handle };
   if (dn) return { primary: dn, secondary: "" };

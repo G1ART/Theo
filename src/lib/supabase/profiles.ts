@@ -8,8 +8,14 @@ export type Profile = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-07-28 bilingual — additive. Consumers should route through
+   *  `pickLocalizedDisplayName` from `@/lib/i18n/pickLocalized`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   bio: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   location: string | null;
   website: string | null;
   main_role: string | null;
@@ -39,6 +45,9 @@ export type Profile = {
   cover_image_url?: string | null;
   cover_image_position_y?: number | null;
   artist_statement?: string | null;
+  /** QA 2026-07-28 bilingual — read via `pickLocalizedStatement`. */
+  artist_statement_ko?: string | null;
+  artist_statement_en?: string | null;
   artist_statement_hero_image_url?: string | null;
   artist_statement_updated_at?: string | null;
 };
@@ -58,8 +67,13 @@ export type ProfilePublic = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-07-28 bilingual — read via pickLocalizedDisplayName. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   bio: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   location: string | null;
   website: string | null;
   main_role: string | null;
@@ -71,6 +85,8 @@ export type ProfilePublic = {
   cover_image_url?: string | null;
   cover_image_position_y?: number | null;
   artist_statement?: string | null;
+  artist_statement_ko?: string | null;
+  artist_statement_en?: string | null;
   artist_statement_hero_image_url?: string | null;
   artist_statement_updated_at?: string | null;
   // Public CV slice (lookup_profile_cv migration)
@@ -169,8 +185,12 @@ export async function lookupPublicProfileByUsername(username: string): Promise<{
     id: String(raw?.id ?? ""),
     username: raw?.username != null ? String(raw.username) : null,
     display_name: raw?.display_name != null ? String(raw.display_name) : null,
+    display_name_ko: stringFieldOrNull(raw?.display_name_ko),
+    display_name_en: stringFieldOrNull(raw?.display_name_en),
     avatar_url: raw?.avatar_url != null ? String(raw.avatar_url) : null,
     bio: raw?.bio != null ? String(raw.bio) : null,
+    bio_ko: stringFieldOrNull(raw?.bio_ko),
+    bio_en: stringFieldOrNull(raw?.bio_en),
     location: raw?.location != null ? String(raw.location) : null,
     website: raw?.website != null ? String(raw.website) : null,
     main_role: raw?.main_role != null ? String(raw.main_role) : null,
@@ -181,6 +201,8 @@ export async function lookupPublicProfileByUsername(username: string): Promise<{
     cover_image_url: stringFieldOrNull(raw?.cover_image_url),
     cover_image_position_y: numberFieldOrNull(raw?.cover_image_position_y),
     artist_statement: stringFieldOrNull(raw?.artist_statement),
+    artist_statement_ko: stringFieldOrNull(raw?.artist_statement_ko),
+    artist_statement_en: stringFieldOrNull(raw?.artist_statement_en),
     artist_statement_hero_image_url: stringFieldOrNull(raw?.artist_statement_hero_image_url),
     artist_statement_updated_at: stringFieldOrNull(raw?.artist_statement_updated_at),
     education: cvArrayOrNull(raw?.education),
@@ -418,8 +440,12 @@ export async function getMyProfileAsPublic(): Promise<{
     id: String(row?.id ?? ""),
     username: row?.username != null ? String(row.username) : null,
     display_name: row?.display_name != null ? String(row.display_name) : null,
+    display_name_ko: stringFieldOrNull(row?.display_name_ko),
+    display_name_en: stringFieldOrNull(row?.display_name_en),
     avatar_url: row?.avatar_url != null ? String(row.avatar_url) : null,
     bio: row?.bio != null ? String(row.bio) : null,
+    bio_ko: stringFieldOrNull(row?.bio_ko),
+    bio_en: stringFieldOrNull(row?.bio_en),
     location: row?.location != null ? String(row.location) : null,
     website: row?.website != null ? String(row.website) : null,
     main_role: row?.main_role != null ? String(row.main_role) : null,
@@ -430,6 +456,8 @@ export async function getMyProfileAsPublic(): Promise<{
     cover_image_url: stringFieldOrNull(row?.cover_image_url),
     cover_image_position_y: numberFieldOrNull(row?.cover_image_position_y),
     artist_statement: stringFieldOrNull(row?.artist_statement),
+    artist_statement_ko: stringFieldOrNull(row?.artist_statement_ko),
+    artist_statement_en: stringFieldOrNull(row?.artist_statement_en),
     artist_statement_hero_image_url: stringFieldOrNull(row?.artist_statement_hero_image_url),
     artist_statement_updated_at: stringFieldOrNull(row?.artist_statement_updated_at),
     cv_pdf_path: stringFieldOrNull(row?.cv_pdf_path),
@@ -453,7 +481,13 @@ export type EducationEntry = {
 
 export type UpdateProfileParams = {
   display_name?: string | null;
+  /** QA 2026-07-28 bilingual — additive. Writing any of these fires
+   *  the 240004 trigger which syncs the legacy column (KO wins). */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   bio?: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   location?: string | null;
   website?: string | null;
   avatar_url?: string | null;
@@ -483,13 +517,20 @@ export type UpdateProfileParams = {
   cover_image_url?: string | null;
   cover_image_position_y?: number | null;
   artist_statement?: string | null;
+  artist_statement_ko?: string | null;
+  artist_statement_en?: string | null;
   artist_statement_hero_image_url?: string | null;
 };
 
 /** Base-only columns for profiles table (no details). */
 const BASE_PROFILE_KEYS = [
   "display_name",
+  // QA 2026-07-28 bilingual — the trigger 240004 keeps legacy in sync.
+  "display_name_ko",
+  "display_name_en",
   "bio",
+  "bio_ko",
+  "bio_en",
   "location",
   "website",
   "avatar_url",
@@ -503,12 +544,18 @@ const BASE_PROFILE_KEYS = [
   "cover_image_url",
   "cover_image_position_y",
   "artist_statement",
+  "artist_statement_ko",
+  "artist_statement_en",
   "artist_statement_hero_image_url",
 ] as const;
 
 export type UpdateProfileBaseParams = {
   display_name?: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   bio?: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   location?: string | null;
   website?: string | null;
   avatar_url?: string | null;
@@ -522,6 +569,8 @@ export type UpdateProfileBaseParams = {
   cover_image_url?: string | null;
   cover_image_position_y?: number | null;
   artist_statement?: string | null;
+  artist_statement_ko?: string | null;
+  artist_statement_en?: string | null;
   artist_statement_hero_image_url?: string | null;
 };
 
@@ -576,9 +625,16 @@ export async function updateMyProfileBasePatch(patch: Partial<UpdateProfileBaseP
 /** Update profile via RPC (no direct PATCH). Base fields in basePatch, details in detailsPatch. */
 export async function updateMyProfile(partial: UpdateProfileParams) {
   const baseKeys = [
-    "display_name", "bio", "location", "website", "avatar_url", "main_role", "roles", "is_public",
+    "display_name",
+    "display_name_ko", "display_name_en",
+    "bio",
+    "bio_ko", "bio_en",
+    "location", "website", "avatar_url", "main_role", "roles", "is_public",
     "education", "profile_completeness", "profile_updated_at",
-    "cover_image_url", "cover_image_position_y", "artist_statement", "artist_statement_hero_image_url",
+    "cover_image_url", "cover_image_position_y",
+    "artist_statement",
+    "artist_statement_ko", "artist_statement_en",
+    "artist_statement_hero_image_url",
   ] as const;
   const detailKeys = [
     "career_stage", "age_band", "city", "region", "country", "themes", "mediums", "styles",
