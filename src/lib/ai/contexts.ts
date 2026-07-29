@@ -578,3 +578,55 @@ export function buildCvImportVisionContext(input: CvImportVisionContextInput): s
     "Read the attached image(s) and extract the structured CV per the schema. Do not describe the image; emit JSON only.",
   ].join("\n");
 }
+
+/**
+ * Track C — Translate draft context. Kept intentionally small so a
+ * bilingual "AI 초안" click is cheap. Style anchors are the same
+ * author's own prose in the target (or source) locale — used only
+ * for prose kinds; the short kinds ignore them to keep titles/media
+ * labels tight.
+ */
+export type TranslateDraftContextInput = {
+  fieldKind:
+    | "title"
+    | "preface"
+    | "bio"
+    | "statement"
+    | "medium"
+    | "story"
+    | "host_name";
+  sourceLocale: AiLocale;
+  targetLocale: AiLocale;
+  sourceText: string;
+  styleAnchors?: string[] | null;
+};
+
+const PROSE_TRANSLATE_KINDS = new Set([
+  "preface",
+  "bio",
+  "statement",
+  "story",
+]);
+
+export function buildTranslateDraftContext(
+  input: TranslateDraftContextInput,
+): string {
+  const source = (input.sourceText ?? "").trim();
+  const isProse = PROSE_TRANSLATE_KINDS.has(input.fieldKind);
+  const anchors = isProse
+    ? (input.styleAnchors ?? [])
+        .filter((s) => typeof s === "string" && s.trim().length > 0)
+        .slice(0, 3)
+        .map((s) => s.trim().slice(0, 800))
+    : [];
+  const lines = [
+    `fieldKind: ${input.fieldKind}`,
+    `sourceLocale: ${input.sourceLocale}`,
+    `targetLocale: ${input.targetLocale}`,
+    `source_text: ${source.slice(0, 4000)}`,
+  ];
+  if (anchors.length > 0) {
+    lines.push(`style_anchors: ${JSON.stringify(anchors)}`);
+  }
+  return lines.join("\n");
+}

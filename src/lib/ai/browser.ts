@@ -16,6 +16,8 @@ import type {
   PortfolioSuggestionsResult,
   ProfileSuggestionsResult,
   StudioDigestResult,
+  TranslateDraftFieldKind,
+  TranslateDraftResult,
 } from "./types";
 
 const FEATURE_TO_PATH: Record<AiFeatureKey, string> = {
@@ -31,6 +33,7 @@ const FEATURE_TO_PATH: Record<AiFeatureKey, string> = {
   exhibition_review: "/api/ai/exhibition-review",
   delegation_brief: "/api/ai/delegation-brief",
   cv_import: "/api/ai/cv-import",
+  translate_draft: "/api/ai/translate-draft",
 };
 
 export type CallAiOptions = {
@@ -238,4 +241,26 @@ export const aiApi = {
       { entries: [], confidence: 0, note: null },
       opts,
     ),
+  /**
+   * Track C (2026-07-28) — 이중언어 인풋 "AI 초안" 버튼. Request body
+   * shape: `{ translate: { fieldKind, sourceLocale, targetLocale,
+   * sourceText, styleAnchors? } }`. Degraded shape returns `draft: ""`
+   * so the caller can distinguish "empty" from "error" via `degraded`.
+   */
+  translateDraft: (body: Record<string, unknown>, opts?: CallAiOptions) => {
+    const translate = (body.translate ?? {}) as {
+      fieldKind?: TranslateDraftFieldKind;
+      sourceLocale?: TranslateDraftResult["sourceLocale"];
+      targetLocale?: TranslateDraftResult["targetLocale"];
+    };
+    const fieldKind: TranslateDraftFieldKind = translate.fieldKind ?? "title";
+    const sourceLocale = translate.sourceLocale ?? "ko";
+    const targetLocale = translate.targetLocale ?? "en";
+    return callAi<TranslateDraftResult>(
+      "translate_draft",
+      body,
+      { fieldKind, sourceLocale, targetLocale, draft: "" },
+      opts,
+    );
+  },
 };

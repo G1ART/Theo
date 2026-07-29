@@ -41,6 +41,7 @@ import { ExhibitionDraftBanner } from "@/components/exhibitions/ExhibitionDraftB
 import { useActingAs } from "@/context/ActingAsContext";
 import { getProfileById } from "@/lib/supabase/profiles";
 import { ActingAsChip } from "@/components/ActingAsChip";
+import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
 
 type Participant = {
   id: string;
@@ -1091,24 +1092,45 @@ export default function AddWorkToExhibitionPage() {
                           )}
                         </div>
                         {row.showOther ? (
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={otherValue}
-                              onChange={(e) => setOther(e.target.value)}
-                              onBlur={() => scheduleExternalRowSave(row.clientId, 0)}
-                              placeholder={t(
-                                externalPrimaryLang === "ko"
-                                  ? "exhibition.titleOtherLangPlaceholderEn"
-                                  : "exhibition.titleOtherLangPlaceholderKo"
+                          <>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={otherValue}
+                                onChange={(e) => setOther(e.target.value)}
+                                onBlur={() => scheduleExternalRowSave(row.clientId, 0)}
+                                placeholder={t(
+                                  externalPrimaryLang === "ko"
+                                    ? "exhibition.titleOtherLangPlaceholderEn"
+                                    : "exhibition.titleOtherLangPlaceholderKo"
+                                )}
+                                className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
+                                lang={externalPrimaryLang === "ko" ? "en" : "ko"}
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                                {externalPrimaryLang === "ko" ? "en" : "ko"}
+                              </span>
+                            </div>
+                            {/*
+                              Track C — 참여자 추가 페이지에서도 한글 원문이
+                              있고 EN 슬롯이 비어 있을 때에 한해 로마자 힌트
+                              칩을 제안한다. AI 번역은 이름 필드에 붙이지
+                              않는다.
+                            */}
+                            {externalPrimaryLang === "ko" &&
+                              row.name_ko.trim().length > 0 &&
+                              row.name_en.trim().length === 0 && (
+                                <RomanizationHintChip
+                                  sourceText={row.name_ko}
+                                  currentTargetText={row.name_en}
+                                  onApply={(text) => {
+                                    setOther(text);
+                                    scheduleExternalRowSave(row.clientId, 0);
+                                  }}
+                                  compact
+                                />
                               )}
-                              className="w-full rounded border border-zinc-300 px-3 py-2 pr-14 text-sm"
-                              lang={externalPrimaryLang === "ko" ? "en" : "ko"}
-                            />
-                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                              {externalPrimaryLang === "ko" ? "en" : "ko"}
-                            </span>
-                          </div>
+                          </>
                         ) : (
                           <button
                             type="button"

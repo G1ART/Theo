@@ -221,7 +221,36 @@ export type AiFeatureKey =
   | "board_pitch_pack"
   | "exhibition_review"
   | "delegation_brief"
-  | "cv_import";
+  | "cv_import"
+  /**
+   * QA 2026-07-28 (Track C) — 이중언어 인풋 옆에 붙는 "AI 초안" 버튼이
+   * 사용하는 짧은 번역 draft 라우트. 원문(sourceText)을 상대 언어로 옮겨
+   * 편집 가능한 draft 한 개를 반환한다. 절대 자동 저장하지 않고, UI 는
+   * 입력창에 채워 넣기만 한다 (사용자가 폼 저장을 눌러야 반영).
+   */
+  | "translate_draft";
+
+/**
+ * QA 2026-07-28 (Track C) — 번역 draft 결과. 짧은 필드(title, medium,
+ * host_name)와 산문(bio, statement, preface, story) 모두 draft 한 개만
+ * 반환한다. 여러 대안이 필요해지면 `drafts: string[]` 로 확장하되, 현재
+ * 사용자 흐름(입력창을 바로 채움)에는 단일 draft 가 자연스럽다.
+ */
+export type TranslateDraftFieldKind =
+  | "title"
+  | "preface"
+  | "bio"
+  | "statement"
+  | "medium"
+  | "story"
+  | "host_name";
+
+export type TranslateDraftResult = AiDegradation & {
+  fieldKind: TranslateDraftFieldKind;
+  sourceLocale: AiLocale;
+  targetLocale: AiLocale;
+  draft: string;
+};
 
 /**
  * CV Import (P6.2) — structured CV extraction from a homepage URL or

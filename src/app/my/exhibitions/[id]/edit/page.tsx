@@ -8,6 +8,7 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
 import { pickLegacyTitleForSave, pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { backToLabel } from "@/lib/i18n/back";
 import {
   deleteExhibitionKeepWorks,
@@ -645,6 +646,32 @@ export default function EditExhibitionPage() {
                   setHostNameEn(v);
                   setHostName(
                     pickLegacyForSave(hostNameKo || null, v || null) ?? "",
+                  );
+                }}
+                renderSecondaryAssist={({ secondaryLang }) => {
+                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                  const src = primaryLang === "ko" ? hostNameKo : hostNameEn;
+                  return (
+                    <AiTranslationDraftButton
+                      sourceText={src}
+                      sourceLocale={primaryLang}
+                      targetLocale={secondaryLang}
+                      fieldKind="host_name"
+                      onDraft={(text) => {
+                        if (secondaryLang === "ko") {
+                          setHostNameKo(text);
+                          setHostName(
+                            pickLegacyForSave(text || null, hostNameEn || null) ?? "",
+                          );
+                        } else {
+                          setHostNameEn(text);
+                          setHostName(
+                            pickLegacyForSave(hostNameKo || null, text || null) ?? "",
+                          );
+                        }
+                      }}
+                      compact
+                    />
                   );
                 }}
               />

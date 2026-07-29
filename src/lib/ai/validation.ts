@@ -48,6 +48,16 @@ const INQUIRY_TONES = ["concise", "warm", "curatorial"] as const;
 const INQUIRY_KINDS = ["reply", "followup"] as const;
 const INQUIRY_LENGTHS = ["short", "long"] as const;
 const EXHIBITION_KINDS = ["title", "description", "wall_text", "invite_blurb"] as const;
+const TRANSLATE_FIELD_KINDS = [
+  "title",
+  "preface",
+  "bio",
+  "statement",
+  "medium",
+  "story",
+  "host_name",
+] as const;
+const TRANSLATE_PROSE_KINDS = new Set(["preface", "bio", "statement", "story"]);
 
 /** Hard guards to keep prompt size bounded across all AI routes. */
 export const LIMITS = Object.freeze({
@@ -656,6 +666,81 @@ export type CvImportImage = {
   mime: string;
   base64: string;
 };
+
+/**
+ * Track C (2026-07-28) — translate-draft body. Emitted by the bilingual
+ * "AI 초안" button in BilingualFieldPair. Short kinds (title/medium/
+ * host_name) get a stricter source-text cap; prose kinds accept larger
+ * inputs but still bounded so the round-trip stays cheap. Style anchors
+ * are trimmed and count-capped in the context builder — we only trim /
+ * lightly clean here.
+ */
+export type TranslateDraftBody = {
+  fieldKind: (typeof TRANSLATE_FIELD_KINDS)[number];
+  sourceLocale: AiLocale;
+  targetLocale: AiLocale;
+  sourceText: string;
+  styleAnchors: string[];
+};
+
+const TRANSLATE_SHORT_SOURCE_MAX = 400;
+const TRANSLATE_PROSE_SOURCE_MAX = 4000;
+
+export function parseTranslateBody(
+  raw: unknown,
+): ValidationResult<TranslateDraftBody> {
+  if (!isRecord(raw) || !isRecord(raw.translate)) {
+    return { ok: false, reason: "missing_translate" };
+  }
+  const tr = raw.translate;
+  const fieldKindRaw = typeof tr.fieldKind === "string" ? tr.fieldKind : "";
+  if (
+    !(TRANSLATE_FIELD_KINDS as readonly string[]).includes(fieldKindRaw)
+  ) {
+    return { ok: false, reason: "invalid_fieldKind" };
+  }
+  const fieldKind = fieldKindRaw as (typeof TRANSLATE_FIELD_KINDS)[number];
+
+  const sourceLocale = parseLocale(tr.sourceLocale);
+  const targetLocale = parseLocale(tr.targetLocale);
+  if (sourceLocale === targetLocale) {
+    return { ok: false, reason: "same_locale" };
+  }
+
+  const isProse = TRANSLATE_PROSE_KINDS.has(fieldKind);
+  const cap = isProse
+    ? TRANSLATE_PROSE_SOURCE_MAX
+    : TRANSLATE_SHORT_SOURCE_MAX;
+  const sourceText =
+    typeof tr.sourceText === "string" ? tr.sourceText.trim() : "";
+  if (!sourceText) return { ok: false, reason: "missing_source" };
+  const capped =
+    sourceText.length > cap ? sourceText.slice(0, cap) : sourceText;
+
+  // Style anchors are optional; we keep at most 3 non-empty entries and
+  // clamp each. The context builder ignores them for short kinds.
+  const anchors: string[] = [];
+  if (isProse && Array.isArray(tr.styleAnchors)) {
+    for (const item of tr.styleAnchors) {
+      if (typeof item !== "string") continue;
+      const s = item.trim();
+      if (!s) continue;
+      anchors.push(s.length > TRANSLATE_PROSE_SOURCE_MAX ? s.slice(0, TRANSLATE_PROSE_SOURCE_MAX) : s);
+      if (anchors.length >= 3) break;
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      fieldKind,
+      sourceLocale,
+      targetLocale,
+      sourceText: capped,
+      styleAnchors: anchors,
+    },
+  };
+}
 
 export type CvImportBody = {
   url: string | null;

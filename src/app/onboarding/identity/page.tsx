@@ -35,6 +35,7 @@ import { UsernameField } from "@/components/onboarding/UsernameField";
 import { IdentityPreview } from "@/components/onboarding/IdentityPreview";
 import { SectionFrame, SectionTitle } from "@/components/ds";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
 import { pickLegacyDisplayNameForSave } from "@/lib/i18n/pickLocalized";
 
 const MAIN_ROLES = ROLE_KEYS;
@@ -436,6 +437,25 @@ function IdentityInner() {
                 );
               }}
               maxLength={80}
+              renderSecondaryAssist={({ secondaryLang }) =>
+                // 온보딩 단계에서도 AI 번역은 금지 — 로마자 힌트만 노출.
+                secondaryLang === "en" ? (
+                  <RomanizationHintChip
+                    sourceText={displayNameKo}
+                    currentTargetText={displayNameEn}
+                    onApply={(text) => {
+                      setDisplayNameEn(text);
+                      setDisplayName(
+                        pickLegacyDisplayNameForSave({
+                          display_name_ko: displayNameKo || null,
+                          display_name_en: text || null,
+                        }) ?? "",
+                      );
+                    }}
+                    compact
+                  />
+                ) : null
+              }
             />
 
             <UsernameField

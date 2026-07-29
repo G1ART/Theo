@@ -28,6 +28,7 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { useT } from "@/lib/i18n/useT";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
 import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import {
@@ -1147,6 +1148,26 @@ export default function BulkUploadPage() {
                         setReselectedExternalMeta(null);
                       }
                     }}
+                    renderSecondaryAssist={({ secondaryLang }) =>
+                      // 벌크 업로드에서도 외부 작가 이름은 사람 이름이므로
+                      // AI 번역 대신 로마자 힌트만.
+                      secondaryLang === "en" ? (
+                        <RomanizationHintChip
+                          sourceText={externalArtistNameKo}
+                          currentTargetText={externalArtistNameEn}
+                          onApply={(text) => {
+                            setExternalArtistNameEn(text);
+                            const legacy =
+                              pickLegacyForSave(
+                                externalArtistNameKo || null,
+                                text || null,
+                              ) ?? "";
+                            setExternalArtistName(legacy);
+                          }}
+                          compact
+                        />
+                      ) : null
+                    }
                   />
                 </div>
                 <input

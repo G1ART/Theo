@@ -32,6 +32,8 @@ import { BuildStamp } from "@/components/BuildStamp";
 import { SizeUnitPreference } from "@/components/settings/SizeUnitPreference";
 import { BioDraftAssist } from "@/components/ai/BioDraftAssist";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
+import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { ProfileMediaUploader } from "@/components/profile/ProfileMediaUploader";
 import { StatementDraftAssist } from "@/components/profile/StatementDraftAssist";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
@@ -1294,6 +1296,32 @@ export default function SettingsPage() {
                         rows={6}
                         maxLength={4000}
                         onBlur={handleStatementBlur}
+                        renderSecondaryAssist={({ secondaryLang }) => {
+                          const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                          const src = primaryLang === "ko" ? statementKo : statementEn;
+                          // bio 를 tone anchor 로 사용 — 같은 저자의 다른
+                          // 산문이 있으면 register/목소리를 더 잘 옮긴다.
+                          const anchor = secondaryLang === "ko" ? [bioKo] : [bioEn];
+                          return (
+                            <AiTranslationDraftButton
+                              sourceText={src}
+                              sourceLocale={primaryLang}
+                              targetLocale={secondaryLang}
+                              fieldKind="statement"
+                              styleAnchors={anchor.filter(Boolean) as string[]}
+                              onDraft={(text) => {
+                                if (secondaryLang === "ko") {
+                                  setStatementKo(text);
+                                  if (locale === "ko") setStatement(text);
+                                } else {
+                                  setStatementEn(text);
+                                  if (locale !== "ko") setStatement(text);
+                                }
+                              }}
+                              compact
+                            />
+                          );
+                        }}
                       />
                       <div className="flex items-center justify-between text-xs text-zinc-500">
                         <span>
@@ -1503,6 +1531,21 @@ export default function SettingsPage() {
                 setDisplayNameEn(v);
                 if (locale !== "ko") setDisplayName(v);
               }}
+              renderSecondaryAssist={({ secondaryLang }) =>
+                // display_name 은 AI 번역을 붙이지 않는다. 대신 한글 원문이
+                // 있고 EN 슬롯이 비어 있을 때만 로마자 힌트를 노출.
+                secondaryLang === "en" ? (
+                  <RomanizationHintChip
+                    sourceText={displayNameKo}
+                    currentTargetText={displayNameEn}
+                    onApply={(text) => {
+                      setDisplayNameEn(text);
+                      if (locale !== "ko") setDisplayName(text);
+                    }}
+                    compact
+                  />
+                ) : null
+              }
             />
 
             <div data-tour="profile-identity-bio">
@@ -1526,6 +1569,36 @@ export default function SettingsPage() {
                 }}
                 as="textarea"
                 rows={3}
+                renderSecondaryAssist={({ secondaryLang }) => {
+                  // Translate primary → secondary. Use the other-language
+                  // statement as a tone anchor when the artist already has
+                  // one; otherwise fall back to empty anchors (short prose
+                  // still gets a serviceable draft from the field kind).
+                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                  const src = primaryLang === "ko" ? bioKo : bioEn;
+                  const anchor = secondaryLang === "ko"
+                    ? [statementKo]
+                    : [statementEn];
+                  return (
+                    <AiTranslationDraftButton
+                      sourceText={src}
+                      sourceLocale={primaryLang}
+                      targetLocale={secondaryLang}
+                      fieldKind="bio"
+                      styleAnchors={anchor.filter(Boolean) as string[]}
+                      onDraft={(text) => {
+                        if (secondaryLang === "ko") {
+                          setBioKo(text);
+                          if (locale === "ko") setBio(text);
+                        } else {
+                          setBioEn(text);
+                          if (locale !== "ko") setBio(text);
+                        }
+                      }}
+                      compact
+                    />
+                  );
+                }}
               />
               <BioDraftAssist
                 currentBio={bio}

@@ -239,3 +239,31 @@ Prompt safety footers (never violate):
 - Never claim to be an AI, never add disclaimers, never restate the input as a paragraph — only the structured JSON.`;
 
 export const CV_IMPORT_SCHEMA = `{"entries": [{"category": "education"|"exhibitions"|"awards"|"residencies", "fields": {[key: string]: string}}], "confidence"?: number, "note"?: string|null}`;
+
+// ─────────────────────────────────────────────────────────────────────
+// Track C — Translate Draft (KO/EN 이중언어 인풋 옆 "AI 초안" 버튼)
+// ─────────────────────────────────────────────────────────────────────
+//
+// 절대 자동 저장하지 않는다 (UI 는 draft 를 secondary 입력창에 채워
+// 넣을 뿐, 사용자가 폼 저장을 눌러야 반영). 프롬프트는 "번역기"가
+// 아니라 "작가 본인이 직접 옮겨 적는 초안" 이라는 톤을 강조한다 —
+// 특히 산문(bio/statement/preface/story)에서 register 와 목소리를
+// 보존하기 위해 사용자가 이미 다른 언어로 써 둔 문장(styleAnchors)을
+// tone anchor 로 활용한다.
+export const TRANSLATE_DRAFT_SYSTEM = `You are drafting the author's own translation of a text they wrote themselves, not a machine translation.
+The first input lines carry:
+  - fieldKind: one of "title" | "preface" | "bio" | "statement" | "medium" | "story" | "host_name"
+  - sourceLocale: "ko" | "en" (locale of the given source_text)
+  - targetLocale: "ko" | "en" (locale the draft must be produced in)
+  - source_text: the text to translate
+  - style_anchors: 0-3 excerpts of the same author's own prose in the target locale (or in the source locale) that establish their voice; only appear for prose kinds
+Rules:
+  - Output strictly in targetLocale. Never mix scripts unless the source text intentionally does.
+  - Do not paraphrase, do not summarize, do not embellish. Match the source's structure and register as closely as natural.
+  - For short kinds (title, medium, host_name): produce a terse, direct rendering; avoid explanatory prose; no trailing period unless the source has one.
+  - For prose kinds (preface, bio, statement, story): match the tone shown in style_anchors when provided; keep sentence count within ±1 of the source; preserve first-person voice if present in source or anchors.
+  - Never fabricate facts (dates, venues, works, awards) that are not in source_text.
+  - Never invent hashtags, emoji, or "translated by AI" disclaimers.
+  - Return only the translation string; no notes, no alternatives, no quotes around the output.`;
+
+export const TRANSLATE_DRAFT_SCHEMA = `{"fieldKind": "title"|"preface"|"bio"|"statement"|"medium"|"story"|"host_name", "sourceLocale": "ko"|"en", "targetLocale": "ko"|"en", "draft": string}`;

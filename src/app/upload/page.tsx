@@ -35,6 +35,8 @@ import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
+import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
@@ -784,6 +786,27 @@ function UploadPageContent() {
                       setReselectedExternalMeta(null);
                     }
                   }}
+                  renderSecondaryAssist={({ secondaryLang }) =>
+                    // 외부 작가 이름도 사람 이름이므로 AI 번역 금지 —
+                    // 한글 원문이 있고 EN 슬롯이 비어 있을 때만
+                    // 로마자 힌트를 제안한다.
+                    secondaryLang === "en" ? (
+                      <RomanizationHintChip
+                        sourceText={externalArtistNameKo}
+                        currentTargetText={externalArtistNameEn}
+                        onApply={(text) => {
+                          setExternalArtistNameEn(text);
+                          const legacy =
+                            pickLegacyForSave(
+                              externalArtistNameKo || null,
+                              text || null,
+                            ) ?? "";
+                          setExternalArtistName(legacy);
+                        }}
+                        compact
+                      />
+                    ) : null
+                  }
                 />
                 <input
                   type="email"
@@ -1233,6 +1256,28 @@ function UploadPageContent() {
                 setTitleEn(v);
                 if (locale !== "ko") setTitle(v);
               }}
+              renderSecondaryAssist={({ secondaryLang }) => {
+                const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                const src = primaryLang === "ko" ? titleKo : titleEn;
+                return (
+                  <AiTranslationDraftButton
+                    sourceText={src}
+                    sourceLocale={primaryLang}
+                    targetLocale={secondaryLang}
+                    fieldKind="title"
+                    onDraft={(text) => {
+                      if (secondaryLang === "ko") {
+                        setTitleKo(text);
+                        if (locale === "ko") setTitle(text);
+                      } else {
+                        setTitleEn(text);
+                        if (locale !== "ko") setTitle(text);
+                      }
+                    }}
+                    compact
+                  />
+                );
+              }}
             />
             <div>
               <label className="mb-1 block text-sm font-medium">{t("upload.labelYear")}</label>
@@ -1272,6 +1317,28 @@ function UploadPageContent() {
                 onChangeEn={(v) => {
                   setMediumEn(v);
                   if (locale !== "ko") setMedium(v);
+                }}
+                renderSecondaryAssist={({ secondaryLang }) => {
+                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                  const src = primaryLang === "ko" ? mediumKo : mediumEn;
+                  return (
+                    <AiTranslationDraftButton
+                      sourceText={src}
+                      sourceLocale={primaryLang}
+                      targetLocale={secondaryLang}
+                      fieldKind="medium"
+                      onDraft={(text) => {
+                        if (secondaryLang === "ko") {
+                          setMediumKo(text);
+                          if (locale === "ko") setMedium(text);
+                        } else {
+                          setMediumEn(text);
+                          if (locale !== "ko") setMedium(text);
+                        }
+                      }}
+                      compact
+                    />
+                  );
                 }}
               />
               <datalist id="upload-medium-suggestions">
@@ -1390,6 +1457,28 @@ function UploadPageContent() {
                   const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
                   setStoryEn(trimmed);
                   if (locale !== "ko") setStory(trimmed);
+                }}
+                renderSecondaryAssist={({ secondaryLang }) => {
+                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                  const src = primaryLang === "ko" ? storyKo : storyEn;
+                  return (
+                    <AiTranslationDraftButton
+                      sourceText={src}
+                      sourceLocale={primaryLang}
+                      targetLocale={secondaryLang}
+                      fieldKind="story"
+                      onDraft={(text) => {
+                        if (secondaryLang === "ko") {
+                          setStoryKo(text);
+                          if (locale === "ko") setStory(text);
+                        } else {
+                          setStoryEn(text);
+                          if (locale !== "ko") setStory(text);
+                        }
+                      }}
+                      compact
+                    />
+                  );
                 }}
                 as="textarea"
                 rows={4}

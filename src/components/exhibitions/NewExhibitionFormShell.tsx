@@ -7,6 +7,7 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
 import { pickLegacyTitleForSave, pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { createExhibition } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
@@ -543,6 +544,32 @@ export function NewExhibitionFormShell({
               setHostNameEn(v);
               const legacy = pickLegacyForSave(hostNameKo || null, v || null) ?? "";
               setHostName(legacy);
+            }}
+            renderSecondaryAssist={({ secondaryLang }) => {
+              const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+              const src = primaryLang === "ko" ? hostNameKo : hostNameEn;
+              return (
+                <AiTranslationDraftButton
+                  sourceText={src}
+                  sourceLocale={primaryLang}
+                  targetLocale={secondaryLang}
+                  fieldKind="host_name"
+                  onDraft={(text) => {
+                    if (secondaryLang === "ko") {
+                      setHostNameKo(text);
+                      const legacy =
+                        pickLegacyForSave(text || null, hostNameEn || null) ?? "";
+                      setHostName(legacy);
+                    } else {
+                      setHostNameEn(text);
+                      const legacy =
+                        pickLegacyForSave(hostNameKo || null, text || null) ?? "";
+                      setHostName(legacy);
+                    }
+                  }}
+                  compact
+                />
+              );
             }}
           />
           <div className="mt-2 flex flex-wrap gap-3">
