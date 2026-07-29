@@ -2,6 +2,26 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — hotfix: profile_interest passive dedupe index IMMUTABLE 오류
+
+### 배경
+`20260729120000_external_artist_profile_interest.sql` 을 프로덕션 Supabase 에 적용하다가 SECTION 2 의 partial unique index 생성이 다음 오류로 실패:
+
+```
+ERROR:  42P17: functions in index expression must be marked IMMUTABLE
+```
+
+원인: `date_trunc('week', timestamptz)` 는 세션 timezone 에 의존하므로 STABLE 이라 index expression 으로 쓸 수 없음. `date_trunc(text, timestamp without time zone)` 오버로드는 IMMUTABLE.
+
+### 수정
+`(date_trunc('week', created_at))` → `(date_trunc('week', (created_at at time zone 'UTC')))` 로 SECTION 2(unique index)와 SECTION 4(`ON CONFLICT` arbiter)에서 동일하게 UTC 로 캐스팅 → IMMUTABLE 오버로드 강제. 이 변환은 UTC 기준 주(week) 단위 dedupe 를 유지하므로 시맨틱은 원본과 동일. 프로덕션에는 수정본으로 이미 적용 완료(위 마이그레이션 파일에 그대로 반영).
+
+### Verify
+- 프로덕션 `pg_indexes` 에서 `uq_eapie_passive_viewer_per_week` 확인됨.
+- 다른 환경에서 마이그레이션 replay 시 파일에 픽스가 이미 들어가 있으므로 그대로 통과.
+
+---
+
 ## 2026-07-29 — 전시 상세 그룹전 어트리뷰션 명확화 + host/curator/작가 크레딧 링크화 + 미가입 작가 관심 이메일 넛지 ⚠️ SQL 수동 적용 필요
 
 ### 배경 (QA 확인 사항)

@@ -59,8 +59,12 @@ create index if not exists idx_eapie_ext on public.external_artist_profile_inter
 
 -- passive 신호는 (artist, viewer) 당 주(week) 1회로 dedupe — 같은 뷰어가
 -- 같은 섹션을 여러 번 봐도 카운트가 부풀지 않게 한다.
+-- IMMUTABLE-safe: date_trunc('week', timestamptz) 는 세션 timezone 에
+-- 의존하므로 STABLE 이라 인덱스 표현식으로 못 쓴다. `at time zone 'UTC'`
+-- 로 timestamp(without tz) 로 변환하면 date_trunc(text, timestamp) 오버로드가
+-- 골라져 IMMUTABLE 이 되어 index 표현식으로 안전.
 create unique index if not exists uq_eapie_passive_viewer_per_week
-  on public.external_artist_profile_interest_events(external_artist_id, viewer_user_id, (date_trunc('week', created_at)))
+  on public.external_artist_profile_interest_events(external_artist_id, viewer_user_id, (date_trunc('week', (created_at at time zone 'UTC'))))
   where trigger_kind = 'passive' and viewer_user_id is not null;
 
 alter table public.external_artist_profile_interest_events enable row level security;
@@ -131,7 +135,7 @@ begin
     ) values (
       p_external_artist_id, v_uid, p_trigger_kind, coalesce(p_context, '{}'::jsonb)
     )
-    on conflict (external_artist_id, viewer_user_id, (date_trunc('week', created_at)))
+    on conflict (external_artist_id, viewer_user_id, (date_trunc('week', (created_at at time zone 'UTC'))))
       where trigger_kind = 'passive' and viewer_user_id is not null
       do nothing;
   exception when others then
