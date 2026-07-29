@@ -2,6 +2,39 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — 🚨 Feed 500 hotfix (external_artists SELECT + main_role btrim) ✅ SQL 자동 적용됨
+
+### 증상 (QA)
+> 피드가 "피드를 불러오지 못했어요." 로 실패. 사이드바·헤더는 정상 렌더.
+
+### Postgres 로그에서 확인된 2건 (오늘 15:14 UTC 이후 반복)
+1. `permission denied for table external_artists` — 피드의 `claims(external_artists(display_name, display_name_ko, display_name_en))` nested join 이 SELECT 거부됨.
+2. `function btrim(main_role) does not exist` — `get_my_auth_state()` 의 `btrim(p.main_role)` 이 enum → text 암시 캐스트 실패. `p.main_role IS NULL` branch 는 short-circuit 통과하지만 non-null (=대부분 온보딩 완료 유저) 시 500.
+
+### Root cause
+1. `20260627000000_external_artist_public_credit.sql` 이 PII 보호 목적으로 `external_artists` 의 테이블 SELECT 를 revoke 하고 컬럼 allowlist 로 재부여. 이후 추가된 `display_name_ko` / `display_name_en` 은 그 allowlist 에 포함되지 않아 nested join 이 permission denied.
+2. `20260421120000_identity_completeness.sql` 의 `get_my_auth_state()` 이 처음부터 `btrim(p.main_role)` 를 호출. Postgres 15 이후 enum → text 암시 캐스트가 없어져서 non-null 유저에게 함수 해결 실패.
+
+### 수정 (마이그레이션 `20260729080000_bilingual_external_artists_grant_and_btrim_fix.sql`)
+- SECTION 1: `grant select (display_name_ko), (display_name_en) on public.external_artists to anon, authenticated`. `invite_email` PII 는 여전히 SELECT 제외.
+- SECTION 2: `get_my_auth_state()` 를 additive replace — `btrim(p.main_role::text) = ''` 로 명시 cast. 나머지 시그니처·로직·grant 그대로.
+
+### Verify (2026-07-29)
+- 컬럼 grant: `display_name_ko` / `display_name_en` × `anon` + `authenticated` × SELECT 확인.
+- 피드 join shape: 서비스 role 로 sample 3행 조회 → `external_artists.display_name_ko/en` 정상 반환.
+- RPC: `select public.get_my_auth_state()` 컴파일·실행 정상.
+- **SQL 자동 적용됨** (MCP `apply_migration`, version `20260729080000`). 수동 실행 필요 없음.
+
+### 남은 invariants
+- 향후 `external_artists` 에 새 컬럼 추가 시 반드시 컬럼별 grant 도 함께. `p0_external_artists.sql` / `20260627000000_external_artist_public_credit.sql` 패턴 참고.
+- `main_role` enum 을 문자열 함수(`btrim`, `lower`, `length` 등)에 넣을 때는 반드시 `::text` cast.
+- 다른 테이블 (`profiles`, `artworks`, `projects`) 은 테이블 레벨 SELECT 이므로 새 컬럼 자동 노출 — 별도 grant 불필요.
+
+### 환경 변수
+없음.
+
+---
+
 ## 2026-07-29 — 이중언어 채택 UX (기존 유저 대상 4-계층 유도) ✅ SQL 자동 적용됨
 
 ### 배경
