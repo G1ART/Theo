@@ -34,6 +34,8 @@ import { AttributionContextBanner } from "@/components/upload/AttributionContext
 import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
 import { parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
@@ -128,6 +130,20 @@ function UploadPageContent() {
     !!preselectedExternalName && !preselectedArtistId
   );
   const [externalArtistName, setExternalArtistName] = useState(preselectedExternalName ?? "");
+  /**
+   * QA 2026-07-28 — external_artists KO/EN 슬롯 (240005 SECTION 2/3).
+   * 큐레이터/기획자가 두 언어를 모두 남기면 온보딩 시 profile.display_name_ko/en
+   * 으로도 상속된다 (240005 SECTION 5). URL query 는 legacy `externalName`
+   * 하나만 실어 나르므로 primary 언어 슬롯에 seed 하고, 사용자가 필요하면
+   * 다른 언어를 추가한다.
+   */
+  const preselectedIsHangul = /[가-힯]/.test(preselectedExternalName ?? "");
+  const [externalArtistNameKo, setExternalArtistNameKo] = useState(
+    preselectedIsHangul ? preselectedExternalName ?? "" : "",
+  );
+  const [externalArtistNameEn, setExternalArtistNameEn] = useState(
+    preselectedIsHangul ? "" : preselectedExternalName ?? "",
+  );
   const [externalArtistEmail, setExternalArtistEmail] = useState(preselectedExternalEmail ?? "");
   // Soft-required email (2026-07-01): default we ask for the artist's email so
   // they auto-link their works on signup. The owner can opt out explicitly
@@ -156,8 +172,18 @@ function UploadPageContent() {
   };
   const [images, setImages] = useState<PendingImage[]>([]);
   const [title, setTitle] = useState("");
+  /**
+   * QA 2026-07-28 — 이중언어 title/medium/story 슬롯. 두 언어를 나란히
+   * 쓰고 싶은 작가는 두 슬롯을 모두 채운다. legacy 컬럼 (`title`, `medium`,
+   * `story`) 은 240004 트리거가 KO 우선으로 sync 하지만, 여기서는 클라이언트
+   * 완결성을 위해 pickLegacyForSave 로 함께 보낸다.
+   */
+  const [titleKo, setTitleKo] = useState("");
+  const [titleEn, setTitleEn] = useState("");
   const [year, setYear] = useState("");
   const [medium, setMedium] = useState("");
+  const [mediumKo, setMediumKo] = useState("");
+  const [mediumEn, setMediumEn] = useState("");
   const [size, setSize] = useState("");
   // Explicit unit the artist declares for the dimensions (source of truth
   // for the size_unit column). Defaults by locale; auto-syncs when the
@@ -167,6 +193,8 @@ function UploadPageContent() {
   const [hosuType, setHosuType] = useState<"F" | "P" | "M" | "S" | "">("");
   const [hosuWarning, setHosuWarning] = useState<string | null>(null);
   const [story, setStory] = useState("");
+  const [storyKo, setStoryKo] = useState("");
+  const [storyEn, setStoryEn] = useState("");
   const [ownershipStatus, setOwnershipStatus] = useState("available");
   const [pricingMode, setPricingMode] = useState<"fixed" | "inquire">("fixed");
   const [priceCurrency, setPriceCurrency] = useState("USD");
@@ -362,13 +390,30 @@ function UploadPageContent() {
 
     const sizeTrimmed = size.trim();
     const isExternal = needsAttribution(intent) && useExternalArtist;
+    // QA 2026-07-28 bilingual — legacy 슬롯은 KO 우선. 240004 트리거가 서버
+    // 측에서도 KO 우선 sync 하므로 클라이언트 값과 트리거 결과가 일치한다.
+    const legacyTitle =
+      pickLegacyForSave(titleKo || null, titleEn || null) ?? title.trim() ?? "";
+    const legacyMedium =
+      pickLegacyForSave(mediumKo || null, mediumEn || null) ??
+      medium.trim() ??
+      "";
+    const legacyStory =
+      pickLegacyForSave(storyKo || null, storyEn || null) ??
+      (story.trim() || null);
     const payload: CreateArtworkPayload = {
-      title: title.trim(),
+      title: legacyTitle || title.trim(),
+      title_ko: titleKo.trim() || null,
+      title_en: titleEn.trim() || null,
       year: yearNum,
-      medium: medium.trim(),
+      medium: legacyMedium || medium.trim(),
+      medium_ko: mediumKo.trim() || null,
+      medium_en: mediumEn.trim() || null,
       size: sizeTrimmed,
       size_unit: sizeTrimmed ? sizeUnit : null,
-      story: story.trim() || null,
+      story: legacyStory || story.trim() || null,
+      story_ko: storyKo.trim() || null,
+      story_en: storyEn.trim() || null,
       ownership_status: ownershipStatus,
       pricing_mode: pricingMode,
       is_price_public: pricingMode === "fixed" ? isPricePublic : false,
@@ -406,6 +451,11 @@ function UploadPageContent() {
       if (isExternal) {
         const { error: claimErr } = await createExternalArtistAndClaim({
           displayName: externalArtistName.trim(),
+          // QA 2026-07-28 bilingual (240005 SECTION 2/3) — 큐레이터가 남긴
+          // KO/EN 이름을 external_artists 에 함께 저장. 온보딩 시 새 프로필로
+          // 자동 상속 (240005 SECTION 5). 두 슬롯이 비어 있으면 legacy 만.
+          displayNameKo: externalArtistNameKo.trim() || null,
+          displayNameEn: externalArtistNameEn.trim() || null,
           inviteEmail: externalArtistEmail.trim() || null,
           claimType,
           workId: artworkId,
@@ -659,6 +709,8 @@ function UploadPageContent() {
                     setArtistResults([]);
                   } else {
                     setExternalArtistName("");
+                    setExternalArtistNameKo("");
+                    setExternalArtistNameEn("");
                     setExternalArtistEmail("");
                   }
                 }}
@@ -682,6 +734,8 @@ function UploadPageContent() {
                         setPreselectedExternalArtistId(null);
                         setReselectedExternalMeta(null);
                         setExternalArtistName("");
+                        setExternalArtistNameKo("");
+                        setExternalArtistNameEn("");
                         setExternalArtistEmail("");
                         setUseExternalArtist(false);
                       }}
@@ -691,18 +745,45 @@ function UploadPageContent() {
                     </button>
                   </div>
                 )}
-                <input
-                  type="text"
-                  value={externalArtistName}
-                  onChange={(e) => {
-                    setExternalArtistName(e.target.value);
+                {/*
+                  QA 2026-07-28 — 외부 작가 이름 이중언어. 큐레이터가 두
+                  언어를 나란히 남기면 (240005 SECTION 2/3) external_artists
+                  행에 KO/EN 이 저장되고, 온보딩 시 새 profile.display_name_ko/en
+                  으로도 상속된다 (240005 SECTION 5). BilingualFieldPair 가
+                  primary/secondary 슬롯을 함께 관리하고 legacy
+                  `externalArtistName` 슬롯은 KO 우선으로 sync 한다.
+                */}
+                <BilingualFieldPair
+                  hint={t("bilingual.hintName")}
+                  label={null}
+                  addKoKey="bilingual.addKoName"
+                  addEnKey="bilingual.addEnName"
+                  placeholderKo={t("upload.externalArtistNamePlaceholder")}
+                  placeholderEn={t("upload.externalArtistNamePlaceholder")}
+                  valueKo={externalArtistNameKo}
+                  valueEn={externalArtistNameEn}
+                  onChangeKo={(v) => {
+                    setExternalArtistNameKo(v);
+                    const legacy =
+                      pickLegacyForSave(v || null, externalArtistNameEn || null) ??
+                      "";
+                    setExternalArtistName(legacy);
                     if (preselectedExternalArtistId) {
                       setPreselectedExternalArtistId(null);
                       setReselectedExternalMeta(null);
                     }
                   }}
-                  placeholder={t("upload.externalArtistNamePlaceholder")}
-                  className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                  onChangeEn={(v) => {
+                    setExternalArtistNameEn(v);
+                    const legacy =
+                      pickLegacyForSave(externalArtistNameKo || null, v || null) ??
+                      "";
+                    setExternalArtistName(legacy);
+                    if (preselectedExternalArtistId) {
+                      setPreselectedExternalArtistId(null);
+                      setReselectedExternalMeta(null);
+                    }
+                  }}
                 />
                 <input
                   type="email"
@@ -1135,17 +1216,24 @@ function UploadPageContent() {
                 </ul>
               )}
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelTitle")}</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-                placeholder={t("upload.placeholderTitle")}
-                className="w-full rounded border border-zinc-300 px-3 py-2"
-              />
-            </div>
+            <BilingualFieldPair
+              label={t("upload.labelTitle")}
+              hint={t("bilingual.hintTitle")}
+              addKoKey="bilingual.addKoTitle"
+              addEnKey="bilingual.addEnTitle"
+              placeholderKo={t("upload.placeholderTitle")}
+              placeholderEn={t("upload.placeholderTitle")}
+              valueKo={titleKo}
+              valueEn={titleEn}
+              onChangeKo={(v) => {
+                setTitleKo(v);
+                if (locale === "ko") setTitle(v);
+              }}
+              onChangeEn={(v) => {
+                setTitleEn(v);
+                if (locale !== "ko") setTitle(v);
+              }}
+            />
             <div>
               <label className="mb-1 block text-sm font-medium">{t("upload.labelYear")}</label>
               <input
@@ -1160,20 +1248,31 @@ function UploadPageContent() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelMedium")}</label>
               {/* QA 2026-06-26 (#4) — datalist of canonical mediums
                   so the user gets one-click pick from the taxonomy
                   the rest of the app already knows about (filters,
                   AI categorisation, etc.), while still allowing
-                  free-form text for niche or hybrid materials. */}
-              <input
-                type="text"
-                value={medium}
-                onChange={(e) => setMedium(e.target.value)}
-                required
-                placeholder={t("upload.placeholderMedium")}
-                list="upload-medium-suggestions"
-                className="w-full rounded border border-zinc-300 px-3 py-2"
+                  free-form text for niche or hybrid materials.
+                  QA 2026-07-28 — 이중언어 (KO/EN) 슬롯이 열려도 datalist
+                  suggestions 는 primary 슬롯에만 붙는다. BilingualFieldPair
+                  의 primary input 에는 datalist 를 직접 붙일 수 없으므로
+                  약간 더 넓게 캡슐화한다. */}
+              <BilingualFieldPair
+                label={t("upload.labelMedium")}
+                addKoKey="bilingual.addKoMedium"
+                addEnKey="bilingual.addEnMedium"
+                placeholderKo={t("upload.placeholderMedium")}
+                placeholderEn={t("upload.placeholderMedium")}
+                valueKo={mediumKo}
+                valueEn={mediumEn}
+                onChangeKo={(v) => {
+                  setMediumKo(v);
+                  if (locale === "ko") setMedium(v);
+                }}
+                onChangeEn={(v) => {
+                  setMediumEn(v);
+                  if (locale !== "ko") setMedium(v);
+                }}
               />
               <datalist id="upload-medium-suggestions">
                 {TAXONOMY.mediumOptions.map((opt) => (
@@ -1273,17 +1372,28 @@ function UploadPageContent() {
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelStory")}</label>
-              <textarea
-                value={story}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setStory(next.length > 2000 ? next.slice(0, 2000) : next);
+              <BilingualFieldPair
+                label={t("upload.labelStory")}
+                hint={t("bilingual.hintProse")}
+                addKoKey="bilingual.addKoStory"
+                addEnKey="bilingual.addEnStory"
+                placeholderKo={t("artwork.field.storyPlaceholder")}
+                placeholderEn={t("artwork.field.storyPlaceholder")}
+                valueKo={storyKo}
+                valueEn={storyEn}
+                onChangeKo={(v) => {
+                  const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
+                  setStoryKo(trimmed);
+                  if (locale === "ko") setStory(trimmed);
                 }}
-                placeholder={t("artwork.field.storyPlaceholder")}
+                onChangeEn={(v) => {
+                  const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
+                  setStoryEn(trimmed);
+                  if (locale !== "ko") setStory(trimmed);
+                }}
+                as="textarea"
                 rows={4}
                 maxLength={2000}
-                className="w-full rounded border border-zinc-300 px-3 py-2"
               />
               <p className="mt-1 text-right text-xs text-zinc-500">
                 {t("artwork.story.charCount").replace("{count}", String(story.length))}

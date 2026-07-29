@@ -35,6 +35,10 @@ export async function createExternalArtistAndClaim(
   // has re-selected an already-invited artist. Server-side migration
   // 20260727000000 accepts and validates this id, skipping dedupe.
   if (args.externalArtistId) payload.p_external_artist_id = args.externalArtistId;
+  // QA 2026-07-28 (bilingual, 240005) — forward KO/EN slots. RPC accepts
+  // nullable params; existing callers unaffected.
+  if (args.displayNameKo != null) payload.p_display_name_ko = args.displayNameKo;
+  if (args.displayNameEn != null) payload.p_display_name_en = args.displayNameEn;
   const { data, error } = await supabase.rpc("create_external_artist_and_claim", payload);
   if (error) return { data: null, error };
   return { data: data as CreateExternalArtistAndClaimResult, error: null };
@@ -62,7 +66,13 @@ export async function createClaimForExistingArtist(
 }
 
 export async function createExternalArtist(
-  args: { displayName: string; inviteEmail?: string | null }
+  args: {
+    displayName: string;
+    inviteEmail?: string | null;
+    /** QA 2026-07-28 bilingual — KO/EN slots (240005 SECTION 2). */
+    displayNameKo?: string | null;
+    displayNameEn?: string | null;
+  }
 ): Promise<{ data: string | null; error: unknown }> {
   const {
     data: { session },
@@ -72,10 +82,16 @@ export async function createExternalArtist(
   // existing external_artists row for the same (inviter, email|name) instead of
   // minting a fresh random-id row per edit (QA 2026-07-01). The partial unique
   // indexes make this race-safe; the RPC swallows unique_violation and re-reads.
-  const { data, error } = await supabase.rpc("get_or_create_external_artist", {
+  const rpcPayload: Record<string, unknown> = {
     p_display_name: args.displayName.trim(),
     p_invite_email: args.inviteEmail?.trim() || null,
-  });
+  };
+  if (args.displayNameKo != null) rpcPayload.p_display_name_ko = args.displayNameKo;
+  if (args.displayNameEn != null) rpcPayload.p_display_name_en = args.displayNameEn;
+  const { data, error } = await supabase.rpc(
+    "get_or_create_external_artist",
+    rpcPayload,
+  );
   if (error) return { data: null, error };
   return { data: (data as string | null) ?? null, error: null };
 }

@@ -27,6 +27,8 @@ import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { useT } from "@/lib/i18n/useT";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import {
   addWorkToExhibition,
@@ -162,6 +164,18 @@ export default function BulkUploadPage() {
   const [searching, setSearching] = useState(false);
   const [useExternalArtist, setUseExternalArtist] = useState(!!(fromExhibition && preselectedExternalName));
   const [externalArtistName, setExternalArtistName] = useState(preselectedExternalName ?? "");
+  /**
+   * QA 2026-07-28 — external_artists KO/EN 슬롯 (240005 SECTION 2/3).
+   * URL query 는 legacy `externalName` 하나만 전달하므로 hangul 여부로
+   * primary 슬롯을 seed. 두 언어 슬롯은 저장 시 함께 RPC 로 전달.
+   */
+  const preselectedExternalIsHangul = /[가-힯]/.test(preselectedExternalName ?? "");
+  const [externalArtistNameKo, setExternalArtistNameKo] = useState(
+    preselectedExternalIsHangul ? preselectedExternalName ?? "" : "",
+  );
+  const [externalArtistNameEn, setExternalArtistNameEn] = useState(
+    preselectedExternalIsHangul ? "" : preselectedExternalName ?? "",
+  );
   const [externalArtistEmail, setExternalArtistEmail] = useState(preselectedExternalEmail ?? "");
   /**
    * Phase 3 (QA 2026-07): id of the invited external artist that the
@@ -740,6 +754,15 @@ export default function BulkUploadPage() {
           intent,
           artistProfileId: selectedArtist?.id ?? null,
           externalArtistDisplayName: useExternalArtist ? externalArtistName.trim() : null,
+          // QA 2026-07-28 (240005) — forward KO/EN slots so the RPC persists
+          // the bilingual pair on the external_artists row and the signup
+          // trigger inherits them into the new profile.
+          externalArtistDisplayNameKo: useExternalArtist
+            ? externalArtistNameKo.trim() || null
+            : null,
+          externalArtistDisplayNameEn: useExternalArtist
+            ? externalArtistNameEn.trim() || null
+            : null,
           externalArtistEmail: useExternalArtist ? externalArtistEmail.trim() || null : null,
           // Phase 3-4 (QA 2026-07): when the operator re-selected an
           // already-invited external artist from unified search, pass the
@@ -1074,6 +1097,8 @@ export default function BulkUploadPage() {
                           setPreselectedExternalArtistId(null);
                           setReselectedExternalMeta(null);
                           setExternalArtistName("");
+                          setExternalArtistNameKo("");
+                          setExternalArtistNameEn("");
                           setExternalArtistEmail("");
                         }}
                         className="shrink-0 whitespace-nowrap text-[11px] font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-900"
@@ -1083,22 +1108,47 @@ export default function BulkUploadPage() {
                     </div>
                   </div>
                 )}
-                <input
-                  type="text"
-                  value={externalArtistName}
-                  onChange={(e) => {
-                    setExternalArtistName(e.target.value);
-                    // Manual edits invalidate the re-selection: the user is
-                    // fixing a typo or renaming, so we must fall back to
-                    // dedupe-by-name (which may still match the same row).
-                    if (preselectedExternalArtistId) {
-                      setPreselectedExternalArtistId(null);
-                      setReselectedExternalMeta(null);
-                    }
-                  }}
-                  placeholder={t("upload.externalArtistNamePlaceholder")}
-                  className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm"
-                />
+                {/*
+                  QA 2026-07-28 — external_artists KO/EN 이중언어 (240005
+                  SECTION 2/3). BilingualFieldPair 가 primary/secondary 슬롯을
+                  관리하고 legacy `externalArtistName` 은 KO 우선으로 sync.
+                  Publish 시 KO/EN 이 함께 RPC 로 전달되어 새 external_artists
+                  행에 저장된다.
+                */}
+                <div className="max-w-md">
+                  <BilingualFieldPair
+                    label={null}
+                    hint={t("bilingual.hintName")}
+                    addKoKey="bilingual.addKoName"
+                    addEnKey="bilingual.addEnName"
+                    placeholderKo={t("upload.externalArtistNamePlaceholder")}
+                    placeholderEn={t("upload.externalArtistNamePlaceholder")}
+                    valueKo={externalArtistNameKo}
+                    valueEn={externalArtistNameEn}
+                    onChangeKo={(v) => {
+                      setExternalArtistNameKo(v);
+                      const legacy =
+                        pickLegacyForSave(v || null, externalArtistNameEn || null) ??
+                        "";
+                      setExternalArtistName(legacy);
+                      if (preselectedExternalArtistId) {
+                        setPreselectedExternalArtistId(null);
+                        setReselectedExternalMeta(null);
+                      }
+                    }}
+                    onChangeEn={(v) => {
+                      setExternalArtistNameEn(v);
+                      const legacy =
+                        pickLegacyForSave(externalArtistNameKo || null, v || null) ??
+                        "";
+                      setExternalArtistName(legacy);
+                      if (preselectedExternalArtistId) {
+                        setPreselectedExternalArtistId(null);
+                        setReselectedExternalMeta(null);
+                      }
+                    }}
+                  />
+                </div>
                 <input
                   type="email"
                   value={externalArtistEmail}

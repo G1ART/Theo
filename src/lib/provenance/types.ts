@@ -66,6 +66,14 @@ export type Claim = {
 
 export type CreateExternalArtistAndClaimArgs = {
   displayName: string;
+  /**
+   * QA 2026-07-28 (bilingual, 240005 SECTION 2/3) — optional KO/EN slots for
+   * external_artists. When provided, the row is persisted with the bilingual
+   * pair and (once the invited artist signs up) the 240005 SECTION 5 trigger
+   * inherits them into `profiles.display_name_ko / _en`.
+   */
+  displayNameKo?: string | null;
+  displayNameEn?: string | null;
   website?: string | null;
   instagram?: string | null;
   inviteEmail?: string | null;

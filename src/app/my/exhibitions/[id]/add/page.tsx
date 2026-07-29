@@ -19,7 +19,6 @@ import {
   type ArtworkWithLikes,
 } from "@/lib/supabase/artworks";
 import { getMyProfile } from "@/lib/supabase/me";
-import { supabase as supabaseClient } from "@/lib/supabase/client";
 import { searchPeople } from "@/lib/supabase/artists";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
@@ -335,6 +334,13 @@ export default function AddWorkToExhibitionPage() {
 
       const { data: extData, error: extErr } = await createExternalArtistAndClaim({
         displayName: nameForLegacy,
+        // QA 2026-07-28 (240005 SECTION 2/3): pass KO/EN natively; the RPC
+        // now backfills external_artists.display_name_ko/en itself and the
+        // signup trigger (240005 SECTION 5) inherits them into new profiles.
+        // The previous post-RPC client UPDATE workaround is retired — clients
+        // no longer need write access to external_artists.
+        displayNameKo: ko || null,
+        displayNameEn: en || null,
         inviteEmail: emailTrimmed || null,
         claimType: "CURATED",
         workId: null,
@@ -365,20 +371,6 @@ export default function AddWorkToExhibitionPage() {
       }
       const returnedExtId = extData?.external_artist?.id as string | undefined;
       const returnedClaimId = extData?.claim?.id as string | undefined;
-
-      // Backfill bilingual columns on the reused/new external_artists row.
-      if (returnedExtId && (ko || en)) {
-        const { error: upErr } = await supabaseClient
-          .from("external_artists")
-          .update({
-            display_name_ko: ko || null,
-            display_name_en: en || null,
-          })
-          .eq("id", returnedExtId);
-        if (upErr) {
-          logSupabaseError("persistExternalRow.updateBilingual", upErr);
-        }
-      }
 
       // Detect "duplicate absorbed": if the returned claim id already
       // lives on a *different* row (typically a hydrated sibling), mark

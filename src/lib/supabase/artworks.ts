@@ -1742,6 +1742,15 @@ export type PublishWithProvenanceOptions = {
   intent: "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
   artistProfileId?: string | null;
   externalArtistDisplayName?: string | null;
+  /**
+   * QA 2026-07-28 (bilingual, 240005 SECTION 2/3) — optional KO/EN slots
+   * forwarded to `create_external_artist_and_claim`. When set, the RPC
+   * persists the bilingual pair on the external_artists row and (once the
+   * invited artist signs up) the 240005 SECTION 5 signup trigger inherits
+   * them into `profiles.display_name_ko/en`.
+   */
+  externalArtistDisplayNameKo?: string | null;
+  externalArtistDisplayNameEn?: string | null;
   externalArtistEmail?: string | null;
   /**
    * QA 2026-07 Phase 3-4: when the operator re-selected an already-
@@ -1832,6 +1841,9 @@ export async function publishArtworksWithProvenance(
     } else if (opts.externalArtistDisplayName) {
       const { error } = await createExternalArtistAndClaim({
         displayName: opts.externalArtistDisplayName,
+        // QA 2026-07-28 (240005) — bilingual pair forwarded.
+        displayNameKo: opts.externalArtistDisplayNameKo ?? null,
+        displayNameEn: opts.externalArtistDisplayNameEn ?? null,
         inviteEmail: opts.externalArtistEmail ?? null,
         claimType: opts.intent,
         workId: id,

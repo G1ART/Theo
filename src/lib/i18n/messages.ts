@@ -3016,6 +3016,52 @@ export const messages = {
     "ai.exhibition.assistCrashed":
       "The writing assistant hit an unexpected error. Please try again.",
     "ai.exhibition.retryAssist": "Try again",
+
+    // QA 2026-07-28 — KO/EN 병기 입력 (bilingual authoring)
+    // Author owns the name — 어느 언어도 자동 번역/음역되지 않는다.
+    // "다른 언어 추가" chip 이 붙는 곳: 이름/제목/짧은 텍스트, 서술형 텍스트.
+    "bilingual.addKoName": "+ Add Korean name",
+    "bilingual.addEnName": "+ Add English name",
+    "bilingual.addKoTitle": "+ Add Korean title",
+    "bilingual.addEnTitle": "+ Add English title",
+    "bilingual.addKoBio": "+ Add Korean bio",
+    "bilingual.addEnBio": "+ Add English bio",
+    "bilingual.addKoStatement": "+ Add Korean statement",
+    "bilingual.addEnStatement": "+ Add English statement",
+    "bilingual.addKoMedium": "+ Add Korean medium",
+    "bilingual.addEnMedium": "+ Add English medium",
+    "bilingual.addKoStory": "+ Add Korean story",
+    "bilingual.addEnStory": "+ Add English story",
+    "bilingual.addKoHost": "+ Add Korean host name",
+    "bilingual.addEnHost": "+ Add English host name",
+    "bilingual.removeSecondary": "Remove",
+    "bilingual.hintName":
+      "The name people call you. Add the other language only if you use it publicly.",
+    "bilingual.hintTitle":
+      "Add the other language only if you want to show it alongside.",
+    "bilingual.hintProse":
+      "Add the other language only if you'd like to keep both versions.",
+
+    // AI draft assistance for translation (Track C).
+    "bilingual.aiDraft": "AI draft",
+    "bilingual.aiDraftPending": "Drafting…",
+    "bilingual.aiDraftFailed":
+      "Couldn't draft a translation. Please try again or write it yourself.",
+    "bilingual.aiDraftHint":
+      "AI writes a first draft in the other language — you review and edit before saving.",
+    "bilingual.aiDraftDisabled": "Fill in the source text first.",
+
+    // Romanization hint chip for display_name (KO → Latin only).
+    "bilingual.romanizeChip": "Start with {romanized}?",
+    "bilingual.romanizeHint":
+      "A romanized seed — you can edit it before saving. Never used silently.",
+
+    // Onboarding inherit — curator-entered KO/EN pair.
+    "bilingual.inheritConfirmTitle": "How you were introduced",
+    "bilingual.inheritConfirmBody":
+      "A curator registered you as [KO] {ko} / [EN] {en}. Use this on your profile?",
+    "bilingual.inheritConfirmUse": "Use as-is",
+    "bilingual.inheritConfirmEdit": "Edit",
   },
   ko: {
     "nav.feed": "피드",
@@ -6018,6 +6064,52 @@ export const messages = {
     "ai.exhibition.assistCrashed":
       "문안 도우미에서 예기치 못한 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
     "ai.exhibition.retryAssist": "다시 시도",
+
+    // QA 2026-07-28 — KO/EN 병기 입력
+    // 두 언어 슬롯은 어느 쪽도 자동 번역/음역되지 않는다. 작가가 직접 부르는
+    // 이름/제목/문안이 두 언어에서 다르면 각각 채운다.
+    "bilingual.addKoName": "+ 한국어 이름 추가",
+    "bilingual.addEnName": "+ 영어 활동명 추가",
+    "bilingual.addKoTitle": "+ 한국어 제목 추가",
+    "bilingual.addEnTitle": "+ 영어 제목 추가",
+    "bilingual.addKoBio": "+ 한국어 소개 추가",
+    "bilingual.addEnBio": "+ 영어 소개 추가",
+    "bilingual.addKoStatement": "+ 한국어 작가의 말 추가",
+    "bilingual.addEnStatement": "+ 영어 작가의 말 추가",
+    "bilingual.addKoMedium": "+ 한국어 매체 추가",
+    "bilingual.addEnMedium": "+ 영어 매체 추가",
+    "bilingual.addKoStory": "+ 한국어 이야기 추가",
+    "bilingual.addEnStory": "+ 영어 이야기 추가",
+    "bilingual.addKoHost": "+ 한국어 주최명 추가",
+    "bilingual.addEnHost": "+ 영어 주최명 추가",
+    "bilingual.removeSecondary": "지우기",
+    "bilingual.hintName":
+      "다른 사람이 실제로 부르는 이름이에요. 영어권에서 다르게 쓰이는 이름이 있을 때만 다른 언어를 추가하세요.",
+    "bilingual.hintTitle":
+      "두 언어를 나란히 보이고 싶을 때만 추가하세요.",
+    "bilingual.hintProse":
+      "같은 내용을 다른 언어로도 남기고 싶을 때만 채우면 돼요.",
+
+    // AI 초안 (Track C).
+    "bilingual.aiDraft": "AI 초안",
+    "bilingual.aiDraftPending": "초안 작성 중…",
+    "bilingual.aiDraftFailed":
+      "초안을 만들지 못했어요. 잠시 후 다시 시도하거나 직접 입력해 주세요.",
+    "bilingual.aiDraftHint":
+      "AI 가 다른 언어로 첫 초안을 만들어 드려요. 저장 전에 자유롭게 다듬을 수 있어요.",
+    "bilingual.aiDraftDisabled": "먼저 원문을 채워 주세요.",
+
+    // Display name 로마자 힌트 (KO → Latin, 편집 가능한 seed).
+    "bilingual.romanizeChip": "{romanized} 로 시작할까요?",
+    "bilingual.romanizeHint":
+      "제안된 로마자 표기는 힌트일 뿐이에요. 저장 전에 원하는 대로 수정하세요.",
+
+    // 온보딩 상속 — 큐레이터가 남긴 KO/EN 이름 상속 확인.
+    "bilingual.inheritConfirmTitle": "이렇게 소개되어 있어요",
+    "bilingual.inheritConfirmBody":
+      "큐레이터가 이 작가님을 [KO] {ko} / [EN] {en} 로 등록했어요. 이대로 프로필에 반영할까요?",
+    "bilingual.inheritConfirmUse": "이대로 사용",
+    "bilingual.inheritConfirmEdit": "편집",
   },
 } as const;
 

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
-import { pickLegacyTitleForSave } from "@/lib/i18n/pickLocalized";
+import { pickLegacyTitleForSave, pickLegacyForSave } from "@/lib/i18n/pickLocalized";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { createExhibition } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
@@ -101,7 +102,16 @@ export function NewExhibitionFormShell({
   const [curatorResults, setCuratorResults] = useState<ProfileOption[]>([]);
   const [curatorSelected, setCuratorSelected] = useState<ProfileOption | null>(null);
   const [curatorSearching, setCuratorSearching] = useState(false);
+  /**
+   * QA 2026-07-28 — 주최명 KO/EN 이중언어 (240002 컬럼). 정의된 profile 을
+   * 링크하는 경우엔 legacy hostName 필드로 텍스트를 남기지 않아도 되지만,
+   * 자유 텍스트 입력 시 두 언어를 나란히 보이고 싶을 수 있다. legacy
+   * `host_name` 은 240004 트리거가 KO 우선 sync 하며, 클라이언트에서는
+   * pickLegacyForSave 로 계산해서 함께 저장한다.
+   */
   const [hostName, setHostName] = useState("");
+  const [hostNameKo, setHostNameKo] = useState("");
+  const [hostNameEn, setHostNameEn] = useState("");
   const [hostProfileMode, setHostProfileMode] = useState<"text" | "me" | "search">("text");
   const [hostSearch, setHostSearch] = useState("");
   const [hostResults, setHostResults] = useState<ProfileOption[]>([]);
@@ -210,6 +220,10 @@ export function NewExhibitionFormShell({
         : hostProfileMode === "search"
           ? hostSelected?.id ?? null
           : null;
+    const legacyHost =
+      pickLegacyForSave(hostNameKo || null, hostNameEn || null) ??
+      hostName.trim() ??
+      null;
     const { data, error: err } = await createExhibition({
       title: legacyTitle,
       title_ko: titleKo.trim() || null,
@@ -220,7 +234,9 @@ export function NewExhibitionFormShell({
       end_date: endDate || null,
       status,
       curator_id: curatorId,
-      host_name: hostName.trim() || null,
+      host_name: legacyHost || hostName.trim() || null,
+      host_name_ko: hostNameKo.trim() || null,
+      host_name_en: hostNameEn.trim() || null,
       host_profile_id: hostProfileId,
     });
     setSubmitting(false);
@@ -504,16 +520,30 @@ export function NewExhibitionFormShell({
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-zinc-700">
-            {t("exhibition.hostVenue")}
-          </label>
-          <p className="mb-2 text-xs text-zinc-500">{t("exhibition.hostName")}</p>
-          <input
-            type="text"
-            value={hostName}
-            onChange={(e) => setHostName(e.target.value)}
-            placeholder={t("exhibition.hostName")}
-            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+          {/*
+            QA 2026-07-28 — 주최명 이중언어 (240002). 자유 텍스트 슬롯을 위해
+            BilingualFieldPair 사용. legacy `hostName` 은 KO 우선으로 자동
+            계산; 240004 트리거가 서버 측에서도 sync.
+          */}
+          <BilingualFieldPair
+            label={t("exhibition.hostVenue")}
+            hint={t("exhibition.hostName")}
+            addKoKey="bilingual.addKoHost"
+            addEnKey="bilingual.addEnHost"
+            placeholderKo={t("exhibition.hostName")}
+            placeholderEn={t("exhibition.hostName")}
+            valueKo={hostNameKo}
+            valueEn={hostNameEn}
+            onChangeKo={(v) => {
+              setHostNameKo(v);
+              const legacy = pickLegacyForSave(v || null, hostNameEn || null) ?? "";
+              setHostName(legacy);
+            }}
+            onChangeEn={(v) => {
+              setHostNameEn(v);
+              const legacy = pickLegacyForSave(hostNameKo || null, v || null) ?? "";
+              setHostName(legacy);
+            }}
           />
           <div className="mt-2 flex flex-wrap gap-3">
             <label className="flex items-center gap-2">

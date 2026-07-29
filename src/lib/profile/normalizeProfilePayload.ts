@@ -135,7 +135,15 @@ function normalizeEducationRow(
 /** Base profile payload (profiles table): display_name, bio, location, website, main_role, roles, is_public, education. */
 export type NormalizedBaseInput = {
   display_name?: string | null;
+  /** QA 2026-07-28 bilingual — optional; the 240004 trigger keeps the
+   *  legacy `display_name` in sync (KO wins on tie). Save-side callers
+   *  may still send the legacy field alongside for callers that expect
+   *  it (e.g. `pickLegacyDisplayNameForSave` upstream). */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   bio?: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   location?: string | null;
   website?: string | null;
   main_role?: string | null;
@@ -146,7 +154,11 @@ export type NormalizedBaseInput = {
 
 export type NormalizedBasePayload = {
   display_name: string | null;
+  display_name_ko: string | null;
+  display_name_en: string | null;
   bio: string | null;
+  bio_ko: string | null;
+  bio_en: string | null;
   location: string | null;
   website: string | null;
   main_role: string | null;
@@ -182,7 +194,11 @@ export function normalizeProfileBase(input: NormalizedBaseInput): NormalizedBase
 
   return {
     display_name: normalizeString(input.display_name),
+    display_name_ko: normalizeString(input.display_name_ko),
+    display_name_en: normalizeString(input.display_name_en),
     bio: normalizeBioString(input.bio),
+    bio_ko: normalizeBioString(input.bio_ko),
+    bio_en: normalizeBioString(input.bio_en),
     location: normalizeString(input.location),
     website: normalizeUrl(input.website),
     main_role,

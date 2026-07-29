@@ -6,7 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
-import { pickLegacyTitleForSave } from "@/lib/i18n/pickLocalized";
+import { pickLegacyTitleForSave, pickLegacyForSave } from "@/lib/i18n/pickLocalized";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { backToLabel } from "@/lib/i18n/back";
 import {
   deleteExhibitionKeepWorks,
@@ -84,6 +85,9 @@ export default function EditExhibitionPage() {
   const [curatorSelected, setCuratorSelected] = useState<ProfileOption | null>(null);
   const [curatorSearching, setCuratorSearching] = useState(false);
   const [hostName, setHostName] = useState("");
+  /** QA 2026-07-28 — 주최명 이중언어. 240004 트리거가 legacy 를 sync. */
+  const [hostNameKo, setHostNameKo] = useState("");
+  const [hostNameEn, setHostNameEn] = useState("");
   const [hostProfileMode, setHostProfileMode] = useState<"text" | "me" | "search">("text");
   const [hostSearch, setHostSearch] = useState("");
   const [hostResults, setHostResults] = useState<ProfileOption[]>([]);
@@ -164,6 +168,8 @@ export default function EditExhibitionPage() {
         setEndDate(data.end_date ?? "");
         setStatus((data.status as "planned" | "live" | "ended") || "planned");
         setHostName(data.host_name ?? "");
+        setHostNameKo(data.host_name_ko ?? "");
+        setHostNameEn(data.host_name_en ?? "");
         const effId = actingAsProfileId ?? myId;
         if (data.curator_id === effId) {
           setCuratorMe(true);
@@ -257,6 +263,11 @@ export default function EditExhibitionPage() {
         : hostProfileMode === "search"
           ? hostSelected?.id ?? null
           : null;
+    // QA 2026-07-28 — 주최명 KO/EN 함께 저장. legacy 는 KO 우선.
+    const legacyHost =
+      pickLegacyForSave(hostNameKo || null, hostNameEn || null) ??
+      hostName.trim() ??
+      null;
     const { error: err } = await updateExhibition(
       id,
       {
@@ -269,7 +280,9 @@ export default function EditExhibitionPage() {
         end_date: endDate || null,
         status,
         curator_id: curatorId,
-        host_name: hostName.trim() || null,
+        host_name: legacyHost || hostName.trim() || null,
+        host_name_ko: hostNameKo.trim() || null,
+        host_name_en: hostNameEn.trim() || null,
         host_profile_id: hostProfileId,
       },
       { actingSubjectProfileId: actingAsProfileId ?? null }
@@ -614,12 +627,26 @@ export default function EditExhibitionPage() {
                 {t("exhibition.hostVenue")}
               </label>
               <p className="mb-2 text-xs text-zinc-500">{t("exhibition.hostName")}</p>
-              <input
-                type="text"
-                value={hostName}
-                onChange={(e) => setHostName(e.target.value)}
-                placeholder={t("exhibition.hostName")}
-                className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+              <BilingualFieldPair
+                label={null}
+                addKoKey="bilingual.addKoHost"
+                addEnKey="bilingual.addEnHost"
+                placeholderKo={t("exhibition.hostName")}
+                placeholderEn={t("exhibition.hostName")}
+                valueKo={hostNameKo}
+                valueEn={hostNameEn}
+                onChangeKo={(v) => {
+                  setHostNameKo(v);
+                  setHostName(
+                    pickLegacyForSave(v || null, hostNameEn || null) ?? "",
+                  );
+                }}
+                onChangeEn={(v) => {
+                  setHostNameEn(v);
+                  setHostName(
+                    pickLegacyForSave(hostNameKo || null, v || null) ?? "",
+                  );
+                }}
               />
               <div className="mt-2 flex flex-wrap gap-3">
                 <label className="flex items-center gap-2">

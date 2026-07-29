@@ -34,6 +34,8 @@ import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import { UsernameField } from "@/components/onboarding/UsernameField";
 import { IdentityPreview } from "@/components/onboarding/IdentityPreview";
 import { SectionFrame, SectionTitle } from "@/components/ds";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { pickLegacyDisplayNameForSave } from "@/lib/i18n/pickLocalized";
 
 const MAIN_ROLES = ROLE_KEYS;
 const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
@@ -50,6 +52,18 @@ function IdentityInner() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
   const [displayName, setDisplayName] = useState("");
+  /**
+   * QA 2026-07-28 — 온보딩 이중언어. 큐레이터가 KO/EN 이름 쌍을 external_artists
+   * 에 남겨두었으면 signup 트리거 (240005 SECTION 5) 가 새 profile 의
+   * display_name_ko/en 로 상속한다. 여기서는 상속된 슬롯을 그대로 노출해
+   * "큐레이터가 이렇게 등록했어요 — 이대로 사용하시겠어요?" 확정 flow 로 잇는다.
+   * BilingualFieldPair 는 두 슬롯이 채워져 있으면 자동으로 secondary 를 펼친다.
+   */
+  const [displayNameKo, setDisplayNameKo] = useState("");
+  const [displayNameEn, setDisplayNameEn] = useState("");
+  /** Whether the profile arrived pre-seeded from a curator's external_artists
+   *  row. Used to render an "inherited from curator" hint above the input. */
+  const [inheritedFromCurator, setInheritedFromCurator] = useState(false);
   const [username, setUsername] = useState("");
   const [mainRole, setMainRole] = useState<string>("");
   const [roles, setRoles] = useState<string[]>([]);
@@ -131,6 +145,16 @@ function IdentityInner() {
         const u = (prof.username ?? "").trim().toLowerCase();
         setUsername(isPlaceholderUsername(u) ? "" : u);
         setDisplayName((prof.display_name ?? "").trim());
+        const rowKo = ((prof as { display_name_ko?: string | null }).display_name_ko ?? "").trim();
+        const rowEn = ((prof as { display_name_en?: string | null }).display_name_en ?? "").trim();
+        setDisplayNameKo(rowKo);
+        setDisplayNameEn(rowEn);
+        // QA 2026-07-28 — signup 트리거가 KO/EN 을 미리 채워두었으면
+        // (bilingual_rpc_240005 SECTION 5) "이렇게 소개되어 있어요" 배너를
+        // 띄운다. 최소 조건: legacy 값이 없거나 두 언어 중 하나라도 있으면.
+        if (rowKo || rowEn) {
+          setInheritedFromCurator(true);
+        }
         setMainRole((prof.main_role ?? "").trim());
         setRoles(
           Array.isArray(prof.roles)
@@ -145,12 +169,16 @@ function IdentityInner() {
           | {
               username?: string | null;
               display_name?: string | null;
+              display_name_ko?: string | null;
+              display_name_en?: string | null;
               main_role?: string | null;
               roles?: string[] | null;
             }
           | undefined;
         if (meta?.username) setUsername(String(meta.username).toLowerCase());
         if (meta?.display_name) setDisplayName(String(meta.display_name));
+        if (meta?.display_name_ko) setDisplayNameKo(String(meta.display_name_ko));
+        if (meta?.display_name_en) setDisplayNameEn(String(meta.display_name_en));
         if (meta?.main_role) setMainRole(String(meta.main_role));
         if (Array.isArray(meta?.roles))
           setRoles(meta.roles.filter((r): r is string => typeof r === "string"));
@@ -196,19 +224,30 @@ function IdentityInner() {
 
   const normalizedUsername = username.trim().toLowerCase();
   const trimmedDisplay = displayName.trim();
+  const trimmedDisplayKo = displayNameKo.trim();
+  const trimmedDisplayEn = displayNameEn.trim();
+  // QA 2026-07-28 bilingual — 최소 하나의 이름 슬롯이 채워져 있어야 통과.
+  // 편의를 위해 legacy `display_name` 은 KO 우선으로 자동 계산해서 저장한다.
+  const legacyDisplayForSave =
+    pickLegacyDisplayNameForSave({
+      display_name_ko: trimmedDisplayKo || null,
+      display_name_en: trimmedDisplayEn || null,
+    }) ?? trimmedDisplay;
+  const hasAnyDisplay =
+    (legacyDisplayForSave?.trim().length ?? 0) > 0;
   const canSubmit =
     !saving &&
     usernameReady &&
     USERNAME_REGEX.test(normalizedUsername) &&
     !isPlaceholderUsername(normalizedUsername) &&
-    trimmedDisplay.length > 0 &&
+    hasAnyDisplay &&
     roles.length >= 1 &&
     mainRole.length > 0;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!trimmedDisplay) {
+    if (!hasAnyDisplay) {
       setError(t("identity.finish.missingDisplayName"));
       return;
     }
@@ -257,7 +296,9 @@ function IdentityInner() {
     }
 
     const baseRes = await updateMyProfileBase({
-      display_name: trimmedDisplay,
+      display_name: legacyDisplayForSave,
+      display_name_ko: trimmedDisplayKo || null,
+      display_name_en: trimmedDisplayEn || null,
       main_role: mainRole,
       roles,
       is_public: isPublic,
@@ -345,28 +386,57 @@ function IdentityInner() {
             {t("identity.finish.sectionYou")}
           </SectionTitle>
           <div className="space-y-4">
-            <div className="space-y-1">
-              <label
-                htmlFor="identity-display-name"
-                className="block text-sm font-medium text-zinc-900"
+            {inheritedFromCurator && (
+              <div
+                role="status"
+                className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900"
               >
-                {t("identity.finish.labelDisplayName")}
-              </label>
-              <input
-                id="identity-display-name"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={t("identity.finish.placeholderDisplayName")}
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                autoComplete="name"
-                maxLength={80}
-                required
-              />
-              <p className="text-xs text-zinc-500">
-                {t("identity.finish.displayNameHint")}
-              </p>
-            </div>
+                <p className="font-medium">
+                  {t("bilingual.inheritConfirmTitle")}
+                </p>
+                <p className="mt-1 text-[11px] text-emerald-800">
+                  {t("bilingual.inheritConfirmBody")
+                    .replace("{ko}", displayNameKo || "—")
+                    .replace("{en}", displayNameEn || "—")}
+                </p>
+              </div>
+            )}
+            {/*
+              QA 2026-07-28 — display_name 이중언어. 큐레이터가 KO/EN 을
+              모두 남겼으면 두 슬롯이 열려 있고, 사용자가 legacy 슬롯 하나만
+              쓰던 이전 흐름도 그대로 (secondary 는 접혀 있음). 저장 시
+              legacy `display_name` 은 KO 우선으로 계산해서 함께 보낸다.
+            */}
+            <BilingualFieldPair
+              id="identity-display-name"
+              label={t("identity.finish.labelDisplayName")}
+              hint={t("identity.finish.displayNameHint")}
+              addKoKey="bilingual.addKoName"
+              addEnKey="bilingual.addEnName"
+              placeholderKo={t("identity.finish.placeholderDisplayName")}
+              placeholderEn={t("identity.finish.placeholderDisplayName")}
+              valueKo={displayNameKo}
+              valueEn={displayNameEn}
+              onChangeKo={(v) => {
+                setDisplayNameKo(v);
+                setDisplayName(
+                  pickLegacyDisplayNameForSave({
+                    display_name_ko: v || null,
+                    display_name_en: displayNameEn || null,
+                  }) ?? "",
+                );
+              }}
+              onChangeEn={(v) => {
+                setDisplayNameEn(v);
+                setDisplayName(
+                  pickLegacyDisplayNameForSave({
+                    display_name_ko: displayNameKo || null,
+                    display_name_en: v || null,
+                  }) ?? "",
+                );
+              }}
+              maxLength={80}
+            />
 
             <UsernameField
               value={username}

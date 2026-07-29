@@ -31,6 +31,7 @@ import {
 import { BuildStamp } from "@/components/BuildStamp";
 import { SizeUnitPreference } from "@/components/settings/SizeUnitPreference";
 import { BioDraftAssist } from "@/components/ai/BioDraftAssist";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { ProfileMediaUploader } from "@/components/profile/ProfileMediaUploader";
 import { StatementDraftAssist } from "@/components/profile/StatementDraftAssist";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
@@ -249,7 +250,19 @@ export default function SettingsPage() {
   const initialUsernameRef = useRef<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
+  /**
+   * QA 2026-07-28 — 프로필 이중언어. `display_name` 은 legacy 슬롯이고,
+   * KO/EN 은 240004 트리거가 항상 KO 우선으로 legacy 를 syn 한다. 여기서는
+   * 두 슬롯을 각자 관리하고 저장 시 patch 에 함께 실어 보낸다. legacy 컬럼은
+   * 서버 트리거가 정리해 주지만, `computeProfileCompleteness` 같은 파생
+   * 값이 legacy 를 읽기 때문에 KO 우선 문자열을 미리 계산해서 두 곳 다
+   * 채운다.
+   */
+  const [displayNameKo, setDisplayNameKo] = useState("");
+  const [displayNameEn, setDisplayNameEn] = useState("");
   const [bio, setBio] = useState("");
+  const [bioKo, setBioKo] = useState("");
+  const [bioEn, setBioEn] = useState("");
   const [location, setLocation] = useState("");
   const [website, setWebsite] = useState("");
   const [mainRole, setMainRole] = useState<string>("");
@@ -294,6 +307,8 @@ export default function SettingsPage() {
   const [coverImagePath, setCoverImagePath] = useState<string | null>(null);
   const [coverPositionY, setCoverPositionY] = useState<number>(50);
   const [statement, setStatement] = useState<string>("");
+  const [statementKo, setStatementKo] = useState<string>("");
+  const [statementEn, setStatementEn] = useState<string>("");
   const [statementHeroPath, setStatementHeroPath] = useState<string | null>(null);
   const [identityNotice, setIdentityNotice] = useState<string | null>(null);
   const [identityErr, setIdentityErr] = useState<string | null>(null);
@@ -378,7 +393,11 @@ export default function SettingsPage() {
           initialUsernameRef.current = (p.username ?? "").trim().toLowerCase();
           setAvatarUrl(p.avatar_url ?? null);
           setDisplayName(p.display_name ?? "");
+          setDisplayNameKo(p.display_name_ko ?? "");
+          setDisplayNameEn(p.display_name_en ?? "");
           setBio(p.bio ?? "");
+          setBioKo(p.bio_ko ?? "");
+          setBioEn(p.bio_en ?? "");
           setLocation(p.location ?? "");
           setWebsite(p.website ?? "");
           setMainRole(p.main_role ?? "");
@@ -391,6 +410,8 @@ export default function SettingsPage() {
           const cy = p.cover_image_position_y;
           setCoverPositionY(typeof cy === "number" && Number.isFinite(cy) ? cy : 50);
           setStatement(p.artist_statement ?? "");
+          setStatementKo(p.artist_statement_ko ?? "");
+          setStatementEn(p.artist_statement_en ?? "");
           setStatementHeroPath(p.artist_statement_hero_image_url ?? null);
         }
         if (d) {
@@ -452,7 +473,11 @@ export default function SettingsPage() {
 
         const baseForNorm = {
           display_name: (p as Profile)?.display_name ?? "",
+          display_name_ko: (p as Profile)?.display_name_ko ?? "",
+          display_name_en: (p as Profile)?.display_name_en ?? "",
           bio: (p as Profile)?.bio ?? "",
+          bio_ko: (p as Profile)?.bio_ko ?? "",
+          bio_en: (p as Profile)?.bio_en ?? "",
           location: (p as Profile)?.location ?? "",
           website: (p as Profile)?.website ?? "",
           main_role: (p as Profile)?.main_role ?? "",
@@ -463,8 +488,11 @@ export default function SettingsPage() {
         const normalizedInitialBase = normalizeProfileBase(baseForNorm) as unknown as Record<string, unknown>;
         // QA P0.5-A: artist_statement 도 메인 폼 diff 의 baseline 에 포함시켜
         // textarea 값이 onBlur 없이 곧장 [저장] 으로 이어져도 변경분이
-        // 정확히 detect 되도록 한다.
+        // 정확히 detect 되도록 한다. QA 2026-07-28: bilingual statement 도
+        // 함께 포함시켜야 KO/EN 슬롯 변경분이 정확히 잡힌다.
         normalizedInitialBase.artist_statement = (p as Profile)?.artist_statement ?? null;
+        normalizedInitialBase.artist_statement_ko = (p as Profile)?.artist_statement_ko ?? null;
+        normalizedInitialBase.artist_statement_en = (p as Profile)?.artist_statement_en ?? null;
         initialBaseRef.current = normalizedInitialBase;
 
         const src = d ?? (p as Profile);
@@ -672,6 +700,8 @@ export default function SettingsPage() {
       cover_image_url: string | null;
       cover_image_position_y: number | null;
       artist_statement: string | null;
+      artist_statement_ko: string | null;
+      artist_statement_en: string | null;
       artist_statement_hero_image_url: string | null;
     }>) => {
       setIdentityErr(null);
@@ -790,13 +820,21 @@ export default function SettingsPage() {
   }, [themes, mediums, styles]);
 
   const handleStatementBlur = useCallback(async () => {
+    // QA 2026-07-28 — bilingual statement: 두 슬롯을 함께 자동 저장.
+    // Primary 슬롯 (locale-aware) 은 legacy `statement` 도 갱신하지만,
+    // secondary 슬롯 blur 도 여기로 흐르므로 KO/EN 둘 다 patch 로 보낸다.
+    // 240004 트리거가 legacy 컬럼을 서버 측에서 정리한다.
     const next = statement.trim();
+    const nextKo = statementKo.trim();
+    const nextEn = statementEn.trim();
     const prev = (statementInitialRef.current ?? "").trim();
-    if (next === prev) return;
+    if (next === prev && nextKo === "" && nextEn === "") return;
     setStatementSaving(true);
     try {
       await persistIdentityField({
         artist_statement: next.length > 0 ? next : null,
+        artist_statement_ko: nextKo.length > 0 ? nextKo : null,
+        artist_statement_en: nextEn.length > 0 ? nextEn : null,
       });
       statementInitialRef.current = next;
       setStatementSavedAt(Date.now());
@@ -806,7 +844,7 @@ export default function SettingsPage() {
     } finally {
       setStatementSaving(false);
     }
-  }, [statement, persistIdentityField]);
+  }, [statement, statementKo, statementEn, persistIdentityField]);
 
   function addEducation() {
     setEducation((prev) => [...prev, { school: "", program: "", year: "", type: null }]);
@@ -886,7 +924,11 @@ export default function SettingsPage() {
 
     const normalizedBase: NormalizedBasePayload = normalizeProfileBase({
       display_name: displayName,
+      display_name_ko: displayNameKo,
+      display_name_en: displayNameEn,
       bio,
+      bio_ko: bioKo,
+      bio_en: bioEn,
       location,
       website,
       main_role: mainRole,
@@ -917,7 +959,18 @@ export default function SettingsPage() {
     // 변경분이 누락되지 않는다 (또한 "저장할 변경 사항이 없습니다" 오분기 차단).
     const trimmedStatement = (statement ?? "").trim();
     const statementForPatch = trimmedStatement.length > 0 ? trimmedStatement : null;
-    const baseSnap = { ...normalizedBase, artist_statement: statementForPatch } as Record<string, unknown>;
+    const trimmedStatementKo = (statementKo ?? "").trim();
+    const statementKoForPatch =
+      trimmedStatementKo.length > 0 ? trimmedStatementKo : null;
+    const trimmedStatementEn = (statementEn ?? "").trim();
+    const statementEnForPatch =
+      trimmedStatementEn.length > 0 ? trimmedStatementEn : null;
+    const baseSnap = {
+      ...normalizedBase,
+      artist_statement: statementForPatch,
+      artist_statement_ko: statementKoForPatch,
+      artist_statement_en: statementEnForPatch,
+    } as Record<string, unknown>;
     const detailsSnap = { ...normalizedDetails } as Record<string, unknown>;
     let basePatch = makePatch(initialBaseRef.current, baseSnap) as Record<string, unknown>;
     if (normalizedUsername !== initialUsernameRef.current) {
@@ -998,7 +1051,11 @@ export default function SettingsPage() {
       if (ref) {
         initialBaseRef.current = {
           display_name: ref.display_name ?? null,
+          display_name_ko: ref.display_name_ko ?? null,
+          display_name_en: ref.display_name_en ?? null,
           bio: ref.bio ?? null,
+          bio_ko: ref.bio_ko ?? null,
+          bio_en: ref.bio_en ?? null,
           location: ref.location ?? null,
           website: ref.website ?? null,
           main_role: ref.main_role ?? null,
@@ -1007,6 +1064,8 @@ export default function SettingsPage() {
           education: ref.education ?? null,
           // QA P0.5-A: statement 도 baseline 에 포함 (재편집 시 diff 정확성).
           artist_statement: ref.artist_statement ?? null,
+          artist_statement_ko: ref.artist_statement_ko ?? null,
+          artist_statement_en: ref.artist_statement_en ?? null,
         } as Record<string, unknown>;
         // QA P0.5-A: blur 자동 저장 경로의 baseline 도 동기화한다.
         statementInitialRef.current = ref.artist_statement ?? "";
@@ -1207,21 +1266,34 @@ export default function SettingsPage() {
                 {isArtistRole({ main_role: mainRole, roles }) && (
                   <>
                     <div data-tour="profile-identity-statement" className="space-y-2">
-                      <label
-                        htmlFor="artistStatement"
-                        className="block text-sm font-medium text-zinc-800"
-                      >
-                        {t("settings.identity.statement")}
-                      </label>
-                      <textarea
+                      {/*
+                        QA 2026-07-28 — Artist Statement KO/EN 이중언어.
+                        Primary 언어는 즉시 legacy `statement` 도 갱신해
+                        onBlur 자동 저장을 유지하고, 240004 트리거가 KO
+                        우선 sync 를 서버 측에서 확정한다.
+                      */}
+                      <BilingualFieldPair
                         id="artistStatement"
-                        value={statement}
-                        onChange={(e) => setStatement(e.target.value)}
-                        onBlur={handleStatementBlur}
-                        placeholder={t("profile.statement.placeholder")}
+                        label={t("settings.identity.statement")}
+                        hint={t("bilingual.hintProse")}
+                        addKoKey="bilingual.addKoStatement"
+                        addEnKey="bilingual.addEnStatement"
+                        placeholderKo={t("profile.statement.placeholder")}
+                        placeholderEn={t("profile.statement.placeholder")}
+                        valueKo={statementKo}
+                        valueEn={statementEn}
+                        onChangeKo={(v) => {
+                          setStatementKo(v);
+                          if (locale === "ko") setStatement(v);
+                        }}
+                        onChangeEn={(v) => {
+                          setStatementEn(v);
+                          if (locale !== "ko") setStatement(v);
+                        }}
+                        as="textarea"
                         rows={6}
                         maxLength={4000}
-                        className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                        onBlur={handleStatementBlur}
                       />
                       <div className="flex items-center justify-between text-xs text-zinc-500">
                         <span>
@@ -1301,6 +1373,8 @@ export default function SettingsPage() {
                         }}
                         onUseDraft={(draft) => {
                           setStatement(draft);
+                          if (locale === "ko") setStatementKo(draft);
+                          else setStatementEn(draft);
                         }}
                       />
                     </div>
@@ -1402,32 +1476,56 @@ export default function SettingsPage() {
               <p className="mt-1 text-xs text-zinc-500">{t("settings.usernameHint")}</p>
             </div>
 
-            <div>
-              <label htmlFor="displayName" className="mb-1 block text-sm font-medium">
-                {t("settings.displayName")}
-              </label>
-              <input
-                id="displayName"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={t("settings.placeholderDisplayName")}
-                className="w-full rounded border border-zinc-300 px-3 py-2"
-                autoComplete="name"
-              />
-            </div>
+            {/*
+              QA 2026-07-28 — display_name 이중언어 슬롯. 두 언어를 나란히
+              쓰는 작가는 KO/EN 을 각각 채운다. `+ 다른 언어 추가` 로
+              secondary 슬롯이 열리고 legacy `display_name` 은 240004 트리거
+              가 KO 우선으로 자동 sync. `bio` 도 같은 패턴.
+              display_name 에는 **AI 번역을 붙이지 않는다** — 사람 이름은
+              기계 번역이 아니라 로마자 힌트 (Track C 의 RomanizationHintChip)
+              로 seed 만 제공한다.
+            */}
+            <BilingualFieldPair
+              id="displayName"
+              label={t("settings.displayName")}
+              hint={t("bilingual.hintName")}
+              addKoKey="bilingual.addKoName"
+              addEnKey="bilingual.addEnName"
+              placeholderKo={t("settings.placeholderDisplayName")}
+              placeholderEn={t("settings.placeholderDisplayName")}
+              valueKo={displayNameKo}
+              valueEn={displayNameEn}
+              onChangeKo={(v) => {
+                setDisplayNameKo(v);
+                if (locale === "ko") setDisplayName(v);
+              }}
+              onChangeEn={(v) => {
+                setDisplayNameEn(v);
+                if (locale !== "ko") setDisplayName(v);
+              }}
+            />
 
             <div data-tour="profile-identity-bio">
-              <label htmlFor="bio" className="mb-1 block text-sm font-medium">
-                {t("settings.bio")}
-              </label>
-              <textarea
+              <BilingualFieldPair
                 id="bio"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder={t("settings.placeholderBio")}
+                label={t("settings.bio")}
+                hint={t("bilingual.hintProse")}
+                addKoKey="bilingual.addKoBio"
+                addEnKey="bilingual.addEnBio"
+                placeholderKo={t("settings.placeholderBio")}
+                placeholderEn={t("settings.placeholderBio")}
+                valueKo={bioKo}
+                valueEn={bioEn}
+                onChangeKo={(v) => {
+                  setBioKo(v);
+                  if (locale === "ko") setBio(v);
+                }}
+                onChangeEn={(v) => {
+                  setBioEn(v);
+                  if (locale !== "ko") setBio(v);
+                }}
+                as="textarea"
                 rows={3}
-                className="w-full rounded border border-zinc-300 px-3 py-2"
               />
               <BioDraftAssist
                 currentBio={bio}
@@ -1436,7 +1534,11 @@ export default function SettingsPage() {
                 themes={themes}
                 mediums={mediums}
                 city={city || location}
-                onApply={(text) => setBio(text)}
+                onApply={(text) => {
+                  setBio(text);
+                  if (locale === "ko") setBioKo(text);
+                  else setBioEn(text);
+                }}
               />
             </div>
 
