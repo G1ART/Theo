@@ -2,6 +2,55 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — KO/EN 이중언어 대규모 랜딩 (Track A → D) ⚠ SQL 실행 필요
+
+### 배경
+프로필/작품/전시 authoring surface 는 monolingual (`display_name`, `bio`, `artist_statement`, `artworks.title/medium/story`, `projects.host_name`) 이었고, 표시 surface 는 그 legacy 컬럼만 읽었다. QA 스코프에서 이미 `projects.title_ko/en` · `projects.preface_ko/en` · `external_artists.display_name_ko/en` 이 도입된 상태였으나 나머지 필드가 아직 monolingual 이라 EN 로케일 UI 에서 작가 본인이 원하는 표기가 반영되지 않았다.
+
+### 원칙 (설계 결정)
+1. **작가가 이름을 소유한다** — display-time 자동 로마자 변환 금지. Fallback 체인은 `field_L → field_otherL → legacy`.
+2. **Progressive disclosure 어디서나** — 기존 전시 create/edit 의 primary + chip + secondary 패턴을 재사용 (`BilingualFieldPair`).
+3. **AI 초안은 authoring 어시스트일 뿐** — 자동 저장 없음, 사람 이름은 AI 번역 대신 로마자 힌트 칩만.
+4. **온보딩 상속** — 큐레이터가 등록한 KO/EN 이름 쌍이 profile 슬롯을 채우지 못했으면 signup trigger 로 자동 상속. Orphan claim 후에는 confirm 모달로 채택.
+5. **한 릴리즈 창, 여러 커밋** — Track A/B/C/D 를 별도 커밋으로 나눠 review 가능하게.
+
+### 커밋 요약 (오늘, 역시간순)
+- `eecdc9a` — **Track D**: 표시 표면 이중언어 헬퍼 일괄 적용 + 온보딩 상속.
+- `3f47de9` — **Track C**: AI 번역 초안 어시스트 + 이름 로마자 힌트.
+- `b3e35b0` — **Track B**: 프로필/작품/전시 인풋 이중언어 옵션.
+- `ac555f4` — **Track A**: KO/EN 병기 스키마 + 헬퍼 + 쿼리 확장.
+
+### Supabase SQL — ⚠ 미적용 마이그레이션 있음
+아래 6개 SQL 파일을 **순서대로** Supabase SQL Editor 에서 실행. 240005 는 여러 PL/pgSQL 함수 정의가 들어 있으므로 `-- == SECTION N ==` 배너 단위로 highlight → Run.
+
+1. `supabase/migrations/20260728240000_bilingual_profiles.sql` — `profiles.display_name_ko/en`, `bio_ko/en`, `artist_statement_ko/en`.
+2. `supabase/migrations/20260728240001_bilingual_artworks.sql` — `artworks.title_ko/en`, `medium_ko/en`, `story_ko/en`.
+3. `supabase/migrations/20260728240002_bilingual_projects_host.sql` — `projects.host_name_ko/en`.
+4. `supabase/migrations/20260728240003_bilingual_backfill.sql` — best-effort backfill (Hangul 판정 → KO 슬롯; else EN).
+5. `supabase/migrations/20260728240004_bilingual_sync_triggers.sql` — 각 테이블에 `sync_legacy_from_bilingual` trigger. 어느 언어든 write 되면 legacy 컬럼을 KO 우선으로 sync. 검색/back-compat 을 위한 legacy 컬럼 유지.
+6. `supabase/migrations/20260728240005_bilingual_rpc_extensions.sql` — 총 5 SECTION. `upsert_my_profile`, `get_or_create_external_artist`, `create_external_artist_and_claim`, `list_exhibition_participants`, `handle_auth_user_created_link_external_artist` 확장. 옛 overload `DROP` 포함.
+
+### Verify (수동)
+- Feed / Explore / Artwork detail 에서 EN 로케일 전환 → 작가·작품 이름이 `_en` 우선으로 표시되는지.
+- 설정 페이지에서 `+ 다른 언어 추가` 로 secondary 슬롯 열기 → 두 언어 모두 저장되면 재로드 후 자동 펼침 확인.
+- Statement / bio 에서 "AI 초안" 클릭 → secondary 슬롯에 draft 자동 채움 확인. 저장은 사용자 명시적 폼 저장 시에만.
+- 이름 필드에 KO 만 입력하면 EN 슬롯 아래에 "Kim ... 로 시작할까요?" 로마자 힌트 chip 노출. AI 번역 chip 은 이름 필드엔 없어야 함.
+- Orphan invite claim → 큐레이터가 KO/EN 을 남긴 경우 confirm 모달, "이대로 사용" 클릭 → `profiles.display_name_ko/en` 이 채워지는지 재로드 확인.
+
+### 환경 변수
+새 env var 없음. `/api/ai/translate-draft` 는 기존 `OPENAI_API_KEY` 사용. Entitlement/metering 매핑은 의도적으로 비워 두었으므로 (soft cap 만 적용) 향후 유의미한 사용량이 잡히면 `AI_FEATURE_TO_METER_KEY`, `AI_FEATURE_TO_ENTITLEMENT_KEY` 에 추가.
+
+### 남은 invariants
+- `queryVariants.romanizeKorean` 은 **검색 전용 + RomanizationHintChip seed 전용**. display-time 에는 절대 호출 금지.
+- `pickLegacyTitleForSave` / `pickLegacyDisplayNameForSave` / `pickLegacyForSave` 는 240004 트리거와 의미가 겹치지만 client 가 legacy 컬럼을 명시적으로 보내야 하는 경로 (NOT NULL 제약 등) 를 위해 유지. 새 callee 는 트리거에 맡기고 legacy 컬럼을 payload 에서 아예 빼는 쪽이 안전.
+- Room 뷰 (`src/app/room/[token]/page.tsx`) 는 RPC 반환 shape 이 `title` 만 담고 있어 이번 커밋에서 retrofit 하지 않았다. 필요해지면 RPC + 클라이언트 함께 갱신.
+
+### Verified
+- `npx tsc --noEmit` 4 Track 종료 시점에서 통과.
+- 기존 lint warning/error 카운트는 유지 (신규 오류 없음).
+
+---
+
 ## 2026-07-28 — 업로드 이미지 자동 크롭/톤 제거 + 인터랙티브 크롭 툴 ✅ SQL 변경 없음
 
 ### 배경 (QA)
