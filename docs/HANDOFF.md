@@ -2,6 +2,63 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — 외부 작가 가격 문의 이메일(opt-in) + CREATED claim 자동 보장 + orphan-invites 자동 넛지 ⚠️ SQL 수동 적용 필요
+
+### 요약 (A/B/C/D)
+
+**A — 외부 작가 opt-in 가격 문의 이메일**
+- 업로드 시 초대자가 명시적으로 체크한 경우에만(`upload.notifyOnInquiryViaEmail` 체크박스, 단일/벌크 업로드 모두), 아직 온보딩하지 않은 외부 작가의 `invite_email` 로 가격 문의 발생을 이메일로 안내.
+- 신규 컬럼 `external_artists.notify_on_inquiry_via_email` / `notify_email_consented_at`. 신규 로그 테이블 `external_artist_inquiry_email_log` 로 30일 3회 rate-limit + (external_artist, inquiry) 당 1회 dedupe.
+- 신규 SECURITY DEFINER RPC: `request_price_inquiry_email_dispatch` (문의자 세션에서 호출, 이미 온보딩된 작가·미동의·이메일 없음·rate-limit 초과·중복 발송은 스킵), `unsubscribe_external_artist_inquiry_emails` (anon 실행 가능, 이메일 링크 전용).
+- 신규 API 라우트 `src/app/api/price-inquiry-artist-email/route.ts` — SendGrid 발송 담당. SendGrid 키가 없거나 발송 실패해도 항상 200 (`{ ok: false, reason }`) 응답 — 문의자 플로우는 절대 막지 않음.
+- 신규 페이지 `src/app/unsubscribe/inquiry-email/[token]/page.tsx` — 로그인 없이 1클릭 수신거부.
+- `src/app/artwork/[id]/page.tsx` `handleAskPrice` — 문의 생성 성공 후 fire-and-forget 로 위 API 호출 (UI 블로킹 없음).
+- `create_external_artist_and_claim` / `get_or_create_external_artist` 확장 — `p_notify_on_inquiry_via_email` (trailing default param). **규칙: false→true 만 허용, 기존 true 를 되돌리지 않음.**
+
+**B — orphan-invites 대시보드 자동 넛지**
+- `OrphanInvitesBanner` (`/my` 상시 마운트) 를 "1-click 확정" 버튼으로 강화: 후보가 정확히 1건이고 `match_confidence = 'exact'` 일 때만 즉시 확정 버튼 노출(확인 다이얼로그 경유), 그 외에는 기존 `/my/orphan-invites` 리뷰 페이지로 안내.
+- Dismiss 는 `user_ui_dismissals` 에 30일 스누즈로 기록(`orphan.invites.autoscan_v1`).
+- 본인 `display_name` 이 비어 있으면 노출 안 함 — `search_orphan_external_artists_for_me` RPC 자체가 이미 그 경우 빈 결과를 반환하므로 별도 클라이언트 가드 불필요(구조적으로 보장).
+- `search_orphan_external_artists_for_me` 확장(반환 jsonb 에 `match_confidence: 'exact'|'fuzzy'` 추가, 이름 비교 `btrim` 통일). `setof jsonb` 반환이라 함수 시그니처(인자) 자체는 변경 없음.
+
+**C — 매직링크 타이밍 조사 (코드 변경 없음)**
+- `docs/AUTH_MAGIC_LINK_TIMING.md` 신규. 결론: 자동 링크 트리거는 `auth.users` INSERT 시점(이메일 확인 이전)에 무조건 실행되어 `claimed_profile_id` 를 채운다 — 이는 안전(세션/권한은 이메일 확인 전까지 발급되지 않음)하며, Part A 의 `claimed_profile_id is not null` 스킵 로직이 이 케이스를 정확히 커버함을 정적 분석으로 확인. 프로덕션 로그(MCP `get_logs`) 로 실측 검증은 이번 세션 도구 접근 제약(shell-only, MCP 미가용)으로 수행하지 못함 — 정적 분석으로 결론이 이미 확정적이라 블로킹 아님.
+
+**D — 외부 작가 링크 시 CREATED claim 자동 보장**
+- 신규 내부 헬퍼 `ensure_created_claims_for_linked_artist(uuid, uuid[])` — work 에 CREATED claim 이 없을 때만 새로 생성(idempotent, `uq_claims_one_created_per_work` 부분 유니크 인덱스와 정합). **의도적으로 `authenticated`/`anon` 에 grant 하지 않음** (권한 상승 방지 — 이미 검증을 마친 SECURITY DEFINER 호출자만 사용).
+- 3개 연결 경로 모두에 통합: `handle_auth_user_created_link_external_artist`(트리거), `claim_orphan_external_artist_as_self`, `link_external_artist_to_profile`.
+- 목적: `price_inquiry_artist_id` 의 1순위 fallback(CREATED claim subject)을 정확히 채워 향후 판매 로열티 분배 / 작가-인증 배지 / CREATED-OWNS 구분 provenance 렌더링 등의 기반을 마련.
+
+### Supabase SQL 수동 적용 필요 ⚠️
+아래 3개 마이그레이션을 SQL Editor 에서 **섹션 배너(`== SECTION N ==`) 단위로 하나씩** 하이라이트 → Run (release-workflow.mdc 규칙 — 이번 파일들은 PL/pgSQL 함수 정의가 각각 4개 이상 포함):
+1. `supabase/migrations/20260729100000_external_artist_inquiry_email.sql` (SECTION 1-6)
+2. `supabase/migrations/20260729105000_orphan_invites_autoscan_confidence.sql` (SECTION 1, 단일 함수지만 배너 유지)
+3. `supabase/migrations/20260729110000_auto_create_claim_on_external_artist_link.sql` (SECTION 1-4)
+
+### Verify (적용 후 운영자가 직접 실행)
+```sql
+-- Part D 정합성: CREATED claim 중복이 없어야 함 (0 행 기대)
+select count(*) from public.claims
+ where claim_type = 'CREATED'
+ group by work_id having count(*) > 1;
+```
+
+### 환경 변수
+없음 (기존 `SENDGRID_API_KEY` / `INVITE_FROM_EMAIL` 재사용).
+
+### Verified
+- `npx tsc --noEmit` 통과.
+- `npm run build` 통과 (신규 라우트 `/api/price-inquiry-artist-email`, `/unsubscribe/inquiry-email/[token]` 정상 포함).
+- `npx eslint` 신규/수정 파일 기준 신규 에러 없음(기존 파일의 pre-existing 경고/에러는 이번 변경과 무관한 라인).
+
+### 남은 TODO (deferred, 이번 릴리즈 범위 아님)
+- 초대자가 orphan-invite 자동 링크를 사후에 확인/이의제기할 수 있는 어드민 화면(Part C 문서의 위험 완화책 중 하나).
+- `notify_on_inquiry_via_email` 를 운영자가 강제로 리셋할 수 있는 admin 토글(현재는 수신자 본인의 unsubscribe 링크로만 false 전환 가능).
+- Part C 의 프로덕션 로그 실측 샘플링(현재 세션은 MCP 로그 도구 미가용으로 정적 분석만 수행) — blocking 아님, staging 에서 필요 시 재확인 권장.
+
+---
+
+
 ## 2026-07-29 — 전시 상세 포스터 깨짐 hotfix (cover_image_paths ghost 참조) ⚠️ SQL 수동 적용 필요
 
 ### 증상

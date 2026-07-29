@@ -523,6 +523,31 @@ function ArtworkDetailContent() {
       const { data: msgs } = await listPriceInquiryMessages(inquiry.id);
       setMyInquiryMessages(msgs ?? []);
     }
+    // QA 2026-07-29 (Part A.4) — best-effort, fire-and-forget dispatch of
+    // the opt-in external-artist price-inquiry email. Never awaited in a
+    // way that blocks the UI; failures are swallowed (the API route itself
+    // also always answers 200 — see src/app/api/price-inquiry-artist-email).
+    if (data?.id) {
+      void (async () => {
+        try {
+          const {
+            data: { session },
+          } = await getSession();
+          const token = session?.access_token;
+          if (!token) return;
+          await fetch("/api/price-inquiry-artist-email", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ inquiryId: data.id }),
+          });
+        } catch (err) {
+          console.warn("[price-inquiry] email dispatch failed", err);
+        }
+      })();
+    }
   }
 
   async function handleInquirerFollowUp() {

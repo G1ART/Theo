@@ -100,6 +100,15 @@ export type OrphanExternalArtistCandidate = {
   invited_at: string;
   works_count: number;
   latest_cover_paths: string[];
+  /**
+   * QA 2026-07-29 (Part B) — server-computed match confidence: "exact"
+   * when the candidate's display_name (any language slot) matches the
+   * caller's profile display_name exactly (case/whitespace-insensitive),
+   * "fuzzy" for a partial ILIKE match. The dashboard autoscan banner uses
+   * this to decide whether a 1-click "this is mine" action is safe to
+   * offer directly, vs. routing to the full review list.
+   */
+  match_confidence: "exact" | "fuzzy";
 };
 
 /**
@@ -133,6 +142,7 @@ export async function searchOrphanExternalArtistsForMe(
       latest_cover_paths: Array.isArray(r.latest_cover_paths)
         ? (r.latest_cover_paths as string[])
         : [],
+      match_confidence: r.match_confidence === "exact" ? "exact" : "fuzzy",
     })),
     error: null,
   };

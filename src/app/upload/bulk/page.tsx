@@ -178,6 +178,8 @@ export default function BulkUploadPage() {
     preselectedExternalIsHangul ? "" : preselectedExternalName ?? "",
   );
   const [externalArtistEmail, setExternalArtistEmail] = useState(preselectedExternalEmail ?? "");
+  // QA 2026-07-29 (Part A.5) — mirrors src/app/upload/page.tsx.
+  const [notifyOnInquiryViaEmail, setNotifyOnInquiryViaEmail] = useState(false);
   /**
    * Phase 3 (QA 2026-07): id of the invited external artist that the
    * operator just re-selected from the unified search results. Non-null
@@ -770,6 +772,8 @@ export default function BulkUploadPage() {
           // id straight through so the server RPC skips name-dedupe and
           // guarantees the exact same external_artists row is reused.
           externalArtistId: useExternalArtist ? preselectedExternalArtistId : null,
+          // QA 2026-07-29 (Part A.5) — forward opt-in email consent.
+          notifyOnInquiryViaEmail: useExternalArtist ? notifyOnInquiryViaEmail : undefined,
           // Drafts were created on behalf of the principal when acting-as;
           // publish path must keep the same subject so claims/artist_id stay
           // consistent. RLS / RPC verify delegation rights server-side.
@@ -1179,11 +1183,25 @@ export default function BulkUploadPage() {
                   className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
                 />
                 <p className="text-xs text-zinc-500">{t("upload.externalArtistEmailHint")}</p>
+                {!externalNoEmail && (
+                  <label className="flex max-w-md items-start gap-2 text-xs text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={notifyOnInquiryViaEmail}
+                      onChange={(e) => setNotifyOnInquiryViaEmail(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>{t("upload.notifyOnInquiryViaEmail")}</span>
+                  </label>
+                )}
                 <label className="flex max-w-md items-start gap-2 text-xs text-zinc-600">
                   <input
                     type="checkbox"
                     checked={externalNoEmail}
-                    onChange={(e) => setExternalNoEmail(e.target.checked)}
+                    onChange={(e) => {
+                      setExternalNoEmail(e.target.checked);
+                      if (e.target.checked) setNotifyOnInquiryViaEmail(false);
+                    }}
                     className="mt-0.5"
                   />
                   <span>{t("upload.externalArtistNoEmail")}</span>

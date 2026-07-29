@@ -39,6 +39,13 @@ export async function createExternalArtistAndClaim(
   // nullable params; existing callers unaffected.
   if (args.displayNameKo != null) payload.p_display_name_ko = args.displayNameKo;
   if (args.displayNameEn != null) payload.p_display_name_en = args.displayNameEn;
+  // QA 2026-07-29 (Part A) — forward explicit consent only when the
+  // caller passed it. The RPC default is false and only ever flips
+  // false→true (never reverts a prior true), so omitting this key when
+  // the caller has no opinion is safe.
+  if (args.notifyOnInquiryViaEmail != null) {
+    payload.p_notify_on_inquiry_via_email = args.notifyOnInquiryViaEmail;
+  }
   const { data, error } = await supabase.rpc("create_external_artist_and_claim", payload);
   if (error) return { data: null, error };
   return { data: data as CreateExternalArtistAndClaimResult, error: null };

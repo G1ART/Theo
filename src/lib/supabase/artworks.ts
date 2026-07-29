@@ -1761,6 +1761,12 @@ export type PublishWithProvenanceOptions = {
    * whitespace/case differences from a previous invite.
    */
   externalArtistId?: string | null;
+  /**
+   * QA 2026-07-29 (Part A) — opt-in consent for Theo to email
+   * `externalArtistEmail` about incoming price inquiries. See
+   * `CreateExternalArtistAndClaimArgs.notifyOnInquiryViaEmail`.
+   */
+  notifyOnInquiryViaEmail?: boolean;
   /** For INVENTORY/CURATED/EXHIBITED: past/current/future */
   period_status?: "past" | "current" | "future" | null;
   /**
@@ -1854,6 +1860,8 @@ export async function publishArtworksWithProvenance(
         subjectProfileId: subjectOverride ?? undefined,
         // Phase 3-4: forward re-selected external artist id when set.
         externalArtistId: opts.externalArtistId ?? null,
+        // QA 2026-07-29 (Part A): forward opt-in email consent.
+        notifyOnInquiryViaEmail: opts.notifyOnInquiryViaEmail,
       });
       claimErr = error;
     } else if (opts.artistProfileId) {

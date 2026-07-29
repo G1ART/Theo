@@ -22,6 +22,13 @@ export const DISMISSAL_KEYS = {
   bilingualDiscoveryBanner: "bilingual_discovery_banner_v1",
   bilingualContextualNudgeProfile: "bilingual_contextual_nudge_profile_v1",
   bilingualContextualNudgeArtwork: "bilingual_contextual_nudge_artwork_v1",
+  /**
+   * QA 2026-07-29 (Part B) — dashboard orphan-invites autoscan banner
+   * (`OrphanInvitesBanner`). Dismissing snoozes the banner for
+   * `ORPHAN_AUTOSCAN_SNOOZE_DAYS` (see the component) rather than
+   * dismissing forever, since new orphan invitations can appear later.
+   */
+  orphanInvitesAutoscan: "orphan.invites.autoscan_v1",
 } as const;
 
 export type DismissalKey =

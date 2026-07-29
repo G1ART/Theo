@@ -102,6 +102,15 @@ export type CreateExternalArtistAndClaimArgs = {
    * acting-as principal); invalid ids fall back to the standard dedupe.
    */
   externalArtistId?: string | null;
+  /**
+   * QA 2026-07-29 (Part A) — opt-in consent for Theo to email
+   * `inviteEmail` about incoming price inquiries on this artist's works.
+   * Forwarded to `create_external_artist_and_claim` /
+   * `get_or_create_external_artist`, which only ever flip this from
+   * false→true (a prior explicit consent is never silently reverted by a
+   * later upload that leaves the checkbox unchecked).
+   */
+  notifyOnInquiryViaEmail?: boolean;
 };
 
 export type CreateClaimForExistingArtistArgs = {
