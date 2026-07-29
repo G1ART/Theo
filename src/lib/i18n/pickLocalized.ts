@@ -32,6 +32,17 @@ type DisplayNameRow = {
   display_name_en?: string | null;
 };
 
+/**
+ * QA 2026-07-28 — 전시 서문(preface). Bilingual columns only; there is no
+ * legacy single field, so the picker just walks {current, other} in order.
+ * Returns "" (never null) so JSX renders cleanly and callers can gate on
+ * truthiness without extra null-guards.
+ */
+type PrefaceRow = {
+  preface_ko?: string | null;
+  preface_en?: string | null;
+};
+
 function firstNonEmpty(...vals: Array<string | null | undefined>): string {
   for (const v of vals) {
     if (typeof v === "string" && v.trim().length > 0) return v;
@@ -54,6 +65,13 @@ export function pickLocalizedDisplayName(
     return firstNonEmpty(row.display_name_ko, row.display_name_en, row.display_name);
   }
   return firstNonEmpty(row.display_name_en, row.display_name_ko, row.display_name);
+}
+
+export function pickLocalizedPreface(row: PrefaceRow, locale: Locale): string {
+  if (locale === "ko") {
+    return firstNonEmpty(row.preface_ko, row.preface_en);
+  }
+  return firstNonEmpty(row.preface_en, row.preface_ko);
 }
 
 /**

@@ -9,7 +9,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { backToLabel } from "@/lib/i18n/back";
 import { getExhibitionBack } from "@/lib/exhibitionBack";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
-import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
+import { pickLocalizedTitle, pickLocalizedPreface } from "@/lib/i18n/pickLocalized";
 import {
   ensureDefaultExhibitionMediaBuckets,
   getExhibitionById,
@@ -244,6 +244,20 @@ export default function PublicExhibitionPage() {
             </div>
           </header>
           <SaveToShortlistModal exhibitionId={id} open={shortlistOpen} onClose={() => setShortlistOpen(false)} />
+
+          {/*
+            QA 2026-07-28 — 서문(preface) 렌더. 큐레이터가 작성한 소개문을
+            공개 상세에서 works grid 위에 노출. 언어는 pickLocalizedPreface
+            로 UI locale 우선, 상대 언어 fallback. 값이 비어 있으면 아무
+            것도 렌더링하지 않아 기존 전시 상세와 동일하게 보인다.
+          */}
+          {pickLocalizedPreface(exhibition, locale) && (
+            <section className="mb-10">
+              <p className="whitespace-pre-line text-[15px] leading-relaxed text-zinc-700">
+                {pickLocalizedPreface(exhibition, locale)}
+              </p>
+            </section>
+          )}
 
           {/* Exhibition Photos — merged media buckets rendered as a single
               horizontal carousel per wireframe. Keeps the original

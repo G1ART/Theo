@@ -60,6 +60,21 @@ export default function EditExhibitionPage() {
     primaryLang === "ko" ? setTitleKo(v) : setTitleEn(v);
   const setOtherTitleField = (v: string) =>
     primaryLang === "ko" ? setTitleEn(v) : setTitleKo(v);
+  /**
+   * QA 2026-07-28 — 서문(preface) bilingual field. Loaded from
+   * `projects.preface_ko` / `preface_en` on mount; saved by
+   * `updateExhibition` on submit. Mirrors the title UX (progressive
+   * disclosure + auto-expand when both languages are already filled).
+   */
+  const [prefaceKo, setPrefaceKo] = useState("");
+  const [prefaceEn, setPrefaceEn] = useState("");
+  const [showOtherLangPreface, setShowOtherLangPreface] = useState(false);
+  const primaryPrefaceField = primaryLang === "ko" ? prefaceKo : prefaceEn;
+  const otherPrefaceField = primaryLang === "ko" ? prefaceEn : prefaceKo;
+  const setPrimaryPrefaceField = (v: string) =>
+    primaryLang === "ko" ? setPrefaceKo(v) : setPrefaceEn(v);
+  const setOtherPrefaceField = (v: string) =>
+    primaryLang === "ko" ? setPrefaceEn(v) : setPrefaceKo(v);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState<"planned" | "live" | "ended">("planned");
@@ -137,6 +152,13 @@ export default function EditExhibitionPage() {
         // sees the whole picture (avoids "why is my EN title missing?" 오해).
         if ((data.title_ko?.trim().length ?? 0) > 0 && (data.title_en?.trim().length ?? 0) > 0) {
           setShowOtherLangTitle(true);
+        }
+        // QA 2026-07-28 — hydrate 서문 fields and auto-expand the second
+        // language slot when both were previously saved.
+        setPrefaceKo(data.preface_ko ?? "");
+        setPrefaceEn(data.preface_en ?? "");
+        if ((data.preface_ko?.trim().length ?? 0) > 0 && (data.preface_en?.trim().length ?? 0) > 0) {
+          setShowOtherLangPreface(true);
         }
         setStartDate(data.start_date ?? "");
         setEndDate(data.end_date ?? "");
@@ -241,6 +263,8 @@ export default function EditExhibitionPage() {
         title: legacyTitle,
         title_ko: titleKo.trim() || null,
         title_en: titleEn.trim() || null,
+        preface_ko: prefaceKo.trim() || null,
+        preface_en: prefaceEn.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
         status,
@@ -408,8 +432,65 @@ export default function EditExhibitionPage() {
                   }
                   works={exhibitionWorks}
                   onApplyTitle={(text) => setTitle(text)}
+                  onApplyDescription={(text) => {
+                    setPrimaryPrefaceField(text);
+                    if (!showOtherLangPreface && otherPrefaceField.trim()) {
+                      setShowOtherLangPreface(true);
+                    }
+                  }}
+                  currentDescription={primaryPrefaceField}
                 />
               </div>
+            </div>
+
+            {/*
+              QA 2026-07-28 — 서문 편집. 편집 화면에서도 큐레이터가 서문을
+              직접 다듬거나 위 AI 초안을 적용할 수 있어야 한다. Bilingual
+              UX는 title 과 동일.
+            */}
+            <div className="space-y-2">
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                {t("exhibition.preface")}
+              </label>
+              <p className="mb-1 text-xs text-zinc-500">{t("exhibition.prefaceHint")}</p>
+              <div className="relative">
+                <textarea
+                  value={primaryPrefaceField}
+                  onChange={(e) => setPrimaryPrefaceField(e.target.value)}
+                  placeholder={t("exhibition.prefacePlaceholder")}
+                  className="min-h-[140px] w-full resize-y rounded border border-zinc-300 px-3 py-2 pr-14 text-sm leading-relaxed"
+                  lang={primaryLang}
+                />
+                <span className="pointer-events-none absolute right-2 top-2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                  {primaryLang}
+                </span>
+              </div>
+              {showOtherLangPreface ? (
+                <div className="relative">
+                  <textarea
+                    value={otherPrefaceField}
+                    onChange={(e) => setOtherPrefaceField(e.target.value)}
+                    placeholder={t(
+                      primaryLang === "ko"
+                        ? "exhibition.prefaceOtherLangPlaceholderEn"
+                        : "exhibition.prefaceOtherLangPlaceholderKo"
+                    )}
+                    className="min-h-[140px] w-full resize-y rounded border border-zinc-300 px-3 py-2 pr-14 text-sm leading-relaxed"
+                    lang={primaryLang === "ko" ? "en" : "ko"}
+                  />
+                  <span className="pointer-events-none absolute right-2 top-2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                    {primaryLang === "ko" ? "en" : "ko"}
+                  </span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowOtherLangPreface(true)}
+                  className="text-xs text-zinc-500 underline hover:text-zinc-800"
+                >
+                  {t("exhibition.prefaceAddOtherLang")}
+                </button>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

@@ -23,6 +23,15 @@ export type ExhibitionRow = {
    */
   title_ko: string | null;
   title_en: string | null;
+  /**
+   * QA 2026-07-28 — bilingual exhibition preface (서문/소개문). Curator-owned
+   * long-form intro that renders above the works grid on the public detail
+   * page. Uses the same locale-picker pattern as `title_ko`/`title_en`
+   * (see `pickLocalizedPreface`). Both columns default to null so existing
+   * exhibitions render unchanged.
+   */
+  preface_ko: string | null;
+  preface_en: string | null;
   start_date: string | null;
   end_date: string | null;
   status: string;
@@ -35,7 +44,7 @@ export type ExhibitionRow = {
 
 /** Select + curator/host profile joins for credits label. */
 const SELECT_WITH_CREDITS =
-  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, username), host:profiles!host_profile_id(display_name, username)";
+  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, host_name, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, username), host:profiles!host_profile_id(display_name, username)";
 
 export type ExhibitionWorkRow = {
   id: string;
@@ -181,6 +190,13 @@ export async function createExhibition(args: {
    */
   title_ko?: string | null;
   title_en?: string | null;
+  /**
+   * QA 2026-07-28 — 서문(preface) additive fields. Both languages are
+   * optional; UI enforces at least one when the operator opens the
+   * assistant, but empty submits stay a no-op.
+   */
+  preface_ko?: string | null;
+  preface_en?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   status?: string;
@@ -202,6 +218,8 @@ export async function createExhibition(args: {
       title: args.title.trim(),
       title_ko: args.title_ko?.trim() || null,
       title_en: args.title_en?.trim() || null,
+      preface_ko: args.preface_ko?.trim() || null,
+      preface_en: args.preface_en?.trim() || null,
       start_date: args.start_date ?? null,
       end_date: args.end_date ?? null,
       status: args.status ?? "planned",
@@ -239,7 +257,7 @@ export async function createExhibition(args: {
 /** Update exhibition (title, dates, status, curator, host). */
 export async function updateExhibition(
   id: string,
-  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "start_date" | "end_date" | "status" | "curator_id" | "host_name" | "host_profile_id" | "cover_image_paths">>,
+  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "host_name" | "host_profile_id" | "cover_image_paths">>,
   options?: {
     /** Principal profile id when operator is acting-as. Audit-only. */
     actingSubjectProfileId?: string | null;
@@ -250,6 +268,10 @@ export async function updateExhibition(
   // Phase 4: allow explicit null to clear a bilingual field.
   if (patch.title_ko !== undefined) payload.title_ko = patch.title_ko?.trim() || null;
   if (patch.title_en !== undefined) payload.title_en = patch.title_en?.trim() || null;
+  // QA 2026-07-28 — preface writes mirror the bilingual title behaviour:
+  // explicit null clears the field, empty string collapses to null.
+  if (patch.preface_ko !== undefined) payload.preface_ko = patch.preface_ko?.trim() || null;
+  if (patch.preface_en !== undefined) payload.preface_en = patch.preface_en?.trim() || null;
   if (patch.start_date !== undefined) payload.start_date = patch.start_date;
   if (patch.end_date !== undefined) payload.end_date = patch.end_date;
   if (patch.status !== undefined) payload.status = patch.status;

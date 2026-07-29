@@ -78,6 +78,21 @@ export function NewExhibitionFormShell({
   const setOtherTitle = (v: string) =>
     primaryLang === "ko" ? setTitleEn(v) : setTitleKo(v);
   const hasAnyTitle = titleKo.trim().length > 0 || titleEn.trim().length > 0;
+  /**
+   * QA 2026-07-28 — 전시 서문(preface). Progressive disclosure mirrors
+   * the title UX: primary-language textarea is always visible, other
+   * language reveals on "다른 언어 추가" click (or auto-expands if
+   * both are pre-filled). Persisted through createExhibition below.
+   */
+  const [prefaceKo, setPrefaceKo] = useState("");
+  const [prefaceEn, setPrefaceEn] = useState("");
+  const [showOtherLangPreface, setShowOtherLangPreface] = useState(false);
+  const primaryPreface = primaryLang === "ko" ? prefaceKo : prefaceEn;
+  const otherPreface = primaryLang === "ko" ? prefaceEn : prefaceKo;
+  const setPrimaryPreface = (v: string) =>
+    primaryLang === "ko" ? setPrefaceKo(v) : setPrefaceEn(v);
+  const setOtherPreface = (v: string) =>
+    primaryLang === "ko" ? setPrefaceEn(v) : setPrefaceKo(v);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState<"planned" | "live" | "ended">("planned");
@@ -199,6 +214,8 @@ export function NewExhibitionFormShell({
       title: legacyTitle,
       title_ko: titleKo.trim() || null,
       title_en: titleEn.trim() || null,
+      preface_ko: prefaceKo.trim() || null,
+      preface_en: prefaceEn.trim() || null,
       start_date: startDate || null,
       end_date: endDate || null,
       status,
@@ -315,6 +332,57 @@ export function NewExhibitionFormShell({
               className="text-xs text-zinc-500 underline hover:text-zinc-800"
             >
               {t("exhibition.titleAddOtherLang")}
+            </button>
+          )}
+        </div>
+
+        {/*
+          QA 2026-07-28 — 서문(preface) textarea. Optional field; the
+          curator can type or paste an AI-drafted intro. Mirrors the
+          bilingual title pattern: primary slot in the current UI locale,
+          "다른 언어 추가" reveals the secondary language.
+        */}
+        <div data-tour="exhibition-form-preface" className="space-y-2">
+          <label className="mb-1 block text-sm font-medium text-zinc-700">
+            {t("exhibition.preface")}
+          </label>
+          <p className="mb-1 text-xs text-zinc-500">{t("exhibition.prefaceHint")}</p>
+          <div className="relative">
+            <textarea
+              value={primaryPreface}
+              onChange={(e) => setPrimaryPreface(e.target.value)}
+              placeholder={t("exhibition.prefacePlaceholder")}
+              className="min-h-[140px] w-full resize-y rounded border border-zinc-300 px-3 py-2 pr-14 text-sm leading-relaxed"
+              lang={primaryLang}
+            />
+            <span className="pointer-events-none absolute right-2 top-2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+              {primaryLang}
+            </span>
+          </div>
+          {showOtherLangPreface ? (
+            <div className="relative">
+              <textarea
+                value={otherPreface}
+                onChange={(e) => setOtherPreface(e.target.value)}
+                placeholder={t(
+                  primaryLang === "ko"
+                    ? "exhibition.prefaceOtherLangPlaceholderEn"
+                    : "exhibition.prefaceOtherLangPlaceholderKo"
+                )}
+                className="min-h-[140px] w-full resize-y rounded border border-zinc-300 px-3 py-2 pr-14 text-sm leading-relaxed"
+                lang={primaryLang === "ko" ? "en" : "ko"}
+              />
+              <span className="pointer-events-none absolute right-2 top-2 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                {primaryLang === "ko" ? "en" : "ko"}
+              </span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowOtherLangPreface(true)}
+              className="text-xs text-zinc-500 underline hover:text-zinc-800"
+            >
+              {t("exhibition.prefaceAddOtherLang")}
             </button>
           )}
         </div>
@@ -586,6 +654,13 @@ export function NewExhibitionFormShell({
                   }
                   works={[]}
                   onApplyTitle={(text) => setPrimaryTitle(text)}
+                  onApplyDescription={(text) => {
+                    setPrimaryPreface(text);
+                    if (!showOtherLangPreface && otherPreface.trim()) {
+                      setShowOtherLangPreface(true);
+                    }
+                  }}
+                  currentDescription={primaryPreface}
                 />
               </div>
             )}
