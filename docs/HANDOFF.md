@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-29
 
-## 2026-07-29 — 이중언어 채택 UX (기존 유저 대상 4-계층 유도) ⚠️ SQL 수동 실행 필요
+## 2026-07-29 — 이중언어 채택 UX (기존 유저 대상 4-계층 유도) ✅ SQL 자동 적용됨
 
 ### 배경
 2026-07-28 에 KO/EN 병기 인프라 (schema + 헬퍼 + authoring chip + AI draft + display retrofit + 온보딩 상속) 가 랜딩했으나, 기존 유저 데이터는 대부분 monolingual 상태 (`profiles` 41/52, `artworks` 304/304 titled 모두 backfill split single-language, `bio`/`artist_statement` mostly monolingual). 표시 surface 는 `pickLocalized*` fallback 으로 정상 렌더되지만, 소유자에게 "다른 언어를 추가할 수 있다" 는 신호가 전혀 없어 이중언어 채택이 정체됨.
@@ -20,11 +20,13 @@ Last updated: 2026-07-29
 - `c905669` — **Track β**: 이중언어 발견 배너 (홈).
 - `10f7e45` — **Track α**: `user_ui_dismissals` + AI `translate_draft` metering.
 
-### Supabase SQL — ⚠️ 수동 실행 필요
-아래 마이그레이션 두 개는 아직 프로덕션에 적용되지 않음. Supabase Dashboard SQL Editor 에서 순서대로 실행 필요:
+### Supabase SQL — ✅ MCP `apply_migration` 으로 이미 프로덕션 적용됨
+두 마이그레이션 모두 MCP 로 이미 프로덕션에 반영되어 있음 (versions `20260729072646`, `20260729072829`). **수동 실행 필요 없음**. 재적용 시 idempotent.
 
-1. `supabase/migrations/20260729010000_user_ui_dismissals.sql` — `user_ui_dismissals` 테이블 + RLS (`user_id = auth.uid()`) + `record_ui_dismissal(text, int)` RPC. 단일 함수라 통째로 붙여 실행하면 됨.
-2. `supabase/migrations/20260729010001_ai_translate_draft_feature_keys.sql` — `plan_feature_matrix` 에 `ai.translate_draft` seed (모든 plan `allow=true`) + `plan_quota_matrix` 에 free/plus 캡 seed. 단순 upsert 라 통째로 실행.
+1. `supabase/migrations/20260729010000_user_ui_dismissals.sql` — `user_ui_dismissals` 테이블 + RLS (`user_id = auth.uid()`) + `record_ui_dismissal(text, int)` RPC.
+2. `supabase/migrations/20260729010001_ai_translate_draft_feature_keys.sql` — `plan_feature_matrix` 에 `ai.translate_draft` seed + `plan_quota_matrix` 에 30일 캡 (free 40 · artist_pro 300 · discovery_pro 60 · hybrid_pro 300 · gallery_workspace 무제한) seed.
+
+**적용 후 검증 (2026-07-29)**: `user_ui_dismissals` 테이블 존재 · quota matrix 5개 plan 값 정확히 seed 됨.
 
 ### 새 표면 (QA spot-check 대상)
 - **홈 (`/feed`)** — 로그인 세션이 있고 `bilingual_discovery_banner_v1` dismissal 이 없을 때 배너 노출. CTA: `[지금 정리하기 / Set it up now]` → `/settings/bilingual` + 영구 dismiss, `[나중에]` → 7일 스누즈 (최대 3회 후 자동 영구 dismiss), `[숨기기]` → 영구 dismiss.
