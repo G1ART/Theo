@@ -2,6 +2,60 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — 업로드 이미지 자동 크롭/톤 제거 + 인터랙티브 크롭 툴 ✅ SQL 변경 없음
+
+### 배경 (QA)
+> "작품 업로드 시 자동으로 배경 크롭이 '테오 기준'으로 적용되는 게 유저에게 혼동을 준다. 크롭 오류도 꽤 자주 발견됨. 원본 그대로 올리고, 크롭은 완전히 수동 옵션으로만 남기자."
+
+기존 동작:
+- 단일 업로드에서 `ImageStandardizeEditor` mount 시 `analyzeImageFile()` 결과(톤 + 배경 크롭 rect)를 **자동으로** 로컬 state + parent state 에 push. 유저는 아무것도 안 했는데 이미 tone shift + auto-crop 적용 상태.
+- Manual crop 은 진짜 편집 툴이 아니라 "auto-crop 적용/해제" chip 두 개뿐 — 유저가 원하는 rect 를 그릴 수 없음.
+- Bulk 업로드도 매 파일마다 `analysis.suggested` (톤 + 크롭) 을 조용히 `displayAdjust` 로 저장.
+
+### 변경
+
+**1. 마운트 자동 적용 제거 (`src/components/upload/ImageStandardizeEditor.tsx` 재작성)**
+- `userTouchedRef` 로 "유저가 실제로 슬라이더를 만지거나 크롭을 apply 했는지" 를 추적. 이 flag 가 false 인 동안엔 debounced push effect 가 early-return → parent value 는 `null` (원본) 유지.
+- 분석기(`analyzeImageFile`) 는 여전히 mount 시 백그라운드로 돌지만, 결과는 오직 chip 2개("표준 톤 적용", "추천 영역 사용") 로만 노출됨.
+- "표준 톤 적용" chip 은 이제 **톤(b/c/s) 만** 적용하고 크롭은 건드리지 않음 (`handleApplyStandardTone`).
+
+**2. 진짜 인터랙티브 크롭 툴**
+- "크롭" 버튼 클릭 → `cropEditing=true` 진입, `draftCrop` 이 프리뷰 위에 얹힘.
+- 초기 rect: 이전 committed crop 이 있으면 그것, 없으면 `{x:0.05, y:0.05, w:0.9, h:0.9}` (프레임 안쪽으로 5% 이싰이 헨들이 즉시 보이도록).
+- **4 corner + 4 edge = 총 8개 핸들** + body 전체가 move 핸들. `PointerEvent + setPointerCapture` 기반 드래그.
+- 최소 크기 `MIN_CROP_SIDE = 0.1` (10%). 정규화 시 drop 되는 `< 0.05` threshold 보다 여유 있게 잡음.
+- 편집 중엔 크롭 밖 영역을 4개의 반투명 검정 사각형으로 마스킹 (`rgba(0,0,0,0.45)`) + 크롭 사각형 내부에 **3분할 rule-of-thirds 가이드** (얇은 흰 라인 4개).
+- Ratio lock 없음 — free-form 크롭. (아트웍 aspect 는 예측 불가한 게 정상이라 강제 lock 이 오히려 방해.)
+- 크롭 rect 좌표는 원본 이미지 기준 normalized `[0,1]`. 프리뷰 컨테이너는 4:5 aspect box 에 `object-contain` 이므로 letterbox 를 감안해 **이미지의 실제 렌더 rect** (`imageRect` — 이미지 aspect + 컨테이너 dim 기반 계산) 안에 오버레이를 pin. 이전 코드는 컨테이너 % 기준이라 aspect 불일치 시 미묘하게 어긋났음.
+- "적용" → `crop` 확정 + `userTouchedRef=true` → parent 로 emit. "취소" → 이전 committed crop 으로 복귀.
+- 크롭이 프레임 전체와 사실상 동일하면 (`x<0.005 && y<0.005 && w>0.995 && h>0.995`) `crop=null` 로 정규화 — 리마운트 시 "no crop" 으로 일관되게 읽힘.
+- "추천 영역 사용" chip 은 auto-detect 결과를 **`draftCrop` 초기값으로 seed 한 상태로 편집 모드 진입** — 유저가 그대로 apply 하거나 조정 가능. Auto-apply 아님.
+
+**3. Bulk 업로드도 원본 그대로 (`src/app/upload/bulk/page.tsx`)**
+- `analyzeImageFile()` 호출 + `analysis.suggested` 자동 저장 로직 삭제. `displayAdjust = null` 하드코딩. 유저는 나중에 artwork edit 페이지에서 조정 가능.
+- unused import 정리.
+
+**4. 계약 문서화 (`src/lib/image/analyze.ts`)**
+- `ImageAnalysis.suggested` JSDoc 에 "**QA 2026-07-28 contract change**: `suggested.crop` 은 mount auto-apply 대상이 아님. 인터랙티브 크롭 툴의 seed 로만 사용. 외부 caller 는 `suggested.crop` 을 조용히 persist 하지 말 것" 을 명시.
+- 크롭 detection 로직 자체는 유지 (인터랙티브 툴의 "추천 영역 사용" chip 에서 재사용).
+
+**5. i18n 재작성 (`src/lib/i18n/messages.ts`, KO/EN)**
+- `upload.imageStandardize.title`: "피드용으로 톤 다듬기" → "선택 조정" / "Tune for the feed" → "Optional touch-ups". "자동으로 조정됨" 뉘앙스 제거.
+- `upload.imageStandardize.idleHint`: "이미지는 원본 그대로 업로드돼요. 직접 움직인 값만 저장돼요." / "The image is uploaded as-is. Nothing is saved until you move something."
+- `upload.imageStandardize.appliedChip`: "표준화됨" → "직접 조정됨" / "Standardized" → "Adjusted".
+- 새 키(KO/EN append): `cropStart`, `cropEdit`, `cropClear`, `cropApply`, `cropCancel`, `cropEditingHint`, `cropSuggest`, `cropSuggestHint`, `cropMove`, `cropHandle`, `applyStandardTone`, `applyStandardToneHint`, `savedToneOnly`, `savedCropOnly`, `savedToneAndCrop`. 톤: 조용한 성공/실용/정중, 실패만 소리 냄.
+- `reapplyStandard` / `autoCrop` / `clearCrop` 는 legacy 로 남겨두지만 이제 컴포넌트에서 참조하지 않음.
+
+### Verified
+- `npx tsc --noEmit` clean.
+- `npm run lint` (touched files): 새 error/warning 0개. `ImageStandardizeEditor.tsx` 의 3개 `set-state-in-effect` 는 `eslint-disable` 로 억제 (원본은 heuristic 상 통과했지만 재작성 후 rule 이 검출 — 파일 로드 / 원격 계약 sync 라는 정당한 use-case 이며 codebase 에 동일 패턴 disable 선례 존재).
+- Supabase SQL 변경 없음 — 저장 shape (`artwork_images.display_adjust` jsonb) 그대로.
+
+### 환경 변수
+없음. 새 패키지 없음.
+
+---
+
 ## 2026-07-28 — 전시 서문(preface) 필드 추가 + AI 문안 도우미 크래시 안정화 ✅ SQL 자동 적용됨
 
 ### 배경 (QA)

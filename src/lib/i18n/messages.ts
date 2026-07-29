@@ -810,12 +810,12 @@ export const messages = {
     "upload.imageRemove": "Remove image",
     "upload.imageStandardize.edit": "Adjust look",
     "upload.imageStandardize.hide": "Hide adjust",
-    "upload.imageStandardize.appliedChip": "Standardized",
-    "upload.imageStandardize.title": "Tune for the feed",
+    "upload.imageStandardize.appliedChip": "Adjusted",
+    "upload.imageStandardize.title": "Optional touch-ups",
     "upload.imageStandardize.idleHint":
-      "We show a Theo-standard preview of how this image will appear on grids and feeds. Adjust below, or leave as-is — the original file is never modified.",
+      "The image is uploaded as-is. Use the sliders below to nudge brightness, contrast, or saturation; open the crop tool to trim on your own terms. Nothing is saved until you move something.",
     "upload.imageStandardize.appliedHint":
-      "Applied to grid/feed thumbnails only. The artwork detail page always shows your original.",
+      "Only feed and grid thumbnails use these tweaks. The artwork detail page always shows your original file.",
     "upload.imageStandardize.analyzing": "Reading the image…",
     "upload.imageStandardize.analyzeError":
       "Couldn't read this image — showing it as-is.",
@@ -826,6 +826,27 @@ export const messages = {
     "upload.imageStandardize.clearCrop": "Undo trim",
     "upload.imageStandardize.reapplyStandard": "Re-apply Theo standard",
     "upload.imageStandardize.reset": "Reset to original",
+    "upload.imageStandardize.cropStart": "Crop",
+    "upload.imageStandardize.cropEdit": "Edit crop",
+    "upload.imageStandardize.cropClear": "Clear crop",
+    "upload.imageStandardize.cropApply": "Apply",
+    "upload.imageStandardize.cropCancel": "Cancel",
+    "upload.imageStandardize.cropEditingHint":
+      "Drag the rectangle or its handles. Only the area inside will show on feeds and grids.",
+    "upload.imageStandardize.cropSuggest": "Use suggested crop",
+    "upload.imageStandardize.cropSuggestHint":
+      "Auto-detected uniform borders. You can still adjust before applying.",
+    "upload.imageStandardize.cropMove": "Move crop area",
+    "upload.imageStandardize.cropHandle": "Resize crop",
+    "upload.imageStandardize.applyStandardTone": "Apply standard tone",
+    "upload.imageStandardize.applyStandardToneHint":
+      "Only shifts brightness, contrast, and saturation. Crop is untouched.",
+    "upload.imageStandardize.savedToneOnly":
+      "Tone tweaks will be applied to feed thumbnails only.",
+    "upload.imageStandardize.savedCropOnly":
+      "Your crop will be applied to feed thumbnails only.",
+    "upload.imageStandardize.savedToneAndCrop":
+      "Your tone and crop will be applied to feed thumbnails only.",
     "upload.viewType.wall_mounted": "Primary (front)",
     "upload.viewType.detail": "Detail",
     "upload.viewType.angle": "Alternate angle",
@@ -3805,12 +3826,12 @@ export const messages = {
     "upload.imageRemove": "이미지 제거",
     "upload.imageStandardize.edit": "느낌 조정",
     "upload.imageStandardize.hide": "조정 접기",
-    "upload.imageStandardize.appliedChip": "표준화됨",
-    "upload.imageStandardize.title": "피드용으로 톤 다듬기",
+    "upload.imageStandardize.appliedChip": "직접 조정됨",
+    "upload.imageStandardize.title": "선택 조정",
     "upload.imageStandardize.idleHint":
-      "피드·그리드에서 어떻게 보일지 Theo 표준 프리뷰로 보여드려요. 아래에서 조정하거나 그대로 두세요. 원본 파일은 그대로 유지돼요.",
+      "이미지는 원본 그대로 업로드돼요. 아래 슬라이더로 밝기·대비·채도를 살짝 손보거나, 크롭 버튼으로 원하는 영역만 남길 수 있어요. 직접 움직인 값만 저장돼요.",
     "upload.imageStandardize.appliedHint":
-      "피드·그리드 썸네일에만 적용돼요. 작품 상세 페이지는 항상 원본으로 보여드려요.",
+      "피드·그리드 썸네일에만 적용돼요. 작품 상세 페이지는 항상 원본을 보여드려요.",
     "upload.imageStandardize.analyzing": "이미지를 읽는 중…",
     "upload.imageStandardize.analyzeError":
       "이미지를 읽지 못했어요. 원본 그대로 표시합니다.",
@@ -3821,6 +3842,27 @@ export const messages = {
     "upload.imageStandardize.clearCrop": "정리 되돌리기",
     "upload.imageStandardize.reapplyStandard": "Theo 표준 다시 적용",
     "upload.imageStandardize.reset": "원본으로 되돌리기",
+    "upload.imageStandardize.cropStart": "크롭",
+    "upload.imageStandardize.cropEdit": "크롭 편집",
+    "upload.imageStandardize.cropClear": "크롭 해제",
+    "upload.imageStandardize.cropApply": "적용",
+    "upload.imageStandardize.cropCancel": "취소",
+    "upload.imageStandardize.cropEditingHint":
+      "사각형을 끌거나 모서리·변을 잡아 조정하세요. 안쪽 영역만 피드·그리드에 보여요.",
+    "upload.imageStandardize.cropSuggest": "추천 영역 사용",
+    "upload.imageStandardize.cropSuggestHint":
+      "자동으로 감지된 배경 여백입니다. 적용 전에 자유롭게 다시 조정할 수 있어요.",
+    "upload.imageStandardize.cropMove": "크롭 영역 이동",
+    "upload.imageStandardize.cropHandle": "크롭 크기 조절",
+    "upload.imageStandardize.applyStandardTone": "표준 톤 적용",
+    "upload.imageStandardize.applyStandardToneHint":
+      "밝기·대비·채도만 조정해요. 크롭은 건드리지 않아요.",
+    "upload.imageStandardize.savedToneOnly":
+      "조정한 톤은 피드 썸네일에만 적용돼요.",
+    "upload.imageStandardize.savedCropOnly":
+      "설정한 크롭은 피드 썸네일에만 적용돼요.",
+    "upload.imageStandardize.savedToneAndCrop":
+      "조정한 톤과 크롭은 피드 썸네일에만 적용돼요.",
     "upload.viewType.wall_mounted": "대표 (정면)",
     "upload.viewType.detail": "디테일",
     "upload.viewType.angle": "다른 각도",

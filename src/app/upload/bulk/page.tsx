@@ -51,7 +51,6 @@ import {
   UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
-import { analyzeImageFile } from "@/lib/image/analyze";
 import { isCompressibleMime } from "@/lib/image/compress";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
@@ -412,21 +411,14 @@ export default function BulkUploadPage() {
         // 2026-07-28 auto-compression — returns { displayPath, originalPath,
         // meta, bytes... }. Original is backed up under `{userId}/original/`.
         uploadResult = await uploadArtworkImage(file, storageOwner);
-        // 2026-07-20 (feed image standardization) — analyze in-memory
-        // File before it goes out of scope so bulk-uploaded works land
-        // on the feed with the "Theo standard" tone applied. The
-        // suggestion is clamped ±15% so a bad read cannot make an
-        // image unreadable; users can reset from the artwork edit
-        // page later. Analysis is best-effort — a failure never
-        // blocks the upload.
-        let displayAdjust: import("@/lib/image/displayAdjust").DisplayAdjust | null = null;
-        try {
-          const analysis = await analyzeImageFile(file);
-          displayAdjust = analysis.suggested;
-        } catch {
-          // Silent: standardization is a nice-to-have on top of a
-          // successful upload; never fail the upload for it.
-        }
+        // QA 2026-07-28: bulk uploads now always persist the ORIGINAL.
+        // The previous behaviour silently applied the auto-analyzed
+        // "Theo standard" tone + auto-crop on every image, which
+        // confused artists (works looked different from what they had
+        // just dropped in) and mis-fired on textured backgrounds. Tone
+        // + crop are now opt-in only from the single-work uploader's
+        // interactive editor — the bulk fast-path stays untouched.
+        const displayAdjust: import("@/lib/image/displayAdjust").DisplayAdjust | null = null;
         const { error: attachErr } = await attachArtworkImage(
           artworkId,
           uploadResult.displayPath,

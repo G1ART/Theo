@@ -71,13 +71,27 @@ export type ImageAnalysis = {
   meanLuma: number;
   /** Std dev of luminance (0–255). */
   stdevLuma: number;
-  /** Suggested display adjustments (already clamped & normalized). May
-   *  be `null` when the image is already close to standard AND has no
-   *  usable background to crop — in which case rendering the original
-   *  is correct. */
+  /**
+   * Suggested display adjustments (already clamped & normalized). May
+   * be `null` when the image is already close to standard AND has no
+   * usable background to crop — in which case rendering the original
+   * is correct.
+   *
+   * IMPORTANT — QA 2026-07-28 contract change:
+   *   `suggested.crop` is NO LONGER auto-applied by the uploader on
+   *   mount. It is surfaced to the user as a one-click "suggested
+   *   crop" chip inside `ImageStandardizeEditor` (which opens the
+   *   interactive crop tool pre-seeded with this rect). Callers that
+   *   attach `displayAdjust` outside the editor (e.g. bulk upload)
+   *   must NOT persist `suggested.crop` silently — pass `null` or
+   *   strip the `crop` field. `suggested.b/c/s` (tone) is safe to
+   *   apply if the caller intends to opt every image into the
+   *   standard tone.
+   */
   suggested: DisplayAdjust | null;
-  /** Separate crop suggestion so the editor can show a "auto-crop"
-   *  chip independent of the tone controls. */
+  /** Separate crop suggestion so the editor can show a "suggested
+   *  crop" chip independent of the tone controls. Not auto-applied —
+   *  see the note on `suggested` above. */
   suggestedCrop: DisplayCrop | null;
 };
 
