@@ -70,6 +70,7 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { ArtworkPassportHeader } from "@/components/artwork/ArtworkPassportHeader";
 import { ArtworkImageStage } from "@/components/artwork/ArtworkImageStage";
 import { GatedField } from "@/components/visibility/GatedField";
+import { BilingualContextualNudge } from "@/components/bilingual/BilingualContextualNudge";
 import {
   getArtworkPassportForViewer,
   resolveRoomSourceFromToken,
@@ -751,6 +752,24 @@ function ArtworkDetailContent() {
             <h1 className="text-2xl font-semibold text-zinc-900">
               {pickLocalizedArtworkTitle(artwork, locale) || t("common.untitled")}
             </h1>
+            {isOwner && (
+              <div className="mt-1">
+                <BilingualContextualNudge
+                  field="title"
+                  sourceValue={
+                    locale === "ko" ? artwork.title_en : artwork.title_ko
+                  }
+                  currentValue={
+                    locale === "ko" ? artwork.title_ko : artwork.title_en
+                  }
+                  uiLocale={locale}
+                  viewerIsOwner={isOwner}
+                  editHref={`/artwork/${artwork.id}/edit#title`}
+                  scope="artwork"
+                  sessionScopeHint={`${artwork.id}:title`}
+                />
+              </div>
+            )}
             {(() => {
               const identity = formatIdentityPair(artist ?? null, t, locale);
               const chips = formatRoleChips(artist ?? null, t, { max: 2 });
@@ -813,6 +832,24 @@ function ArtworkDetailContent() {
                 .filter(Boolean)
                 .join(" · ")}
             </p>
+            {isOwner && (
+              <div className="mt-1">
+                <BilingualContextualNudge
+                  field="medium"
+                  sourceValue={
+                    locale === "ko" ? artwork.medium_en : artwork.medium_ko
+                  }
+                  currentValue={
+                    locale === "ko" ? artwork.medium_ko : artwork.medium_en
+                  }
+                  uiLocale={locale}
+                  viewerIsOwner={isOwner}
+                  editHref={`/artwork/${artwork.id}/edit#medium`}
+                  scope="artwork"
+                  sessionScopeHint={`${artwork.id}:medium`}
+                />
+              </div>
+            )}
             {sizeDisplay && (
               <p className="mt-1 text-sm text-zinc-600">{sizeDisplay}</p>
             )}
@@ -1447,8 +1484,33 @@ function ArtworkDetailContent() {
           const eff = descriptionResolution ?? PENDING_RESOLUTION;
           if (eff.canView) {
             const localizedStory = pickLocalizedStory(artwork, locale);
-            if (!localizedStory) return null;
-            return <p className="text-sm text-zinc-600">{localizedStory}</p>;
+            const storySourceSlot =
+              locale === "ko" ? artwork.story_en : artwork.story_ko;
+            const storyCurrentSlot =
+              locale === "ko" ? artwork.story_ko : artwork.story_en;
+            return (
+              <div className="space-y-2">
+                {localizedStory ? (
+                  <p className="text-sm text-zinc-600">{localizedStory}</p>
+                ) : null}
+                {/*
+                  QA 2026-07-29 — 오너 전용 story 컨텍스트 넛지. 뷰어가
+                  owner 가 아니면 절대 렌더하지 않는다 (프라이버시).
+                */}
+                {isOwner && (
+                  <BilingualContextualNudge
+                    field="story"
+                    sourceValue={storySourceSlot}
+                    currentValue={storyCurrentSlot}
+                    uiLocale={locale}
+                    viewerIsOwner={isOwner}
+                    editHref={`/artwork/${artwork.id}/edit#story`}
+                    scope="artwork"
+                    sessionScopeHint={`${artwork.id}:story`}
+                  />
+                )}
+              </div>
+            );
           }
           if (!fieldPresence?.description) return null;
           return (

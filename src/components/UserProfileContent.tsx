@@ -51,6 +51,7 @@ import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
 import { ProfileCoverBand } from "@/components/profile/ProfileCoverBand";
 import { ProfileSurfaceCards } from "@/components/profile/ProfileSurfaceCards";
 import { isArtistRole } from "@/lib/identity/roles";
+import { BilingualContextualNudge } from "@/components/bilingual/BilingualContextualNudge";
 
 const PROFILE_UPDATED_KEY = "profile_updated";
 
@@ -556,6 +557,28 @@ export function UserProfileContent({
             {usernameHandle && (
               <p className="text-sm text-zinc-500">{usernameHandle}</p>
             )}
+            {/*
+              QA 2026-07-29 — Layer 3 이중언어 컨텍스트 넛지. 오너 본인이
+              자기 프로필을 볼 때, 현재 UI 로케일에 해당하는 이름 슬롯이
+              비어 있으면 조용히 안내 chip. `viewerIsOwner={isOwner}` 로
+              방문자에게는 절대 노출되지 않는다.
+            */}
+            <div className="mt-1">
+              <BilingualContextualNudge
+                field="display_name"
+                sourceValue={
+                  locale === "ko" ? profile.display_name_en : profile.display_name_ko
+                }
+                currentValue={
+                  locale === "ko" ? profile.display_name_ko : profile.display_name_en
+                }
+                uiLocale={locale}
+                viewerIsOwner={isOwner}
+                editHref="/settings#displayName"
+                scope="profile"
+                sessionScopeHint={profile.id}
+              />
+            </div>
             <div className="mt-2">
               <ProfileActions profileId={profile.id} />
             </div>
@@ -572,10 +595,28 @@ export function UserProfileContent({
 
         {(() => {
           const localizedBio = pickLocalizedBio(profile, locale);
-          return localizedBio ? (
-            <p className="whitespace-pre-line text-sm text-zinc-700">{localizedBio}</p>
-          ) : (
-            <p className="text-sm text-zinc-400">{t("profile.noBio")}</p>
+          const bioCurrentSlot =
+            locale === "ko" ? profile.bio_ko ?? "" : profile.bio_en ?? "";
+          const bioSourceSlot =
+            locale === "ko" ? profile.bio_en ?? "" : profile.bio_ko ?? "";
+          return (
+            <div className="space-y-1">
+              {localizedBio ? (
+                <p className="whitespace-pre-line text-sm text-zinc-700">{localizedBio}</p>
+              ) : (
+                <p className="text-sm text-zinc-400">{t("profile.noBio")}</p>
+              )}
+              <BilingualContextualNudge
+                field="bio"
+                sourceValue={bioSourceSlot}
+                currentValue={bioCurrentSlot}
+                uiLocale={locale}
+                viewerIsOwner={isOwner}
+                editHref="/settings#bio"
+                scope="profile"
+                sessionScopeHint={`${profile.id}:bio`}
+              />
+            </div>
           );
         })()}
 
@@ -654,16 +695,43 @@ export function UserProfileContent({
           (curator / collector / gallerist) the entire row is suppressed.
           Also suppressed when the visitor picked the Collector role tab. */}
       {roleTab === "artist" && isArtistRole({ main_role: profile.main_role ?? null, roles }) && (
-        <ProfileSurfaceCards
-          statement={pickLocalizedStatement(profile, locale) || null}
-          heroImagePath={profile.artist_statement_hero_image_url ?? null}
-          education={profile.education ?? null}
-          exhibitionsCv={profile.exhibitions_cv ?? null}
-          awards={profile.awards ?? null}
-          residencies={profile.residencies ?? null}
-          cvPdfPath={profile.cv_pdf_path ?? null}
-          isOwner={isOwner}
-        />
+        <>
+          <ProfileSurfaceCards
+            statement={pickLocalizedStatement(profile, locale) || null}
+            heroImagePath={profile.artist_statement_hero_image_url ?? null}
+            education={profile.education ?? null}
+            exhibitionsCv={profile.exhibitions_cv ?? null}
+            awards={profile.awards ?? null}
+            residencies={profile.residencies ?? null}
+            cvPdfPath={profile.cv_pdf_path ?? null}
+            isOwner={isOwner}
+          />
+          {/*
+            QA 2026-07-29 — 오너 전용 statement 컨텍스트 넛지. 현재 UI 로케
+            일의 statement 슬롯이 비어 있을 때만 노출된다. `#statement`
+            앵커는 /settings 페이지의 statement 섹션에 존재한다.
+          */}
+          <div className="mt-2">
+            <BilingualContextualNudge
+              field="statement"
+              sourceValue={
+                locale === "ko"
+                  ? profile.artist_statement_en
+                  : profile.artist_statement_ko
+              }
+              currentValue={
+                locale === "ko"
+                  ? profile.artist_statement_ko
+                  : profile.artist_statement_en
+              }
+              uiLocale={locale}
+              viewerIsOwner={isOwner}
+              editHref="/settings#statement"
+              scope="profile"
+              sessionScopeHint={`${profile.id}:statement`}
+            />
+          </div>
+        </>
       )}
 
       {isOwner && (
