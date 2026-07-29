@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-## 2026-07-28 — KO/EN 이중언어 대규모 랜딩 (Track A → D) ⚠ SQL 실행 필요
+## 2026-07-28 — KO/EN 이중언어 대규모 랜딩 (Track A → D) ✅ SQL 자동 적용됨
 
 ### 배경
 프로필/작품/전시 authoring surface 는 monolingual (`display_name`, `bio`, `artist_statement`, `artworks.title/medium/story`, `projects.host_name`) 이었고, 표시 surface 는 그 legacy 컬럼만 읽었다. QA 스코프에서 이미 `projects.title_ko/en` · `projects.preface_ko/en` · `external_artists.display_name_ko/en` 이 도입된 상태였으나 나머지 필드가 아직 monolingual 이라 EN 로케일 UI 에서 작가 본인이 원하는 표기가 반영되지 않았다.
@@ -20,8 +20,8 @@ Last updated: 2026-07-28
 - `b3e35b0` — **Track B**: 프로필/작품/전시 인풋 이중언어 옵션.
 - `ac555f4` — **Track A**: KO/EN 병기 스키마 + 헬퍼 + 쿼리 확장.
 
-### Supabase SQL — ⚠ 미적용 마이그레이션 있음
-아래 6개 SQL 파일을 **순서대로** Supabase SQL Editor 에서 실행. 240005 는 여러 PL/pgSQL 함수 정의가 들어 있으므로 `-- == SECTION N ==` 배너 단위로 highlight → Run.
+### Supabase SQL — ✅ MCP `apply_migration` 으로 이미 프로덕션 적용됨
+아래 6개 파일은 MCP `apply_migration` 으로 이미 프로덕션에 적용되어 있음 (240005 는 SECTION 5개 + drop_old_overloads 로 분할 적용). **수동 실행 필요 없음**. 재적용 시엔 idempotent 하도록 작성돼 있음.
 
 1. `supabase/migrations/20260728240000_bilingual_profiles.sql` — `profiles.display_name_ko/en`, `bio_ko/en`, `artist_statement_ko/en`.
 2. `supabase/migrations/20260728240001_bilingual_artworks.sql` — `artworks.title_ko/en`, `medium_ko/en`, `story_ko/en`.
@@ -29,6 +29,8 @@ Last updated: 2026-07-28
 4. `supabase/migrations/20260728240003_bilingual_backfill.sql` — best-effort backfill (Hangul 판정 → KO 슬롯; else EN).
 5. `supabase/migrations/20260728240004_bilingual_sync_triggers.sql` — 각 테이블에 `sync_legacy_from_bilingual` trigger. 어느 언어든 write 되면 legacy 컬럼을 KO 우선으로 sync. 검색/back-compat 을 위한 legacy 컬럼 유지.
 6. `supabase/migrations/20260728240005_bilingual_rpc_extensions.sql` — 총 5 SECTION. `upsert_my_profile`, `get_or_create_external_artist`, `create_external_artist_and_claim`, `list_exhibition_participants`, `handle_auth_user_created_link_external_artist` 확장. 옛 overload `DROP` 포함.
+
+**적용 후 검증 (2026-07-28)**: 컬럼 18개 전부 존재 확인, sync 트리거 4개 (artworks/external_artists/profiles/projects) 정상 부착, 백필 통계 — profiles 41/52, artworks 304/304, projects host_name 21/21.
 
 ### Verify (수동)
 - Feed / Explore / Artwork detail 에서 EN 로케일 전환 → 작가·작품 이름이 `_en` 우선으로 표시되는지.
