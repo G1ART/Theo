@@ -178,9 +178,21 @@ export function AppSidebar() {
 
         <Link
           href="/settings"
-          className={`${pathname.startsWith("/settings") ? "font-bold text-zinc-900" : "text-zinc-600 hover:text-zinc-900"}`}
+          className={`${pathname === "/settings" ? "font-bold text-zinc-900" : "text-zinc-600 hover:text-zinc-900"}`}
         >
           {t("nav.setting")}
+        </Link>
+        {/*
+          QA 2026-07-29 (Track δ) — 이중언어 정리 대시보드로의 진입점.
+          "설정" 하위의 얕은 링크로 붙이며, /settings/bilingual 로 이동.
+          로그인 여부와 무관하게 링크는 표시되지만 페이지 자체는 `AuthGate`
+          로 보호된다.
+        */}
+        <Link
+          href="/settings/bilingual"
+          className={`text-xs ${pathname === "/settings/bilingual" ? "font-semibold text-zinc-900" : "text-zinc-500 hover:text-zinc-800"}`}
+        >
+          {t("bilingual.dashboard.settingsNavLabel")}
         </Link>
 
         {loggedIn ? (
