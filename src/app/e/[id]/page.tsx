@@ -8,7 +8,7 @@ import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { backToLabel } from "@/lib/i18n/back";
 import { getExhibitionBack } from "@/lib/exhibitionBack";
-import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
+import { ExhibitionHostCuratorCredits } from "@/lib/exhibitionCredits";
 import { pickLocalizedTitle, pickLocalizedPreface } from "@/lib/i18n/pickLocalized";
 import {
   ensureDefaultExhibitionMediaBuckets,
@@ -25,6 +25,8 @@ import {
 import { getArtworksByIds, getArtworkImageUrl, getArtworkArtistLabel, getArtworkArtistGroupKey, type ArtworkWithLikes } from "@/lib/supabase/artworks";
 import { getPublicImageUrl } from "@/lib/supabase/storage";
 import { ExploreArtworkCard } from "@/components/explore/ExploreArtworkCard";
+import { ExhibitionArtistSectionHeader } from "@/components/exhibitions/ExhibitionArtistSectionHeader";
+import { UnonboardedArtistInterestPopover } from "@/components/artists/UnonboardedArtistInterestPopover";
 import { getSession } from "@/lib/supabase/auth";
 import { listMyDelegations } from "@/lib/supabase/delegations";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
@@ -92,6 +94,14 @@ export default function PublicExhibitionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shortlistOpen, setShortlistOpen] = useState(false);
+  // QA 2026-07-29 (PART C.3) — explicit interest popover, opened from the
+  // @handle badge on an unonboarded artist's ExploreArtworkCard within
+  // this exhibition's grid.
+  const [interestPopover, setInterestPopover] = useState<{
+    externalArtistId: string;
+    displayName: string;
+    artworkId: string | null;
+  } | null>(null);
   const [back, setBack] = useState<{ path: string; labelKey: string }>({
     path: "/feed",
     labelKey: "nav.feed",
@@ -242,7 +252,9 @@ export default function PublicExhibitionPage() {
                   <dt className="w-20 shrink-0 text-zinc-400">
                     {t("exhibition.curatorLabel")}
                   </dt>
-                  <dd className="min-w-0">{getExhibitionHostCuratorLabel(exhibition, t)}</dd>
+                  <dd className="min-w-0">
+                    <ExhibitionHostCuratorCredits exhibition={exhibition} t={t} locale={locale} />
+                  </dd>
                 </div>
                 {(exhibition.start_date || exhibition.end_date) && (
                   <div className="flex gap-2">
@@ -331,16 +343,67 @@ export default function PublicExhibitionPage() {
             </h2>
             {artworks.length === 0 ? (
               <EmptyState title={t("exhibition.noWorks")} size="sm" />
-            ) : (
+            ) : byArtist.length === 1 ? (
+              // Single-artist show — the credit line above already says
+              // who made the work, so a redundant section header would
+              // just be noise.
               <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2">
-                {byArtist.flatMap(({ list }) =>
-                  list.map((art) => (
-                    <ExploreArtworkCard key={art.id} artwork={art} />
-                  ))
-                )}
+                {byArtist[0].list.map((art) => (
+                  <ExploreArtworkCard
+                    key={art.id}
+                    artwork={art}
+                    onUnonboardedArtistClick={(externalArtistId, meta) =>
+                      setInterestPopover({
+                        externalArtistId,
+                        displayName: meta.displayName,
+                        artworkId: meta.artworkId,
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            ) : (
+              // Group exhibition — a per-artist section header keeps
+              // attribution unambiguous instead of flattening every
+              // artist's works into one undifferentiated grid.
+              <div className="space-y-10">
+                {byArtist.map((group) => (
+                  <div key={group.artistId}>
+                    <ExhibitionArtistSectionHeader
+                      artistName={group.artistName}
+                      firstArtwork={group.list[0]}
+                      exhibitionId={id}
+                    />
+                    <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2">
+                      {group.list.map((art) => (
+                        <ExploreArtworkCard
+                          key={art.id}
+                          artwork={art}
+                          onUnonboardedArtistClick={(externalArtistId, meta) =>
+                            setInterestPopover({
+                              externalArtistId,
+                              displayName: meta.displayName,
+                              artworkId: meta.artworkId,
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </section>
+          {interestPopover && (
+            <UnonboardedArtistInterestPopover
+              open={!!interestPopover}
+              onClose={() => setInterestPopover(null)}
+              externalArtistId={interestPopover.externalArtistId}
+              displayName={interestPopover.displayName}
+              contextArtworkId={interestPopover.artworkId}
+              contextExhibitionId={id}
+            />
+          )}
         </>
       )}
     </main>

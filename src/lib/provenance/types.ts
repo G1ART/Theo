@@ -111,6 +111,13 @@ export type CreateExternalArtistAndClaimArgs = {
    * later upload that leaves the checkbox unchecked).
    */
   notifyOnInquiryViaEmail?: boolean;
+  /**
+   * QA 2026-07-29 (PART D) — sibling opt-in, independent of
+   * notifyOnInquiryViaEmail: allows Theo to email invite_email when
+   * someone shows interest in the artist's *profile* (not tied to a
+   * specific price inquiry). Same only-flip-true semantics server-side.
+   */
+  notifyOnProfileInterestViaEmail?: boolean;
 };
 
 export type CreateClaimForExistingArtistArgs = {

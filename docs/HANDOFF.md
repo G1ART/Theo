@@ -2,6 +2,51 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — 전시 상세 그룹전 어트리뷰션 명확화 + host/curator/작가 크레딧 링크화 + 미가입 작가 관심 이메일 넛지 ⚠️ SQL 수동 적용 필요
+
+### 배경 (QA 확인 사항)
+- `/e/[id]` 는 작품을 `byArtist` 로 정확히 그룹핑하면서도(`getArtworkArtistGroupKey`), 렌더링 시 `byArtist.flatMap(...)` 으로 그룹 헤더를 버리고 flat 하게만 그려 그룹전에서 누가 어떤 작품을 만들었는지 시각적으로 구분되지 않았음.
+- `ExploreArtworkCard` 의 `artistUsername` 이 `artistProfile`(=업로더/갤러리 계정)에서만 파생되어, 외부(미가입) 작가의 작품에도 업로더의 `@handle` 이 잘못 노출되는 버그가 있었음 (예: Kathy Younsook Kim 작품에 `@thegreen_oc` 표시).
+- `getExhibitionHostCuratorLabel` 은 순수 문자열만 반환해 host/curator 가 `profiles.username` 이 있어도 클릭 불가능했음.
+
+### 변경 사항
+1. **`src/lib/exhibitionCredits.tsx`** (`.ts` → `.tsx` 로 rename) — 기존 문자열 헬퍼(`getExhibitionHostCuratorLabel`, 다른 호출자용으로 그대로 유지)에 더해, 새 컴포넌트 `ExhibitionHostCuratorCredits` 추가. 동일한 branching 로직이지만 username 이 있는 엔티티는 `<Link href="/u/{username}">`, 없으면 `<span>` 으로 렌더.
+2. **`src/app/e/[id]/page.tsx`**
+   - 크레딧 라인을 `getExhibitionHostCuratorLabel(...)` 텍스트에서 `<ExhibitionHostCuratorCredits .../>` 로 교체.
+   - 작품 그리드 렌더를 그룹 인지형으로 교체: 단일 작가 전시는 기존과 동일(헤더 없음), 그룹전(작가 2명 이상)은 작가별 `ExhibitionArtistSectionHeader` + 서브그리드로 렌더.
+   - `ExploreArtworkCard` 에 `onUnonboardedArtistClick` 콜백을 전달해 카드에서 미가입 작가 배지를 클릭하면 관심 등록 팝오버가 뜨도록 연결.
+3. **`src/components/exhibitions/ExhibitionArtistSectionHeader.tsx`** (신규) — 온보딩된 작가는 `/u/{username}` 링크, 미가입 작가는 배지 + 클릭 시 팝오버. 마운트 시 세션당 1회 passive 관심 신호를 `/api/artist-profile-interest-email` 로 fire-and-forget 전송 (`sessionStorage` dedupe).
+4. **`src/components/explore/ExploreArtworkCard.tsx`** — 어트리뷰션 버그 수정: `external_artists` claim 이 있으면 업로더 `@handle` 을 절대 쓰지 않고, 대신 "🌱 미가입 작가" 배지 + (콜백이 있으면) 클릭 가능한 관심 등록 트리거로 렌더. `onUnonboardedArtistClick` prop 을 옵션으로 추가 — 미전달 시(일반 피드 등) 배지는 비활성(수동 트리거 없음).
+5. **`src/components/artists/UnonboardedBadge.tsx`**, **`src/components/artists/UnonboardedArtistInterestPopover.tsx`** (신규) — 관심 등록 UI. explicit CTA 는 `/api/artist-profile-interest-email` 를 호출해 `record_external_artist_profile_interest_click` RPC 를 트리거.
+6. **DB (신규 마이그레이션 `supabase/migrations/20260729120000_external_artist_profile_interest.sql`)** — ⚠️ **Supabase SQL Editor 에서 SECTION 단위로 수동 적용 필요** (`20260729100000_external_artist_inquiry_email.sql` 적용 이후에 실행):
+   - SECTION 1 — `external_artists.notify_on_profile_interest_via_email` / `notify_profile_interest_consented_at` 컬럼 추가 (가격 문의 opt-in 과 독립적인 별도 동의).
+   - SECTION 2 — `external_artist_profile_interest_events` (관심 이벤트 로그, passive 는 (artist, viewer) 당 주 1회 unique index 로 dedupe).
+   - SECTION 3 — `external_artist_profile_interest_email_log` (발송 이력 · rate-limit 7일 1회 근거).
+   - SECTION 4 — `record_external_artist_profile_interest_click(p_external_artist_id, p_trigger_kind, p_context)`: explicit 은 즉시 dispatch, passive 는 7일 내 distinct viewer 3명 누적 시 aggregated dispatch.
+   - SECTION 5 — `unsubscribe_external_artist_profile_interest_emails(p_token)` (anon 실행 허용).
+   - SECTION 6/7 — `get_or_create_external_artist` / `create_external_artist_and_claim` 에 6번째/15번째 trailing 파라미터 `p_notify_on_profile_interest_via_email` 추가 (concurrent 패치의 5-arg/14-arg 버전 위에 추가 — 기존 호출자 안 깨짐, only-flip-true 규칙 동일 적용).
+7. **`src/app/api/artist-profile-interest-email/route.ts`** (신규) — RPC 결과가 dispatch 대상이면 SendGrid 로 발송 (`src/app/api/price-inquiry-artist-email/route.ts` 패턴 동일). 실패해도 항상 200 반환(뷰어 플로우 블로킹 방지).
+8. **`src/app/unsubscribe/profile-interest-email/[token]/page.tsx`** (신규) — 가격 문의 수신거부 페이지와 동일 패턴.
+9. **`src/app/upload/page.tsx`** — 동시 작업 중인 가격 문의 opt-in 체크박스 옆에 두 번째 체크박스 `notifyOnProfileInterestViaEmail` 추가(기본 비활성). `createExternalArtistAndClaim` 호출에 forward (`src/lib/provenance/rpc.ts` / `types.ts` 확장).
+10. **i18n** — `artist.unonboarded.*` (배지/팝오버 카피), `unsubscribeProfileInterestEmail.*`, `upload.notifyOnProfileInterestViaEmail` KO/EN 쌍 추가.
+
+### Supabase SQL 수동 적용 필요 ⚠️
+`supabase/migrations/20260729120000_external_artist_profile_interest.sql` — **`20260729100000_external_artist_inquiry_email.sql` 이 먼저 적용된 이후** 실행. 전체를 한 번에 붙여넣지 말고 `== SECTION 1~7 ==` 배너 단위로 하나씩 하이라이트 → Run (dollar tag: `$record$`, `$unsub$`, `$getorcreate2$`, `$createclaim2$` — letters-only).
+
+### 환경 변수
+없음 (SendGrid 키는 동시 작업 중인 패치가 이미 전제).
+
+### Verify
+- `npx tsc --noEmit` 통과.
+- `npm run build` 통과 (신규 라우트 `/api/artist-profile-interest-email`, `/unsubscribe/profile-interest-email/[token]` 정상 빌드됨).
+- `npx tsx tests/external-artist-name-everywhere.test.ts`, `tests/external-artist-dedupe.test.ts`, `tests/exhibition-back-context.test.ts` 통과.
+
+### 배포 후 확인 필요 (deferred TODOs)
+- `ExploreArtworkCard` 의 온보딩된 작가 `@handle` 오버레이는 여전히 비클릭 상태(기존 동작 유지) — 그리드 카드 전체 클릭(작품 상세 이동)과의 상호작용을 더 검토한 뒤 링크화 고려.
+- 관심 이메일 헤더에 `distinct_viewer_count` 를 더 강조해서 보여줄지(현재는 본문에 "여러 명이/한 사람이"로만 표현) — 작가 반응 데이터 쌓이면 재검토.
+
+---
+
 ## 2026-07-29 — 외부 작가 가격 문의 이메일(opt-in) + CREATED claim 자동 보장 + orphan-invites 자동 넛지 ⚠️ SQL 수동 적용 필요
 
 ### 요약 (A/B/C/D)

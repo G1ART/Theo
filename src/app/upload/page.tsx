@@ -151,6 +151,11 @@ function UploadPageContent() {
   // address about incoming price inquiries. Defaults unchecked; the RPC
   // only ever flips false→true, never reverts a prior explicit consent.
   const [notifyOnInquiryViaEmail, setNotifyOnInquiryViaEmail] = useState(false);
+  // QA 2026-07-29 (PART D.2) — sibling opt-in, independent of the price-
+  // inquiry consent above: allows Theo to email this address when someone
+  // shows explicit/aggregated interest in the artist's *profile* (not a
+  // specific inquiry). Defaults unchecked.
+  const [notifyOnProfileInterestViaEmail, setNotifyOnProfileInterestViaEmail] = useState(false);
   // Soft-required email (2026-07-01): default we ask for the artist's email so
   // they auto-link their works on signup. The owner can opt out explicitly
   // ("no email / link later"), in which case linking happens via /my/artists.
@@ -469,6 +474,8 @@ function UploadPageContent() {
           ...claimPayload,
           // QA 2026-07-29 (Part A.5) — forward opt-in email consent.
           notifyOnInquiryViaEmail,
+          // QA 2026-07-29 (PART D.2) — sibling opt-in for profile-interest emails.
+          notifyOnProfileInterestViaEmail,
           // Acting-as: when delegate uploads on behalf of the principal,
           // the claim must be filed under the principal so the artwork
           // surfaces on their profile (not the operator's). RPC enforces
@@ -840,13 +847,27 @@ function UploadPageContent() {
                     <span>{t("upload.notifyOnInquiryViaEmail")}</span>
                   </label>
                 )}
+                {!externalNoEmail && (
+                  <label className="flex items-start gap-2 text-xs text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={notifyOnProfileInterestViaEmail}
+                      onChange={(e) => setNotifyOnProfileInterestViaEmail(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>{t("upload.notifyOnProfileInterestViaEmail")}</span>
+                  </label>
+                )}
                 <label className="flex items-start gap-2 text-xs text-zinc-600">
                   <input
                     type="checkbox"
                     checked={externalNoEmail}
                     onChange={(e) => {
                       setExternalNoEmail(e.target.checked);
-                      if (e.target.checked) setNotifyOnInquiryViaEmail(false);
+                      if (e.target.checked) {
+                        setNotifyOnInquiryViaEmail(false);
+                        setNotifyOnProfileInterestViaEmail(false);
+                      }
                     }}
                     className="mt-0.5"
                   />

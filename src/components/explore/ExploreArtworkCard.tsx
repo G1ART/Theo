@@ -5,10 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
 import {
   getArtworkImageUrl,
+  getExternalArtistClaim,
   getPrimaryClaim,
   type ArtworkWithLikes,
 } from "@/lib/supabase/artworks";
 import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
+import { UnonboardedBadge } from "@/components/artists/UnonboardedBadge";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
@@ -48,6 +50,20 @@ type Props = {
    */
   locked?: boolean;
   priority?: boolean;
+  /**
+   * QA 2026-07-29 (PART C.1) — when the artwork's credited artist is an
+   * external (invited, not-yet-onboarded) artist, the @handle overlay is
+   * replaced by a subtle "unonboarded" badge. If the caller supplies this
+   * callback, the badge becomes clickable and opens an interest popover
+   * (used on the exhibition detail page). Contexts that don't pass it
+   * (e.g. generic feed grids) render a passive, non-interactive badge —
+   * we don't want random passive-trigger clicks firing interest signals
+   * where there is no page-level context to attach to the event.
+   */
+  onUnonboardedArtistClick?: (
+    externalArtistId: string,
+    meta: { displayName: string; artworkId: string }
+  ) => void;
 };
 
 function pickYear(a: ArtworkWithLikes): string | null {
@@ -80,7 +96,12 @@ function extractSizePill(
   return /\b(?:cm|in)\b/i.test(stripped) ? stripped : null;
 }
 
-export function ExploreArtworkCard({ artwork, locked = false, priority = false }: Props) {
+export function ExploreArtworkCard({
+  artwork,
+  locked = false,
+  priority = false,
+  onUnonboardedArtistClick,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { t, locale } = useT();
@@ -126,8 +147,6 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
           }
         | undefined)?.external_artists ?? null
     : null;
-  const externalName = externalRow?.display_name ?? null;
-
   const identity = externalRow
     ? {
         display_name: externalRow.display_name ?? null,
@@ -137,12 +156,24 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
       }
     : artistProfile;
   const { primary: displayName } = formatIdentityPair(identity, t, locale);
-  const artistUsername = hasPublicLinkableUsername(artistProfile)
-    ? artistProfile?.username ?? ""
-    : "";
+  // QA 2026-07-29 (PART C.1 fix) — an external claim means the credited
+  // artist is NOT the uploading account (often a gallery). Previously
+  // `artistUsername` fell back to `artistProfile.username` regardless,
+  // which surfaced the *uploader's* @handle on works actually made by an
+  // invited, not-yet-onboarded artist (e.g. `@thegreen_oc` on works by
+  // Kathy Younsook Kim). When there's an external attribution we must
+  // never show the uploader's username as if it were the artist's.
+  const externalClaim = getExternalArtistClaim(artwork);
+  const isExternalAttribution = !!externalClaim;
+  const externalArtistId = externalClaim?.external_artist_id ?? null;
+  const artistUsername =
+    !isExternalAttribution && hasPublicLinkableUsername(artistProfile)
+      ? artistProfile?.username ?? ""
+      : "";
   const artistHandle = artistUsername
     ? `@${artistUsername}`
     : displayName || formatDisplayName(identity, t, locale) || "";
+
 
   const year = pickYear(artwork);
   const sizePill = extractSizePill(
@@ -207,15 +238,61 @@ export function ExploreArtworkCard({ artwork, locked = false, priority = false }
             <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400" />
           )}
 
-          {/* @Artist overlay (bottom-left). Blurred for anon viewers. */}
-          <span
-            className={`pointer-events-none absolute bottom-2 left-2 max-w-[65%] truncate rounded-sm bg-white/85 px-1.5 py-0.5 text-[11px] font-medium text-zinc-800 shadow-sm backdrop-blur-sm ${
-              locked ? "select-none blur-sm" : ""
-            }`}
-            aria-hidden={locked || undefined}
-          >
-            {artistHandle || "\u00A0"}
-          </span>
+          {/* @Artist overlay (bottom-left). Blurred for anon viewers.
+              QA 2026-07-29 (PART C.1) — external (unonboarded) attribution
+              never links to the uploader's profile; it shows a subtle
+              badge instead, optionally clickable via
+              `onUnonboardedArtistClick` (exhibition-page context). Locked
+              (anon teaser) cards never engage this interactive path — the
+              whole overlay stays a plain blurred span. */}
+          {!locked && isExternalAttribution ? (
+            <span
+              role={onUnonboardedArtistClick && externalArtistId ? "button" : undefined}
+              tabIndex={onUnonboardedArtistClick && externalArtistId ? 0 : undefined}
+              onClick={
+                onUnonboardedArtistClick && externalArtistId
+                  ? (e) => {
+                      e.stopPropagation();
+                      onUnonboardedArtistClick(externalArtistId, {
+                        displayName: artistHandle,
+                        artworkId: artwork.id,
+                      });
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                onUnonboardedArtistClick && externalArtistId
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onUnonboardedArtistClick(externalArtistId, {
+                          displayName: artistHandle,
+                          artworkId: artwork.id,
+                        });
+                      }
+                    }
+                  : undefined
+              }
+              className={`absolute bottom-2 left-2 flex max-w-[75%] items-center gap-1 truncate rounded-sm bg-white/85 px-1.5 py-0.5 text-[11px] font-medium text-zinc-800 shadow-sm backdrop-blur-sm ${
+                onUnonboardedArtistClick && externalArtistId
+                  ? "cursor-pointer pointer-events-auto"
+                  : "pointer-events-none"
+              }`}
+            >
+              <UnonboardedBadge compact />
+              <span className="truncate">{artistHandle || "\u00A0"}</span>
+            </span>
+          ) : (
+            <span
+              className={`pointer-events-none absolute bottom-2 left-2 max-w-[65%] truncate rounded-sm bg-white/85 px-1.5 py-0.5 text-[11px] font-medium text-zinc-800 shadow-sm backdrop-blur-sm ${
+                locked ? "select-none blur-sm" : ""
+              }`}
+              aria-hidden={locked || undefined}
+            >
+              {artistHandle || "\u00A0"}
+            </span>
+          )}
 
           {/* Date overlay (bottom-right). */}
           {year && (

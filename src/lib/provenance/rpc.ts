@@ -46,6 +46,10 @@ export async function createExternalArtistAndClaim(
   if (args.notifyOnInquiryViaEmail != null) {
     payload.p_notify_on_inquiry_via_email = args.notifyOnInquiryViaEmail;
   }
+  // QA 2026-07-29 (PART D) — sibling opt-in, forwarded the same way.
+  if (args.notifyOnProfileInterestViaEmail != null) {
+    payload.p_notify_on_profile_interest_via_email = args.notifyOnProfileInterestViaEmail;
+  }
   const { data, error } = await supabase.rpc("create_external_artist_and_claim", payload);
   if (error) return { data: null, error };
   return { data: data as CreateExternalArtistAndClaimResult, error: null };
