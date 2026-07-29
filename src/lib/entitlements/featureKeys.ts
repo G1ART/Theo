@@ -31,6 +31,13 @@ export const FEATURE_KEYS = [
   "ai.board_pitch_pack",
   "ai.exhibition_review",
   "ai.delegation_brief",
+  /**
+   * QA 2026-07-29 — 이중언어 번역 draft. `BilingualFieldPair` 의 "AI 초안"
+   * 버튼과 `/settings/bilingual` 벌크 대시보드가 공유한다. 사용자에게
+   * 페이월을 세우지 않지만 (모든 플랜 open) 프리 티어에 sensible 한
+   * 월간 상한을 둔다 (`PLAN_QUOTA_MATRIX["ai.translate_draft"]`).
+   */
+  "ai.translate_draft",
 
   // Boards (shortlists + rooms)
   "board.pro_create",

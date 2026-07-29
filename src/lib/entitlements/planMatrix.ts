@@ -40,6 +40,10 @@ export const PLAN_FEATURE_MATRIX: Record<FeatureKey, PlanKey[]> = {
   "ai.board_pitch_pack": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
   "ai.exhibition_review": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
   "ai.delegation_brief": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
+  // Bilingual translation drafts — open to every plan, but the free tier
+  // has a monthly quota (see PLAN_QUOTA_MATRIX below) to keep the LLM
+  // bill reasonable when users adopt the bulk dashboard.
+  "ai.translate_draft": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
 
   // Boards
   "board.pro_create": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
@@ -149,6 +153,24 @@ export const PLAN_QUOTA_MATRIX: Partial<
     discovery_pro: { limit: null, windowDays: 0, countEventKeys: ["board.created"] },
     hybrid_pro: { limit: null, windowDays: 0, countEventKeys: ["board.created"] },
     gallery_workspace: { limit: null, windowDays: 0, countEventKeys: ["board.created"] },
+  },
+  /**
+   * QA 2026-07-29 — Bilingual "AI 초안" 버튼 + `/settings/bilingual`
+   * bulk 대시보드. 프리 티어에도 열려 있지만 짧은 필드/산문 draft 를
+   * 지나치게 뽑아 쓰면 LLM 비용이 급증하므로 월간 상한을 둔다. 유료
+   * 티어는 (프로 계열 위주로) 훨씬 넉넉하게, 갤러리는 무제한.
+   *
+   * 40 회 = 프리 사용자가 프로필 (name/bio/statement, 3) + 작품 10점의
+   * 3개 필드 (title/medium/story, 30) + 전시 몇 개 (host_name, ~5)
+   * 정도까지 draft 로 채울 수 있는 여유. 사용자가 "모두 AI 초안" 을
+   * 눌러도 대부분 사용자는 한 번의 대시보드 세션 안에 완료할 수 있다.
+   */
+  "ai.translate_draft": {
+    free: { limit: 40, windowDays: 30, countEventKeys: ["ai.translate_draft.generated"] },
+    artist_pro: { limit: 300, windowDays: 30, countEventKeys: ["ai.translate_draft.generated"] },
+    discovery_pro: { limit: 60, windowDays: 30, countEventKeys: ["ai.translate_draft.generated"] },
+    hybrid_pro: { limit: 300, windowDays: 30, countEventKeys: ["ai.translate_draft.generated"] },
+    gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["ai.translate_draft.generated"] },
   },
   "social.connection_unlimited": {
     // Cold intros are spam-prone — quota-backed for everyone. Pro tiers lift the ceiling.

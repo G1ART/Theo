@@ -21,10 +21,10 @@ export const maxDuration = 60;
  * 호출측이 "empty" 와 "error" 를 구분할 수 있게 한다.
  *
  * Prompt shape reuses the shared handleAiRoute plumbing (auth, entitlement
- * gate skipped intentionally — see AI_FEATURE_TO_ENTITLEMENT_KEY —, daily
- * soft cap, event logging). No meter mapping either; if translation-draft
- * usage becomes significant enough to bill, add it under
- * `AI_FEATURE_TO_METER_KEY` in a follow-up.
+ * gate + quota + soft cap + event logging + meter emit). As of 2026-07-29
+ * (Track α) the route is metered against `ai.translate_draft` — the
+ * plan_quota_matrix seeds sensible free-tier ceilings so the bilingual
+ * bulk dashboard can't accidentally burn through LLM budget.
  */
 export async function POST(req: Request) {
   return handleAiRoute<TranslateDraftBody, TranslateDraftResult>(req, {

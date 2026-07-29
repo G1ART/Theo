@@ -19,6 +19,14 @@ export const USAGE_KEYS = {
   AI_EXHIBITION_REVIEW_GENERATED: "ai.exhibition_review.generated",
   AI_DELEGATION_BRIEF_GENERATED: "ai.delegation_brief.generated",
   AI_CV_IMPORT_GENERATED: "ai.cv_import.generated",
+  /**
+   * QA 2026-07-29 (Track α) — 이중언어 인풋의 "AI 초안" 버튼 (짧은 필드 +
+   * 산문) 이 실제로 draft 를 생성했을 때 emit. Bulk 대시보드 (`/settings/
+   * bilingual`) 의 quota chip 이 남은 회수를 계산할 때 이 키의 rolling
+   * count 를 읽는다. 자동 저장은 아니라 사용자가 draft 를 채택하지 않아도
+   * generation 은 카운트된다 — LLM 콜 비용이 이미 발생했기 때문.
+   */
+  AI_TRANSLATE_DRAFT_GENERATED: "ai.translate_draft.generated",
   AI_ACCEPTED: "ai.accepted",
   // Boards
   BOARD_CREATED: "board.created",
@@ -63,6 +71,13 @@ export const AI_FEATURE_TO_METER_KEY: Record<string, string> = {
   exhibition_review: USAGE_KEYS.AI_EXHIBITION_REVIEW_GENERATED,
   delegation_brief: USAGE_KEYS.AI_DELEGATION_BRIEF_GENERATED,
   cv_import: USAGE_KEYS.AI_CV_IMPORT_GENERATED,
+  /**
+   * QA 2026-07-29 (Track α) — translate_draft 는 짧은 이중언어 필드
+   * (title/medium/host_name) 부터 산문(bio/statement/story/preface) 까지
+   * 커버한다. bio_assist 와 같은 캡을 공유하지 않고 자체 캡 (아래
+   * plan_quota_matrix + PLAN_QUOTA_MATRIX 상수) 을 갖는다.
+   */
+  translate_draft: USAGE_KEYS.AI_TRANSLATE_DRAFT_GENERATED,
 };
 
 /** Maps a canonical AI feature key to the entitlement feature key that
@@ -79,4 +94,11 @@ export const AI_FEATURE_TO_ENTITLEMENT_KEY: Record<string, string> = {
   board_pitch_pack: "ai.board_pitch_pack",
   exhibition_review: "ai.exhibition_review",
   delegation_brief: "ai.delegation_brief",
+  /**
+   * QA 2026-07-29 (Track α) — 이중언어 번역 draft 는 새 entitlement key
+   * `ai.translate_draft` 를 통해 게이팅한다. plan_matrix 는 모든 플랜에
+   * 열려 있고, quota 만 프리 티어에 있어 sensible 한 상한을 건다 (아래
+   * PLAN_QUOTA_MATRIX 참조).
+   */
+  translate_draft: "ai.translate_draft",
 };
