@@ -16,13 +16,19 @@ export type ConnectionMessageRow = {
 };
 
 /**
- * Lightweight summary of a conversation thread. Produced by the
- * `list_connection_conversations` RPC which groups messages by
- * `participant_key` and returns one row per thread. The `otherUser` profile
- * is hydrated client-side via a single `in("id", …)` query so the grid
- * matches the avatars/handles used elsewhere without requiring a join on the
- * RPC.
+ * Lightweight summary of a conversation thread. Produced by either
+ * `list_connection_conversations` (v1) or `list_connection_conversations_v2`
+ * (Sprint C.M / 2026-08-03). The v2 RPC additionally returns per-thread
+ * `category` + `state` so /my/messages can split its inbox into three
+ * tabs (Primary / General / New Request) and label each row with the
+ * receive/opened/sent/read state the wireframe requests.
+ *
+ * The `otherUser` profile is hydrated client-side via a single
+ * `in("id", …)` query so the RPC schema stays narrow and cache-friendly.
  */
+export type ConnectionThreadCategory = "primary" | "general" | "request";
+export type ConnectionThreadState = "received" | "opened" | "sent" | "read";
+
 export type ConversationSummary = {
   participantKey: string;
   otherUserId: string;
@@ -33,6 +39,14 @@ export type ConversationSummary = {
   lastReadAt: string | null;
   lastIsFromMe: boolean;
   unreadCount: number;
+  /** Populated by the v2 RPC; v1 callers keep `null`. */
+  category: ConnectionThreadCategory | null;
+  /** Populated by the v2 RPC; v1 callers keep `null`. */
+  state: ConnectionThreadState | null;
+  /** Present on v2 rows so callers can hide declined threads. */
+  declinedAt: string | null;
+  /** First accept timestamp — helpful for surfacing "accepted just now" UX. */
+  firstAcceptedAt: string | null;
 };
 
 const MAX_BODY = 4000;
@@ -245,6 +259,10 @@ export async function listMyConversations(
     lastReadAt: r.last_read_at,
     lastIsFromMe: r.last_is_from_me,
     unreadCount: Number(r.unread_count) || 0,
+    category: null,
+    state: null,
+    declinedAt: null,
+    firstAcceptedAt: null,
   }));
 
   // Cursor is the oldest message in the current page — feeding it back as
@@ -254,6 +272,142 @@ export async function listMyConversations(
     data_.length === limit ? data_[data_.length - 1].lastCreatedAt : null;
 
   return { data: data_, nextCursor, error: null };
+}
+
+/**
+ * Sprint C.M / 2026-08-03 — v2 of the conversation listing RPC.
+ *
+ * Additive over `listMyConversations`: v2 also returns per-thread
+ * `category` (primary / general / request) and a per-thread `state`
+ * (received / opened / sent / read) computed server-side from the last
+ * message's direction + read_at. The categorized inbox at
+ * `/my/messages` uses this to power its three tabs and per-row state
+ * labels; older callers stay on v1 for backwards compatibility.
+ */
+export async function listMyConversationsV2(
+  options: {
+    category?: ConnectionThreadCategory | null;
+    limit?: number;
+    beforeTs?: string | null;
+    includeDeclined?: boolean;
+  } = {},
+): Promise<{
+  data: ConversationSummary[];
+  nextCursor: string | null;
+  error: Error | null;
+}> {
+  const {
+    category = null,
+    limit = 20,
+    beforeTs = null,
+    includeDeclined = false,
+  } = options;
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id) {
+    return { data: [], nextCursor: null, error: new Error("Not authenticated") };
+  }
+
+  const { data, error } = await supabase.rpc("list_connection_conversations_v2", {
+    p_category: category,
+    p_limit: limit,
+    p_before_ts: beforeTs,
+    p_include_declined: includeDeclined,
+  });
+
+  if (error) return { data: [], nextCursor: null, error };
+
+  const rows = (data ?? []) as Array<{
+    participant_key: string;
+    other_user_id: string;
+    category: ConnectionThreadCategory;
+    first_accepted_at: string | null;
+    declined_at: string | null;
+    last_message_id: string;
+    last_body: string;
+    last_created_at: string;
+    last_sender_id: string;
+    last_read_at: string | null;
+    last_is_from_me: boolean;
+    unread_count: number;
+    state: ConnectionThreadState;
+  }>;
+
+  if (rows.length === 0) {
+    return { data: [], nextCursor: null, error: null };
+  }
+
+  const otherIds = Array.from(new Set(rows.map((r) => r.other_user_id)));
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select(SENDER_SELECT)
+    .in("id", otherIds);
+
+  const byId = new Map<string, FollowProfileRow>();
+  for (const p of (profiles ?? []) as FollowProfileRow[]) {
+    if (p?.id) byId.set(p.id, p);
+  }
+
+  const mapped: ConversationSummary[] = rows.map((r) => ({
+    participantKey: r.participant_key,
+    otherUserId: r.other_user_id,
+    otherUser: byId.get(r.other_user_id) ?? null,
+    lastMessageId: r.last_message_id,
+    lastBody: r.last_body,
+    lastCreatedAt: r.last_created_at,
+    lastReadAt: r.last_read_at,
+    lastIsFromMe: r.last_is_from_me,
+    unreadCount: Number(r.unread_count) || 0,
+    category: r.category,
+    state: r.state,
+    declinedAt: r.declined_at,
+    firstAcceptedAt: r.first_accepted_at,
+  }));
+
+  const nextCursor =
+    mapped.length === limit ? mapped[mapped.length - 1].lastCreatedAt : null;
+
+  return { data: mapped, nextCursor, error: null };
+}
+
+/**
+ * Accept a `request`-category thread from `peerUserId`. If the two
+ * accounts mutually follow, the thread flips to `primary`; otherwise
+ * `general`. Idempotent — repeated calls simply refresh the accepted
+ * timestamps and clear any prior `declined_at`.
+ */
+export async function acceptConnectionMessageThread(
+  peerUserId: string,
+): Promise<{ error: Error | null }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id) return { error: new Error("Not authenticated") };
+  const { error } = await supabase.rpc("accept_connection_message_thread", {
+    p_peer: peerUserId,
+  });
+  return { error: error ?? null };
+}
+
+/**
+ * Decline a `request`-category thread from `peerUserId`. This is a
+ * *soft* hide — the thread row stays around so a subsequent message
+ * from the peer can re-open it as `request` via the insert trigger.
+ * That mirrors typical DM behavior (Instagram / TG) where declining a
+ * message doesn't nuke the peer's ability to try again.
+ */
+export async function declineConnectionMessageThread(
+  peerUserId: string,
+): Promise<{ error: Error | null }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id) return { error: new Error("Not authenticated") };
+  const { error } = await supabase.rpc("decline_connection_message_thread", {
+    p_peer: peerUserId,
+  });
+  return { error: error ?? null };
 }
 
 /**

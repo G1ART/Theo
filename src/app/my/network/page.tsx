@@ -20,6 +20,8 @@ import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { getSession } from "@/lib/supabase/auth";
 import { RelationshipDeskPanel } from "@/components/network/RelationshipDeskPanel";
 import { AccessRequestsPanel } from "@/components/network/AccessRequestsPanel";
+import { InvitationsPanel } from "@/components/network/InvitationsPanel";
+import { SuggestionsGroupedPanel } from "@/components/network/SuggestionsGroupedPanel";
 
 // Sprint 6.2 — Network Hub upgrade.
 //
@@ -32,11 +34,26 @@ import { AccessRequestsPanel } from "@/components/network/AccessRequestsPanel";
 //      activity dot when there are pending requests / open inquiries)
 //      instead of the prior two text links scattered across /my and
 //      /my/shortlists/*.
-type TabKey = "followers" | "following" | "requests" | "relationships";
+// Sprint C.M / 2026-08-03 — Connections redesign.
+//
+// The 2026-08-03 wireframe re-frames `/my/network` as a two-layer page:
+//   • Default (no `?tab=` param) → Overview: Invitations (union of
+//     follow requests + access requests) + grouped People suggestions.
+//   • Detail (any `?tab=` value) → the pre-existing followers /
+//     following / requests / relationships tab strip stays available
+//     via URL query so bookmarks and side-nav shortcuts keep working.
+//
+// Rationale: the wireframe hides the 4-tab strip below the fold, but
+// pre-existing Studio surfaces still deep-link into individual tabs
+// (e.g. Studio Hero's "관계" pill). Keeping the tab strip URL-
+// addressable means those callers don't break during the redesign.
+type TabKey = "overview" | "followers" | "following" | "requests" | "relationships";
 type SortKey = "recent" | "alpha";
 
 function parseTab(raw: string | null): TabKey {
   switch (raw) {
+    case "followers":
+      return "followers";
     case "following":
       return "following";
     case "relationships":
@@ -44,7 +61,7 @@ function parseTab(raw: string | null): TabKey {
     case "requests":
       return "requests";
     default:
-      return "followers";
+      return "overview";
   }
 }
 
@@ -83,7 +100,7 @@ export default function MyNetworkPage() {
     (next: TabKey) => {
       if (next === activeTab) return;
       const params = new URLSearchParams(searchParams.toString());
-      if (next === "followers") params.delete("tab");
+      if (next === "overview") params.delete("tab");
       else params.set("tab", next);
       const qs = params.toString();
       router.replace(qs ? `/my/network?${qs}` : "/my/network", {
@@ -289,14 +306,15 @@ export default function MyNetworkPage() {
           data-tour="network-tabs"
           className="mb-4 flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1"
         >
-          {/* Sprint 6.2 — tab order is intentionally
-              followers → following → access requests → relationships.
-              Reads as a left-to-right narrative: who watches your work,
-              who you watch, who is asking to step closer right now,
-              and finally — who you've already begun a relationship with.
-              The Relationships tab sits last so the guide copy in the
-              Access requests tab ("approved requests grow into the
-              Relationships tab") matches the user's eye direction. */}
+          {/* Sprint C.M — Overview lands first (wireframe default). The
+              legacy 4-tab strip (followers → following → requests →
+              relationships) remains reachable via URL so deep links
+              from Studio surfaces keep working. */}
+          <NetworkTabButton
+            label={t("connections.tabs.default")}
+            active={activeTab === "overview"}
+            onClick={() => setTab("overview")}
+          />
           <NetworkTabButton
             label={t("network.tabs.followers")}
             count={followersCount}
@@ -340,6 +358,13 @@ export default function MyNetworkPage() {
           {activeTab === "relationships" && t("network.guide.relationships")}
           {activeTab === "requests" && t("network.guide.requests")}
         </p>
+
+        {activeTab === "overview" && (
+          <div className="mb-6 space-y-4">
+            <InvitationsPanel ownerProfileId={userId} />
+            <SuggestionsGroupedPanel />
+          </div>
+        )}
 
         {isFollowTab && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -385,6 +410,7 @@ export default function MyNetworkPage() {
           </div>
         )}
 
+        {activeTab !== "overview" && (
         <div data-tour="network-list">
           {isFollowTab ? (
             initialLoading ? (
@@ -469,6 +495,7 @@ export default function MyNetworkPage() {
             <AccessRequestsPanel />
           )}
         </div>
+        )}
 
         {isFollowTab && cursor && (
           <div className="mt-6 text-center">

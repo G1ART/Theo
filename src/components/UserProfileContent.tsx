@@ -49,7 +49,7 @@ import { formatErrorMessage } from "@/lib/errors/format";
 import { Chip, EmptyState, LaneChips, PageShell, type LaneOption } from "@/components/ds";
 import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
 import { ProfileCoverBand } from "@/components/profile/ProfileCoverBand";
-import { ProfileSurfaceCards } from "@/components/profile/ProfileSurfaceCards";
+import { ProfileInlineCards } from "@/components/profile/ProfileInlineCards";
 import { isArtistRole } from "@/lib/identity/roles";
 import { BilingualContextualNudge } from "@/components/bilingual/BilingualContextualNudge";
 
@@ -656,47 +656,63 @@ export function UserProfileContent({
         )}
       </div>
 
-      {/* Wireframe role tabs (Artist / Collector). Only rendered when both
-          apply — a solo-artist profile keeps the previous layout. */}
-      {showRoleTabs && (
-        <div className="mb-6 flex items-center gap-6 border-b border-zinc-200 text-sm">
-          <button
-            type="button"
-            onClick={() => setRoleTab("artist")}
-            aria-pressed={roleTab === "artist"}
-            className={`-mb-px border-b-2 pb-2 transition-colors ${
-              roleTab === "artist"
-                ? "border-zinc-900 font-semibold text-zinc-900"
-                : "border-transparent text-zinc-500 hover:text-zinc-800"
-            }`}
-          >
-            {t("profile.tab.artist")}
-            <span className="ml-1 text-[10px] uppercase tracking-wider text-zinc-400">
-              {profile.main_role === "artist" ? "main" : ""}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setRoleTab("collector")}
-            aria-pressed={roleTab === "collector"}
-            className={`-mb-px border-b-2 pb-2 transition-colors ${
-              roleTab === "collector"
-                ? "border-zinc-900 font-semibold text-zinc-900"
-                : "border-transparent text-zinc-500 hover:text-zinc-800"
-            }`}
-          >
-            {t("profile.tab.collector")}
-          </button>
-        </div>
-      )}
+      {/* Wireframe role tabs (Artist / Collector). Only rendered when
+          both apply — a solo-artist profile keeps the previous layout.
+          Sprint C.M (2026-08-03): each tab now surfaces the `(main)`
+          suffix next to the primary role instead of relying on an
+          all-caps micro-label; matches the 2026-08-03 wireframe. */}
+      {showRoleTabs && (() => {
+        const artistIsMain = profile.main_role === "artist";
+        const collectorIsMain = profile.main_role === "collector";
+        return (
+          <div className="mb-6 flex items-center gap-6 border-b border-zinc-200 text-sm">
+            <button
+              type="button"
+              onClick={() => setRoleTab("artist")}
+              aria-pressed={roleTab === "artist"}
+              className={`-mb-px border-b-2 pb-2 transition-colors ${
+                roleTab === "artist"
+                  ? "border-zinc-900 font-semibold text-zinc-900"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800"
+              }`}
+            >
+              {t("profile.tab.artist")}
+              {artistIsMain && (
+                <span className="ml-1 text-[11px] text-zinc-500">
+                  {t("profile.role.mainSuffix")}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoleTab("collector")}
+              aria-pressed={roleTab === "collector"}
+              className={`-mb-px border-b-2 pb-2 transition-colors ${
+                roleTab === "collector"
+                  ? "border-zinc-900 font-semibold text-zinc-900"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800"
+              }`}
+            >
+              {t("profile.tab.collector")}
+              {collectorIsMain && (
+                <span className="ml-1 text-[11px] text-zinc-500">
+                  {t("profile.role.mainSuffix")}
+                </span>
+              )}
+            </button>
+          </div>
+        );
+      })()}
 
-      {/* Profile Surface Cards — Artist Statement + CV. Both surfaces
-          stay artist-only (incl. hybrid); for non-artist personas
-          (curator / collector / gallerist) the entire row is suppressed.
-          Also suppressed when the visitor picked the Collector role tab. */}
+      {/* Profile Statement + CV. Sprint C.M (2026-08-03): moved from
+          the modal-triggered `ProfileSurfaceCards` to the inline
+          expand-in-place `ProfileInlineCards`, per the 2026-08-03
+          wireframe. Persona gating is unchanged — both surfaces stay
+          artist-only, and both are suppressed when the visitor picks
+          the Collector role tab. */}
       {roleTab === "artist" && isArtistRole({ main_role: profile.main_role ?? null, roles }) && (
         <>
-          <ProfileSurfaceCards
+          <ProfileInlineCards
             statement={pickLocalizedStatement(profile, locale) || null}
             heroImagePath={profile.artist_statement_hero_image_url ?? null}
             education={profile.education ?? null}

@@ -2,6 +2,74 @@
 
 Last updated: 2026-08-03
 
+## 2026-08-03 — 리디자인 Phase C (메시지 Primary/General/Request + 상태 라벨 · 프로필 Statement/CV 인라인 · 커넥션 통합 뷰)
+
+### 배경 (디자이너 리뷰)
+디자이너 2026-08-03 와이어프레임 3장을 반영 (Messages, Profile, Connections). Worker A (Shell/Global) · Worker B (Exhibition Detail) 와 파일 소유권을 엄격히 분리해 병렬 진행. 디자이너 코멘트 인용:
+
+> **Messages** — "메세지 페이지고, primary 와 request가 있어서 팔로우를 아직 안하고 있어도 문자를 보낼수있게끔 해봤어요. 그리고 상대방이 나한테 보내고 내가 아직 안본 대화, 내가 받고 읽기만 한 대화, 내가 보내고 상대가 아직 안본 대화, 상대가 열어본 대화를 다 다르게 표시를 해야할까 싶어서 같이 넣어봤습니다."
+
+> **Connections** — "이건 커넥션 페이지고, 팔로워 invitation은 아무래도 커넥션쪽에 있는것이 더 이해가 잘 가는거같아서 이쪽으로 다시 추가했습니다. 그리고 저번에 보여드린것처럼 오른쪽 칸에 커넥션 칸을 또 만들어서 다른 피드로 넘어가도 쉽게 다시 들어갈수있게 추가했습니다."
+
+### 변경 사항
+
+1. **Messages — 카테고리 인박스 + 상태 라벨 (`/my/messages`)**
+   - `src/app/my/messages/page.tsx` 재작성. 상단 탭 `Primary · General · New Request` (활성 굵기·검정, 요청 탭은 카운트 배지). URL `?category=…` 반영.
+   - **Primary** 상호 팔로우 or 이미 accept · **General** accept 됐지만 mutual 아님 · **New Request** accept 대기중.
+   - 각 대화 카드에 상태 라벨: `Received / Opened / Sent / Read` (서버 계산). 요청 카드에는 `Decline / Accept` 버튼.
+   - `src/app/my/messages/[peer]/page.tsx` — mount 시 `acceptConnectionMessageThread` 호출 (recipient 만 서버 side 에서 accept, 발신자는 no-op).
+   - `src/lib/supabase/connectionMessages.ts` — `ConnectionThreadCategory / ConnectionThreadState` 타입 · `listMyConversationsV2(...)` · `acceptConnectionMessageThread(peer)` · `declineConnectionMessageThread(peer)` 추가. 기존 `listMyConversations` 는 하위호환 유지.
+
+2. **Profile — 인라인 Statement/CV + `(main)` 라벨 (`/u/[username]`)**
+   - `src/components/profile/ProfileInlineCards.tsx` (신규) — 접기/펼치기 카드 2장 (Statement · CV). 콜랩스 상태에 3-줄 preview + CV 섹션 카운트, 확장 상태에 전문 + CV PDF 다운로드 (기존 `ProfileSurfaceCards` 로직 유지, modal → in-page 로 변환).
+   - `src/components/UserProfileContent.tsx` — `ProfileSurfaceCards` → `ProfileInlineCards` 교체. Role tab 라벨에 `(main)` suffix (i18n key `profile.role.mainSuffix`).
+   - 기존 `ProfileSurfaceCards.tsx` 는 미삭제 (다른 곳에서 참조가 있을 경우 대비, 후속 사이클에서 정리).
+
+3. **Connections — 통합 뷰 (`/my/network`)**
+   - `src/components/network/InvitationsPanel.tsx` (신규) — follow_request + access_request 통합 인바운드 카드. 시간순 정렬, 각 행 decline/accept.
+   - `src/components/network/SuggestionsGroupedPanel.tsx` (신규) — `get_people_recs` 세 lane (`follow_graph / likes_based / expand`) 을 그룹 카드로 렌더. 카드마다 [X] dismiss (sessionStorage) + [+ Follow].
+   - `src/app/my/network/page.tsx` — 기본(`?tab=` 미지정) 뷰를 새 `overview` 탭으로 승격. Overview 는 `InvitationsPanel + SuggestionsGroupedPanel` 렌더. 기존 4탭 (followers · following · requests · relationships) 은 URL query 로 접근 가능 유지 (다른 Studio 링크 하위호환).
+
+4. **Supabase 마이그레이션 `supabase/migrations/20260803120000_connection_message_thread_categorization.sql`** (신규, PL/pgSQL 함수 4개 → 섹션 배너 분리 필수):
+   - **SECTION 1** `connection_message_threads` 테이블 (participant_key PK + user_a<user_b 정규화 + category text CHECK + first_accepted_at/declined_at/last_message_at) + RLS (참여자 select 만) + 인덱스 3개.
+   - **SECTION 2** 기존 `connection_messages` 로부터 백필 (mutual → primary, 아니면 general, first_accepted_at=first_at).
+   - **SECTION 3** trigger `sync_connection_message_thread_on_insert` — 새 메시지 도착 시 thread 생성 or `last_message_at` 갱신 + declined 리셋 → request 로 복귀.
+   - **SECTION 4** RPC `accept_connection_message_thread(uuid)` — **recipient 가드**: 최소 한 개 메시지의 recipient 였던 경우에만 category 갱신 (초기 발신자가 자기 요청을 fake-accept 방지). Mutual → primary, else → general.
+   - **SECTION 5** RPC `decline_connection_message_thread(uuid)` — `declined_at = now()` soft-hide (다음 메시지 도착 시 트리거가 리셋).
+   - **SECTION 6** RPC `list_connection_conversations_v2(p_category, p_limit, p_before_ts, p_include_declined)` — 카테고리 필터·상태 계산 (received/opened/sent/read) 포함. `security invoker` (RLS 존중).
+
+### Supabase SQL 수동 적용 필요
+
+- 파일: `supabase/migrations/20260803120000_connection_message_thread_categorization.sql`
+- **이미 MCP 로 프로덕션에 적용 완료** (2026-08-03). 백필 결과: primary 5, general 12 (기존 22 개 메시지 기반). 로컬 supabase CLI 를 새로 설정할 때만 파일을 다시 실행하면 됨.
+- 파일에 `-- == SECTION N ==` 배너가 있으므로, 새 환경에 적용 시 **섹션별로 하이라이트 → Run** 안내 (한 번에 paste 금지, release-workflow.mdc 규칙).
+
+### 환경 변수
+없음.
+
+### i18n 신규 키
+`messages.category.{primary,general,request}` (+ `.subtitle`), `messages.state.{received,opened,sent,read}`, `messages.request.{accept,decline,accepted,declined,actionFailed}`, `profile.role.mainSuffix`, `profile.section.{artworks,expand,collapse,statementEmpty,cvEmpty}`, `connections.invitations.{title,empty,followRequest,accessRequest}`, `connections.suggestions.{title,laneFromMutuals,laneFromLikes,laneFromExhibitions,empty,dismiss,recentJob,mutual}`, `connections.tabs.{default,detail}`. 모두 KO/EN 페어. 기존 키 미수정.
+
+### 다른 워커와의 파일 소유권
+- 이번 워커 (C) 가 만진 파일: `src/app/my/messages/page.tsx`, `src/app/my/messages/[peer]/page.tsx`, `src/app/my/network/page.tsx`, `src/lib/supabase/connectionMessages.ts`, `src/components/UserProfileContent.tsx`, `src/components/profile/ProfileInlineCards.tsx` (신규), `src/components/network/InvitationsPanel.tsx` (신규), `src/components/network/SuggestionsGroupedPanel.tsx` (신규), `src/lib/i18n/messages.ts` (신규 키만), `supabase/migrations/20260803120000_connection_message_thread_categorization.sql` (신규), `docs/HANDOFF.md`.
+- Worker A (Shell/Global) 소유 파일 — 전부 미변경. Sidebar / Header / notifications drawer / Workspace hub / `/my/page.tsx` / layouts 등.
+- Worker B (Exhibition Detail) 소유 파일 (`src/app/e/[id]/**`, `src/components/exhibitions/**`, `src/lib/exhibitionCredits.tsx`, `src/lib/supabase/exhibitions.ts`) — 미변경.
+
+### Verify
+- `npx tsc --noEmit` 통과 (0 errors — `.next/types/validator.ts` 캐시 관련 노이즈는 build 실행 후 해소).
+- `npm run build` 통과 (70 static pages).
+- `npx eslint <touched files>` — 새로 도입한 lint 에러 0.
+- Supabase advisors — 신규 객체 관련 새 warning 0.
+
+### QA 체크리스트 (수동)
+- [ ] `/my/messages` — 세 탭 전환 (`?category=primary|general|request`) 이 정상. New Request 탭에서 decline/accept 클릭 시 optimistic 하게 목록에서 사라짐.
+- [ ] 새 사용자로부터 첫 메시지가 도착하면 New Request 탭에 뜸. Accept 하면 mutual 이면 Primary, 아니면 General 로 이동.
+- [ ] 대화 카드 우측 라벨: 상대 안 읽음 → `Sent`, 상대 읽음 → `Read`, 나 안 읽음 → `Received`, 나 읽음 (답장 X) → `Opened`.
+- [ ] `/u/{me}` — Artist / Collector 탭 (dual-role 계정 한정) 에 `(main)` suffix 렌더. Statement / CV 카드가 collapsed 상태로 렌더, "더 보기" 클릭 시 인라인 확장.
+- [ ] `/my/network` — 기본 진입 시 (`?tab=` 없음) Overview 렌더: Invitations 카드 (follow + access 통합) + Suggestions 3 lane 그룹. Follow / Decline 버튼 정상 작동. `?tab=followers|following|requests|relationships` 로 기존 뷰 접근 가능.
+
+---
+
 ## 2026-08-03 — 리디자인 Phase A (Shell / Nav / 알림 팝오버 / 우측 rail / Workspace 허브 / 로고)
 
 ### 배경 (디자이너 리뷰)

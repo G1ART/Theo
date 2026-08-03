@@ -8,6 +8,7 @@ import { MessageComposer } from "@/components/connection/MessageComposer";
 import { useT } from "@/lib/i18n/useT";
 import { getSession } from "@/lib/supabase/auth";
 import {
+  acceptConnectionMessageThread,
   listConversationWith,
   markConversationRead,
   type ConnectionMessageRow,
@@ -125,9 +126,15 @@ export default function MessageThreadPage() {
   const loadInitial = useCallback(async () => {
     if (!peerId) return;
     setLoading(true);
+    // Sprint C.M / 2026-08-03 — opening the thread page implicitly
+    // accepts a pending `request`. The RPC is idempotent + no-ops for
+    // already-accepted threads, so we can fire it unconditionally
+    // alongside the read-mark. Category flips server-side (primary or
+    // general based on mutual-follow state).
     const [thread] = await Promise.all([
       listConversationWith(peerId, { limit: 40 }),
       markConversationRead(peerId),
+      acceptConnectionMessageThread(peerId).catch(() => ({ error: null })),
     ]);
     if (thread.error) {
       setLoading(false);
