@@ -9,17 +9,18 @@ import { useEffect, useState } from "react";
  * Two coordinated micro-animations, both opt-out under
  * `prefers-reduced-motion: reduce`:
  *
- *  A. **Session reveal** — the very first time this component mounts in
- *     a browser session, we briefly overlay the "Theo" wordmark on top
- *     of the mark, hold, and crossfade it away. The intent (per PM) is
- *     to bridge users from the pre-redesign text-only logo to the new
- *     Primary Mark without the abrupt "did the site change?" beat.
+ *  A. **Reveal** — the "Theo" wordmark is briefly overlaid on the mark
+ *     (900ms hold + 600ms crossfade) so users bridge from the pre-
+ *     redesign text logo to the new mark without an abrupt cut. The
+ *     reveal is throttled per-tab via localStorage: once every
+ *     `REVEAL_COOLDOWN_MS`. It can be force-triggered by loading any
+ *     page with `?logo=reveal` (dev/QA affordance).
  *
- *  B. **Settle** — on every fresh page load the mark itself animates in
- *     with a subtle scale + fade (0.96 → 1.0, 0.85 → 1.0 over 350ms).
+ *  B. **Settle** — on every hard page load the mark animates in with a
+ *     visible scale + fade + rise (0.9→1, 0.55→1, 4px→0, 550ms).
  *     Because the AppShell persists across client-side navigations,
- *     this only fires on true page loads, not on tab clicks — which is
- *     exactly the "loading moment" we want to fill with brand presence.
+ *     this only fires on true page loads — the "loading moment" we
+ *     want to fill with brand presence.
  *
  * Both effects share the same container so the two forms occupy the
  * same slot without layout jitter. The Primary Mark's canvas is
@@ -30,7 +31,12 @@ import { useEffect, useState } from "react";
  * import site with the SVG — no caller changes needed.
  */
 
-const SESSION_REVEAL_KEY = "theo:logo-reveal-seen-v1";
+/** localStorage key for the last time reveal (A) fired for this device. */
+const REVEAL_LAST_SHOWN_KEY = "theo:logo-reveal-last-shown-v2";
+/** How long to wait between reveal replays. 20 min keeps the moment
+ *  "occasional" (per PM's original ask of a periodic rotation) without
+ *  hammering users every navigation. */
+const REVEAL_COOLDOWN_MS = 20 * 60 * 1000;
 
 type Phase =
   /** SSR / pre-hydration — render mark statically so there's no FOUC. */
@@ -74,37 +80,55 @@ export function TheoLogo({
       return;
     }
 
-    let seen = false;
-    try {
-      seen = window.sessionStorage.getItem(SESSION_REVEAL_KEY) === "1";
-    } catch {
-      // sessionStorage can throw in private mode / disabled cookies —
-      // treat as "already seen" so we don't repeatedly animate.
-      seen = true;
+    // Force-play if `?logo=reveal` is on the URL — dev/QA affordance
+    // so the animation can be re-triggered without waiting out the
+    // cooldown or clearing storage.
+    const forcePlay =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("logo") === "reveal";
+
+    let onCooldown = false;
+    if (!forcePlay) {
+      try {
+        const last = window.localStorage.getItem(REVEAL_LAST_SHOWN_KEY);
+        if (last) {
+          const lastMs = Number.parseInt(last, 10);
+          if (Number.isFinite(lastMs) && Date.now() - lastMs < REVEAL_COOLDOWN_MS) {
+            onCooldown = true;
+          }
+        }
+      } catch {
+        // localStorage blocked → play it safe and DO fire (better to show
+        // once too many than never), then don't try to persist.
+        onCooldown = false;
+      }
     }
 
-    if (seen) {
+    if (onCooldown) {
       setPhase("done");
       return;
     }
 
-    // Play the reveal exactly once per session.
+    // Play the reveal — persist timestamp so we don't spam users on every
+    // subsequent hard-refresh within the cooldown window.
     try {
-      window.sessionStorage.setItem(SESSION_REVEAL_KEY, "1");
+      window.localStorage.setItem(REVEAL_LAST_SHOWN_KEY, String(Date.now()));
     } catch {
-      /* ignore — animation still plays, just may repeat next mount */
+      /* ignore — animation still plays */
     }
     setPhase("reveal-hold");
-    const holdTimer = window.setTimeout(() => setPhase("reveal-crossfade"), 700);
-    const doneTimer = window.setTimeout(() => setPhase("done"), 700 + 500);
+    const holdMs = 900;
+    const fadeMs = 600;
+    const holdTimer = window.setTimeout(() => setPhase("reveal-crossfade"), holdMs);
+    const doneTimer = window.setTimeout(() => setPhase("done"), holdMs + fadeMs);
     return () => {
       window.clearTimeout(holdTimer);
       window.clearTimeout(doneTimer);
     };
   }, []);
 
-  const wordmarkVisible = phase === "reveal-hold";
-  const isRevealPending = phase === "reveal-hold" || phase === "reveal-crossfade";
+  const wordmarkOpacityClass =
+    phase === "reveal-hold" ? "opacity-100" : "opacity-0";
 
   return (
     <span className={`relative inline-block ${className}`}>
@@ -119,27 +143,26 @@ export function TheoLogo({
           "block h-full w-auto select-none",
           // Effect B — settle-in on first mount. Skipped under reduced-motion
           // because `motion-safe:` gates it.
-          "motion-safe:animate-[theo-logo-settle_350ms_ease-out_both]",
+          "motion-safe:animate-[theo-logo-settle_550ms_cubic-bezier(0.2,0.9,0.2,1)_both]",
         ].join(" ")}
       />
-      {/* Effect A — wordmark overlay. Fades in with the container, holds
-          while `wordmarkVisible`, then crossfades out. Positioned to
-          center on the mark's canvas so the transition feels seated. */}
-      {isRevealPending && (
-        <span
-          aria-hidden
-          className={[
-            "pointer-events-none absolute inset-0 flex items-center justify-center",
-            "text-current font-medium tracking-tight leading-none",
-            WORDMARK_SIZE[size],
-            "transition-opacity duration-500 ease-out",
-            wordmarkVisible ? "opacity-100" : "opacity-0",
-          ].join(" ")}
-          style={{ fontFamily: "'SUIT','Geist','Helvetica Neue',Arial,sans-serif" }}
-        >
-          Theo
-        </span>
-      )}
+      {/* Effect A — wordmark overlay. Always mounted so it can fade IN
+          (opacity-0 → opacity-100) and back OUT (→ opacity-0) with
+          smooth transitions rather than snapping into view. Centered on
+          the mark's canvas so the transition feels seated. */}
+      <span
+        aria-hidden={phase !== "reveal-hold"}
+        className={[
+          "pointer-events-none absolute inset-0 flex items-center justify-center",
+          "text-current font-medium tracking-tight leading-none",
+          WORDMARK_SIZE[size],
+          "transition-opacity duration-[500ms] ease-out",
+          wordmarkOpacityClass,
+        ].join(" ")}
+        style={{ fontFamily: "'SUIT','Geist','Helvetica Neue',Arial,sans-serif" }}
+      >
+        Theo
+      </span>
     </span>
   );
 }
