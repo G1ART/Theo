@@ -2,6 +2,49 @@
 
 Last updated: 2026-08-03
 
+## 2026-08-03 — hotfix: i18n hydration mismatch (React #418) 근원 제거 → 로고 애니메이션·전체 재렌더 안정화
+
+### 배경
+QA 콘솔에 `Minified React error #418; args[]=text&args[]=` (텍스트 노드 hydration mismatch) 가 반복 발생. React 19 는 이 경우 **트리를 client-side 로 재생성** 하는데, 이 재생성이 `TheoLogo` 의 `useEffect`(로고 reveal 스케줄러) 를 반복 초기화해 애니메이션이 아예 안 보이는 원인이 되고 있었음.
+
+### 원인
+`src/lib/i18n/useT.ts` 가 hydration-unsafe:
+- `useState` 초기값이 `getCookieLocale() ?? "en"` — 서버는 `document` 없어 `"en"`, 클라이언트는 쿠키에서 `"ko"` 를 얻어 시작 → 첫 렌더가 서버와 다름
+- `t()` 콜백 안에서 매번 `getCookieLocale()` 을 다시 읽음 — 렌더 중 서버/클라 결과가 다르게 나옴
+
+Korean 유저의 경우 SSR 은 영어 문자열로, CSR 은 한국어 문자열로 하이드레이션 → 모든 `useT()` 사용 컴포넌트가 텍스트 노드 mismatch → React #418 트리 재생성.
+
+### 변경 사항
+
+1. **`src/lib/i18n/LocaleContext.tsx` (신규)** — `LocaleContext` + `LocaleProvider` (client component). 서버가 결정한 locale 을 트리 전체로 전파.
+
+2. **`src/app/layout.tsx` (async server component)** — `cookies()` + `headers()` 를 읽어 `initialLocale` 결정 (쿠키 우선, 없으면 `defaultLocaleFromRequest`), `<html lang={initialLocale}>` 도 서버에서 세팅, `<LocaleProvider initialLocale={…}>` 로 하위 트리 감쌈.
+
+3. **`src/lib/i18n/useT.ts` (재작성)** — 
+   - state 초기값 = `useLocaleFromContext() ?? "en"` (서버·클라 동일)
+   - `t()` 는 **오직 state** 에서만 messages 룩업 (렌더 중 쿠키 재조회 제거)
+   - `useEffect` 는 마운트 후 다른 탭의 locale 변경 동기화용으로만 잔존
+
+### 효과
+- SSR HTML 과 클라이언트 초기 렌더의 텍스트가 완전 일치 → React #418 사라짐 → 트리 재생성 없음 → `TheoLogo` reveal 타이머가 정상 동작 (마운트 3초 후 mark → Theo → mark 라운드트립)
+- Korean 유저의 하드 로드 시 발생하던 영→한 FOUC (수십~수백 ms) 도 함께 사라짐
+- `<html lang>` 이 서버에서 확정 → SEO·스크린리더·크롬 auto-translate 회피가 첫 페인트부터 정확
+- `HtmlLangSync` 는 방어적 후속 동기화 용도로 유지 (다른 탭에서 언어 변경 시)
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 없음.
+
+### Verified
+- `npx tsc --noEmit` 통과
+- `npx eslint src/lib/i18n/useT.ts src/lib/i18n/LocaleContext.tsx src/app/layout.tsx` 통과
+- 로컬 `next dev` 로 `curl -H "Cookie: ab_locale=ko"` → SSR 이 `<html lang="ko">` + 한국어 nav (`탐색/메시지/알림/워크스페이스/저장/설정`) 렌더 확인
+- `curl -H "Cookie: ab_locale=en"` → SSR 이 `<html lang="en">` + 영어 nav (`Explore/Messages/Notifications/Workspace/Saved`) 렌더 확인
+
+---
+
 ## 2026-08-03 — 브랜드 로고 정본 교체 + 세션 reveal · 페이지 settle 마이크로 애니메이션
 
 ### 배경
