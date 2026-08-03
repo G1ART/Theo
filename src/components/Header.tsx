@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { TheoLogo } from "@/components/brand/TheoLogo";
 import Link from "next/link";
 import { BuildStamp } from "./BuildStamp";
 import { usePathname, useRouter } from "next/navigation";
@@ -317,19 +317,10 @@ export function Header() {
           className="inline-flex items-center text-zinc-900 hover:opacity-80"
           onClick={closeMobile}
         >
-          {/* Brand mark — thin arch + "theo" wordmark from the Aug-2026
-              wireframe. Rendered small enough to fit the mobile header
-              row without dominating; the SVG uses currentColor so it
-              picks up whatever text-color the parent enforces. */}
-          <Image
-            src="/theo-logo.svg"
-            alt="Theo"
-            width={56}
-            height={38}
-            priority
-            className="h-9 w-auto"
-            translate="no"
-          />
+          {/* Brand mark — inline SVG (see AppSidebar for the same swap).
+              Small enough to fit the mobile header row without dominating;
+              the SVG uses currentColor so it picks up the parent color. */}
+          <TheoLogo className="h-9 w-auto" />
         </Link>
 
         {/* Main tabs: Feed, People, Upload (no Settings) */}

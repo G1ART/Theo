@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import { TheoLogo } from "@/components/brand/TheoLogo";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -222,7 +222,10 @@ export function AppSidebar({
         }`}
       >
         <span>{t(item.key)}</span>
-        {item.badge && item.badge > 0 && (
+        {/* Guard with `!= null` because `0 && …` evaluates to `0`, which
+            React would render as literal text next to the label (that's
+            the "위임 0" glitch reported in the redesign QA). */}
+        {item.badge != null && item.badge > 0 && (
           <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
             {item.badge > 99 ? "99+" : item.badge}
           </span>
@@ -254,19 +257,9 @@ export function AppSidebar({
         aria-label="Theo"
         className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
       >
-        {/*
-          Brand mark — thin arch/tent + "theo" wordmark from the Aug-2026
-          wireframe. Rendered via next/image so it participates in the
-          asset pipeline and gets `priority` on above-the-fold nav.
-        */}
-        <Image
-          src="/theo-logo.svg"
-          alt="Theo"
-          width={72}
-          height={48}
-          priority
-          className="h-12 w-auto text-zinc-900"
-        />
+        {/* Brand mark — inline SVG so we don't hit next/image's SVG
+            allowlist and can freely tune size via Tailwind height. */}
+        <TheoLogo className="h-12 w-auto" />
       </Link>
 
       <div className="flex flex-col gap-1">
@@ -411,6 +404,10 @@ export function AppSidebar({
 /**
  * Sidebar Switch-Account avatar — small circular disc with an optional
  * yellow dot indicator (matches the wireframe's active state).
+ *
+ * The outer wrapper is `relative` **without** `overflow-hidden` so the
+ * status dot can sit outside the circular clip. The circular crop is
+ * applied only to the inner image wrapper.
  */
 function AvatarDisc({
   imageUrl,
@@ -427,17 +424,19 @@ function AvatarDisc({
       : getArtworkImageUrl(imageUrl, "avatar")
     : null;
   return (
-    <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-[10px] font-medium text-zinc-500">
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <span>{fallback}</span>
-      )}
+    <span className="relative inline-block h-6 w-6 shrink-0">
+      <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-[10px] font-medium text-zinc-500">
+        {src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span>{fallback}</span>
+        )}
+      </span>
       {active && (
         <span
           aria-hidden
-          className="absolute -right-0.5 -top-0.5 inline-block h-2 w-2 rounded-full bg-amber-400 ring-2 ring-white"
+          className="absolute -right-0.5 -top-0.5 inline-block h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white"
         />
       )}
     </span>
