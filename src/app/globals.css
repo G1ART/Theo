@@ -34,20 +34,14 @@
 }
 
 /* Brand mark settle-in — see components/brand/TheoLogo.tsx.
-   Auto-skipped under prefers-reduced-motion via Tailwind's `motion-safe:`
-   variant on the consuming class. Amplitudes intentionally visible: the
-   earlier tiny-scale variant (0.96→1, 0.85→1 opacity) was imperceptible
-   under 50px logos. */
+   Transform-only (no opacity) so it doesn't fight the class-driven
+   opacity crossfade used by the reveal effect. Auto-skipped under
+   prefers-reduced-motion via `motion-safe:` on the consuming class. */
 @keyframes theo-logo-settle {
   from {
-    opacity: 0;
-    transform: scale(0.9) translateY(4px);
-  }
-  60% {
-    opacity: 1;
+    transform: scale(0.92) translateY(3px);
   }
   to {
-    opacity: 1;
     transform: scale(1) translateY(0);
   }
 }
