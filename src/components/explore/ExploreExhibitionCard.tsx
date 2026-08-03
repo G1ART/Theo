@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
 import {
   getExhibitionHostCuratorLabel,
@@ -27,7 +27,6 @@ function pickYear(row: { start_date?: string | null; created_at?: string | null 
 
 export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
   const { t, locale } = useT();
 
   const cover = (exhibition.cover_image_paths ?? [])[0] ?? null;
@@ -46,7 +45,9 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
       router.push(signupHref);
       return;
     }
-    setExhibitionBack(pathname ?? "/feed");
+    // No arg — snapshot pathname + query from window.location so
+    // `/feed?tab=exhibitions` is preserved on return (QA 2026-08-03).
+    setExhibitionBack();
     router.push(`/e/${exhibition.id}`);
   }
 

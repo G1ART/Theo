@@ -344,7 +344,7 @@ function ShortlistDetailContent() {
               ) : item.exhibition_id && item.exhibition ? (
                 <Link
                   href={`/e/${item.exhibition_id}`}
-                  onClick={() => setExhibitionBack(pathname ?? `/my/shortlists/${id}`)}
+                  onClick={() => setExhibitionBack()}
                 >
                   <p className="text-sm font-medium text-zinc-800">{item.exhibition.title ?? "Exhibition"}</p>
                 </Link>

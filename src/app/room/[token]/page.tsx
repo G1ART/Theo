@@ -319,7 +319,7 @@ export default function RoomPage() {
                   <article className="flex flex-col">
                     <Link
                       href={`/e/${item.exhibition_id}`}
-                      onClick={() => setExhibitionBack(pathname ?? `/room/${token}`)}
+                      onClick={() => setExhibitionBack()}
                       className="group block"
                     >
                       {/* Calm dashed frame so an exhibition slot reads as

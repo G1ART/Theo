@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
 import {
   type Artwork,
@@ -40,7 +40,6 @@ type Props = {
 
 export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUpdate, showDelete = false, onDelete, showEdit = false, disableNavigation = false, dragHandle, viewerId = null }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
   const { t } = useT();
   const images = artwork.artwork_images ?? [];
   const sortedImages = [...images].sort(
@@ -68,7 +67,7 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
 
   function handleArticleClick() {
     if (disableNavigation) return;
-    setArtworkBack(pathname ?? "/feed");
+    setArtworkBack();
     router.push(`/artwork/${artwork.id}`);
   }
 

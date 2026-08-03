@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
 import {
   type ArtworkWithLikes,
@@ -161,7 +161,6 @@ export function FeedArtworkCard({
   feedContext,
 }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
   const { t, locale } = useT();
   const sizePref = useSizeUnitPref();
   const images = artwork.artwork_images ?? [];
@@ -261,7 +260,7 @@ export function FeedArtworkCard({
   const imageWrapClass = isMini ? "overflow-hidden" : "";
 
   function handleClick() {
-    setArtworkBack(pathname ?? "/feed");
+    setArtworkBack();
     if (feedContext) {
       logFeedEvent("feed_item_click", {
         tab: feedContext.tab,

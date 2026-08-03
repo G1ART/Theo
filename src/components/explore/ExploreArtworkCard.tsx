@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
 import {
   getArtworkImageUrl,
@@ -103,7 +103,6 @@ export function ExploreArtworkCard({
   onUnonboardedArtistClick,
 }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
   const { t, locale } = useT();
   const sizePref = useSizeUnitPref();
 
@@ -194,7 +193,7 @@ export function ExploreArtworkCard({
       router.push(signupHref);
       return;
     }
-    setArtworkBack(pathname ?? "/feed");
+    setArtworkBack();
     router.push(`/artwork/${artwork.id}`);
   }
 

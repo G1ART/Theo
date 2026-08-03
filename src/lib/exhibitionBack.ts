@@ -8,10 +8,25 @@
 
 const KEY = "theo_exhibition_back";
 
-export function setExhibitionBack(pathname: string): void {
+/**
+ * Stamp the caller's current location as the "return to" target for the
+ * next exhibition detail page open.
+ *
+ * Pass `explicitPath` only when you have a smarter default than the raw
+ * URL (rare). When called with no args (recommended), we snapshot both
+ * pathname AND search string via `window.location` — which is critical:
+ * `usePathname()` alone drops the query string, so callers that passed
+ * `usePathname()` were silently sending users back to `/feed` root even
+ * when they came from `/feed?tab=exhibitions`. Sourcing from
+ * `window.location` inside the click handler is always correct and
+ * dodges that class of bug entirely.
+ */
+export function setExhibitionBack(explicitPath?: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(KEY, pathname || "/feed");
+    const fromLocation = window.location.pathname + window.location.search;
+    const target = explicitPath || fromLocation || "/feed";
+    window.sessionStorage.setItem(KEY, target);
   } catch {
     // ignore (private mode / disabled storage)
   }

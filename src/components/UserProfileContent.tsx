@@ -972,7 +972,7 @@ export function UserProfileContent({
                 <li key={ex.id}>
                   <Link
                     href={`/e/${ex.id}`}
-                    onClick={() => setExhibitionBack(pathname ?? "/feed")}
+                    onClick={() => setExhibitionBack()}
                     className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-2.5 shadow-sm transition hover:border-zinc-300 hover:shadow-md"
                   >
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-zinc-200 bg-zinc-100">
