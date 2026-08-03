@@ -257,9 +257,9 @@ export function AppSidebar({
         aria-label="Theo"
         className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
       >
-        {/* Brand mark — inline SVG so we don't hit next/image's SVG
-            allowlist and can freely tune size via Tailwind height. */}
-        <TheoLogo className="h-12 w-auto" />
+        {/* Brand mark — official raster from brand guideline (see
+            TheoLogo for why we ship PNG). Above-the-fold, so `priority`. */}
+        <TheoLogo className="h-12 w-auto" priority />
       </Link>
 
       <div className="flex flex-col gap-1">

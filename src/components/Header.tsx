@@ -317,10 +317,9 @@ export function Header() {
           className="inline-flex items-center text-zinc-900 hover:opacity-80"
           onClick={closeMobile}
         >
-          {/* Brand mark — inline SVG (see AppSidebar for the same swap).
-              Small enough to fit the mobile header row without dominating;
-              the SVG uses currentColor so it picks up the parent color. */}
-          <TheoLogo className="h-9 w-auto" />
+          {/* Brand mark — official raster (see TheoLogo). Header appears
+              on every route so `priority`. */}
+          <TheoLogo className="h-9 w-auto" priority />
         </Link>
 
         {/* Main tabs: Feed, People, Upload (no Settings) */}

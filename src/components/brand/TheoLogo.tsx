@@ -1,51 +1,41 @@
+import Image from "next/image";
+
 /**
- * Theo brand mark (Aug-2026 redesign).
+ * Theo brand mark (Aug-2026, from official brand guideline).
  *
- * Inline React SVG so we can use JSX attribute names and skip Next.js'
- * `next/image` SVG allowlist (which blocks unknown SVGs by default and
- * was surfacing as a broken "?" placeholder in the wireframe screenshots).
+ * The mark is a single continuous stroke: an arch on the left rising
+ * from the baseline (representing the T + O merger) with a short vertical
+ * accent at the peak, then a flowing wave extending outward to the right
+ * (representing "새로운 발견 — 아직 발견되지 않은 예술가·작품·기회를 찾아가는
+ * 능동적인 연결"), sitting above the lowercase "theo" wordmark.
  *
- * The mark is a thin arch/tent silhouette sitting over the lowercase
- * `theo` wordmark from the wireframe. Everything strokes/fills with
- * `currentColor` so a parent element can flip the tone with a single
- * `color:` change (e.g. dark-mode wrapper).
+ * We ship the designer's rasterised asset (`/public/theo-logo.png`) rather
+ * than a hand-traced SVG so the geometry matches the brand book pixel-for-
+ * pixel. The white background has been alpha-processed into a transparency
+ * ramp so the mark sits cleanly on any surface (sidebar, drawer, header).
  *
- * `viewBox` is 120x80. Use Tailwind height classes (`h-9`, `h-12`, …)
- * and `w-auto` on the caller to control size.
+ * If we ever get an official SVG from the designer, swap the asset here
+ * and every caller updates automatically.
  */
-export function TheoLogo({ className = "" }: { className?: string }) {
+export function TheoLogo({
+  className = "",
+  priority = false,
+}: {
+  className?: string;
+  /** Set `priority` on above-the-fold nav slots (Header, AppSidebar). */
+  priority?: boolean;
+}) {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 120 80"
-      role="img"
-      aria-label="Theo"
+    <Image
+      src="/theo-logo.png"
+      alt="Theo"
+      width={180}
+      height={144}
+      priority={priority}
       className={className}
-      fill="none"
-    >
-      <g
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      >
-        <path
-          d="M18 44 C 26 12, 44 8, 56 28 C 66 44, 84 42, 100 34"
-          strokeWidth={2.6}
-        />
-        <path d="M56 30 L 56 44" strokeWidth={2.2} />
-      </g>
-      <text
-        x={16}
-        y={70}
-        fontFamily="'SUIT','Geist','Helvetica Neue',Arial,sans-serif"
-        fontSize={26}
-        fontWeight={500}
-        letterSpacing={0.5}
-        fill="currentColor"
-      >
-        theo
-      </text>
-    </svg>
+      // The mark already has its own top/bottom margin baked into the
+      // 5:4 canvas, so callers control only the height and let width flow.
+      draggable={false}
+    />
   );
 }
