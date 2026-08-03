@@ -29,10 +29,18 @@ export function ExhibitionArtistSectionHeader({
   artistName,
   firstArtwork,
   exhibitionId,
+  /**
+   * 2026-08-03 (Phase B redesign) — 탭 구조에서 이 헤더가 활성 탭의
+   * 패널 안에 렌더될 때, 탭 클릭 자체를 "이 작가에 관심 있음" 시그널로
+   * 취급하지 않기 위한 opt-out. 기존 스크롤 기반 그룹 렌더링 (default
+   * false) 은 그대로 passive 신호를 유지해 시맨틱스가 변하지 않는다.
+   */
+  suppressPassiveInterest = false,
 }: {
   artistName: string;
   firstArtwork: ArtworkWithLikes;
   exhibitionId: string;
+  suppressPassiveInterest?: boolean;
 }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
 
@@ -51,6 +59,7 @@ export function ExhibitionArtistSectionHeader({
       : null;
 
   useEffect(() => {
+    if (suppressPassiveInterest) return;
     if (!isUnonboarded || !externalArtistId) return;
     const key = `interest-recorded:${externalArtistId}`;
     try {
@@ -86,7 +95,7 @@ export function ExhibitionArtistSectionHeader({
     // Only re-run if the artist identity actually changes (grid re-renders
     // shouldn't retrigger this).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalArtistId, isUnonboarded]);
+  }, [externalArtistId, isUnonboarded, suppressPassiveInterest]);
 
   return (
     <div className="border-b border-zinc-100 pb-2">

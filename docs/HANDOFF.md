@@ -1,6 +1,64 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-07-29
+Last updated: 2026-08-03
+
+## 2026-08-03 — 리디자인 Phase B (전시 상세 탭 구조화)
+
+### 배경 (디자이너 리뷰)
+디자이너 코멘트(이미지 1·2·7 관련) 요약:
+> "우선 exhibition탭에서는 모든 작가 작품들이 스크롤 하나에 다 줄줄이 보여지는 형태여서, 이걸 프로필 탭 바꾸는것이랑 비슷한 컨셉으로 각 작가들을 탭을 눌러서 볼수있게 바꿔봤습니다. 스크롤이 너무길어지면 유저 입장에서는 동작이 너무 루즈해지고 뒤로 갈수록 흥미를 잃는 느낌이 있어서, 최대한 스크롤을 줄이는 방향으로 생각했어요. 그리고 작품사진만 말고도, 전시 중 사진들도 같이 포함할수있는 탭을 추가하면 좋을것같습니다."
+
+이전 `/e/[id]` 하단 구성:
+1. 포스터 + 크레딧 + 서문 (헤더) — **유지**
+2. Exhibition Photos 가로 캐러셀 (모든 버킷 flatten) — 제거·재조립
+3. 작가별 그룹 스택 (작가 A 헤더 → 그리드 → 작가 B 헤더 → 그리드 …) — 제거·재조립
+
+문제: 그룹전(작가 3~5명 × 각 4~10점) 이면 스크롤이 2·3화면분 이상으로 길어져 후반 작가는 사실상 열람되지 않음. 사진 캐러셀도 존재를 모르는 큐레이터가 많다는 피드백.
+
+### 변경 사항
+1. **`src/components/exhibitions/ExhibitionSectionsTabbedView.tsx`** (신규) — 헤더 아래를 하나의 탭 컨트롤로 재조립. 탭 순서: `[Exhibition Photos]` (사진 ≥1일 때만) → 작가별 (`byArtist` 순서 = `exhibition_works.sort_order`). URL query `?section=photos` / `?section=artist-{idx}` 로 상태 반영, 기본 탭이면 key 제거해 URL 을 깔끔하게 유지. 뒤로가기·공유·새로고침·좌우 화살표 키보드 이동 지원. `role="tablist"`/`role="tab"`/`role="tabpanel"` + `aria-selected`/`aria-controls` 접근성.
+2. **`src/components/exhibitions/ExhibitionPhotosTabPanel.tsx`** (신규) — 이전 가로 스크롤 캐러셀 대신 큰 이미지 하나 + 좌우 화살표 (loop navigation). PDF 처리(원본 열기 링크·아이콘 폴백)와 다국어 라벨은 기존 `ExhibitionPhotosCarousel` 로직을 그대로 옮김. 사진 하단에 `N/M` + bucket_title 메타. index 는 렌더 시 클램프 (out-of-bounds 방지) — `react-hooks/set-state-in-effect` 위배 회피. 좌우 화살표 키 지원 (`role="group"` + `aria-roledescription="carousel"` + tabIndex 0).
+3. **`src/components/exhibitions/ExhibitionArtistTabPanel.tsx`** (신규) — 활성 탭이 특정 작가일 때 해당 작가 작품만 2-col `ExploreArtworkCard` 그리드로 노출. 미가입 작가일 때만 상단에 `ExhibitionArtistSectionHeader` 를 재사용해 관심 등록 CTA(배지 + popover) 를 유지. 온보딩 작가는 탭 라벨이 이미 이름을 노출하므로 mini-header 를 생략.
+4. **`src/components/exhibitions/ExhibitionArtistSectionHeader.tsx`** — 새 optional prop `suppressPassiveInterest?: boolean` 추가. 탭 패널 안에서 렌더될 때 (`true` 전달) passive 관심 시그널 fetch 를 건너뜀 → 탭 클릭 = 탐색이지 관심이 아니라는 시맨틱 유지 (기존 그룹 스택 렌더는 default `false` 라 시맨틱 변화 없음).
+5. **`src/app/e/[id]/page.tsx`** — 하단 렌더를 `<ExhibitionSectionsTabbedView>` 하나로 교체. 이전 `ExhibitionPhotosCarousel` (inline) 제거 (다른 소비자 없음 — grep 확인). `photoItems` 는 `mediaBuckets.flatMap(...)` 로 상위에서 미리 flatten. `useSearchParams` 를 쓰는 자식이라 얇은 `<Suspense fallback={null}>` 래핑.
+6. **i18n** — `src/lib/i18n/messages.ts` 에 새 키만 추가 (기존 키 미수정): `exhibition.tab.photos`, `exhibition.tab.empty.photos`, `exhibition.tab.empty.artist`, `exhibition.tab.empty.all`, `exhibition.tab.artistCount`, `exhibition.tab.photoIndex`, `exhibition.photos.prev`, `exhibition.photos.next` (KO/EN 쌍).
+
+### 렌더 시나리오
+- **다중 작가 (3명, 사진 5장):** `[Exhibition Photos] [작가 A] [작가 B] [작가 C]` — 기본 활성 탭 = Photos.
+- **단일 작가 (사진 있음):** `[Exhibition Photos] [작가 A]` 2탭 유지 (UX 일관성). 굳이 조건 분기해서 별도 레이아웃 만들지 않음.
+- **사진 0장:** Photos 탭을 감추고 첫 작가 탭이 기본. URL 이 `?section=photos` 를 갖고 있으면 replace 로 정리.
+- **작가 0명 + 사진 0장:** (구조상 흔치 않지만) 탭 컨테이너 안에 `EmptyState` ("이 전시에는 아직 작품이나 사진이 없습니다.") 출력.
+
+### Supabase SQL 수동 적용 필요
+없음. 이번 패치는 순수 UI 재조립.
+
+### 환경 변수
+없음.
+
+### 다른 워커와의 파일 소유권
+- 이번 워커(B — 전시 상세)가 만진 파일: 위 목록만.
+- Worker A(Shell/Global) 소유 파일(`src/components/shell/**`, `src/components/Header.tsx`, `src/app/layout.tsx`, `src/app/notifications/**`, `src/components/notifications/**` 등) — **미변경**.
+- Worker C(Messages/Profile/Connections) 소유 파일(`src/app/my/messages/**`, `src/app/my/network/**`, `src/app/u/[username]/**`, `supabase/migrations/**` 등) — **미변경**.
+- 공용 i18n 은 `exhibition.tab.*` / `exhibition.photos.*` 접두어로 격리, 다른 워커 키와 충돌 없음.
+
+### Verify
+- `npx tsc --noEmit` 통과 (0 errors).
+- `npm run build` 통과. `/e/[id]` 는 여전히 `ƒ` (동적) 라우트.
+- `npx eslint` 로 touched files 검사 — 새로 도입한 lint 에러 0. `page.tsx` 에 남은 2건은 pre-existing 레거시 (`setBack` / `fetchData` in useEffect) 로 이번 워크스트림 범위 밖.
+
+### QA 체크리스트 (수동)
+- [ ] 다중 작가 전시 하나 열고 탭 전환 · Photos 좌우 화살표 · URL query 반영 · 브라우저 뒤로가기 정상.
+- [ ] 단일 작가 전시가 어색하지 않은지 확인 (2탭 뷰).
+- [ ] 사진 0장 전시 → Photos 탭 감춰지고 첫 아티스트 탭이 기본.
+- [ ] 미가입 작가 탭 → 상단 배지 클릭 시 관심 등록 popover 정상 open. 탭 왔다갔다 해도 `/api/artist-profile-interest-email` passive 호출은 발생하지 않음 (network 탭).
+- [ ] 키보드: 탭 바에 focus 후 ←/→ 로 탭 이동, tab 키로 패널 진입, Photos 패널에서 ←/→ 로 이미지 이동.
+
+### Deferred / TODO
+- 탭 라벨이 5개 이상일 때 우측 오버플로우 스크롤은 CSS 로만 처리되어 있음 (mobile 에서 자연스럽게 스와이프). desktop 에서 6명 이상 그룹전이 실제로 얼마나 흔한지 데이터 축적 후 shadow indicator 도입 고려.
+- Photos 패널에서 dot indicator (·  · ●  ·  ·) 는 총 사진 수가 10장 이상 될 때만 유용해 이번엔 생략. 필요하면 후속 패치.
+- 작가 이름이 매우 긴 (한자 병기 등) 케이스에서 탭 라벨이 잘리는 UX 를 nowrap + max-w 로 방지할지 판단 (지금은 shrink-0 + whitespace-nowrap 만 적용).
+
+---
 
 ## 2026-07-29 — hotfix: profile_interest passive dedupe index IMMUTABLE 오류
 

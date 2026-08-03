@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
@@ -22,15 +22,19 @@ import {
   type ExhibitionRow,
   type ExhibitionWorkRow,
 } from "@/lib/supabase/exhibitions";
-import { getArtworksByIds, getArtworkImageUrl, getArtworkArtistLabel, getArtworkArtistGroupKey, type ArtworkWithLikes } from "@/lib/supabase/artworks";
-import { getPublicImageUrl } from "@/lib/supabase/storage";
-import { ExploreArtworkCard } from "@/components/explore/ExploreArtworkCard";
-import { ExhibitionArtistSectionHeader } from "@/components/exhibitions/ExhibitionArtistSectionHeader";
+import {
+  getArtworksByIds,
+  getArtworkImageUrl,
+  getArtworkArtistLabel,
+  getArtworkArtistGroupKey,
+  type ArtworkWithLikes,
+} from "@/lib/supabase/artworks";
+import { ExhibitionSectionsTabbedView } from "@/components/exhibitions/ExhibitionSectionsTabbedView";
+import type { PhotoTabItem } from "@/components/exhibitions/ExhibitionPhotosTabPanel";
 import { UnonboardedArtistInterestPopover } from "@/components/artists/UnonboardedArtistInterestPopover";
 import { getSession } from "@/lib/supabase/auth";
 import { listMyDelegations } from "@/lib/supabase/delegations";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
-import { EmptyState } from "@/components/ds";
 
 const STATUS_LABELS: Record<string, string> = {
   planned: "exhibition.statusPlanned",
@@ -51,21 +55,10 @@ const STATUS_LABELS: Record<string, string> = {
  */
 function ExhibitionPosterTile({ paths, alt }: { paths: string[]; alt: string }) {
   const [failedIndex, setFailedIndex] = useState(0);
-
-  // 참고: paths 가 바뀔 때 (다른 전시로 이동, refetch 후 커버 교체 등)
-  // failedIndex 를 초기화해야 하는데, 이펙트+setState 로 하면 리렌더가
-  // 한 번 더 캐스케이드된다 (react-hooks/set-state-in-effect). 대신
-  // 호출부(PublicExhibitionPage)에서 paths 내용을 key 로 넘겨 경로가
-  // 바뀌면 이 컴포넌트 자체를 리마운트시켜 failedIndex 를 자연스럽게
-  // 초기 상태(0)로 되돌린다.
   const activePath = paths[failedIndex];
-
   if (!activePath) {
-    // 모든 후보가 소진됨 (전부 orphan 이거나 원래 커버가 없음) — 커버
-    // 없음일 때와 동일한 빈 상태.
     return <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400" />;
   }
-
   return (
     <Image
       key={activePath}
@@ -131,7 +124,13 @@ export default function PublicExhibitionPage() {
     if (exRes.error || !exRes.data) {
       setCanManage(false);
       setLoading(false);
-      setError(exRes.error ? (exRes.error instanceof Error ? exRes.error.message : t("common.notFound")) : t("common.notFound"));
+      setError(
+        exRes.error
+          ? exRes.error instanceof Error
+            ? exRes.error.message
+            : t("common.notFound")
+          : t("common.notFound")
+      );
       return;
     }
     setExhibition(exRes.data);
@@ -163,16 +162,39 @@ export default function PublicExhibitionPage() {
     // page even if a draft was somehow linked (QA 2026-07-01).
     setArtworks((artList ?? []).filter((a) => a.visibility !== "draft"));
     setLoading(false);
-  }, [id]);
+  }, [id, t]);
 
   const mediaBuckets = useMemo(() => {
     const all = groupExhibitionMediaByBucket(media, (k) => t(k), mediaBucketRows);
     return all.filter((b) => b.items.length > 0);
   }, [media, mediaBucketRows, t]);
 
+  /**
+   * 2026-08-03 (Phase B redesign) — 탭 구조의 Exhibition Photos 패널이
+   * 받아 쓰는 flat 리스트. bucket 별 순서 → sort_order 순서 그대로 이어
+   * 붙임 (기존 캐러셀과 동일 순서). PDF row 는 `media_kind`/`original_storage_path`
+   * 을 함께 실어 패널이 아이콘 폴백/원본 열기를 처리할 수 있게 한다.
+   * bucket_title 은 아래 메타 라인 (예: "포스터", "전시전경") 표시용.
+   */
+  const photoItems: PhotoTabItem[] = useMemo(
+    () =>
+      mediaBuckets.flatMap((b) =>
+        b.items.map((m) => ({
+          id: m.id,
+          storage_path: m.storage_path,
+          media_kind: m.media_kind,
+          original_storage_path: m.original_storage_path,
+          bucket_title: b.title,
+        }))
+      ),
+    [mediaBuckets]
+  );
+
   const byArtist = useMemo(() => {
     const byId = new Map(artworks.map((a) => [a.id, a]));
-    const ordered = works.map((w) => byId.get(w.work_id)).filter((a): a is ArtworkWithLikes => !!a);
+    const ordered = works
+      .map((w) => byId.get(w.work_id))
+      .filter((a): a is ArtworkWithLikes => !!a);
     const map = new Map<string, ArtworkWithLikes[]>();
     const nameMap = new Map<string, string>();
     const order: string[] = [];
@@ -290,7 +312,11 @@ export default function PublicExhibitionPage() {
               )}
             </div>
           </header>
-          <SaveToShortlistModal exhibitionId={id} open={shortlistOpen} onClose={() => setShortlistOpen(false)} />
+          <SaveToShortlistModal
+            exhibitionId={id}
+            open={shortlistOpen}
+            onClose={() => setShortlistOpen(false)}
+          />
 
           {/*
             QA 2026-07-28 — 서문(preface) 렌더. 큐레이터가 작성한 소개문을
@@ -306,94 +332,30 @@ export default function PublicExhibitionPage() {
             </section>
           )}
 
-          {/* Exhibition Photos — merged media buckets rendered as a single
-              horizontal carousel per wireframe. Keeps the original
-              per-bucket data model but flattens the display so viewers get
-              one scroll gesture, not one per bucket. */}
-          {mediaBuckets.some((b) => b.items.length > 0) && (
-            <section className="mb-10">
-              <h2 className="mb-3 text-lg font-semibold text-zinc-900">
-                {t("exhibition.photos")}
-              </h2>
-              <ExhibitionPhotosCarousel
-                items={mediaBuckets.flatMap((b) =>
-                  b.items.map((m) => ({
-                    id: m.id,
-                    storage_path: m.storage_path,
-                    // 2026-07-28 (QA) — PDF row: 클릭 시 원본 PDF 새 탭 오픈.
-                    // pdf.js 썸네일이 실패해 storage_path 가 .pdf 로 끝나면
-                    // 이미지가 아니라 아이콘 카드로 폴백 (isIconFallback).
-                    media_kind: m.media_kind,
-                    original_storage_path: m.original_storage_path,
-                  }))
-                )}
-                pdfBadgeLabel="PDF"
-                pdfOpenHint={t("exhibition.pdfOpenHint")}
-                pdfOpenLabel={t("exhibition.pdfOpen")}
-              />
-            </section>
-          )}
+          {/*
+            2026-08-03 (Phase B redesign) — 이 아래는 이전에 (1) 사진
+            캐러셀 → (2) 작가별 그룹 스택 순으로 세로 쌓여 있어 스크롤이
+            길었다. 이제 하나의 탭 컨트롤 (`[Exhibition Photos] [Artist
+            A] [Artist B] ...`) 로 통합해 화면 하나에 한 세션만 노출.
 
-          {/* Artwork curated — 2-col grid of ExploreArtworkCard. Preserves
-              artist-grouping semantics via the underlying data. When the
-              exhibition has no works, show the existing empty state. */}
-          <section className="mb-10">
-            <h2 className="mb-3 text-lg font-semibold text-zinc-900">
-              {t("exhibition.curated")}
-            </h2>
-            {artworks.length === 0 ? (
-              <EmptyState title={t("exhibition.noWorks")} size="sm" />
-            ) : byArtist.length === 1 ? (
-              // Single-artist show — the credit line above already says
-              // who made the work, so a redundant section header would
-              // just be noise.
-              <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2">
-                {byArtist[0].list.map((art) => (
-                  <ExploreArtworkCard
-                    key={art.id}
-                    artwork={art}
-                    onUnonboardedArtistClick={(externalArtistId, meta) =>
-                      setInterestPopover({
-                        externalArtistId,
-                        displayName: meta.displayName,
-                        artworkId: meta.artworkId,
-                      })
-                    }
-                  />
-                ))}
-              </div>
-            ) : (
-              // Group exhibition — a per-artist section header keeps
-              // attribution unambiguous instead of flattening every
-              // artist's works into one undifferentiated grid.
-              <div className="space-y-10">
-                {byArtist.map((group) => (
-                  <div key={group.artistId}>
-                    <ExhibitionArtistSectionHeader
-                      artistName={group.artistName}
-                      firstArtwork={group.list[0]}
-                      exhibitionId={id}
-                    />
-                    <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2">
-                      {group.list.map((art) => (
-                        <ExploreArtworkCard
-                          key={art.id}
-                          artwork={art}
-                          onUnonboardedArtistClick={(externalArtistId, meta) =>
-                            setInterestPopover({
-                              externalArtistId,
-                              displayName: meta.displayName,
-                              artworkId: meta.artworkId,
-                            })
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+            `useSearchParams` 를 쓰는 자식 컴포넌트라 정적 프리렌더 시
+            Suspense fallback 이 필요 — 뷰는 이미 클라이언트 fetch 이후
+            렌더되므로 빈 fallback 으로 충분.
+          */}
+          <Suspense fallback={null}>
+            <ExhibitionSectionsTabbedView
+              exhibitionId={id}
+              byArtist={byArtist}
+              photoItems={photoItems}
+              onUnonboardedArtistClick={(externalArtistId, meta) =>
+                setInterestPopover({
+                  externalArtistId,
+                  displayName: meta.displayName,
+                  artworkId: meta.artworkId,
+                })
+              }
+            />
+          </Suspense>
           {interestPopover && (
             <UnonboardedArtistInterestPopover
               open={!!interestPopover}
@@ -407,130 +369,5 @@ export default function PublicExhibitionPage() {
         </>
       )}
     </main>
-  );
-}
-
-type CarouselItem = {
-  id: string;
-  storage_path: string;
-  media_kind?: "image" | "pdf";
-  original_storage_path?: string | null;
-};
-
-/**
- * Simple horizontal carousel for exhibition photos. Uses native scroll
- * (snap + smooth) so keyboard / trackpad / touch all Just Work; the
- * arrows only drive `scrollBy` when the user prefers to click. No
- * external deps — the exhibition detail page is otherwise lightweight
- * and we don't want to pull in a slider lib for a low-frequency surface.
- */
-function ExhibitionPhotosCarousel({
-  items,
-  pdfBadgeLabel,
-  pdfOpenHint,
-  pdfOpenLabel,
-}: {
-  items: CarouselItem[];
-  pdfBadgeLabel: string;
-  pdfOpenHint: string;
-  pdfOpenLabel: string;
-}) {
-  const trackRef = useRef<HTMLDivElement>(null);
-
-  function scrollBy(dir: -1 | 1) {
-    const el = trackRef.current;
-    if (!el) return;
-    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.8, 320), behavior: "smooth" });
-  }
-
-  return (
-    <div className="relative">
-      <div
-        ref={trackRef}
-        className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2"
-      >
-        {items.map((m) => {
-          const isPdf = m.media_kind === "pdf";
-          const isIconFallback = isPdf && /\.pdf$/i.test(m.storage_path);
-          const pdfOpenPath = m.original_storage_path ?? (isPdf ? m.storage_path : null);
-          const pdfOpenUrl = pdfOpenPath ? getPublicImageUrl(pdfOpenPath) : null;
-          return (
-            <div
-              key={m.id}
-              className="relative aspect-[16/9] w-[85%] shrink-0 snap-start overflow-hidden rounded-md border border-zinc-200 bg-zinc-100 sm:w-[70%] lg:w-[60%]"
-            >
-              {isIconFallback ? (
-                <a
-                  href={pdfOpenUrl ?? "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-full w-full flex-col items-center justify-center gap-2 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
-                  title={pdfOpenHint}
-                >
-                  <span aria-hidden="true" className="text-5xl">📄</span>
-                  <span className="text-sm font-medium">{pdfOpenLabel}</span>
-                </a>
-              ) : isPdf && pdfOpenUrl ? (
-                <a
-                  href={pdfOpenUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block h-full w-full"
-                  title={pdfOpenHint}
-                >
-                  <Image
-                    src={getArtworkImageUrl(m.storage_path, "medium")}
-                    alt=""
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 640px) 85vw, (max-width: 1280px) 70vw, 60vw"
-                  />
-                </a>
-              ) : (
-                <Image
-                  src={getArtworkImageUrl(m.storage_path, "medium")}
-                  alt=""
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 640px) 85vw, (max-width: 1280px) 70vw, 60vw"
-                />
-              )}
-              {isPdf && (
-                <span
-                  className="pointer-events-none absolute left-2 top-2 rounded bg-blue-600/90 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white shadow"
-                  title={pdfOpenHint}
-                >
-                  {pdfBadgeLabel}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {items.length > 1 && (
-        <>
-          <button
-            type="button"
-            aria-label="Previous"
-            onClick={() => scrollBy(-1)}
-            className="absolute left-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-zinc-700 shadow-md hover:bg-white sm:inline-flex"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            aria-label="Next"
-            onClick={() => scrollBy(1)}
-            className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-zinc-700 shadow-md hover:bg-white sm:inline-flex"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </>
-      )}
-    </div>
   );
 }
