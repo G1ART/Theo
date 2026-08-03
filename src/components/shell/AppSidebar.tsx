@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -16,16 +17,51 @@ import {
   type DelegationWithDetails,
 } from "@/lib/supabase/delegations";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
-
-type NavItem = { key: string; href: string; match: (p: string) => boolean };
+import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 
 /**
- * Desktop-only left navigation for the Theo AppShell (wireframe redesign).
- * Mirrors the existing Header's account/session logic but as a vertical rail.
- * On mobile the proven top Header + hamburger stays in charge, so this is
- * rendered `hidden lg:flex` by AppShell.
+ * Desktop-only left navigation for the Theo AppShell (Aug-2026 redesign).
+ *
+ * Wireframe reference (see `/assets/KakaoTalk_Photo_2026-08-03-*.png`):
+ *
+ *   [Theo logo (arch + wordmark)]
+ *
+ *   Explore       → /feed
+ *   Messages      → /my/messages
+ *   Workspace     → /my  (drafts/inquiries/ownership/my_exhibitions/provenance hub)
+ *   Saved         → /my/shortlists
+ *   Upload        → /upload
+ *
+ *   ─ (spacer) ─
+ *
+ *   Notifications → button opens NotificationsDrawer (popover)
+ *   Setting       → /settings
+ *   Delegations   → /my/delegations
+ *   Switch Account → expandable list of received account-delegations
+ *   Log out
+ *
+ * The active item is rendered with bold weight + a thin 2px vertical
+ * accent on the left. The mobile chrome still uses the top Header +
+ * hamburger, so this component is rendered only inside the desktop
+ * AppShell slot (`hidden lg:flex`).
  */
-export function AppSidebar() {
+
+type NavItem = {
+  key: string;
+  href: string;
+  match: (p: string) => boolean;
+  /** Optional numeric badge (e.g. delegation pending count). */
+  badge?: number;
+};
+
+export function AppSidebar({
+  onOpenNotifications,
+}: {
+  /** Fires when the user clicks the "Notifications" nav item.
+   *  The AppShell owns the drawer's open state so it can render
+   *  outside this rail's clipping context. */
+  onOpenNotifications: () => void;
+}) {
   const { t, locale, setLocale } = useT();
   const router = useRouter();
   const pathname = usePathname() ?? "";
@@ -39,8 +75,10 @@ export function AppSidebar() {
   const [session, setSession] = useState<Session | null>(null);
   const [username, setUsername] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
   const [accounts, setAccounts] = useState<DelegationWithDetails[]>([]);
+  const [pendingDelegations, setPendingDelegations] = useState(0);
   const inflight = useRef(false);
 
   const loggedIn = !!session;
@@ -56,19 +94,31 @@ export function AppSidebar() {
 
   useEffect(() => {
     if (!session?.user?.id) {
+      // React 19's set-state-in-effect rule flags this, but resetting
+      // local mirrors of an auth-driven store when the store empties
+      // is exactly the recommended pattern (Header.tsx does the same).
+      /* eslint-disable react-hooks/set-state-in-effect */
       setUsername(null);
       setDisplayName(null);
+      setAvatarUrl(null);
       setUnread(0);
       setAccounts([]);
+      setPendingDelegations(0);
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
     let cancelled = false;
     const load = () => {
       getMyProfile().then(({ data }) => {
         if (cancelled) return;
-        const p = data as { username?: string | null; display_name?: string | null } | null;
+        const p = data as {
+          username?: string | null;
+          display_name?: string | null;
+          avatar_url?: string | null;
+        } | null;
         setUsername(p?.username ?? null);
         setDisplayName(p?.display_name ?? null);
+        setAvatarUrl(p?.avatar_url ?? null);
       });
       getUnreadCount().then(({ data }) => !cancelled && setUnread(data ?? 0));
     };
@@ -88,23 +138,54 @@ export function AppSidebar() {
     inflight.current = true;
     void listMyDelegations()
       .then(({ data }) => {
-        const received = (data?.received ?? []).filter(
+        const received = data?.received ?? [];
+        const activeAccounts = received.filter(
           (d) => d.scope_type === "account" && d.status === "active"
         );
-        setAccounts(received);
+        setAccounts(activeAccounts);
+        // Pending inbound (any scope) — surfaces on the "Delegations"
+        // nav row as a subtle badge. Matches the /my/delegations page
+        // heuristic so the badge disappears the moment the user opens
+        // the list.
+        setPendingDelegations(
+          received.filter((d) => d.status === "pending").length
+        );
       })
       .finally(() => {
         inflight.current = false;
       });
   }, [loggedIn]);
 
-  const NAV: NavItem[] = [
-    { key: "nav.upload", href: "/upload", match: (p) => p.startsWith("/upload") },
-    { key: "nav.profile", href: profileHref, match: (p) => p.startsWith("/u/") || p === "/onboarding/identity" },
-    { key: "nav.notifications", href: "/notifications", match: (p) => p.startsWith("/notifications") },
-    { key: "nav.messages", href: "/my/messages", match: (p) => p.startsWith("/my/messages") },
-    { key: "nav.insights", href: "/my", match: (p) => p === "/my" },
-    { key: "nav.explore", href: "/feed?tab=all&sort=latest", match: (p) => p.startsWith("/feed") },
+  // Primary nav — top block. Order matches the wireframe.
+  const PRIMARY_NAV: NavItem[] = [
+    {
+      key: "nav.explore",
+      href: "/feed?tab=all&sort=latest",
+      match: (p) => p.startsWith("/feed"),
+    },
+    {
+      key: "nav.messages",
+      href: "/my/messages",
+      match: (p) => p.startsWith("/my/messages"),
+    },
+    {
+      key: "nav.workspace",
+      href: "/my",
+      // Workspace hub only — sub-pages have their own nav slots
+      // (Saved → /my/shortlists, etc.) so /my/xxx should NOT light up
+      // this entry.
+      match: (p) => p === "/my",
+    },
+    {
+      key: "nav.saved",
+      href: "/my/shortlists",
+      match: (p) => p.startsWith("/my/shortlists"),
+    },
+    {
+      key: "nav.upload",
+      href: "/upload",
+      match: (p) => p.startsWith("/upload"),
+    },
   ];
 
   function switchToOwn() {
@@ -123,42 +204,94 @@ export function AppSidebar() {
     router.replace("/login");
   }
 
-  const ownName = displayName || (username ? `@${username}` : t("acting.switcher.myAccount"));
+  const ownName =
+    displayName || (username ? `@${username}` : t("acting.switcher.myAccount"));
+
+  const activeAccent = "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:bg-zinc-900 before:content-['']";
+
+  function renderNavRow(item: NavItem) {
+    const active = item.match(pathname);
+    return (
+      <Link
+        key={item.key}
+        href={item.href}
+        className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[15px] transition-colors ${
+          active
+            ? `font-bold text-zinc-900 ${activeAccent}`
+            : "text-zinc-600 hover:text-zinc-900"
+        }`}
+      >
+        <span>{t(item.key)}</span>
+        {item.badge && item.badge > 0 && (
+          <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
+            {item.badge > 99 ? "99+" : item.badge}
+          </span>
+        )}
+      </Link>
+    );
+  }
+
+  const delegationsItem: NavItem = {
+    key: "nav.delegations",
+    href: "/my/delegations",
+    match: (p) => p.startsWith("/my/delegations"),
+    badge: pendingDelegations,
+  };
+
+  const settingsItem: NavItem = {
+    key: "nav.setting",
+    href: "/settings",
+    match: (p) => p === "/settings",
+  };
 
   return (
     <nav
       aria-label="Primary"
-      className="flex h-full min-h-screen flex-col gap-8 py-8 pr-6 text-[15px]"
+      className="flex h-full min-h-screen flex-col gap-6 py-8 pr-6 text-[15px]"
     >
-      <Link href="/feed?tab=all&sort=latest" className="text-3xl font-extrabold tracking-tight text-zinc-900">
-        Theo
+      <Link
+        href="/feed?tab=all&sort=latest"
+        aria-label="Theo"
+        className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
+      >
+        {/*
+          Brand mark — thin arch/tent + "theo" wordmark from the Aug-2026
+          wireframe. Rendered via next/image so it participates in the
+          asset pipeline and gets `priority` on above-the-fold nav.
+        */}
+        <Image
+          src="/theo-logo.svg"
+          alt="Theo"
+          width={72}
+          height={48}
+          priority
+          className="h-12 w-auto text-zinc-900"
+        />
       </Link>
 
       <div className="flex flex-col gap-1">
-        {NAV.map((item) => {
-          const active = item.match(pathname);
-          const showBadge = item.key === "nav.notifications" && unread > 0;
-          return (
-            <Link
-              key={item.key}
-              href={item.href}
-              className={`group flex items-center justify-between rounded-md py-1.5 pr-2 transition-colors ${
-                active ? "font-bold text-zinc-900" : "text-zinc-600 hover:text-zinc-900"
-              }`}
-            >
-              <span>{t(item.key)}</span>
-              {showBadge && (
-                <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+        {PRIMARY_NAV.map(renderNavRow)}
       </div>
 
-      <div className="mt-auto flex flex-col gap-4">
-        <div className="flex items-center gap-3 text-xs text-zinc-400">
+      <div className="mt-auto flex flex-col gap-1">
+        {/* Secondary nav — spacer then Notifications / Setting / Delegations. */}
+        <button
+          type="button"
+          onClick={onOpenNotifications}
+          className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-left text-[15px] text-zinc-600 transition-colors hover:text-zinc-900`}
+          aria-haspopup="dialog"
+        >
+          <span>{t("nav.notifications")}</span>
+          {unread > 0 && (
+            <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+        </button>
+        {renderNavRow(settingsItem)}
+        {renderNavRow(delegationsItem)}
+
+        <div className="mt-2 flex items-center gap-3 pl-3 text-xs text-zinc-400">
           <button
             type="button"
             onClick={() => setLocale("en")}
@@ -176,49 +309,51 @@ export function AppSidebar() {
           </button>
         </div>
 
-        <Link
-          href="/settings"
-          className={`${pathname === "/settings" ? "font-bold text-zinc-900" : "text-zinc-600 hover:text-zinc-900"}`}
-        >
-          {t("nav.setting")}
-        </Link>
-        {/*
-          QA 2026-07-29 (Track δ) — 이중언어 정리 대시보드로의 진입점.
-          "설정" 하위의 얕은 링크로 붙이며, /settings/bilingual 로 이동.
-          로그인 여부와 무관하게 링크는 표시되지만 페이지 자체는 `AuthGate`
-          로 보호된다.
-        */}
-        <Link
-          href="/settings/bilingual"
-          className={`text-xs ${pathname === "/settings/bilingual" ? "font-semibold text-zinc-900" : "text-zinc-500 hover:text-zinc-800"}`}
-        >
-          {t("bilingual.dashboard.settingsNavLabel")}
-        </Link>
-
         {loggedIn ? (
-          <div className="flex flex-col gap-2">
+          <div className="mt-3 flex flex-col gap-2 pl-3">
             <p className="text-sm text-zinc-500">{t("nav.switchAccount")}</p>
             <ul className="flex flex-col gap-1.5">
+              {/* Own account — click to enter own profile (fallback
+                  entry point since the primary nav no longer includes
+                  a "Profile" link). Active dot indicator matches the
+                  wireframe. */}
               <li>
                 <button
                   type="button"
-                  onClick={switchToOwn}
+                  onClick={() => {
+                    if (actingAsProfileId) {
+                      switchToOwn();
+                    } else {
+                      router.push(profileHref);
+                    }
+                  }}
                   className="flex w-full items-center gap-2 text-left"
                 >
-                  <span
-                    aria-hidden
-                    className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                      !actingAsProfileId ? "bg-amber-400" : "bg-zinc-200"
-                    }`}
+                  <AvatarDisc
+                    imageUrl={avatarUrl}
+                    fallback={
+                      username && !isPlaceholder
+                        ? username.charAt(0).toUpperCase()
+                        : "?"
+                    }
+                    active={!actingAsProfileId}
                   />
-                  <span className={`truncate text-sm ${!actingAsProfileId ? "font-semibold text-zinc-900" : "text-zinc-500"}`}>
+                  <span
+                    className={`truncate text-sm ${
+                      !actingAsProfileId
+                        ? "font-semibold text-zinc-900"
+                        : "text-zinc-500"
+                    }`}
+                  >
                     {ownName}
                   </span>
                 </button>
               </li>
               {accounts.map((d) => {
                 const p = d.delegator_profile;
-                const label = p ? formatDisplayName(p) || formatUsername(p) : "—";
+                const label = p
+                  ? formatDisplayName(p) || formatUsername(p)
+                  : "—";
                 const active = actingAsProfileId === p?.id;
                 return (
                   <li key={d.id}>
@@ -227,13 +362,22 @@ export function AppSidebar() {
                       onClick={() => switchToPrincipal(d)}
                       className="flex w-full items-center gap-2 text-left"
                     >
-                      <span
-                        aria-hidden
-                        className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                          active ? "bg-amber-400" : "bg-zinc-200"
-                        }`}
+                      <AvatarDisc
+                        imageUrl={p?.avatar_url ?? null}
+                        fallback={
+                          p?.username
+                            ? p.username.charAt(0).toUpperCase()
+                            : "?"
+                        }
+                        active={active}
                       />
-                      <span className={`truncate text-sm ${active ? "font-semibold text-zinc-900" : "text-zinc-500"}`}>
+                      <span
+                        className={`truncate text-sm ${
+                          active
+                            ? "font-semibold text-zinc-900"
+                            : "text-zinc-500"
+                        }`}
+                      >
                         {label}
                       </span>
                     </button>
@@ -255,11 +399,47 @@ export function AppSidebar() {
             </button>
           </div>
         ) : (
-          <Link href="/login" className="text-zinc-600 hover:text-zinc-900">
+          <Link href="/login" className="pl-3 text-zinc-600 hover:text-zinc-900">
             {t("nav.login")}
           </Link>
         )}
       </div>
     </nav>
+  );
+}
+
+/**
+ * Sidebar Switch-Account avatar — small circular disc with an optional
+ * yellow dot indicator (matches the wireframe's active state).
+ */
+function AvatarDisc({
+  imageUrl,
+  fallback,
+  active,
+}: {
+  imageUrl: string | null;
+  fallback: string;
+  active: boolean;
+}) {
+  const src = imageUrl
+    ? imageUrl.startsWith("http")
+      ? imageUrl
+      : getArtworkImageUrl(imageUrl, "avatar")
+    : null;
+  return (
+    <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-[10px] font-medium text-zinc-500">
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span>{fallback}</span>
+      )}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -top-0.5 inline-block h-2 w-2 rounded-full bg-amber-400 ring-2 ring-white"
+        />
+      )}
+    </span>
   );
 }

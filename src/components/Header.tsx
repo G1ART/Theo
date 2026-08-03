@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { BuildStamp } from "./BuildStamp";
 import { usePathname, useRouter } from "next/navigation";
@@ -18,9 +19,15 @@ import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import { listMyDelegations, type DelegationWithDetails } from "@/lib/supabase/delegations";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 
+// Aug-2026 redesign — mobile/top-header nav mirrors the desktop
+// AppSidebar order: Explore → Messages → Workspace → Saved → Upload.
+// Notifications and Delegations sit in the avatar dropdown / hamburger
+// menu below so the horizontal strip stays scannable on narrow widths.
 const MAIN_NAV = [
-  { href: "/feed?tab=all&sort=latest", key: "nav.feed" },
-  { href: "/people", key: "nav.people" },
+  { href: "/feed?tab=all&sort=latest", key: "nav.explore" },
+  { href: "/my/messages", key: "nav.messages" },
+  { href: "/my", key: "nav.workspace" },
+  { href: "/my/shortlists", key: "nav.saved" },
   { href: "/upload", key: "nav.upload" },
 ] as const;
 
@@ -306,10 +313,23 @@ export function Header() {
       <div className="flex items-center gap-6">
         <Link
           href="/feed?tab=all&sort=latest"
-          className="text-lg font-semibold text-zinc-900 hover:text-zinc-700"
+          aria-label="Theo"
+          className="inline-flex items-center text-zinc-900 hover:opacity-80"
           onClick={closeMobile}
         >
-          <span translate="no">Theo</span>
+          {/* Brand mark — thin arch + "theo" wordmark from the Aug-2026
+              wireframe. Rendered small enough to fit the mobile header
+              row without dominating; the SVG uses currentColor so it
+              picks up whatever text-color the parent enforces. */}
+          <Image
+            src="/theo-logo.svg"
+            alt="Theo"
+            width={56}
+            height={38}
+            priority
+            className="h-9 w-auto"
+            translate="no"
+          />
         </Link>
 
         {/* Main tabs: Feed, People, Upload (no Settings) */}

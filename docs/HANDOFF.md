@@ -2,6 +2,90 @@
 
 Last updated: 2026-08-03
 
+## 2026-08-03 — 리디자인 Phase A (Shell / Nav / 알림 팝오버 / 우측 rail / Workspace 허브 / 로고)
+
+### 배경 (디자이너 리뷰)
+디자이너가 새 와이어프레임 7장을 보냈고, Phase A 는 **좌측 nav 재편성 + 알림 팝오버 + Theo 로고 + 우측 rail(My Connection · Theo Board) + Workspace 허브 재구성** 을 다룬다. 병렬 Worker B(전시 상세) · Worker C(메시지·프로필·커넥션) 와 파일 소유권을 엄격히 분리하여 진행.
+
+디자이너 코멘트 요약:
+> "전체적으로 왼쪽에 메인 페이지들 중에 workspace과 saved라는 탭들을 추가하고, notification은 아래로 위치를 바꿨고, delegation을 추가했고, setting 버튼의 위치도 바꿨습니다."
+> "notification같은 경우에는 전체 화면을 아예 바꾸기보단, 이미 있던 페이지가 있고, 그 위에 왼쪽에서 오른쪽으로 notification 창이 떴다가 x를 누르면 꺼지는 팝업창 식으로 만들어봤습니다."
+> "좌상단 Theo가 있던 자리에 Theo 로고가 들어갔으니 이 부분도 반영해줘."
+
+### 변경 사항
+1. **좌측 nav 재편성** — `src/components/shell/AppSidebar.tsx` 전면 재작성.
+   - 상단 primary: `Explore · Messages · Workspace · Saved · Upload` (와이어프레임 순서).
+   - 하단 secondary: `Notifications (팝오버 트리거) · Setting · Delegations (pending count 뱃지) · EN/KO · Switch Account · Log out`.
+   - Active 상태는 굵은 글씨 + 2px 검정 세로 액센트.
+   - Switch Account 목록: 본인 계정을 맨 위(active 인 경우 amber dot), 이후 account-scope active 위임자 목록. 각 행에 원형 아바타 + 이름.
+   - Notifications 는 링크가 아닌 **버튼** — 사이드바 우측에 팝오버 drawer 를 open.
+2. **`src/components/notifications/NotificationsDrawer.tsx`** (신규) — 사이드바 옆에서 슬라이드하는 340px 카드형 팝오버. Header (`Notifications` + X), 20건 리스트 (avatar disc + label + `go >`), footer (`See all →` → `/notifications`). ESC / 다른 nav 클릭 / 배경 클릭 시 닫힘. 열릴 때 `markAllAsRead()` + `notifications-read` 이벤트 dispatch.
+3. **`src/components/notifications/notificationLink.ts`** (신규) — 기존 `src/app/notifications/page.tsx` 안에 있던 `notificationLabel()` · `notificationLink()` 로직을 그대로 옮겨 공유 헬퍼로 추출. drawer + 페이지 두 곳에서 import (변경 없음, refactor only).
+4. **`src/components/shell/AppShell.tsx`** — `NotificationsDrawer` open state 를 shell 레벨에서 소유. `AppSidebar` 는 `onOpenNotifications` prop 으로 트리거. URL 변경 시 drawer 자동 닫힘.
+5. **로고** — `public/theo-logo.svg` (신규). 얇은 arch/tent silhouette + 소문자 `theo` wordmark, `currentColor` stroke 로 dark-mode 자동 대응. Header 좌상단 + Sidebar 좌상단 두 곳에서 `next/image` 로 렌더.
+6. **우측 rail 위젯 (신규)**:
+   - `src/components/shell/rail/MyConnectionRail.tsx` — 상단 사람 검색 input (`/people?q=...`), `My Connection` 헤더 (`more ›` → `/my/network`), Invitations 섹션 (follow_request 알림 top 2 · 인라인 decline/accept), Suggestions 섹션 (`getPeopleRecommendations({ lane: 'follow_graph' })` top 2).
+   - `src/components/shell/rail/TheoBoardRail.tsx` — 6-row placeholder (기존 news 뼈대 재활용). 실데이터 소스 (예: `theo_board_posts`) 는 후속 사이클 TODO 로 남김.
+   - `src/components/shell/RightRail.tsx` — 위 두 위젯의 얇은 컴포저. 페이지별 컨텍스트 rail (LibraryRail / ShortlistsRail / NetworkRail / PeopleRail) 은 여전히 `<AppShell rightRail={...}>` 로 override 가능해 하위 호환 유지.
+7. **Workspace 허브 (`/my`)** — `src/app/my/page.tsx` 를 재작성.
+   - 헤더 `Workspace` + 부제.
+   - 5-tile 그리드 (`src/components/studio/WorkspaceOperationGrid.tsx` 신규): **Drafts** (미공개 작품 + 미공개 전시), **Inquiries** (미응답 문의), **Ownership** (승인 대기 claim), **My Exhibitions** (내가 만든 전시 수), **Provenance** (`list_my_external_artists` 결과 개수 = 내가 초대한 외부 작가 수). 각 타일은 아이콘 + 큰 카운트 + 라벨 + 부제.
+   - 기존 `StudioHero / StudioPortfolioPanel / StudioMaterialsPanel / StudioIntelligenceSurface / FirstValuePathPanel / DelegationBriefPanel` 는 barrel export 유지, 이 페이지에서만 mount 해제 (후속 사이클 재활용 여지). `OrphanInvitesBanner` 는 그대로 유지, `DelegationBriefPanel` 은 acting-as 컨텍스트에서만 렌더.
+8. **AppShell 확장 (신규 layout)** — 모든 primary 라우트에 `<AppShell>{children}</AppShell>` 얇은 wrapper:
+   - `src/app/notifications/layout.tsx`
+   - `src/app/settings/layout.tsx`
+   - `src/app/my/inquiries/layout.tsx`
+   - `src/app/my/exhibitions/layout.tsx`
+   - `src/app/my/claims/layout.tsx`
+   - `src/app/my/delegations/layout.tsx`
+   - `src/app/my/orphan-invites/layout.tsx`
+   - `src/app/my/messages/layout.tsx`
+   - `src/app/upload/layout.tsx` (기존 layout 수정 — outer 만 `AppShell` 로 감쌈, inner PageShell 유지)
+   - `/my/network` · `/my/library` · `/my/shortlists` 은 이미 layout 이 존재 → 미수정 (rebase 안전).
+   - `/my` 자체는 페이지 컴포넌트 안에서 `<AppShell>` 로 감싸 double-wrap 회피 (자식 라우트에 이미 layout 이 있으므로 `/my/layout.tsx` 를 만들면 이중 nav 가 됨).
+9. **`src/lib/shell/routes.ts`** — `SHELL_PREFIXES` 에 `/my`, `/notifications`, `/settings`, `/upload` 추가. 이제 이 라우트들에서 desktop Header 가 자동으로 hide.
+10. **Header 통일** — `src/components/Header.tsx` 의 `MAIN_NAV` 순서를 사이드바와 일치시킴 (`Explore · Messages · Workspace · Saved · Upload`). 상단 좌측 로고 `<span>Theo</span>` → `<Image src="/theo-logo.svg" ...>` 교체. 모바일 햄버거 nav 도 동일 순서로 갱신.
+11. **i18n (신규 키만 추가)** — `src/lib/i18n/messages.ts` 에 다음 키만 추가 (기존 키 미수정):
+    - `nav.workspace` · `nav.saved` · `nav.delegations` (KO/EN)
+    - `notifications.drawer.title / .close / .seeAll / .empty / .action.go`
+    - `rail.myConnection.title / .more / .invitations / .suggestions / .decline / .accept / .searchPlaceholder / .invitationsEmpty / .suggestionsEmpty`
+    - `rail.theoBoard.title / .more / .placeholder`
+    - `workspace.hub.title / .subtitle` · `workspace.tile.{drafts,inquiries,ownership,myExhibitions,provenance}.title/.subtitle`
+
+### Supabase SQL 수동 적용 필요
+없음. 이번 패치는 순수 UI/라우팅 재조립. Worker C 가 push 하는 마이그레이션 (`20260803120000_connection_message_thread_categorization.sql`) 은 별도 HANDOFF 섹션 참조.
+
+### 환경 변수
+없음.
+
+### 다른 워커와의 파일 소유권
+- 이번 워커(A — Shell/Global Chrome) 가 만진 파일: 위 목록만.
+- Worker B(전시 상세) 소유 파일(`src/app/e/[id]/**`, `src/components/exhibitions/**`, `src/lib/exhibitionCredits.tsx`, `src/lib/supabase/exhibitions.ts`) — **미변경**.
+- Worker C(Messages/Profile/Connections) 소유 파일(`src/app/my/messages/**` — layout.tsx 제외, `src/app/my/network/**` — layout.tsx 제외, `src/app/u/[username]/**`, `src/components/UserProfileContent.tsx`, `src/components/profile/**`, `src/components/network/**`, `src/lib/supabase/connectionMessages.ts`, `supabase/migrations/**`) — **미변경**.
+- i18n 은 `nav.workspace/saved/delegations`, `notifications.drawer.*`, `rail.myConnection.*`, `rail.theoBoard.*`, `workspace.hub.*/tile.*` 접두어로 격리, 다른 워커 키와 충돌 없음.
+
+### Verify
+- `npx tsc --noEmit` 통과 (0 errors).
+- `npm run build` 통과 (70 static pages 생성).
+- `npx eslint <touched files>` — 새로 도입한 lint 에러 0. React 19 의 `react-hooks/set-state-in-effect` 규칙에 걸리는 몇 케이스는 정당한 초기 로딩·리셋 패턴이라 로컬 disable 주석으로 명시 (기존 코드베이스도 동일 패턴 존재).
+
+### QA 체크리스트 (수동)
+- [ ] `/feed`, `/my`, `/my/messages`, `/my/network`, `/notifications`, `/settings`, `/upload` 를 로그인 상태로 열어 좌측 sidebar + 우측 rail 이 정상 렌더되는지 확인.
+- [ ] Sidebar `Notifications` 클릭 → drawer 가 사이드바 우측에서 열리고, X · ESC · 페이지 이동 시 닫힘. 열릴 때 unread 카운트가 0 으로 리셋.
+- [ ] Drawer footer `See all →` 클릭 시 `/notifications` 이동. Follow request 알림은 페이지에서만 인라인 accept/decline UI 노출 (drawer 에서는 페이지로 route).
+- [ ] Workspace `/my` — 5 타일이 정확한 라우트로 이동. 초안·문의·소유·전시·프로베넌스 카운트가 사용자별로 그럴싸하게 뜸.
+- [ ] Header (모바일) 상단 로고가 SVG 로 렌더되고 `/feed` 로 이동. 햄버거 nav 순서가 사이드바와 일치.
+- [ ] Switch account 위임 계정으로 전환 → 사이드바 amber dot 이 이동, 이후 원래 계정으로 돌아오기 가능.
+- [ ] `MyConnectionRail` 검색 input → `/people?q=…` 이동, 초대 accept/decline 이 optimistic 하게 사라짐.
+
+### Deferred / TODO
+- **Theo Board 실데이터** — `theo_board_posts` 테이블/RPC 를 만든 뒤 `TheoBoardRail.tsx` 의 placeholder loop 만 교체. 파일 구조는 이미 재사용 가능하게 분리됨.
+- **Drawer avatar** — 각 notification 의 actor avatar 를 fetch 하려면 payload 확장이 필요해 이번엔 monochrome disc 로 대체. 사용성 부족하다는 피드백 시 후속 사이클에서 추가.
+- **Ownership tile count** — 현재는 "내 작품에 대한 pending claim requests" 를 카운트 (기존 `getMyPendingClaimsCount`). 부제 "내가 소유하거나 보관 중인 작품들" 과 완벽히 일치하려면 "confirmed OWNS/CREATED where subject=me" 카운트로 바꿔야 함 → 새 RPC 필요.
+- **`/my/layout.tsx` 부재** — 자식 라우트(network/library/shortlists/inquiries/…) 가 각자 layout 을 가지고 있어 root `/my` 에 layout 을 두면 double-wrap. 대신 페이지 컴포넌트가 `<AppShell>` 을 직접 감싸는 방식. 자식 라우트를 늘릴 때 그 라우트의 layout.tsx 를 반드시 추가하는 컨벤션을 지킬 것.
+
+---
+
 ## 2026-08-03 — 리디자인 Phase B (전시 상세 탭 구조화)
 
 ### 배경 (디자이너 리뷰)

@@ -17,6 +17,13 @@ export const messages = {
     "nav.explore": "Explore",
     "nav.setting": "Setting",
     "nav.switchAccount": "Switch Account",
+    // Aug-2026 redesign — new left-nav vocabulary. `workspace` /
+    // `saved` / `delegations` replace the older studio-anchored labels;
+    // legacy keys (nav.myProfile / nav.insights / nav.people) are kept
+    // above for the components still on the old shell.
+    "nav.workspace": "Workspace",
+    "nav.saved": "Saved",
+    "nav.delegations": "Delegations",
     "shell.searchPlaceholder": "Search",
     "shell.searchSubmit": "Search",
     "shell.newsTitle": "Theo News",
@@ -24,6 +31,45 @@ export const messages = {
     "shell.newsItemTitle": "Title",
     "shell.newsItemTime": "upload time",
     "shell.newsItemDesc": "Short description",
+
+    // Aug-2026 redesign — Notifications drawer (sidebar popover).
+    "notifications.drawer.title": "Notifications",
+    "notifications.drawer.close": "Close",
+    "notifications.drawer.seeAll": "See all",
+    "notifications.drawer.empty": "You're all caught up.",
+    "notifications.drawer.action.go": "Go",
+
+    // Aug-2026 redesign — right-rail widgets (My Connection + Theo Board).
+    "rail.myConnection.title": "My Connection",
+    "rail.myConnection.more": "more",
+    "rail.myConnection.invitations": "Invitations",
+    "rail.myConnection.suggestions": "Suggestions",
+    "rail.myConnection.decline": "decline",
+    "rail.myConnection.accept": "accept",
+    "rail.myConnection.searchPlaceholder": "Search people",
+    "rail.myConnection.invitationsEmpty": "No pending invitations.",
+    "rail.myConnection.suggestionsEmpty": "No suggestions yet.",
+    "rail.theoBoard.title": "Theo Board",
+    "rail.theoBoard.more": "more",
+    "rail.theoBoard.placeholder": "News board — coming soon.",
+
+    // Aug-2026 redesign — Workspace hub tiles (/my).
+    "workspace.hub.title": "Workspace",
+    "workspace.hub.subtitle":
+      "Manage drafts, inquiries, ownership, exhibitions, and invitations in one place.",
+    "workspace.tile.drafts.title": "Drafts",
+    "workspace.tile.drafts.subtitle":
+      "Organize unpublished works and exhibitions.",
+    "workspace.tile.inquiries.title": "Inquiries",
+    "workspace.tile.inquiries.subtitle":
+      "Manage and respond to price inquiries.",
+    "workspace.tile.ownership.title": "Ownership",
+    "workspace.tile.ownership.subtitle": "Works you own or hold.",
+    "workspace.tile.myExhibitions.title": "My Exhibitions",
+    "workspace.tile.myExhibitions.subtitle": "Exhibitions you produced.",
+    "workspace.tile.provenance.title": "Provenance",
+    "workspace.tile.provenance.subtitle":
+      "Manage external artist invitations and links.",
 
     "rail.people.heading": "Who's here now",
     "rail.people.inviteHeading": "Grow the room",
@@ -3179,6 +3225,51 @@ export const messages = {
     "bilingual.dashboard.settingsNavLabel": "Bilingual tidy-up",
     "bilingual.dashboard.settingsNavHint":
       "Add another-language names, titles, or prose whenever you'd like.",
+
+    // Sprint C.M / 2026-08-03 — Messages redesign: categorized inbox
+    // (Primary / General / New Request) + per-thread state labels.
+    "messages.category.primary": "Primary",
+    "messages.category.general": "General",
+    "messages.category.request": "New Request",
+    "messages.category.primary.subtitle":
+      "Active conversations with people you're already in touch with.",
+    "messages.category.general.subtitle":
+      "Threads you've accepted but aren't following each other yet.",
+    "messages.category.request.subtitle":
+      "First messages waiting for you to accept.",
+    "messages.state.received": "Received",
+    "messages.state.opened": "Opened",
+    "messages.state.sent": "Sent",
+    "messages.state.read": "Read",
+    "messages.request.accept": "Accept",
+    "messages.request.decline": "Decline",
+    "messages.request.accepted": "Accepted",
+    "messages.request.declined": "Declined",
+    "messages.request.actionFailed": "Couldn't complete that action. Try again.",
+
+    // Sprint C.M — Profile role tabs + inline Statement/CV cards.
+    "profile.role.mainSuffix": "(main)",
+    "profile.section.artworks": "Artworks",
+    "profile.section.expand": "See more",
+    "profile.section.collapse": "Collapse",
+    "profile.section.statementEmpty": "No artist statement yet.",
+    "profile.section.cvEmpty": "No CV entries yet.",
+
+    // Sprint C.M — Connections page (Invitations + grouped suggestions).
+    "connections.invitations.title": "Invitations",
+    "connections.invitations.empty": "No new invitations.",
+    "connections.invitations.followRequest": "Follow request",
+    "connections.invitations.accessRequest": "Access request",
+    "connections.suggestions.title": "People you might know",
+    "connections.suggestions.laneFromMutuals": "from mutual follows",
+    "connections.suggestions.laneFromLikes": "from your liked artworks",
+    "connections.suggestions.laneFromExhibitions": "from your exhibition network",
+    "connections.suggestions.empty": "No suggestions yet.",
+    "connections.suggestions.dismiss": "Not now",
+    "connections.suggestions.recentJob": "Recent work",
+    "connections.suggestions.mutual": "{count} mutual",
+    "connections.tabs.default": "Overview",
+    "connections.tabs.detail": "Followers · Following · Requests · Relationships",
   },
   ko: {
     "nav.feed": "피드",
@@ -3198,6 +3289,9 @@ export const messages = {
     "nav.explore": "둘러보기",
     "nav.setting": "설정",
     "nav.switchAccount": "계정 전환",
+    "nav.workspace": "워크스페이스",
+    "nav.saved": "저장",
+    "nav.delegations": "위임",
     "shell.searchPlaceholder": "검색",
     "shell.searchSubmit": "검색",
     "shell.newsTitle": "Theo News",
@@ -3205,6 +3299,40 @@ export const messages = {
     "shell.newsItemTitle": "제목",
     "shell.newsItemTime": "업로드 시간",
     "shell.newsItemDesc": "짧은 설명",
+
+    "notifications.drawer.title": "알림",
+    "notifications.drawer.close": "닫기",
+    "notifications.drawer.seeAll": "전체 보기",
+    "notifications.drawer.empty": "새로운 알림이 없습니다.",
+    "notifications.drawer.action.go": "이동",
+
+    "rail.myConnection.title": "내 커넥션",
+    "rail.myConnection.more": "더 보기",
+    "rail.myConnection.invitations": "초대",
+    "rail.myConnection.suggestions": "추천",
+    "rail.myConnection.decline": "거절",
+    "rail.myConnection.accept": "수락",
+    "rail.myConnection.searchPlaceholder": "사람 검색",
+    "rail.myConnection.invitationsEmpty": "대기 중인 초대가 없습니다.",
+    "rail.myConnection.suggestionsEmpty": "아직 추천이 없습니다.",
+    "rail.theoBoard.title": "Theo Board",
+    "rail.theoBoard.more": "더 보기",
+    "rail.theoBoard.placeholder": "곧 준비될 소식판입니다.",
+
+    "workspace.hub.title": "Workspace",
+    "workspace.hub.subtitle":
+      "내 작품·전시·문의·소유·초대를 한곳에서 관리하세요.",
+    "workspace.tile.drafts.title": "Drafts",
+    "workspace.tile.drafts.subtitle":
+      "publish 되지 않은 작품·전시를 여기서 정리.",
+    "workspace.tile.inquiries.title": "Inquiries",
+    "workspace.tile.inquiries.subtitle": "가격 문의를 관리하고 응답하세요.",
+    "workspace.tile.ownership.title": "Ownership",
+    "workspace.tile.ownership.subtitle": "내가 소유하거나 보관 중인 작품들.",
+    "workspace.tile.myExhibitions.title": "내 전시",
+    "workspace.tile.myExhibitions.subtitle": "내가 기획·전시한 프로젝트.",
+    "workspace.tile.provenance.title": "Provenance",
+    "workspace.tile.provenance.subtitle": "외부 작가 초대와 연결을 관리.",
 
     "rail.people.heading": "지금 함께하는 사람들",
     "rail.people.inviteHeading": "함께할 사람 초대",
@@ -6339,6 +6467,50 @@ export const messages = {
     "bilingual.dashboard.settingsNavLabel": "이중언어 정리",
     "bilingual.dashboard.settingsNavHint":
       "이름·제목·산문을 원할 때 다른 언어로도 두어 보세요.",
+
+    // Sprint C.M / 2026-08-03 — 메시지 리디자인: 카테고리 인박스 + 상태 라벨.
+    "messages.category.primary": "Primary",
+    "messages.category.general": "General",
+    "messages.category.request": "New Request",
+    "messages.category.primary.subtitle":
+      "이미 관계가 있는 사람과의 활발한 대화예요.",
+    "messages.category.general.subtitle":
+      "수락은 했지만 아직 서로 팔로우하고 있지는 않은 대화예요.",
+    "messages.category.request.subtitle":
+      "수락을 기다리는 첫 메시지예요.",
+    "messages.state.received": "받음",
+    "messages.state.opened": "열어봄",
+    "messages.state.sent": "보냄",
+    "messages.state.read": "읽음",
+    "messages.request.accept": "수락",
+    "messages.request.decline": "거절",
+    "messages.request.accepted": "수락됨",
+    "messages.request.declined": "거절됨",
+    "messages.request.actionFailed": "처리하지 못했어요. 잠시 후 다시 시도해 주세요.",
+
+    // Sprint C.M — 프로필 role tabs + Statement/CV 인라인 카드.
+    "profile.role.mainSuffix": "(메인)",
+    "profile.section.artworks": "작품",
+    "profile.section.expand": "더 보기",
+    "profile.section.collapse": "접기",
+    "profile.section.statementEmpty": "아직 작가 노트가 없어요.",
+    "profile.section.cvEmpty": "아직 CV 항목이 없어요.",
+
+    // Sprint C.M — 커넥션 (초대 + 알 수도 있는 사람 그룹).
+    "connections.invitations.title": "초대",
+    "connections.invitations.empty": "새 초대가 없습니다.",
+    "connections.invitations.followRequest": "팔로우 요청",
+    "connections.invitations.accessRequest": "접근 요청",
+    "connections.suggestions.title": "알 수도 있는 사람",
+    "connections.suggestions.laneFromMutuals": "공통 친구로부터",
+    "connections.suggestions.laneFromLikes": "관심 작품 기반",
+    "connections.suggestions.laneFromExhibitions": "전시 네트워크 기반",
+    "connections.suggestions.empty": "추천이 아직 없습니다.",
+    "connections.suggestions.dismiss": "나중에",
+    "connections.suggestions.recentJob": "최근 활동",
+    "connections.suggestions.mutual": "공통 {count}명",
+    "connections.tabs.default": "요약",
+    "connections.tabs.detail": "팔로워 · 팔로잉 · 요청 · 관계",
   },
 } as const;
 

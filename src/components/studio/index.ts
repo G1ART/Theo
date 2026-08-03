@@ -14,3 +14,12 @@ export { StudioViewsInsights } from "./StudioViewsInsights";
 export { StudioPortfolioPanel } from "./StudioPortfolioPanel";
 export { StudioIntelligenceSurface } from "./StudioIntelligenceSurface";
 export { StudioMaterialsPanel } from "./StudioMaterialsPanel";
+// Aug-2026 redesign — new Workspace hub tile grid. Lives next to the
+// legacy StudioOperationGrid so both can coexist while other surfaces
+// (e.g. an eventual rich profile page) continue to reuse the older
+// components.
+export {
+  WorkspaceOperationGrid,
+  type WorkspaceTile,
+  type WorkspaceTileKey,
+} from "./WorkspaceOperationGrid";

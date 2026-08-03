@@ -8,6 +8,11 @@ import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { LaneChips, type LaneOption } from "@/components/ds/LaneChips";
+// 2026-08-03 (Phase A redesign) — Upload joins the 3-column shell so
+// the left sidebar / right rail render consistently across primary
+// surfaces. The inner PageShell keeps the narrow max-width for the
+// upload form itself.
+import { AppShell } from "@/components/shell/AppShell";
 
 type TabKey = "single" | "bulk" | "exhibition";
 
@@ -46,25 +51,27 @@ export default function UploadLayout({
 
   return (
     <AuthGate>
-      <TourTrigger tourId={TOUR_IDS.upload} />
-      <PageShell variant="narrow">
-        <PageHeader
-          variant="plain"
-          title={t("upload.title")}
-          lead={t("upload.layoutLead")}
-          actions={<TourHelpButton tourId={TOUR_IDS.upload} />}
-          density="tight"
-        />
-        <LaneChips
-          variant="lane"
-          options={options}
-          active={activeKey}
-          ariaLabel={t("upload.title")}
-          data-tour="upload-tabs"
-          className="mb-8"
-        />
-        {children}
-      </PageShell>
+      <AppShell>
+        <TourTrigger tourId={TOUR_IDS.upload} />
+        <PageShell variant="narrow">
+          <PageHeader
+            variant="plain"
+            title={t("upload.title")}
+            lead={t("upload.layoutLead")}
+            actions={<TourHelpButton tourId={TOUR_IDS.upload} />}
+            density="tight"
+          />
+          <LaneChips
+            variant="lane"
+            options={options}
+            active={activeKey}
+            ariaLabel={t("upload.title")}
+            data-tour="upload-tabs"
+            className="mb-8"
+          />
+          {children}
+        </PageShell>
+      </AppShell>
     </AuthGate>
   );
 }
