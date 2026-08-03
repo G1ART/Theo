@@ -29,12 +29,12 @@ export function TheoLogo({
     <Image
       src="/theo-logo.png"
       alt="Theo"
-      width={180}
-      height={144}
+      width={984}
+      height={675}
       priority={priority}
       className={className}
-      // The mark already has its own top/bottom margin baked into the
-      // 5:4 canvas, so callers control only the height and let width flow.
+      // Canvas is tight-cropped (1.46:1) so callers set only the height
+      // and let width flow.
       draggable={false}
     />
   );
