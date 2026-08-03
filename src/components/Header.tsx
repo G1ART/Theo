@@ -317,9 +317,9 @@ export function Header() {
           className="inline-flex items-center text-zinc-900 hover:opacity-80"
           onClick={closeMobile}
         >
-          {/* Brand mark — official raster (see TheoLogo). Header appears
-              on every route so `priority`. */}
-          <TheoLogo className="h-9 w-auto" priority />
+          {/* Brand mark — official raster with session-once reveal + settle
+              animation (see TheoLogo). Header appears on every route so `priority`. */}
+          <TheoLogo className="h-9" size="sm" priority />
         </Link>
 
         {/* Main tabs: Feed, People, Upload (no Settings) */}

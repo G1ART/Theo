@@ -33,6 +33,21 @@
   to   { opacity: 1; }
 }
 
+/* Brand mark settle-in — see components/brand/TheoLogo.tsx.
+   Kept subtle so it's felt, not noticed. Auto-skipped under
+   prefers-reduced-motion via Tailwind's `motion-safe:` variant on the
+   consuming class. */
+@keyframes theo-logo-settle {
+  from {
+    opacity: 0.85;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @theme inline {
   --animate-sheet-slide-up: sheet-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-sheet-fade-scale: sheet-fade-scale 0.22s ease-out;

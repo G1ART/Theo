@@ -257,9 +257,9 @@ export function AppSidebar({
         aria-label="Theo"
         className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
       >
-        {/* Brand mark — official raster from brand guideline (see
-            TheoLogo for why we ship PNG). Above-the-fold, so `priority`. */}
-        <TheoLogo className="h-12 w-auto" priority />
+        {/* Brand mark — official raster with session-once reveal + settle
+            animation (see TheoLogo). Above-the-fold, so `priority`. */}
+        <TheoLogo className="h-12" size="md" priority />
       </Link>
 
       <div className="flex flex-col gap-1">

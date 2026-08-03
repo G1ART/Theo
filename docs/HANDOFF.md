@@ -2,6 +2,52 @@
 
 Last updated: 2026-08-03
 
+## 2026-08-03 — 브랜드 로고 정본 교체 + 세션 reveal · 페이지 settle 마이크로 애니메이션
+
+### 배경
+와이어프레임 좌상단 텍스트 "Theo" 를 로고 이미지로 대체하는 과정에서 몇 차례 회귀:
+1. 임의 arch 인라인 SVG 를 그렸다가 next/image SVG allowlist 에 걸려 broken image "?" 표시 (커밋 dbbc846 회귀)
+2. `next/image` 파이프라인은 살렸지만 인라인 SVG 자체가 브랜드북과 무관한 임의 arch (ac1399a)
+3. 브랜드북 좌측 상단 컴팩트 로고 (마크+워드마크 분리형) 로 교체 (555ba39) → 사용자 정본은 중앙 **Primary Logo** 였음
+4. 실제 정본 (arch 안에 T+h+e+o 통합) 자산으로 재교체 (ba19567)
+
+이어서 "기존 Theo 텍스트 → 새 마크" 전환기 유저 인지 부담 완화를 위해 세션 1회 reveal + 페이지 로드 settle 마이크로 애니메이션 추가.
+
+### 변경 사항
+
+1. **`public/theo-logo.png` — 브랜드북 Primary Logo 정본**
+   - 원본 996×700 을 ink bounding box (28..973, 37..673) 로 크롭, 2% breathing room 후 984×675 (aspect 1.46:1)
+   - 밝기(min RGB) → 알파 램프 변환: 흰 배경 완전 투명, 검은 획 완전 불투명, AA 회색은 자연 그라데이션 유지
+   - 다크 서페이스·팝오버·드로어 어디에도 사각 프레임 노출 없이 얹힘
+
+2. **`src/components/brand/TheoLogo.tsx` — 클라이언트 컴포넌트로 재작성**
+   - **Effect A (Session Reveal)** — `sessionStorage['theo:logo-reveal-seen-v1']` 로 세션당 1회만 발동. 마운트 시 "Theo" 워드마크 오버레이 → 700ms hold → 500ms opacity crossfade → 마크만 남음
+   - **Effect B (Settle)** — 모든 페이지 hard load 마다 마크 자체가 350ms ease-out 으로 opacity 0.85→1, scale 0.96→1. `AppShell` 이 client-side navigation 에는 persist 하므로 자동으로 페이지 로드에만 발동
+   - `prefers-reduced-motion: reduce` 감지 시 A/B 모두 완전 skip, 마크 즉시 표시
+   - `sessionStorage` 접근 실패 (private/disabled) 시 "seen" 으로 처리 (반복 애니메이션 방지)
+   - `size: "sm" | "md"` prop 으로 워드마크 폰트 크기 조정 (Header=text-xl, Sidebar=text-3xl)
+
+3. **`src/app/globals.css` — `@keyframes theo-logo-settle` 추가**
+   - 마크 자체 애니메이션용. Tailwind `motion-safe:animate-[…]` 로 caller 에서 자동 reduced-motion 대응
+
+4. **Callers 갱신**
+   - `src/components/shell/AppSidebar.tsx` — `<TheoLogo className="h-12" size="md" priority />`
+   - `src/components/Header.tsx` — `<TheoLogo className="h-9" size="sm" priority />`
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 없음.
+
+### Verified
+- `.next` 정리 후 `npx tsc --noEmit` clean
+- `npm run build` 통과
+- 세션 reveal: DevTools Application → Session Storage → 삭제 후 refresh → 700ms hold 후 crossfade 확인 가능
+- reduced-motion: DevTools "Rendering" → Emulate `prefers-reduced-motion: reduce` → 즉시 마크만 표시
+
+---
+
 ## 2026-08-03 — 리디자인 Phase C (메시지 Primary/General/Request + 상태 라벨 · 프로필 Statement/CV 인라인 · 커넥션 통합 뷰)
 
 ### 배경 (디자이너 리뷰)
