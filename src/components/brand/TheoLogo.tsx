@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 /**
  * Theo brand mark (Aug-2026 redesign).
  *
- * Round-trip reveal — every 30 seconds the mark briefly crossfades to
+ * Round-trip reveal — every 20 seconds the mark briefly crossfades to
  * the "Theo" wordmark and back. Implemented as **pure CSS keyframes**
  * (`theo-mark-cycle` / `theo-wordmark-cycle` in `globals.css`) so the
  * animation is driven entirely by the browser's compositor. This is
@@ -59,7 +59,7 @@ export function TheoLogo({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    console.log("[TheoLogo] mounted — CSS reveal loop engaging (30s cycle)");
+    console.log("[TheoLogo] mounted — CSS reveal loop engaging (20s cycle)");
     const prefersReduced = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -75,10 +75,10 @@ export function TheoLogo({
   // painted at opacity 1 before the first keyframe fires so there's no
   // flash. Wordmark defaults to opacity 0 to match.
   const markAnimation = animate
-    ? "theo-mark-cycle 30s ease-in-out infinite both"
+    ? "theo-mark-cycle 20s ease-in-out infinite both"
     : "none";
   const wordmarkAnimation = animate
-    ? "theo-wordmark-cycle 30s ease-in-out infinite both"
+    ? "theo-wordmark-cycle 20s ease-in-out infinite both"
     : "none";
 
   return (

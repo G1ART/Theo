@@ -50,42 +50,47 @@
 
    Pure CSS keyframes (not React state) so the crossfade is driven by
    the browser's compositor, immune to re-render timing or next/image
-   style-prop quirks. Runs on a 30s infinite loop with a 2s startup
-   delay: mark visible ~ 2.4s in each cycle → smooth 900ms fade → 2s
-   "Theo" wordmark hold → 900ms fade back → mark for the rest.
+   style-prop quirks. Runs on a 20s infinite loop:
 
-   Percentages relative to a 30 000ms cycle:
-     0 %  =  0 s   mark full, wordmark hidden
-     8 %  =  2.4 s crossfade start
-    11 %  =  3.3 s mark hidden / wordmark full
-    18 %  =  5.4 s crossfade back
-    21 %  =  6.3 s mark full again
-   100 %  = 30 s   loop restart (same as 0 %)
+     0 –  1.5 s  mark visible
+     1.5 – 2 s   crossfade to wordmark (500 ms)
+     2 –  3.5 s  "Theo" wordmark held (1.5 s — enough to read)
+     3.5 – 4 s   crossfade back to mark (500 ms)
+     4 – 20 s    mark visible, then loop
 
-   Skipped entirely under prefers-reduced-motion by leaving the
-   consuming element with no animation class in that case. */
+   Percentages relative to a 20 000 ms cycle:
+     0    %  =  0    s   mark full, wordmark hidden
+     7.5  %  =  1.5  s   crossfade start
+     10   %  =  2    s   mark hidden / wordmark full
+     17.5 %  =  3.5  s   crossfade back start
+     20   %  =  4    s   mark full again
+     100  %  = 20    s   loop restart
+
+   Timing tuned 2026-08-03 after the initial 30 s / 900 ms build read
+   as "too slow" to QA. Skipped entirely under prefers-reduced-motion
+   (TheoLogo omits the animation classes in that case). */
 @keyframes theo-mark-cycle {
   0%,
-  8%,
-  21%,
+  7.5%,
+  20%,
   100% {
     opacity: 1;
   }
-  11%,
-  18% {
+  10%,
+  17.5% {
     opacity: 0;
   }
 }
 
 @keyframes theo-wordmark-cycle {
   0%,
-  8%,
-  21%,
+  7.5%,
+  20%,
   100% {
     opacity: 0;
   }
-  11%,
-  18% {
+  10%,
+  17.5% {
     opacity: 1;
   }
 }
