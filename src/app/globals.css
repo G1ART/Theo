@@ -50,47 +50,46 @@
 
    Pure CSS keyframes (not React state) so the crossfade is driven by
    the browser's compositor, immune to re-render timing or next/image
-   style-prop quirks. Runs on a 20s infinite loop:
+   style-prop quirks. **Plays once per hard page load** (iteration-count
+   1, fill-mode both) — TheoLogo uses `sessionStorage` +
+   `performance.timeOrigin` to suppress replays when the AppShell
+   layout remounts during SPA navigation.
 
+   4-second one-shot:
      0 –  1.5 s  mark visible
      1.5 – 2 s   crossfade to wordmark (500 ms)
      2 –  3.5 s  "Theo" wordmark held (1.5 s — enough to read)
      3.5 – 4 s   crossfade back to mark (500 ms)
-     4 – 20 s    mark visible, then loop
 
-   Percentages relative to a 20 000 ms cycle:
+   Percentages relative to a 4 000 ms one-shot:
      0    %  =  0    s   mark full, wordmark hidden
-     7.5  %  =  1.5  s   crossfade start
-     10   %  =  2    s   mark hidden / wordmark full
-     17.5 %  =  3.5  s   crossfade back start
-     20   %  =  4    s   mark full again
-     100  %  = 20    s   loop restart
+    37.5  %  =  1.5  s   crossfade start
+    50    %  =  2    s   mark hidden / wordmark full
+    87.5  %  =  3.5  s   crossfade back start
+   100    %  =  4    s   mark full again (final rest)
 
-   Timing tuned 2026-08-03 after the initial 30 s / 900 ms build read
-   as "too slow" to QA. Skipped entirely under prefers-reduced-motion
-   (TheoLogo omits the animation classes in that case). */
-@keyframes theo-mark-cycle {
+   Skipped entirely under prefers-reduced-motion (TheoLogo omits the
+   animation classes in that case). */
+@keyframes theo-mark-reveal {
   0%,
-  7.5%,
-  20%,
+  37.5%,
   100% {
     opacity: 1;
   }
-  10%,
-  17.5% {
+  50%,
+  87.5% {
     opacity: 0;
   }
 }
 
-@keyframes theo-wordmark-cycle {
+@keyframes theo-wordmark-reveal {
   0%,
-  7.5%,
-  20%,
+  37.5%,
   100% {
     opacity: 0;
   }
-  10%,
-  17.5% {
+  50%,
+  87.5% {
     opacity: 1;
   }
 }

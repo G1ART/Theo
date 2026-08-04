@@ -6,27 +6,34 @@ import { useEffect, useState } from "react";
 /**
  * Theo brand mark (Aug-2026 redesign).
  *
- * Round-trip reveal — every 20 seconds the mark briefly crossfades to
- * the "Theo" wordmark and back. Implemented as **pure CSS keyframes**
- * (`theo-mark-cycle` / `theo-wordmark-cycle` in `globals.css`) so the
- * animation is driven entirely by the browser's compositor. This is
- * deliberate: an earlier React-state + inline-style approach was
- * invisible in Safari on prod because the inline `opacity` transition
- * on `next/image` was being clobbered by next/image's own style
- * handling. Compositor-driven keyframes sidestep the whole pipeline.
+ * Round-trip reveal — on hard page load the mark crossfades to the
+ * "Theo" wordmark, holds ~1.5 s, and crossfades back. **Plays exactly
+ * once per hard page load**; subsequent SPA navigations (which can
+ * remount TheoLogo when the enclosing AppShell layout swaps) are
+ * suppressed via a `sessionStorage` guard keyed on
+ * `performance.timeOrigin`.
  *
- * Skipped under `prefers-reduced-motion: reduce` — we simply omit the
- * animation classes so both layers stay in their static positions
- * (mark opaque, wordmark hidden).
+ * Why `timeOrigin`?
+ *   A plain sessionStorage "seen" flag would survive both refresh AND
+ *   SPA nav, so a refresh (which the user does expect to replay) would
+ *   be skipped. `performance.timeOrigin` is stamped fresh on every
+ *   hard nav / reload but is stable across SPA navs in the same page
+ *   load, so it uniquely identifies "this browser page load" without
+ *   needing to distinguish between refresh flavors.
  *
- * QA affordance: `console.log("[TheoLogo] …")` on mount so operators
- * can confirm the component is actually rendering. The animation
- * itself is visible in Elements → Computed → animations rather than a
- * per-phase log.
+ * Implementation is **pure CSS keyframes**
+ * (`theo-mark-reveal` / `theo-wordmark-reveal` in `globals.css`), not
+ * React-state opacity transitions. The state approach was invisible in
+ * Safari on prod because next/image's own style pipeline was clobbering
+ * inline `opacity` writes; compositor-driven keyframes sidestep the
+ * pipeline entirely.
+ *
+ * Skipped under `prefers-reduced-motion: reduce` — omit the animation
+ * classes so both layers stay static (mark opaque, wordmark hidden).
  *
  * Implementation notes:
  *   - The two forms are stacked absolutely inside a shared container;
- *     they share the same 30-second timing so the crossfades match.
+ *     they share the same 4-second timing so the crossfades match.
  *   - Height comes from the caller's `className` (`h-9`, `h-12`); the
  *     image auto-flows width from its 1.46:1 canvas.
  *   - Wordmark uses `var(--font-suit)` (not the literal name `'SUIT'`)
@@ -43,6 +50,9 @@ const WORDMARK_FONT_PX: Record<LogoSize, number> = {
   md: 30, // pairs with h-12 mark (48px) in AppSidebar
 };
 
+const SEEN_ORIGIN_KEY = "theo:logo-seen-origin-v1";
+const REVEAL_DURATION_MS = 4000;
+
 export function TheoLogo({
   className = "",
   priority = false,
@@ -52,14 +62,13 @@ export function TheoLogo({
   priority?: boolean;
   size?: LogoSize;
 }) {
-  // Static SSR (no animation) → then the client swaps in the animated
-  // variant. Prevents any hydration surprise from the animation class,
-  // and lets us honor prefers-reduced-motion after mount.
+  // Static SSR (no animation) → client swaps in the animated variant
+  // only when this is a fresh page load AND motion is allowed.
   const [animate, setAnimate] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    console.log("[TheoLogo] mounted — CSS reveal loop engaging (20s cycle)");
+
     const prefersReduced = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -67,24 +76,53 @@ export function TheoLogo({
       console.log("[TheoLogo] skip: prefers-reduced-motion");
       return;
     }
+
+    let currentOrigin: number;
+    try {
+      currentOrigin = performance.timeOrigin;
+    } catch {
+      currentOrigin = Date.now();
+    }
+
+    try {
+      const raw = window.sessionStorage.getItem(SEEN_ORIGIN_KEY);
+      const seenOrigin = raw ? Number.parseFloat(raw) : NaN;
+      if (
+        Number.isFinite(seenOrigin) &&
+        Math.abs(seenOrigin - currentOrigin) < 1
+      ) {
+        console.log(
+          "[TheoLogo] skip: already played this page load (SPA remount)",
+        );
+        return;
+      }
+      window.sessionStorage.setItem(SEEN_ORIGIN_KEY, String(currentOrigin));
+    } catch {
+      // sessionStorage blocked (private mode etc.) — play anyway; a
+      // possible replay on SPA nav is preferable to silent skip.
+    }
+
+    console.log(
+      `[TheoLogo] playing once (${REVEAL_DURATION_MS}ms reveal, then rests)`,
+    );
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAnimate(true);
   }, []);
 
-  // Compositor-driven keyframes. `both` fill-mode keeps the mark
-  // painted at opacity 1 before the first keyframe fires so there's no
-  // flash. Wordmark defaults to opacity 0 to match.
+  // Compositor-driven one-shot keyframes. `both` fill-mode keeps the
+  // mark painted at opacity 1 before the first keyframe fires and
+  // freezes the final state after 4s.
   const markAnimation = animate
-    ? "theo-mark-cycle 20s ease-in-out infinite both"
+    ? `theo-mark-reveal ${REVEAL_DURATION_MS}ms ease-in-out 1 both`
     : "none";
   const wordmarkAnimation = animate
-    ? "theo-wordmark-cycle 20s ease-in-out infinite both"
+    ? `theo-wordmark-reveal ${REVEAL_DURATION_MS}ms ease-in-out 1 both`
     : "none";
 
   return (
     <span
       className={`relative inline-block ${className}`}
-      data-theo-logo={animate ? "animated" : "static"}
+      data-theo-logo={animate ? "reveal" : "static"}
     >
       <Image
         src="/theo-logo.png"
