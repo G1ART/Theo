@@ -2,6 +2,45 @@
 
 Last updated: 2026-08-04
 
+## 2026-08-04 (4) — 인터랙티브 커서 통일 (Tailwind Preflight 버튼 커서 리셋 상쇄)
+
+### 배경
+QA 리포트: 데스크탑 sidebar/header 에서 어떤 메뉴는 hover 시 손가락 (pointer) 커서, 어떤 메뉴 (알림, EN/KO, Switch Account 자체 row, Logout, avatar disc, hamburger 등) 는 그대로 화살표 (default) 커서 → **"클릭 가능한지 헷갈린다"**.
+
+### 근본 원인
+**Tailwind v4 Preflight** 가 `<button>` 과 `[role="button"]` 의 커서를 `default` 로 리셋 ([공식 문서](https://tailwindcss.com/docs/preflight)). 이유는 폼 UI 안의 버튼 (submit/reset 등) 이 브라우저 기본 pointer 로 뜨는 관행을 "modernize" 하려는 것.
+
+우리 앱에서는 대부분의 버튼이 **네비/액션 컨트롤** 이라 오히려 pointer 가 자연스러움. 반면 `<Link>` 는 `<a href>` 로 렌더링되어 브라우저 기본 pointer 를 그대로 받음 → **한 rail 안에 pointer/default 가 뒤섞이는 일관성 문제** 발생.
+
+### 변경 사항
+
+**`app/globals.css` — `@layer base` 에 인터랙티브 커서 정규화 규칙 추가**
+- `button:not(:disabled):not([aria-disabled="true"])`, `[role="button"]:not([aria-disabled="true"])`, `summary`, `label[for]` → `cursor: pointer`
+- `button:disabled`, `button[aria-disabled="true"]`, `[role="button"][aria-disabled="true"]` → `cursor: not-allowed`
+- `@layer base` 사용 → Tailwind utility class (`cursor-default`, `cursor-not-allowed` 등) 로 컴포넌트 단위 override 가능 (utilities 가 base 보다 나중 layer)
+
+### 영향 범위
+- **AppSidebar**: 알림 버튼 / EN/KO 토글 / Switch Account row / Logout — 전부 pointer 통일
+- **Header**: avatar disc / hamburger / EN/KO / Logout / account switcher — 전부 pointer 통일
+- **모든 페이지의 모든 `<button>`** — 자동 적용, 개별 컴포넌트 수정 불필요
+- **Disabled 상태** — 여전히 not-allowed 로 시각적 힌트 유지
+
+### QA 확인
+- [x] Sidebar 상단/하단 메뉴 hover 시 모두 pointer 손가락
+- [x] Header 우측 avatar/dropdown 항목 pointer
+- [x] Disabled 버튼 (예: submit 대기 중) 은 여전히 not-allowed 유지
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit` 통과
+
+---
+
 ## 2026-08-04 (3) — TheoLogo swap 애니메이션 완전 제거 (근본 원인: PNG 자체가 arch+wordmark 통합 이미지)
 
 ### 배경

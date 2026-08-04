@@ -5,6 +5,40 @@
   --foreground: #171717;
 }
 
+/* ─── Interactive cursor normalization ───────────────────────────────
+   Tailwind v4 Preflight resets `<button>` / `[role="button"]` cursor
+   to `default` (matching modern browser conventions when the button
+   is *inside* form UI). In our app most buttons are actionable nav
+   controls — Notifications, EN/KO toggle, Switch Account rows,
+   Logout, hamburger, avatar disc — and the arrow cursor made users
+   guess whether they were clickable at all (QA 2026-08-04). Anchors
+   (`<Link>`) already get `pointer` from browser defaults, so mixing
+   the two on the same rail read as "some rows are clickable, some
+   aren't."
+
+   We restore `cursor: pointer` for all non-disabled interactive
+   elements. Tailwind utility classes (`cursor-default`,
+   `cursor-not-allowed`, etc.) can still opt out per-component
+   because utilities live in a later layer than `base`.
+
+   `:disabled` and `[aria-disabled="true"]` are intentionally excluded
+   — those should keep the default/not-allowed cursor to signal
+   "temporarily unavailable." */
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  button[aria-disabled="true"],
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
 /* ─── Sheet / overlay entrance animations ─── */
 @keyframes sheet-slide-up {
   from {
