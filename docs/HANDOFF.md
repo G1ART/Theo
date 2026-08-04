@@ -2,6 +2,60 @@
 
 Last updated: 2026-08-04
 
+## 2026-08-04 (3) — TheoLogo swap 애니메이션 완전 제거 (근본 원인: PNG 자체가 arch+wordmark 통합 이미지)
+
+### 배경
+같은 날짜 첫 섹션에서 crossfade → sequential fade 로 "겹침" 을 해결했다고 판단했으나, 유저 재QA 결과 **여전히 오버랩 보임**. 이번엔 근본 원인 재조사 → **애니메이션 타이밍 문제가 아니라 로고 asset 자체의 구성 문제** 였음.
+
+### 근본 원인
+`public/theo-logo.png` (984×675) 을 실제로 열어 보면 **arch mark 안에 "theo" 워드마크가 hand-lettered 로 통합된 하나의 완성된 로고**. 즉 마크와 워드마크가 하나의 아트워크에 함께 그려져 있음.
+
+기존 `TheoLogo.tsx` 는 이 PNG 위에 **별도의 SUIT-font "Theo" span** 을 절대 위치 (`inset-0 flex items-center justify-center`) 로 겹쳐 렌더하고 opacity 로 스왑하려 시도. 결과:
+- PNG 페이즈: arch + 통합 "theo" (hand-lettered) 표시
+- Wordmark 페이즈: SUIT-font "Theo" (sans-serif) 표시
+- 두 텍스트 글리프가 같은 시각적 중심점을 두고 다른 폰트로 경쟁 → **어떤 opacity 초이스로도 "글자가 두 번 나온다" 로 보이는 순간 발생**
+
+Sequential fade 도 이 문제를 해결하지 못함 — 페이드 도중 옅어진 두 텍스트가 겹쳐 보임.
+
+### 변경 사항
+
+**`components/brand/TheoLogo.tsx` — 완전 재작성 (정적 컴포넌트로 축소)**
+- SUIT-font 워드마크 오버레이 `<span>Theo</span>` **완전 삭제**
+- `useState`, `useEffect`, `sessionStorage`, `performance.timeOrigin` 로직 전부 제거
+- 남은 것: `<Image src="/theo-logo.png">` + 감싸는 `<span>` (positioning wrapper) 뿐
+- 익숙화 (familiarization) 는 반복 노출 (모든 페이지에 렌더) 로 자연스럽게 이루어짐. 스왑 애니메이션 없이도 asset 자체가 arch+text 통합이라 유저는 처음부터 두 요소를 함께 학습.
+
+**`app/globals.css` — 미사용 keyframes 제거**
+- `@keyframes theo-mark-reveal` — 삭제
+- `@keyframes theo-wordmark-reveal` — 삭제
+- `@keyframes theo-logo-settle` — 삭제 (전부터 참조 없었음)
+- **유지**: `@keyframes theo-mark-breathe` (`TheoLoadingMark` 컴포넌트가 여전히 사용 — 브랜드 로딩 캔버스, 전략 C)
+
+**전략 C (branded loading canvas) 는 그대로 유지**
+- `AuthGate`, `page.tsx`, `onboarding/*.tsx` 의 로딩 폴백은 여전히 `TheoLoadingMark` 로 렌더 → 브랜드 노출 순간 확보 (breathe 애니메이션은 opacity-only 라 double-glyph 이슈 없음)
+
+### 이전 실패 시도 정리
+1. **React state + inline opacity + setTimeout** (2026-08-03 초): Safari 에서 `next/image` 가 inline opacity clobbering → 애니메이션 안 보임. CSS 로 교체.
+2. **CSS 크로스페이드 (양쪽 opacity 동시 fade)** (2026-08-03 후반): 40-60% 구간에 두 레이어 반투명 겹침.
+3. **CSS sequential fade (0 gap 순차 페이드)** (2026-08-04 오전): 타이밍상 겹침은 없어졌으나 여전히 유저 눈에 double-text 로 보임 — 근본 원인이 asset 구성이었음이 이번에 확인됨.
+4. **완전 정적 (2026-08-04 현재)**: PNG 만 표시. 스왑 시도 자체를 포기.
+
+### 향후 옵션 (필요 시)
+- 디자이너에게 **arch-only (텍스트 없는) 마크 asset** 요청 → 별도 SUIT 워드마크와 깔끔한 스왑 애니메이션 재도입 가능
+- 또는 정적 유지 (권장 — 심플하고 double-glyph 이슈 원천 차단)
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit` 통과
+- 로컬 dev 서버에서 mobile viewport 확인 시 double-glyph 순간 없음 (스왑 자체가 사라짐)
+
+---
+
 ## 2026-08-04 (2) — Sidebar 공개 프로필 진입점: 와이어프레임 순수 유지 + Switch Account 자체 row 발견성 hint
 
 ### 배경

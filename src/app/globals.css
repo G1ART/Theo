@@ -33,83 +33,15 @@
   to   { opacity: 1; }
 }
 
-/* Brand mark settle-in — see components/brand/TheoLogo.tsx.
-   Transform-only (no opacity) so it doesn't fight the class-driven
-   opacity crossfade used by the reveal effect. Auto-skipped under
-   prefers-reduced-motion via `motion-safe:` on the consuming class. */
-@keyframes theo-logo-settle {
-  from {
-    transform: scale(0.92) translateY(3px);
-  }
-  to {
-    transform: scale(1) translateY(0);
-  }
-}
-
-/* Brand mark round-trip reveal — see components/brand/TheoLogo.tsx.
-
-   Pure CSS keyframes (not React state) so the reveal is driven by the
-   browser's compositor, immune to re-render timing or next/image
-   style-prop quirks. **Plays once per hard page load**
-   (iteration-count 1, fill-mode both) — TheoLogo uses
-   `sessionStorage` + `performance.timeOrigin` to suppress replays
-   when the AppShell layout remounts during SPA navigation.
-
-   Sequential fade (not crossfade) — the mark fades to 0 BEFORE the
-   wordmark starts fading in, and vice versa on the return. QA
-   2026-08-04 (mobile): the earlier symmetric crossfade held both
-   layers visible around 40–60 % of the cycle, which stacked the arch
-   mark and the "theo" wordmark on top of each other and read as a
-   glitch. Sequential fade guarantees only one layer is ever painted
-   above ~5 % opacity.
-
-   4-second one-shot timeline:
-     0    –  1.5  s  mark visible
-     1.5  –  1.75 s  mark fades out (250 ms)  ← wordmark still hidden
-     1.75 –  2    s  wordmark fades in (250 ms)  ← mark stays hidden
-     2    –  3.5  s  "Theo" wordmark held
-     3.5  –  3.75 s  wordmark fades out (250 ms)
-     3.75 –  4    s  mark fades back in (250 ms)
-
-   Percentages relative to a 4 000 ms one-shot:
-     0     %  =  0    s
-    37.5   %  =  1.5  s   mark begins fading
-    43.75  %  =  1.75 s   mark = 0, wordmark still 0
-    50     %  =  2    s   wordmark = 1
-    87.5   %  =  3.5  s   wordmark begins fading
-    93.75  %  =  3.75 s   wordmark = 0, mark still 0
-   100     %  =  4    s   mark = 1 (final rest)
-
-   Skipped entirely under prefers-reduced-motion (TheoLogo omits the
-   animation classes in that case). */
-@keyframes theo-mark-reveal {
-  0%,
-  37.5% {
-    opacity: 1;
-  }
-  43.75%,
-  93.75% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-@keyframes theo-wordmark-reveal {
-  0%,
-  43.75% {
-    opacity: 0;
-  }
-  50%,
-  87.5% {
-    opacity: 1;
-  }
-  93.75%,
-  100% {
-    opacity: 0;
-  }
-}
+/* NOTE (2026-08-04): the `theo-mark-reveal` / `theo-wordmark-reveal`
+   / `theo-logo-settle` keyframes that used to live here were removed
+   together with the TheoLogo swap animation. Root cause of the mobile
+   QA glitch was the asset itself (`/theo-logo.png` bakes the arch AND
+   a hand-lettered "theo" wordmark into one design) — no opacity
+   choreography could hide the double-text moment when a second
+   SUIT-font wordmark faded in on top of it. See TheoLogo.tsx for the
+   full rationale. If we ever ship an arch-only asset we can restore a
+   swap keyframe here. */
 
 /* Brand loading breathe — see components/brand/TheoLoadingMark.tsx.
 
