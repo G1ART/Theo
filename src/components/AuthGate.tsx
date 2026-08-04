@@ -11,7 +11,7 @@ import {
   SET_PASSWORD_PATH,
   LOGIN_PATH,
 } from "@/lib/identity/routing";
-import { useT } from "@/lib/i18n/useT";
+import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 
 /**
  * Client-side gate that guards protected product surfaces. It only
@@ -62,7 +62,6 @@ function profileIsIncomplete(p: ProfileIdentityFields): boolean {
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { t } = useT();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -165,10 +164,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [router, pathname]);
 
   if (!ready) {
+    // Strategy "C" — branded loading canvas. The auth check is one of
+    // the highest-traffic waiting moments in the app, so we turn it
+    // into a quiet mark familiarization opportunity instead of a bare
+    // "Loading…" line. `TheoLoadingMark` pulls its own copy from
+    // `common.loading` so this component no longer needs `useT`.
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <p className="text-lg font-semibold text-zinc-900">Theo</p>
-        <p className="text-zinc-600">{t("common.loading")}</p>
+      <div className="flex min-h-screen flex-col items-center justify-center">
+        <TheoLoadingMark />
       </div>
     );
   }

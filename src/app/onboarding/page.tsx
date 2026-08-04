@@ -24,6 +24,7 @@ import { getSession, getMyAuthState, signUpWithPassword } from "@/lib/supabase/a
 import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { useT } from "@/lib/i18n/useT";
 import { routeByAuthState, safeNextPath, loginUrlWithNext } from "@/lib/identity/routing";
+import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -138,9 +139,8 @@ function OnboardingInner() {
 
   if (mode === "check") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <p className="text-lg font-semibold text-zinc-900">Theo</p>
-        <p className="text-zinc-600">{t("common.loading")}</p>
+      <div className="flex min-h-screen flex-col items-center justify-center">
+        <TheoLoadingMark />
       </div>
     );
   }
@@ -291,9 +291,8 @@ export default function OnboardingPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-          <p className="text-lg font-semibold text-zinc-900">Theo</p>
-          <p className="text-zinc-600">Loading...</p>
+        <div className="flex min-h-screen flex-col items-center justify-center">
+          <TheoLoadingMark />
         </div>
       }
     >

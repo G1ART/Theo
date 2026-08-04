@@ -4,11 +4,10 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getSession, getMyAuthState } from "@/lib/supabase/auth";
 import { routeByAuthState, ONBOARDING_PATH } from "@/lib/identity/routing";
-import { useT } from "@/lib/i18n/useT";
+import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 
 export default function Home() {
   const router = useRouter();
-  const { t } = useT();
 
   useEffect(() => {
     let cancelled = false;
@@ -41,9 +40,8 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-      <p className="text-lg font-semibold text-zinc-900">Theo</p>
-      <p className="text-zinc-600">{t("common.loading")}</p>
+    <div className="flex min-h-screen flex-col items-center justify-center">
+      <TheoLoadingMark />
     </div>
   );
 }

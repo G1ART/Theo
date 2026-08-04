@@ -94,6 +94,23 @@
   }
 }
 
+/* Brand loading breathe — see components/brand/TheoLoadingMark.tsx.
+
+   Netflix/Airbnb-style "loading canvas": while the user is already
+   waiting (auth check, initial data fetch, full-screen splash), fill
+   the empty moment with a slow, calm pulse of the brand mark so the
+   wait doubles as familiarization. Opacity-only (no transform → no
+   layout shift, no compositor thrash) at 1800 ms per cycle. */
+@keyframes theo-mark-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @theme inline {
   --animate-sheet-slide-up: sheet-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-sheet-fade-scale: sheet-fade-scale 0.22s ease-out;

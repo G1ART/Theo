@@ -33,6 +33,7 @@ import { ROLE_KEYS, type RoleKey } from "@/lib/identity/roles";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import { UsernameField } from "@/components/onboarding/UsernameField";
 import { IdentityPreview } from "@/components/onboarding/IdentityPreview";
+import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 import { SectionFrame, SectionTitle } from "@/components/ds";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
@@ -348,9 +349,8 @@ function IdentityInner() {
 
   if (loadState !== "ready") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <p className="text-lg font-semibold text-zinc-900">Theo</p>
-        <p className="text-zinc-600">{t("common.loading")}</p>
+      <div className="flex min-h-screen flex-col items-center justify-center">
+        <TheoLoadingMark />
       </div>
     );
   }
@@ -607,9 +607,8 @@ export default function OnboardingIdentityPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-          <p className="text-lg font-semibold text-zinc-900">Theo</p>
-          <p className="text-zinc-600">Loading...</p>
+        <div className="flex min-h-screen flex-col items-center justify-center">
+          <TheoLoadingMark />
         </div>
       }
     >
