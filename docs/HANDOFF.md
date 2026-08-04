@@ -2,6 +2,54 @@
 
 Last updated: 2026-08-04
 
+## 2026-08-04 (2) — Sidebar 공개 프로필 진입점: 와이어프레임 순수 유지 + Switch Account 자체 row 발견성 hint
+
+### 배경
+직전 hotfix (같은 날짜 첫 섹션) 에서 `AppSidebar.tsx` primary nav 에 "My Studio" 행을 신설했으나, 유저 재검토 결과 **최종 데스크탑 와이어프레임에는 "Profile" / "My Studio" 라벨이 없다는 것** 이 확인됨:
+- 최종 sidebar 구조 = `Explore / Messages / Workspace / Saved / Upload` + `Notifications / Setting / Switch Account / Log out`
+- 초기 변이본에는 "Profile" 이 있었으나 최종본에서 **의도적으로 삭제**
+- 공개 프로필 진입은 **Switch Account 블록의 self-row 클릭 (avatar-to-profile 소셜앱 패턴)** 이 와이어프레임 취지
+
+### 변경 사항
+
+**Revert — Sidebar primary nav "My Studio" 행 제거 (`components/shell/AppSidebar.tsx`)**
+- 직전 커밋에서 추가한 `nav.myProfile` primary nav 엔트리 삭제 → 5-item 구조 (Explore/Messages/Workspace/Saved/Upload) 로 복귀. 와이어프레임 완전 일치.
+- 문서 코멘트를 "public profile is intentionally NOT here — see the Switch Account self-row polish" 로 갱신.
+
+**Discovery polish — Switch Account 자체 row 에 secondary affordance 추가 (`components/shell/AppSidebar.tsx`)**
+- 기존: `[avatar] [ownName]` 만 표시 → 클릭 시 `/u/{username}` 이동은 되지만 유저가 알 수 없었음.
+- 추가: 이름 아래 작은 회색 텍스트로 `"내 공개 프로필 보기 →"` (`nav.viewMyPublicProfile`) 를 표시. row hover 시 hint 색이 진해지고 배경이 살짝 뜸.
+- 유저가 다른 principal 을 acting-as 중이면 hint 는 숨김 (해당 row 는 "본 계정으로 복귀" 로만 동작).
+- placeholder username 유저에게도 숨김 (아직 프로필 없음).
+
+**i18n (`lib/i18n/messages.ts`)**
+- `nav.viewMyPublicProfile`
+  - EN: `"View my public profile"`
+  - KO: `"내 공개 프로필 보기"`
+
+**유지 (버그 fix 성격, revert 대상 아님)**
+- `Header.tsx` `myHref` = `/u/${username}` — top-right "내 스튜디오" 링크가 라벨 대로 공개 프로필로 이동. 이전에는 라벨-목적지 mismatch (`/my` 로 잘못 링크) 상태였음.
+- Mobile drawer 의 `myHref` 링크 (`t("nav.myProfile")` = "내 스튜디오") 역시 `/u/{username}` 유지 — 모바일은 데스크탑 Switch Account row 패턴 대신 explicit 링크가 자연스러움 (delegation 없는 solo 유저 케이스 커버).
+- Mobile drawer 의 Delegations 링크 (데스크탑 sidebar 와 parity) — 그대로 유지.
+
+### QA 확인
+- [x] Sidebar primary nav = 5 items (와이어프레임 정확 일치)
+- [x] Switch Account 자체 row hover 시 "내 공개 프로필 보기 →" 텍스트가 진해지고 클릭 시 `/u/{username}` 이동
+- [x] Acting-as 중일 때는 hint 안 뜨고 self-row 는 "본 계정 복귀" 로 동작
+- [x] 모바일 drawer 는 여전히 explicit "내 스튜디오" 링크로 공개 프로필 접근 가능
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `tsc --noEmit` 통과
+- `eslint src/components/shell/AppSidebar.tsx src/lib/i18n/messages.ts` — 신규 error/warning 0
+
+---
+
 ## 2026-08-04 — 모바일 QA hotfix: 로고 시퀀셜 페이드 + 공개 프로필 진입점 + 데스크탑/모바일 nav parity
 
 ### 배경

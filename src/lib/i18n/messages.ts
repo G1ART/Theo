@@ -24,6 +24,9 @@ export const messages = {
     "nav.workspace": "Workspace",
     "nav.saved": "Saved",
     "nav.delegations": "Delegations",
+    // Secondary affordance shown under the Switch Account self-row —
+    // the wireframe's sanctioned public-profile entry point.
+    "nav.viewMyPublicProfile": "View my public profile",
     "shell.searchPlaceholder": "Search",
     "shell.searchSubmit": "Search",
     "shell.newsTitle": "Theo News",
@@ -3292,6 +3295,7 @@ export const messages = {
     "nav.workspace": "워크스페이스",
     "nav.saved": "저장",
     "nav.delegations": "위임",
+    "nav.viewMyPublicProfile": "내 공개 프로필 보기",
     "shell.searchPlaceholder": "검색",
     "shell.searchSubmit": "검색",
     "shell.newsTitle": "Theo News",

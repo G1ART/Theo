@@ -29,7 +29,6 @@ import { getArtworkImageUrl } from "@/lib/supabase/artworks";
  *   Explore       → /feed
  *   Messages      → /my/messages
  *   Workspace     → /my                 (backend hub: drafts / inquiries / ownership / exhibitions / provenance)
- *   My Studio     → /u/{username}       (public, owner-editable profile page)
  *   Saved         → /my/shortlists
  *   Upload        → /upload
  *
@@ -38,15 +37,18 @@ import { getArtworkImageUrl } from "@/lib/supabase/artworks";
  *   Notifications → button opens NotificationsDrawer (popover)
  *   Setting       → /settings
  *   Delegations   → /my/delegations
- *   Switch Account → expandable list of received account-delegations
+ *   Switch Account → clickable self-row leads to /u/{username} (public profile),
+ *                    followed by received account-delegations
  *   Log out
  *
- * Workspace vs My Studio (QA 2026-08-04): the wireframe originally
- * omitted a "My Studio" row and the header's top-right label was
- * pointed at /my, silently making it a duplicate of "Workspace". After
- * the public profile became owner-editable in place, the profile page
- * itself needed a first-class primary nav entry — so we split the two
- * concepts: Workspace = my backend, My Studio = my public front door.
+ * Public profile entry (QA 2026-08-04): earlier drafts explored adding a
+ * dedicated "My Studio" primary nav row, but the final wireframe
+ * intentionally routes the public-profile entry through the Switch
+ * Account block's self-row (a classic social-app avatar-to-profile
+ * pattern). To improve discoverability without deviating from the
+ * wireframe, the self-row now surfaces a secondary "View my public
+ * profile →" affordance (`nav.viewMyPublicProfile`) below the
+ * display name.
  *
  * The active item is rendered with bold weight + a thin 2px vertical
  * accent on the left. The mobile chrome still uses the top Header +
@@ -164,10 +166,9 @@ export function AppSidebar({
       });
   }, [loggedIn]);
 
-  // Primary nav — top block. Order pairs each surface with its
-  // wireframe intent, and now also splits Workspace (backend) from My
-  // Studio (public front) so the public profile has a first-class
-  // entry point (QA 2026-08-04).
+  // Primary nav — top block. Order matches the wireframe exactly.
+  // Public profile is intentionally NOT here — see the docblock and
+  // the Switch Account self-row polish below.
   const PRIMARY_NAV: NavItem[] = [
     {
       key: "nav.explore",
@@ -186,11 +187,6 @@ export function AppSidebar({
       // (Saved → /my/shortlists, etc.) so /my/xxx should NOT light up
       // this entry.
       match: (p) => p === "/my",
-    },
-    {
-      key: "nav.myProfile",
-      href: profileHref,
-      match: (p) => p.startsWith("/u/"),
     },
     {
       key: "nav.saved",
@@ -322,10 +318,18 @@ export function AppSidebar({
           <div className="mt-3 flex flex-col gap-2 pl-3">
             <p className="text-sm text-zinc-500">{t("nav.switchAccount")}</p>
             <ul className="flex flex-col gap-1.5">
-              {/* Own account — click to enter own profile (fallback
-                  entry point since the primary nav no longer includes
-                  a "Profile" link). Active dot indicator matches the
-                  wireframe. */}
+              {/* Own account — the wireframe-sanctioned public profile
+                  entry point. Clicking either the avatar or the name
+                  navigates to /u/{username}; when the user is
+                  currently acting-as a principal, the same button
+                  first returns them to their own persona (safer
+                  gesture, since jumping straight to another
+                  identity's public profile could confuse the acting-
+                  as banner). A secondary "View my public profile →"
+                  affordance sits below the name to surface the
+                  destination — otherwise the row reads as an
+                  ambient identity indicator and QA reported users
+                  never tried clicking it (2026-08-04). */}
               <li>
                 <button
                   type="button"
@@ -336,7 +340,7 @@ export function AppSidebar({
                       router.push(profileHref);
                     }
                   }}
-                  className="flex w-full items-center gap-2 text-left"
+                  className="group flex w-full items-start gap-2 rounded-md py-1 text-left transition-colors hover:bg-zinc-50"
                 >
                   <AvatarDisc
                     imageUrl={avatarUrl}
@@ -347,14 +351,22 @@ export function AppSidebar({
                     }
                     active={!actingAsProfileId}
                   />
-                  <span
-                    className={`truncate text-sm ${
-                      !actingAsProfileId
-                        ? "font-semibold text-zinc-900"
-                        : "text-zinc-500"
-                    }`}
-                  >
-                    {ownName}
+                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span
+                      className={`truncate text-sm ${
+                        !actingAsProfileId
+                          ? "font-semibold text-zinc-900"
+                          : "text-zinc-500"
+                      }`}
+                    >
+                      {ownName}
+                    </span>
+                    {!actingAsProfileId && !isPlaceholder && username && (
+                      <span className="mt-0.5 truncate text-[11px] text-zinc-400 transition-colors group-hover:text-zinc-600">
+                        {t("nav.viewMyPublicProfile")}{" "}
+                        <span aria-hidden="true">→</span>
+                      </span>
+                    )}
                   </span>
                 </button>
               </li>
