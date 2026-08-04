@@ -2,6 +2,40 @@
 
 Last updated: 2026-08-03
 
+## 2026-08-03 — 브랜드 로고 왕복 reveal 을 순수 CSS keyframe 으로 재구현 + 타이밍 QA 튜닝
+
+### 배경
+동일 날짜 아래 두 섹션 참고 (i18n hydration 픽스 + 초기 로고 애니메이션 시도). 하이드레이션은 해결됐지만 **로고가 여전히 시각적으로 안 움직였음** — 콘솔 로그로는 phase 전이가 찍히는데 Safari 에선 opacity 자체가 0.03초도 안 변함. 원인 후보: `next/image` 가 자기 style pipeline 으로 우리 inline `opacity` 를 씹는 것.
+
+### 변경 사항
+
+1. **`src/app/globals.css` — `@keyframes theo-mark-cycle` / `theo-wordmark-cycle` 추가**
+   - 20초 무한 루프
+   - 0 – 1.5 s : 마크
+   - 1.5 – 2 s : 마크 → "Theo" 크로스페이드 (500 ms)
+   - 2 – 3.5 s : "Theo" 워드마크 유지 (1.5 s)
+   - 3.5 – 4 s : "Theo" → 마크 크로스페이드 (500 ms)
+   - 4 – 20 s : 마크만, 이후 loop
+
+2. **`src/components/brand/TheoLogo.tsx` — React state 기반 → 순수 CSS keyframe 기반**
+   - `useState<Phase>` + `setTimeout` 체인 완전 제거
+   - `useEffect` 는 mount 로그 + `prefers-reduced-motion` 감지 후 `setAnimate(true)` 한 번만 (SSR = 정지, hydration 이후 애니메이션 부착 → hydration 안전)
+   - Image / wordmark span 에 `animation: theo-mark-cycle 20s ease-in-out infinite both` 인라인 지정
+   - 워드마크 폰트: `'SUIT'` (mangled) → `var(--font-suit)` 로 교정 (next/font 가 실제로 로드한 hashed family 이름으로 정확히 매치)
+   - `data-theo-logo="animated" | "static"` 속성으로 DevTools 인스펙션 용이
+   - 애니메이션 상태 정지 원할 때: `prefers-reduced-motion: reduce` → `animate=false` → `animation: none`
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 없음.
+
+### Verified
+- 사용자 육안 QA 통과 (Safari, prod). Elements 탭에서 `animation: theo-mark-cycle 20s ease-in-out infinite both` 확인 가능
+
+---
+
 ## 2026-08-03 — hotfix: i18n hydration mismatch (React #418) 근원 제거 → 로고 애니메이션·전체 재렌더 안정화
 
 ### 배경
