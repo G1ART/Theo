@@ -28,7 +28,8 @@ import { getArtworkImageUrl } from "@/lib/supabase/artworks";
  *
  *   Explore       → /feed
  *   Messages      → /my/messages
- *   Workspace     → /my  (drafts/inquiries/ownership/my_exhibitions/provenance hub)
+ *   Workspace     → /my                 (backend hub: drafts / inquiries / ownership / exhibitions / provenance)
+ *   My Studio     → /u/{username}       (public, owner-editable profile page)
  *   Saved         → /my/shortlists
  *   Upload        → /upload
  *
@@ -39,6 +40,13 @@ import { getArtworkImageUrl } from "@/lib/supabase/artworks";
  *   Delegations   → /my/delegations
  *   Switch Account → expandable list of received account-delegations
  *   Log out
+ *
+ * Workspace vs My Studio (QA 2026-08-04): the wireframe originally
+ * omitted a "My Studio" row and the header's top-right label was
+ * pointed at /my, silently making it a duplicate of "Workspace". After
+ * the public profile became owner-editable in place, the profile page
+ * itself needed a first-class primary nav entry — so we split the two
+ * concepts: Workspace = my backend, My Studio = my public front door.
  *
  * The active item is rendered with bold weight + a thin 2px vertical
  * accent on the left. The mobile chrome still uses the top Header +
@@ -156,7 +164,10 @@ export function AppSidebar({
       });
   }, [loggedIn]);
 
-  // Primary nav — top block. Order matches the wireframe.
+  // Primary nav — top block. Order pairs each surface with its
+  // wireframe intent, and now also splits Workspace (backend) from My
+  // Studio (public front) so the public profile has a first-class
+  // entry point (QA 2026-08-04).
   const PRIMARY_NAV: NavItem[] = [
     {
       key: "nav.explore",
@@ -175,6 +186,11 @@ export function AppSidebar({
       // (Saved → /my/shortlists, etc.) so /my/xxx should NOT light up
       // this entry.
       match: (p) => p === "/my",
+    },
+    {
+      key: "nav.myProfile",
+      href: profileHref,
+      match: (p) => p.startsWith("/u/"),
     },
     {
       key: "nav.saved",

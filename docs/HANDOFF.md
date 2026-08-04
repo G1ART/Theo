@@ -1,6 +1,49 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-03
+Last updated: 2026-08-04
+
+## 2026-08-04 — 모바일 QA hotfix: 로고 시퀀셜 페이드 + 공개 프로필 진입점 + 데스크탑/모바일 nav parity
+
+### 배경
+QA 리포트 (모바일 hamburger 스크린샷):
+1. **로고 애니메이션 오버랩** — `mark → wordmark → mark` 왕복 중 마크와 "theo" 워드마크가 동시에 뜨는 시각 glitch (특히 모바일 축소 배율에서 도드라짐).
+2. **공개 프로필 진입점 부재** — 좌측 sidebar / 상단 header / 모바일 drawer 어디에도 `/u/{username}` 로 가는 링크 없음. `nav.myProfile` ("내 스튜디오" / "My Studio") 라벨은 있으나 실제로는 `/my` (Workspace 백엔드 허브) 를 가리키고 있어, "워크스페이스" 와 완전 중복 + 정작 owner-editable 로 최적화한 공개 프로필은 접근 불가.
+3. **모바일-데스크탑 parity gap** — Delegations 링크가 데스크탑 sidebar secondary nav 에는 있으나 모바일 drawer 에는 없음.
+
+### 변경 사항
+
+**1. 로고 오버랩 해결 — crossfade → sequential fade (`app/globals.css`)**
+- 기존 `theo-mark-reveal` / `theo-wordmark-reveal` 는 대칭 크로스페이드 (37.5%~50%, 87.5%~100% 구간에서 두 레이어가 동시에 opacity 0<x<1) → 겹침이 시각 노이즈로 인식됨.
+- **Sequential fade** 로 재작성: 마크가 먼저 완전히 0 으로 사라진 뒤 (43.75% 시점) 워드마크가 fade-in 시작. 리턴도 동일 (93.75% 시점에서 워드마크가 0 이 된 뒤 마크 fade-in).
+- 결과: 어느 순간에도 두 레이어가 동시에 painted 상태로 존재하지 않음. 4초 총 duration 은 동일.
+
+**2. 공개 프로필 진입점 신설 — Workspace / My Studio 분리**
+- `Header.tsx`:  `myHref` 를 `/my` → `/u/${username}` 로 변경. 라벨 ("내 스튜디오" / "My Studio") 이 실제 목적지 (공개 프로필) 와 일치. 미온보딩/플레이스홀더 유저는 여전히 `/onboarding/identity` 로 폴백.
+- `AppSidebar.tsx`:  primary nav 에 `nav.myProfile` 행 신설 → `/u/${username}` (Workspace 바로 아래에 배치, "backend vs public presence" 페어링). match 는 `/u/` prefix.
+- **Workspace / My Studio 의미 확정**:
+  - **Workspace** (`/my`) — 백엔드 허브 (Drafts, Inquiries, Ownership, Exhibitions, Provenance)
+  - **My Studio** (`/u/{username}`) — 공개 프로필 (owner 는 inline 편집, 방문자는 열람)
+
+**3. 모바일-데스크탑 nav parity**
+- `Header.tsx` 모바일 drawer: Settings 위에 **Delegations** 링크 추가 (`t("delegation.myDelegations")` → `/my/delegations`). 데스크탑 sidebar secondary nav 와 정합.
+
+### QA 확인
+- [x] 로고 애니메이션: 겹침 순간 없음, 4초 왕복 유지 (하드 로드당 1회, SPA 리마운트 억제)
+- [x] `/u/{username}` 진입점: 데스크탑 sidebar (primary nav), 모바일 drawer (myHref 링크), header 상단 우측 링크
+- [x] Workspace 와 My Studio 가 서로 다른 목적지 (중복 해소)
+- [x] 모바일 drawer 에 Delegations 접근 가능
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `npx tsc --noEmit` — 통과
+- `npx eslint src/components/Header.tsx src/components/shell/AppSidebar.tsx` — 신규 error 없음 (기존 pre-existing warnings 만 잔존)
+
+---
 
 ## 2026-08-03 — 브랜드 익숙화 전략 A+C 확정 (하드 로드당 1회 reveal + 로딩 순간 branded canvas)
 

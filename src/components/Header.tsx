@@ -45,7 +45,15 @@ export function Header() {
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const isPlaceholderProfile = isPlaceholderUsername(profileUsername);
-  const myHref = !profileUsername || isPlaceholderProfile ? "/onboarding/identity" : "/my";
+  // `nav.myProfile` ("My Studio" / "내 스튜디오") is the public,
+  // owner-editable profile page — NOT the backend Workspace hub (`/my`).
+  // Historically this link pointed at `/my`, which made "내 스튜디오"
+  // a silent duplicate of "워크스페이스" in every menu (QA 2026-08-04)
+  // and left the public profile with zero primary entry points.
+  const myHref =
+    !profileUsername || isPlaceholderProfile
+      ? "/onboarding/identity"
+      : `/u/${profileUsername}`;
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -688,6 +696,17 @@ export function Header() {
               onClick={closeMobile}
             >
               {t("account.settings")}
+            </Link>
+            {/* Mobile parity with desktop AppSidebar secondary nav —
+                Delegations was previously only reachable from the
+                avatar dropdown on desktop, leaving mobile users with
+                no direct entry (QA 2026-08-04). */}
+            <Link
+              href="/my/delegations"
+              className={`${linkClass} py-2 px-1`}
+              onClick={closeMobile}
+            >
+              {t("delegation.myDelegations")}
             </Link>
             <button
               type="button"
