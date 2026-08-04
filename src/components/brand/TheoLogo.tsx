@@ -33,9 +33,12 @@ import { useEffect, useState } from "react";
  */
 
 const REVEAL_LAST_SHOWN_KEY = "theo:logo-reveal-last-shown-v4";
-const REVEAL_START_DELAY_MS = 3000;
-const REVEAL_FADE_MS = 700;
-const REVEAL_HOLD_MS = 1500;
+// QA-visibility tuning (2026-08-03): quick start + slow fades + long
+// hold so the round-trip is undeniable to the naked eye. Will be
+// dialed back to snappier values once QA signs off.
+const REVEAL_START_DELAY_MS = 1200;
+const REVEAL_FADE_MS = 1000;
+const REVEAL_HOLD_MS = 2500;
 
 type LogoSize = "sm" | "md";
 
@@ -135,9 +138,14 @@ export function TheoLogo({
         style={{
           opacity: wordmarkVisible ? 1 : 0,
           transition: fadeTransition,
+          // next/font hashes the actual family name (e.g. `SUIT_abc123`)
+          // and only exposes it via the `--font-suit` CSS variable set on
+          // <body>. Writing the literal `'SUIT'` here silently falls
+          // through to the fallback stack. Use the variable so the
+          // wordmark actually renders in the brand typeface.
           fontFamily:
-            "'SUIT','Geist','Helvetica Neue',Arial,sans-serif",
-          fontWeight: 500,
+            "var(--font-suit), var(--font-geist-sans), 'Helvetica Neue', Arial, sans-serif",
+          fontWeight: 600,
           fontSize: `${WORDMARK_FONT_PX[size]}px`,
           letterSpacing: "-0.01em",
           color: "currentColor",
