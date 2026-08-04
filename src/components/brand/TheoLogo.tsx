@@ -8,15 +8,18 @@ import { useEffect, useState } from "react";
  *
  * Round-trip reveal — a few seconds after mount, the mark crossfades to
  * the "Theo" wordmark, holds long enough to read, and crossfades back
- * to the mark. Repeats no more than once every `REVEAL_COOLDOWN_MS`
- * (localStorage-throttled per device). Skipped entirely under
- * `prefers-reduced-motion: reduce`.
+ * to the mark. Skipped entirely under `prefers-reduced-motion: reduce`.
  *
- * QA affordances via URL query:
- *   - `?logo=reveal` — bypass cooldown and play immediately.
- *   - `?logo=debug`  — bypass cooldown AND emit phase transitions to
- *                      `console.log` so we can confirm the effect is
- *                      firing in a broken environment.
+ * Cooldown status (2026-08-03): temporarily disabled so a plain hard
+ * refresh replays the animation while we validate that the hydration
+ * hotfix restored it. Once QA confirms the round-trip we plan to reinstate
+ * a ~20 min localStorage-throttled cooldown so returning users don't see
+ * the reveal on every navigation.
+ *
+ * Debug: `console.log("[TheoLogo] …")` is emitted unconditionally in this
+ * validation build so the operator can see the phase transitions in
+ * Console → All. When the cooldown is re-added, these logs will be gated
+ * behind `?logo=debug` again.
  *
  * Implementation notes:
  *   - Opacity and transitions are set via **inline style** (not Tailwind
@@ -30,7 +33,6 @@ import { useEffect, useState } from "react";
  */
 
 const REVEAL_LAST_SHOWN_KEY = "theo:logo-reveal-last-shown-v4";
-const REVEAL_COOLDOWN_MS = 20 * 60 * 1000;
 const REVEAL_START_DELAY_MS = 3000;
 const REVEAL_FADE_MS = 700;
 const REVEAL_HOLD_MS = 1500;
@@ -60,39 +62,22 @@ export function TheoLogo({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const query = new URLSearchParams(window.location.search).get("logo");
-    const forcePlay = query === "reveal" || query === "debug";
-    const debug = query === "debug";
+    // QA verification pass (2026-08-03): the reveal was invisible in prod
+    // even after the hydration hotfix. To rule out cooldown/query-string
+    // confusion we (a) always log the schedule so the console proves the
+    // effect actually ran, and (b) skip the localStorage cooldown so a
+    // simple hard refresh replays the animation. Once the round-trip is
+    // visually confirmed we can dial the cooldown back in.
     const log = (...args: unknown[]) => {
-      if (debug) console.log("[TheoLogo]", ...args);
+      console.log("[TheoLogo]", ...args);
     };
 
     const prefersReduced = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
     ).matches;
     if (prefersReduced) {
-      log("skip: prefers-reduced-motion");
+      log("skip: prefers-reduced-motion (system setting)");
       return;
-    }
-
-    if (!forcePlay) {
-      try {
-        const last = window.localStorage.getItem(REVEAL_LAST_SHOWN_KEY);
-        if (last) {
-          const lastMs = Number.parseInt(last, 10);
-          const age = Date.now() - lastMs;
-          if (Number.isFinite(lastMs) && age < REVEAL_COOLDOWN_MS) {
-            log(
-              `skip: on cooldown (age ${Math.round(age / 1000)}s, need ${
-                REVEAL_COOLDOWN_MS / 1000
-              }s)`,
-            );
-            return;
-          }
-        }
-      } catch {
-        // localStorage blocked → err on the side of playing.
-      }
     }
 
     try {
@@ -102,7 +87,7 @@ export function TheoLogo({
     }
 
     log(
-      `scheduled — starts in ${REVEAL_START_DELAY_MS}ms (fade ${REVEAL_FADE_MS}, hold ${REVEAL_HOLD_MS})`,
+      `mounted — scheduling round-trip in ${REVEAL_START_DELAY_MS}ms (fade ${REVEAL_FADE_MS}, hold ${REVEAL_HOLD_MS})`,
     );
 
     const timers = [
