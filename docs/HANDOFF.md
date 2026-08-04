@@ -2,7 +2,52 @@
 
 Last updated: 2026-08-03
 
-## 2026-08-03 — 브랜드 로고 왕복 reveal 을 순수 CSS keyframe 으로 재구현 + 타이밍 QA 튜닝
+## 2026-08-03 — 브랜드 익숙화 전략 A+C 확정 (하드 로드당 1회 reveal + 로딩 순간 branded canvas)
+
+### 배경
+"Theo" 텍스트 → 새 마크 전환기, 유저가 새 브랜드 표식에 익숙해질 시간을 자연스럽게 주기 위한 4개 전략 (A/B/C/D) 중 **A + C** 조합 최종 채택:
+- **A**: 하드 페이지 로드당 1회, 마크 ↔ "Theo" 워드마크 4초 왕복 페이드 reveal
+- **C**: 로딩 순간 (auth check / initial hydration / route splash) 을 브랜드 캔버스로 — 마크가 조용히 breathe (Netflix/Airbnb 패턴)
+- **B (호버 툴팁)** 과 **D (아무것도 안 함)** 은 제외
+
+### 변경 사항
+
+**전략 A — one-shot reveal (`components/brand/TheoLogo.tsx`)**
+- 이전의 무한 20s 루프 → **하드 로드당 1회 4s reveal** 로 변경 (`animation-iteration-count: 1`, `fill-mode: both`)
+- SPA 리마운트 (예: 다른 route segment 로 이동 → AppShell 재장착) 시 재생 억제: `sessionStorage['theo:logo-seen-origin-v1']` 에 `performance.timeOrigin` 저장, 같은 페이지 로드 세션이면 skip
+- 하드 새로고침 시엔 새 `timeOrigin` 이 생기므로 자연스럽게 재발동
+- 4초 안에 왕복: 마크 → 500ms fade → "Theo" 1.5s 유지 → 500ms fade back → 마크
+
+**전략 C — branded loading canvas (`components/brand/TheoLoadingMark.tsx`, 신규)**
+- 마크를 가운데 배치하고 opacity 0.55 ↔ 1 breathe (`@keyframes theo-mark-breathe`, 1800ms ease-in-out infinite)
+- Transform 없음 → layout shift/compositor thrash 제로
+- `role="status" aria-live="polite" aria-busy="true"` + 하단 캡션 (`common.loading` 로컬라이즈)
+- `prefers-reduced-motion: reduce` 시 정지 마크로 폴백
+
+**전략 C 적용 지점 (기존 "Theo\nLoading..." 텍스트 폴백 4곳 교체)**
+- `src/components/AuthGate.tsx` — 프로텍티드 페이지 auth 체크 대기 (가장 자주 노출)
+- `src/app/page.tsx` — 루트 (`/`) 진입 시 세션 판단 대기
+- `src/app/onboarding/page.tsx` — 온보딩 진입 게이트 + Suspense fallback
+- `src/app/onboarding/identity/page.tsx` — Identity 셋업 로딩 + Suspense fallback
+
+### 이전 잘못된 시도 (참고용)
+1. React state + `setTimeout` + inline `opacity` 전환 — 콘솔 로그로는 phase 전이 확인됐으나 Safari prod 에서 `next/image` 가 자체 style pipeline 으로 inline opacity 를 clobbering 하여 시각 변화 0. **순수 CSS keyframe 으로 갈아엎어 해결.**
+2. 무한 20s 루프 — QA 피드백 "한 번 보여주면 반복 불필요" → one-shot 으로 조정.
+
+### Supabase SQL
+- 없음.
+
+### 환경 변수
+- 없음.
+
+### Verified
+- `npx tsc --noEmit` 통과, `npx eslint` 통과
+- 사용자 육안 QA 통과 (Safari, prod, A 부분). C 는 배포 후 auth 체크 순간에 확인
+- DevTools Elements 탭에서 `animation: theo-mark-reveal 4000ms ...` 및 `animation: theo-mark-breathe 1800ms ...` 인라인으로 관찰 가능
+
+---
+
+## 2026-08-03 — 브랜드 로고 왕복 reveal 을 순수 CSS keyframe 으로 재구현 + 타이밍 QA 튜닝 (superseded by 위 A+C 섹션)
 
 ### 배경
 동일 날짜 아래 두 섹션 참고 (i18n hydration 픽스 + 초기 로고 애니메이션 시도). 하이드레이션은 해결됐지만 **로고가 여전히 시각적으로 안 움직였음** — 콘솔 로그로는 phase 전이가 찍히는데 Safari 에선 opacity 자체가 0.03초도 안 변함. 원인 후보: `next/image` 가 자기 style pipeline 으로 우리 inline `opacity` 를 씹는 것.
