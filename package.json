@@ -49,7 +49,9 @@
     "test:size-display": "tsx tests/size-display.test.ts",
     "test:image-enhance-recipe": "tsx src/lib/image/enhancement/__tests__/recipe.test.ts",
     "test:image-enhance-prepare": "tsx src/lib/image/enhancement/__tests__/prepare.test.ts",
-    "test:image-enhance-geometry": "tsx src/lib/image/enhancement/__tests__/geometry.test.ts"
+    "test:image-enhance-geometry": "tsx src/lib/image/enhancement/__tests__/geometry.test.ts",
+    "test:image-enhance-orientation": "tsx src/lib/image/enhancement/__tests__/orientation.test.ts",
+    "test:image-enhance-exif-scrub": "tsx src/lib/image/enhancement/__tests__/exifScrub.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

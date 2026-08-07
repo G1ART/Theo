@@ -514,7 +514,20 @@ export default function BulkUploadPage() {
       const startedAt = performance.now();
       try {
         if (resolvedMode === "flat") {
-          const result = await runFlatEnhancement({ file });
+          // Bulk clamps `maxLongEdge` to 2560 to keep concurrency-2
+          // enhance passes from OOMing mobile Safari on 4K captures.
+          // Single upload still uses the full 4096 cap (one image at
+          // a time is safe).
+          const result = await runFlatEnhancement({
+            file,
+            maxLongEdge: 2560,
+          });
+          if (!result.blob) {
+            // See localFlatEngine.RunFlatResult.blob — null means the
+            // pipeline bailed out and we must not wrap the raw source
+            // bytes in a `.webp` File.
+            throw new Error(result.stageError ?? "local_pipeline_error");
+          }
           const displayFile = flatBlobToFile(file.name, result.blob);
           const url = URL.createObjectURL(displayFile);
           const sourceHash = await computeFileSha256(file);
@@ -548,6 +561,10 @@ export default function BulkUploadPage() {
               provider: "local_opencv",
               source: meteringSourceForBulk,
               latency_ms: Math.round(performance.now() - startedAt),
+              stage_decode_ms: result.stageTimings.decodeMs,
+              stage_tone_ms: result.stageTimings.toneMs,
+              stage_sharpen_ms: result.stageTimings.sharpenMs,
+              stage_encode_ms: result.stageTimings.encodeMs,
             },
           });
         } else {

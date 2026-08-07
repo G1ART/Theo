@@ -941,6 +941,34 @@ export const messages = {
       "Couldn't read this image for enhancement.",
     "upload.imageEnhance.error.error": "Enhancement failed. Please try again.",
     "upload.imageEnhance.error.network": "Network error while enhancing.",
+    "upload.imageEnhance.tablist": "Image editor",
+    "upload.imageEnhance.tabQuick": "Quick adjust",
+    "upload.imageEnhance.tabEnhance": "Theo Enhance",
+    "upload.imageEnhance.beta": "Beta",
+    "upload.imageEnhance.modeLabel": "Mode",
+    "upload.imageEnhance.rectangleConfidence": "Frame detected",
+    "upload.imageEnhance.rectangleHint":
+      "How confidently we detected a flat rectangular artwork. High = we'll straighten and re-crop; low = we'll leave the geometry alone.",
+    "upload.imageEnhance.blurScore": "Sharpness",
+    "upload.imageEnhance.blurHint":
+      "Estimated edge sharpness. Very low usually means motion blur or focus miss — consider re-shooting.",
+    "upload.imageEnhance.glareScore": "Glare",
+    "upload.imageEnhance.glareHint":
+      "Portion of the image that reads as blown-out highlight. High values usually mean overhead lamps hit the frame — try shooting from a slight angle.",
+    "upload.imageEnhance.reshootAdvisory":
+      "Heads up — this shot has strong blur or glare. Enhancement can only push tone; a quick re-shoot will always beat post-processing.",
+    "upload.imageEnhance.previewCta": "Preview enhancement",
+    "upload.imageEnhance.rerun": "Re-run",
+    "upload.imageEnhance.approve": "Use this",
+    "upload.imageEnhance.beforeAlt": "Original photo",
+    "upload.imageEnhance.afterAlt": "Enhanced preview",
+    "upload.imageEnhance.objectHint":
+      "Object enhancement runs from bulk upload for now. Use Auto or Flat here, or switch to bulk upload for full Object support.",
+    "upload.imageEnhance.previewError":
+      "Couldn't build the enhancement preview. Try Quick adjust or upload the original as-is.",
+    "upload.imageEnhance.footer":
+      "Enhancement is a non-destructive preview. Your untouched original is always kept on our end — the enhanced copy is only saved after you tap Use this.",
+    "bulk.enhance.selectFirst": "Select at least one photo to enhance.",
     "upload.viewType.wall_mounted": "Primary (front)",
     "upload.viewType.detail": "Detail",
     "upload.viewType.angle": "Alternate angle",
@@ -4250,6 +4278,34 @@ export const messages = {
       "이미지를 읽지 못했어요. 다시 시도해 주세요.",
     "upload.imageEnhance.error.error": "향상에 실패했어요. 잠시 뒤 다시 시도해 주세요.",
     "upload.imageEnhance.error.network": "네트워크 오류가 발생했어요.",
+    "upload.imageEnhance.tablist": "이미지 편집",
+    "upload.imageEnhance.tabQuick": "빠른 조정",
+    "upload.imageEnhance.tabEnhance": "Theo 향상",
+    "upload.imageEnhance.beta": "베타",
+    "upload.imageEnhance.modeLabel": "모드",
+    "upload.imageEnhance.rectangleConfidence": "액자 인식",
+    "upload.imageEnhance.rectangleHint":
+      "사진 안에서 평면 작품(액자·캔버스)의 사각형을 얼마나 확신 있게 잡았는지 알려줘요. 높음이면 자동으로 반듯하게 잘라내고, 낮으면 원본 구도를 그대로 유지해요.",
+    "upload.imageEnhance.blurScore": "선명도",
+    "upload.imageEnhance.blurHint":
+      "가장자리 선명도 추정치예요. 아주 낮으면 흔들림이나 초점 문제일 가능성이 높아요. 다시 찍는 편이 좋아요.",
+    "upload.imageEnhance.glareScore": "반사광",
+    "upload.imageEnhance.glareHint":
+      "이미지에서 하얗게 날아간 영역 비율이에요. 높으면 조명이 액자 유리에 반사된 경우가 많아요. 살짝 각도를 틀어서 다시 찍어 보세요.",
+    "upload.imageEnhance.reshootAdvisory":
+      "이 사진은 흔들림이나 반사광이 커요. 향상은 톤만 만져줄 수 있어서, 살짝만 다시 찍는 게 항상 더 나아요.",
+    "upload.imageEnhance.previewCta": "향상 미리보기",
+    "upload.imageEnhance.rerun": "다시 실행",
+    "upload.imageEnhance.approve": "이걸로 저장",
+    "upload.imageEnhance.beforeAlt": "원본 사진",
+    "upload.imageEnhance.afterAlt": "향상된 미리보기",
+    "upload.imageEnhance.objectHint":
+      "입체·설치 모드는 지금 벌크 업로드에서만 지원돼요. 여기서는 자동 또는 평면 모드를 사용하거나, 벌크 업로드로 전환해서 입체·설치 모드를 이용해 주세요.",
+    "upload.imageEnhance.previewError":
+      "미리보기를 만들지 못했어요. 빠른 조정을 쓰거나 원본 그대로 업로드해 주세요.",
+    "upload.imageEnhance.footer":
+      "미리보기는 원본을 건드리지 않아요. 원본은 항상 우리 서버에 그대로 보관되고, 향상된 파일은 \"이걸로 저장\"을 눌러야만 저장돼요.",
+    "bulk.enhance.selectFirst": "향상할 사진을 하나 이상 선택해 주세요.",
     "upload.viewType.wall_mounted": "대표 (정면)",
     "upload.viewType.detail": "디테일",
     "upload.viewType.angle": "다른 각도",

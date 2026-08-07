@@ -623,6 +623,28 @@ export function ImageStandardizeEditor({
           ? { b: suggestion.b, c: suggestion.c, s: suggestion.s }
           : undefined,
       });
+      // A null blob means the canvas pipeline couldn't produce output
+      // (HEIC decode failed, encode failed, no canvas API, …). We MUST
+      // NOT wrap the original bytes in `flatBlobToFile` — that would
+      // upload raw HEIC bytes with a `.webp` extension and `image/webp`
+      // mime. Surface a specific error, log a `.failed`, and let the
+      // user fall back to Quick adjust.
+      if (!result.blob) {
+        const reason = result.stageError ?? "local_pipeline_error";
+        setEnhanceError(t("upload.imageEnhance.previewError"));
+        void recordUsageEvent({
+          key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
+          featureKey: "ai.image_enhance",
+          metadata: {
+            mode: enhanceMode,
+            provider: "local_opencv",
+            source: meteringSource,
+            reason,
+            latency_ms: result.latencyMs,
+          },
+        });
+        return;
+      }
       const displayFile = flatBlobToFile(file.name, result.blob);
       const sourceHash = await computeFileSha256(file);
       const meta: EnhancementMeta = {
@@ -654,6 +676,12 @@ export function ImageStandardizeEditor({
           provider: "local_opencv",
           source: meteringSource,
           latency_ms: result.latencyMs,
+          // Sub-stage timings — helps triage mobile-Safari perf
+          // regressions without extra RUM plumbing.
+          stage_decode_ms: result.stageTimings.decodeMs,
+          stage_tone_ms: result.stageTimings.toneMs,
+          stage_sharpen_ms: result.stageTimings.sharpenMs,
+          stage_encode_ms: result.stageTimings.encodeMs,
         },
       });
     } catch (err) {

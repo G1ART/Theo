@@ -58,8 +58,14 @@ export type RunFlatInput = {
 };
 
 export type RunFlatResult = {
-  /** WebP blob suitable for upload as the display copy. */
-  blob: Blob;
+  /**
+   * WebP blob suitable for upload as the display copy. `null` when the
+   * pipeline had to bail out (unsupported source, decode failed, encode
+   * failed). Callers MUST check for null before wrapping the result in
+   * a `File` — the original bytes are never returned mislabeled as
+   * WebP, which would corrupt storage for HEIC / animated GIF inputs.
+   */
+  blob: Blob | null;
   /** Fully-normalized recipe to persist. */
   recipe: FlatRecipe;
   /** End-to-end wall-clock latency of this pipeline, in ms. */
@@ -71,6 +77,23 @@ export type RunFlatResult = {
    * override with their own confidence.
    */
   confidence: number;
+  /**
+   * When the pipeline bailed out, which stage failed. Useful for both
+   * metering (`.failed` reason) and to explain the fallback to the
+   * user. Absent on the happy path.
+   */
+  stageError?: "no_canvas_api" | "decode_failed" | "encode_failed";
+  /**
+   * Per-stage wall-clock timings (ms). Fields land in the metering
+   * `.completed` metadata so we can watch mobile-Safari regressions
+   * without extra RUM plumbing. All numbers are >= 0 and rounded.
+   */
+  stageTimings: {
+    decodeMs: number;
+    toneMs: number;
+    sharpenMs: number;
+    encodeMs: number;
+  };
 };
 
 const DEFAULT_MAX_LONG_EDGE = 4096;
@@ -108,11 +131,10 @@ function normalizeCropFromCorners(
   return { x: 0, y: 0, w: 1, h: 1 };
 }
 
-/** Apply tone shift + optional unsharp mask into a fresh ImageData. */
-function applyToneAndSharpen(
+/** Apply tone shift into a fresh ImageData. */
+function applyTone(
   src: ImageData,
   tone: { b: number; c: number; s: number },
-  sharpen: number,
 ): ImageData {
   const w = src.width;
   const h = src.height;
@@ -123,7 +145,6 @@ function applyToneAndSharpen(
   const c = clampTone(tone.c);
   const s = clampTone(tone.s);
 
-  // First pass — tone.
   for (let i = 0; i < bIn.length; i += 4) {
     let r = bIn[i];
     let g = bIn[i + 1];
@@ -140,14 +161,17 @@ function applyToneAndSharpen(
     bOut[i + 2] = Math.min(255, Math.max(0, bl));
     bOut[i + 3] = bIn[i + 3];
   }
+  return out;
+}
 
-  if (sharpen <= 0) return out;
-
-  // Second pass — unsharp mask (small radius, luminance-only). We
-  // reuse `bOut` as the source and write back in place.
+/** Apply an unsharp mask (small radius, luminance-only) in-place. */
+function applyUnsharp(image: ImageData, sharpen: number): void {
+  if (sharpen <= 0) return;
+  const w = image.width;
+  const h = image.height;
+  const bOut = image.data;
   const amount = Math.min(1, Math.max(0, sharpen));
   const kernel = [-1, -1, -1, -1, 9, -1, -1, -1, -1];
-  const kernelSum = 1;
   const sharpened = new Uint8ClampedArray(bOut.length);
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
@@ -170,17 +194,13 @@ function applyToneAndSharpen(
       const origR = bOut[p];
       const origG = bOut[p + 1];
       const origB = bOut[p + 2];
-      const shR = r / kernelSum;
-      const shG = g / kernelSum;
-      const shB = bl / kernelSum;
-      sharpened[p] = Math.min(255, Math.max(0, origR + (shR - origR) * amount));
-      sharpened[p + 1] = Math.min(255, Math.max(0, origG + (shG - origG) * amount));
-      sharpened[p + 2] = Math.min(255, Math.max(0, origB + (shB - origB) * amount));
+      sharpened[p] = Math.min(255, Math.max(0, origR + (r - origR) * amount));
+      sharpened[p + 1] = Math.min(255, Math.max(0, origG + (g - origG) * amount));
+      sharpened[p + 2] = Math.min(255, Math.max(0, origB + (bl - origB) * amount));
       sharpened[p + 3] = bOut[p + 3];
     }
   }
   for (let i = 0; i < bOut.length; i += 1) bOut[i] = sharpened[i];
-  return out;
 }
 
 function canvasToBlob(
@@ -215,9 +235,58 @@ function makeCanvas(w: number, h: number): {
 }
 
 /**
- * Run the local flat pipeline. Never throws for a decode / encode
- * failure — surfaces a `{ blob: <original>, confidence: 0 }` result
- * instead so the caller can fall back gracefully.
+ * Try to decode `file` with EXIF orientation applied. Falls back
+ * gracefully when the browser (older Safari) doesn't support the
+ * `imageOrientation` option — in that case we still decode, orientation
+ * will just remain the encoded EXIF orientation. Callers who care about
+ * orientation for a JPEG use the analyze pipeline's rotation math.
+ *
+ * The two-pass `createImageBitmap` here is intentional: some Chromium
+ * builds throw on an unknown option, so we probe with an options object,
+ * and on catch fall back to plain decode.
+ */
+async function decodeOriented(file: File): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file, {
+      imageOrientation: "from-image",
+    } as ImageBitmapOptions);
+  } catch {
+    return await createImageBitmap(file);
+  }
+}
+
+async function decodeOrientedRegion(
+  file: File,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  outW: number,
+  outH: number,
+): Promise<ImageBitmap> {
+  const opts: ImageBitmapOptions = {
+    resizeWidth: outW,
+    resizeHeight: outH,
+    resizeQuality: "high",
+    imageOrientation: "from-image",
+  };
+  try {
+    return await createImageBitmap(file, sx, sy, sw, sh, opts);
+  } catch {
+    // Older Safari can reject the option — retry without orientation.
+    return await createImageBitmap(file, sx, sy, sw, sh, {
+      resizeWidth: outW,
+      resizeHeight: outH,
+      resizeQuality: "high",
+    });
+  }
+}
+
+/**
+ * Run the local flat pipeline. Non-throwing: decode / encode failures
+ * are returned as `{ blob: null, stageError }` so the caller can log
+ * the failure and fall back to the original file WITHOUT mislabeling
+ * arbitrary bytes as `image/webp`.
  */
 export async function runFlatEnhancement(
   input: RunFlatInput,
@@ -246,85 +315,127 @@ export async function runFlatEnhancement(
     bezel: round3(bezel),
   });
 
-  try {
-    if (typeof createImageBitmap === "undefined") {
-      return {
-        blob: input.file,
-        recipe: buildRecipe(),
-        latencyMs: Math.max(0, Math.round(performance.now() - started)),
-        confidence: 0,
-      };
-    }
+  const stageTimings = { decodeMs: 0, toneMs: 0, sharpenMs: 0, encodeMs: 0 };
 
-    const maxLongEdge = input.maxLongEdge ?? DEFAULT_MAX_LONG_EDGE;
-    const probe = await createImageBitmap(input.file);
-    const srcW = probe.width;
-    const srcH = probe.height;
+  const bail = (
+    stageError: NonNullable<RunFlatResult["stageError"]>,
+  ): RunFlatResult => ({
+    blob: null,
+    recipe: buildRecipe(),
+    latencyMs: Math.max(0, Math.round(performance.now() - started)),
+    confidence: 0,
+    stageError,
+    stageTimings,
+  });
+
+  if (typeof createImageBitmap === "undefined") {
+    return bail("no_canvas_api");
+  }
+
+  const maxLongEdge = input.maxLongEdge ?? DEFAULT_MAX_LONG_EDGE;
+
+  let srcW: number;
+  let srcH: number;
+  try {
+    // Probe with orientation so `srcW/srcH` reflect the *visual* frame
+    // after EXIF rotation — otherwise a portrait phone shot would be
+    // cropped against its landscape sensor dimensions and the preview
+    // would come out sideways. See:
+    // https://developer.mozilla.org/en-US/docs/Web/API/ImageBitmapOptions
+    const t0 = performance.now();
+    const probe = await decodeOriented(input.file);
+    srcW = probe.width;
+    srcH = probe.height;
     try {
       probe.close();
     } catch {}
+    stageTimings.decodeMs = Math.max(0, Math.round(performance.now() - t0));
+  } catch {
+    return bail("decode_failed");
+  }
 
-    const cropPxX = Math.round(cropNormalized.x * srcW);
-    const cropPxY = Math.round(cropNormalized.y * srcH);
-    const cropPxW = Math.max(1, Math.round(cropNormalized.w * srcW));
-    const cropPxH = Math.max(1, Math.round(cropNormalized.h * srcH));
+  const cropPxX = Math.round(cropNormalized.x * srcW);
+  const cropPxY = Math.round(cropNormalized.y * srcH);
+  const cropPxW = Math.max(1, Math.round(cropNormalized.w * srcW));
+  const cropPxH = Math.max(1, Math.round(cropNormalized.h * srcH));
+  const longestCropEdge = Math.max(cropPxW, cropPxH);
+  const scale = longestCropEdge > maxLongEdge ? maxLongEdge / longestCropEdge : 1;
+  const outW = Math.max(1, Math.round(cropPxW * scale));
+  const outH = Math.max(1, Math.round(cropPxH * scale));
 
-    const longestCropEdge = Math.max(cropPxW, cropPxH);
-    const scale = longestCropEdge > maxLongEdge ? maxLongEdge / longestCropEdge : 1;
-    const outW = Math.max(1, Math.round(cropPxW * scale));
-    const outH = Math.max(1, Math.round(cropPxH * scale));
-
-    const bitmap = await createImageBitmap(input.file, cropPxX, cropPxY, cropPxW, cropPxH, {
-      resizeWidth: outW,
-      resizeHeight: outH,
-      resizeQuality: "high",
-    });
-
-    const { canvas, ctx } = makeCanvas(outW, outH);
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  try {
+    const bitmap = await decodeOrientedRegion(
+      input.file,
+      cropPxX,
+      cropPxY,
+      cropPxW,
+      cropPxH,
+      outW,
+      outH,
+    );
+    const surface = makeCanvas(outW, outH);
+    canvas = surface.canvas;
+    ctx = surface.ctx;
     ctx.drawImage(bitmap as CanvasImageSource, 0, 0, outW, outH);
     try {
       bitmap.close();
     } catch {}
+  } catch {
+    return bail("decode_failed");
+  }
 
-    // Read pixels, apply tone + sharpen, write back.
+  let processed: ImageData;
+  try {
+    const t0 = performance.now();
     const src = ctx.getImageData(0, 0, outW, outH);
-    const processed = applyToneAndSharpen(src, tone, sharpen);
+    processed = applyTone(src, tone);
+    stageTimings.toneMs = Math.max(0, Math.round(performance.now() - t0));
+    const t1 = performance.now();
+    applyUnsharp(processed, sharpen);
+    stageTimings.sharpenMs = Math.max(0, Math.round(performance.now() - t1));
     ctx.putImageData(processed, 0, 0);
+  } catch {
+    return bail("decode_failed");
+  }
 
-    // Bezel — draw the processed canvas onto a slightly larger white
-    // canvas so the resulting artwork sits on a clean flat mat.
-    const bezelPx = Math.round(bezel * Math.min(outW, outH));
-    const finalW = outW + bezelPx * 2;
-    const finalH = outH + bezelPx * 2;
+  // Bezel — draw the processed canvas onto a slightly larger white
+  // canvas so the resulting artwork sits on a clean flat mat.
+  const bezelPx = Math.round(bezel * Math.min(outW, outH));
+  const finalW = outW + bezelPx * 2;
+  const finalH = outH + bezelPx * 2;
+  let blob: Blob | null;
+  try {
+    const t0 = performance.now();
     const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
     matCtx.fillStyle = "#ffffff";
     matCtx.fillRect(0, 0, finalW, finalH);
     matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
+    blob = await canvasToBlob(matCanvas, "image/webp", 0.9);
+    stageTimings.encodeMs = Math.max(0, Math.round(performance.now() - t0));
+  } catch {
+    return bail("encode_failed");
+  }
 
-    const blob = await canvasToBlob(matCanvas, "image/webp", 0.9);
-    const latency = Math.max(0, Math.round(performance.now() - started));
-    if (!blob) {
-      return {
-        blob: input.file,
-        recipe: buildRecipe(),
-        latencyMs: latency,
-        confidence: 0,
-      };
-    }
+  const latency = Math.max(0, Math.round(performance.now() - started));
+  if (!blob) {
     return {
-      blob,
+      blob: null,
       recipe: buildRecipe(),
       latencyMs: latency,
-      confidence: 1,
-    };
-  } catch {
-    return {
-      blob: input.file,
-      recipe: buildRecipe(),
-      latencyMs: Math.max(0, Math.round(performance.now() - started)),
       confidence: 0,
+      stageError: "encode_failed",
+      stageTimings,
     };
   }
+  return {
+    blob,
+    recipe: buildRecipe(),
+    latencyMs: latency,
+    confidence: 1,
+    stageTimings,
+  };
 }
 
 /**

@@ -48,6 +48,20 @@ const SUPPORTED_MIMES = new Set([
   "image/png",
   "image/webp",
 ]);
+/**
+ * Max long-edge of the *composited* canvas we allow sharp to render. On
+ * an 8k source this would otherwise be a ~9k × 9k × 4-channel raw
+ * buffer (~324 MB) and concurrency-2 on the same Vercel function can
+ * blow the 1 GB budget. Cap the subject to 2560 pre-composite; the
+ * padded canvas ends up ≤ ~2870, well inside the memory envelope.
+ */
+const OBJECT_MAX_SUBJECT_EDGE = 2560;
+/**
+ * Hard ceiling on the number of bytes we accept from Supabase Storage
+ * as an enhance input. Storage server enforces 50 MiB, but stack traces
+ * are cleaner if we reject early and specifically. Chosen to align.
+ */
+const INPUT_MAX_BYTES = 50 * 1024 * 1024;
 
 type ObjectEnhanceBody = {
   inputStoragePath?: unknown;
@@ -196,14 +210,35 @@ async function compositeOnWhite(subjectBytes: Buffer): Promise<{
   width: number;
   height: number;
 }> {
-  const image = sharp(subjectBytes, { failOn: "none" });
-  const metadata = await image.metadata();
+  // First pass — inspect metadata + strip everything except an implicit
+  // sRGB colorspace. `failOn: "none"` keeps a slightly odd PNG (e.g. a
+  // Photoroom cut-out with an oversized IDAT) from rejecting the whole
+  // pipeline. We downscale in the second pipe rather than here so we
+  // only allocate the resized RGBA buffer, never the source-sized one.
+  const probe = sharp(subjectBytes, { failOn: "none" });
+  const metadata = await probe.metadata();
   const srcW = metadata.width ?? 0;
   const srcH = metadata.height ?? 0;
   if (!srcW || !srcH) {
     throw new HandlerError("unsupported_format", "invalid_subject_dimensions");
   }
-  const canvasEdge = Math.round(Math.max(srcW, srcH) * (1 + OBJECT_PADDING * 2));
+
+  // Clamp the subject so the composite canvas stays inside the Vercel
+  // function memory envelope with concurrency-2 (see OBJECT_MAX_SUBJECT_EDGE).
+  const scale =
+    Math.max(srcW, srcH) > OBJECT_MAX_SUBJECT_EDGE
+      ? OBJECT_MAX_SUBJECT_EDGE / Math.max(srcW, srcH)
+      : 1;
+  const subjW = Math.max(1, Math.round(srcW * scale));
+  const subjH = Math.max(1, Math.round(srcH * scale));
+  const clampedSubject =
+    scale === 1
+      ? subjectBytes
+      : await sharp(subjectBytes, { failOn: "none" })
+          .resize({ width: subjW, height: subjH, fit: "inside" })
+          .toBuffer();
+
+  const canvasEdge = Math.round(Math.max(subjW, subjH) * (1 + OBJECT_PADDING * 2));
   const composite = await sharp({
     create: {
       width: canvasEdge,
@@ -214,11 +249,15 @@ async function compositeOnWhite(subjectBytes: Buffer): Promise<{
   })
     .composite([
       {
-        input: subjectBytes,
-        left: Math.round((canvasEdge - srcW) / 2),
-        top: Math.round((canvasEdge - srcH) / 2),
+        input: clampedSubject,
+        left: Math.round((canvasEdge - subjW) / 2),
+        top: Math.round((canvasEdge - subjH) / 2),
       },
     ])
+    // Explicitly drop EXIF / GPS / ICC. sharp defaults to *not* copying
+    // metadata forward, but we call the no-op `.withMetadata()` chain
+    // change here to signal intent — the encoded WebP carries no GPS
+    // regardless of what Photoroom (or the source phone) baked in.
     .webp({ quality: OUTPUT_WEBP_QUALITY })
     .toBuffer({ resolveWithObject: true });
   return {
@@ -328,10 +367,17 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (!SUPPORTED_MIMES.has(mime.toLowerCase())) {
       return degradedResponse("unsupported_format");
     }
+    if (typeof inputBlob.size === "number" && inputBlob.size > INPUT_MAX_BYTES) {
+      // Storage server refuses uploads beyond this anyway; catching it
+      // here yields a clean `invalid_input` instead of a sharp OOM
+      // downstream.
+      return degradedResponse("invalid_input", { validation: "input_too_large" });
+    }
 
     const inputBytes = new Uint8Array(await inputBlob.arrayBuffer());
     const sourceHash = await sha256Hex(inputBytes);
 
+    const photoroomStartedAt = Date.now();
     let subjectBlob: Blob;
     try {
       subjectBlob = await callPhotoroom(
@@ -363,7 +409,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       return degradedResponse(reason);
     }
 
+    const photoroomLatencyMs = Date.now() - photoroomStartedAt;
     const subjectBuffer = Buffer.from(await subjectBlob.arrayBuffer());
+    const compositeStartedAt = Date.now();
     let composite: { buffer: Buffer; width: number; height: number };
     try {
       composite = await compositeOnWhite(subjectBuffer);
@@ -371,6 +419,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       const reason = err instanceof HandlerError ? err.reason : "error";
       return degradedResponse(reason);
     }
+    const compositeLatencyMs = Date.now() - compositeStartedAt;
 
     const inputName = inputPath.split("/").pop() ?? "enhanced.webp";
     const outputName = derivedOutputName(inputName);
@@ -423,6 +472,10 @@ export async function POST(req: Request): Promise<NextResponse> {
           provider,
           source: exhibitionId ? "exhibition_single" : "single",
           latency_ms: latencyMs,
+          // Sub-stage telemetry — helps split Photoroom outages from
+          // sharp / storage regressions without extra RUM plumbing.
+          stage_photoroom_ms: photoroomLatencyMs,
+          stage_composite_ms: compositeLatencyMs,
         },
       },
       { client: supabase, dualWriteBeta: false },

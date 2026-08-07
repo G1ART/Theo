@@ -1,6 +1,109 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-05
+Last updated: 2026-08-06
+
+## 2026-08-06 — Theo Image Enhance (Beta) — 하드닝 패치 (audit follow-up)
+
+### 배경
+2026-08-05 릴리즈 (`dd4091e`) 직후 전면 audit. 4개 업로드 경로
+(단일 / 전시 단일 / 벌크 / 전시 벌크) UX walkthrough + 정합성/보안
+점검 결과 즉시 픽스 가능한 P0/P1 이슈를 이번 패치로 해결. "phone-shot
+을 프로 사진으로 느끼게" 라는 quality bar 관점에서 EXIF orientation +
+프리뷰 downscale + GPS privacy scrub 세 가지가 큰 leverage 로 판단됨.
+
+### 이번 패치가 잡은 이슈
+
+- **i18n 커버리지 파손 (KO 사용자)** — `useT()` 폴백이 raw key 를
+ 그대로 반환하기 때문에 `upload.imageEnhance.tabQuick`,
+ `upload.imageEnhance.beta`, `upload.imageEnhance.approve`,
+ `upload.imageEnhance.rectangleConfidence`, `bulk.enhance.selectFirst`
+ 등이 화면에 그대로 노출되던 상태. 20개 넘는 미정의 키를 en/ko 양쪽에
+ 채웠고, 중복 정의된 `bulk.enhance.*` 는 기존 값 보존.
+- **HEIC / decode fallback silent mislabel** — 이전 `runFlatEnhancement`
+ 는 decode 실패 시 원본 File 을 `blob` 으로 반환했고, 상위에서
+ `flatBlobToFile(name, blob)` 이 `.webp` 확장자 + `image/webp` MIME
+ 으로 감싸 저장 → HEIC 원본 bytes 가 `.webp` 로 스토리지에 올라가는
+ 데이터 오염 버그. 이제 `blob: Blob | null` 로 계약 변경, null 이면
+ caller 가 원본 유지 + `.failed` 이벤트 emit.
+- **EXIF Orientation 미적용 → portrait phone shot 프리뷰가 옆으로 누움**
+ — `createImageBitmap` 에 `imageOrientation: "from-image"` 를 두 콜에
+ 모두 전달하도록 수정. 구형 Safari 폴백 처리 포함.
+- **원본 backup 에 GPS 잔존 (privacy)** — `{userId}/original/…` 로
+ 백업되는 JPEG 에서 EXIF GPS sub-IFD 참조를 zero-out 하는 pure-JS
+ scrubber (`src/lib/image/exifScrub.ts`) 추가. Orientation / DateTime
+ / Make/Model 등 나머지 EXIF 는 보존 → 다운스트림 뷰어가 여전히 자동
+ 회전 가능. HEIC 는 TODO(image-enhance/heic-gps-strip) 로 남김.
+- **Photoroom route OOM 위험** — sharp composite 이 원본 sensor
+ 크기 그대로 8k×8k RGBA 를 만들면 concurrency-2 에서 Vercel function
+ 1GB 를 넘을 수 있어, subject 를 `OBJECT_MAX_SUBJECT_EDGE = 2560` 로
+ pre-resize + 입력 blob 을 `INPUT_MAX_BYTES = 50 MiB` 로 사전 검증.
+- **모바일 Safari OOM (bulk local enhance)** — 벌크 flat 파이프라인이
+ 4K 원본 두 장을 동시에 tone+sharpen 할 때 크래시 위험. bulk caller 가
+ `maxLongEdge: 2560` 을 명시적으로 넘기게 wiring. 단일 upload 는 여전히
+ 4096 유지 (한 장씩이라 안전).
+- **관측성** — `.completed` 메타에 sub-stage timing (`stage_decode_ms`,
+ `stage_tone_ms`, `stage_sharpen_ms`, `stage_encode_ms`,
+ `stage_photoroom_ms`, `stage_composite_ms`) 추가. RUM 없이도
+ phone-side vs server-side latency 규모를 분리 관측 가능.
+
+### 신규 파일
+- `src/lib/image/exifScrub.ts` — pure-JS JPEG GPS scrub helper.
+- `src/lib/image/enhancement/__tests__/orientation.test.ts` — EXIF
+ orientation 좌표 매핑 계약 test.
+- `src/lib/image/enhancement/__tests__/exifScrub.test.ts` — 실제 JPEG
+ fixture 조립 + GPS tag 무력화 + Orientation tag 보존 검증.
+
+### 주요 modify
+- `src/lib/image/enhancement/localFlatEngine.ts` — 결과 타입 확장,
+ orientation 처리, per-stage timing.
+- `src/components/upload/ImageStandardizeEditor.tsx` — null blob 처리 +
+ sub-stage timing 이벤트 필드.
+- `src/app/upload/bulk/page.tsx` — 벌크 flat 은 `maxLongEdge: 2560`
+ 명시 + null blob 처리 + sub-stage timing.
+- `src/app/api/image-enhance/object/route.ts` — 입력 크기 상한,
+ subject downscale, sub-stage timing.
+- `src/lib/supabase/storage.ts` — 3개 original-backup 코드경로 모두에
+ `stripPrivacyExifForBackup(file)` 통과시킴 (JPEG GPS 제거).
+- `src/lib/i18n/messages.ts` — 누락된 UI 카피 en/ko 보강.
+- `package.json` — 신규 두 개 test 스크립트 등록.
+
+### Supabase SQL
+- **없음.** 이번 패치는 코드만 건드림.
+
+### 환경 변수
+- **변경 없음.** `PHOTOROOM_API_KEY` 는 2026-08-05 릴리즈에서 이미 추가됨.
+
+### 검증
+- `npx tsc --noEmit` — 통과
+- `npm run lint` — 통과 (기존 warning 만 존재, 이번 패치 origin 아님)
+- `npm run build` — 통과
+- 신규 5종 unit test 모두 통과:
+ `test:image-enhance-recipe`, `-prepare`, `-geometry`,
+ `-orientation`, `-exif-scrub`.
+
+### Deferred (다음 iteration)
+- **P1: bulk `processing` cancel** — 프로세싱 중인 파일을 remove 하면
+ 서버 promise 는 계속 살아 있어 완료 후 `enhancedPath` 가 orphaned.
+ `requestObjectEnhancement` 에 `AbortSignal` 지원 추가 필요
+ (TODO(image-enhance/abort-in-flight)).
+- **P1: 실제 perspective warping** — 지금은 axis-aligned crop 만
+ 지원. `jsfeat` + 4-point homography 로 ~800KB, ~200ms 안에
+ real perspective correction 가능. quality bar 에 크게 기여.
+- **P1: Auto white balance** — 회색-월드 (gray-world) 또는 흰벽 patch
+ detect 후 R/B 곱셈. tone cap ±15% 는 지금 그대로 두되 WB 는 별도
+ stage 로 앞단에 추가.
+- **P2: Low-light warning chip** — EXIF `ExposureTime` + `ISO` 기반
+ (`ExposureTime > 1/60 && ISO > 800` → "다시 촬영 권장" chip).
+ EXIF 파서를 client bundle 에 이미 추가했으니 재활용 가능.
+- **P2: HEIC GPS strip** — iOS 신규 캡처 기본 포맷. ISO-BMFF `meta`
+ box walker 필요 (~600 LOC). 별도 브랜치.
+- **P2: Deglare region detection** — `analyze.ts` 는 이미 glareScore
+ 를 계산. 어느 영역에 반사가 몰렸는지 heatmap 을 함께 보여주면
+ "여기 각도 조금 틀어서 재촬영" 가이드가 가능.
+- **P3: `.completed` 만 발화 (preview-only 는 `.requested` 이후 아무
+ 이벤트 없음)** — 지금은 미리보기 성공 시 `.completed` 를 태우고 있어
+ 실제로 approve 하지 않았어도 "성공" 으로 잡힘. `.completed` (=미리보기
+ 생성 성공) 와 `.accepted` (=최종 approve) 를 명확히 분리해 리포팅.
 
 ## 2026-08-05 — Theo Image Enhance (Beta) — 작품 이미지 향상 파이프라인
 

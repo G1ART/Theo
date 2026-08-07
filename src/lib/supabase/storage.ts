@@ -2,6 +2,27 @@ import { supabase } from "./client";
 import { compressArtworkImage } from "@/lib/image/compress";
 import { renderPdfFirstPageAsWebp } from "@/lib/pdf/renderThumbnail";
 import type { EnhancementMeta } from "@/lib/image/enhancement/types";
+import { scrubJpegGps } from "@/lib/image/exifScrub";
+
+/**
+ * Best-effort GPS scrub of the untouched original before it lands in
+ * long-term storage. Applied to every code path that backs the raw
+ * source up under `{owner}/original/…`. If scrubbing fails or the file
+ * isn't a JPEG we upload the byte-identical original — never silently
+ * mangled bytes.
+ *
+ * The display copy is always a canvas re-render (compression + optional
+ * enhance) so it already sheds EXIF; this helper closes the loop on
+ * the backup slot.
+ */
+async function stripPrivacyExifForBackup(file: File): Promise<File> {
+  try {
+    const res = await scrubJpegGps(file);
+    return res.file;
+  } catch {
+    return file;
+  }
+}
 
 /** Serializable subset of the compressor's meta — matches the DB
  *  `artwork_images.compression_meta` jsonb shape. */
@@ -110,9 +131,10 @@ export async function uploadArtworkImage(
     const originalPath = `${userId}/original/${uuid}-${safeOriginalName}`;
     let savedOriginalPath: string | null = null;
     try {
+      const backupFile = await stripPrivacyExifForBackup(file);
       const { error: originalErr } = await supabase.storage
         .from(BUCKET)
-        .upload(originalPath, file, {
+        .upload(originalPath, backupFile, {
           upsert: false,
           contentType: file.type || "application/octet-stream",
         });
@@ -153,9 +175,10 @@ export async function uploadArtworkImage(
 
     let savedOriginalPath: string | null = null;
     try {
+      const backupFile = await stripPrivacyExifForBackup(file);
       const { error: originalErr } = await supabase.storage
         .from(BUCKET)
-        .upload(originalPath, file, {
+        .upload(originalPath, backupFile, {
           upsert: false,
           contentType: file.type || "application/octet-stream",
         });
@@ -216,9 +239,10 @@ export async function uploadArtworkImage(
   // (Caller 가 나중에 재시도 UI 를 붙일 수 있게 originalPath=null 반환.)
   let savedOriginalPath: string | null = null;
   try {
+    const backupFile = await stripPrivacyExifForBackup(file);
     const { error: originalErr } = await supabase.storage
       .from(BUCKET)
-      .upload(originalPath, file, {
+      .upload(originalPath, backupFile, {
         upsert: false,
         contentType: file.type || "application/octet-stream",
       });
@@ -332,9 +356,10 @@ export async function uploadExhibitionMedia(
     const originalPath = `exhibition-media/${exhibitionId}/original/${uuid}-${safeOriginalName}`;
     let savedOriginalPath: string | null = null;
     try {
+      const backupFile = await stripPrivacyExifForBackup(file);
       const { error: originalErr } = await supabase.storage
         .from(BUCKET)
-        .upload(originalPath, file, {
+        .upload(originalPath, backupFile, {
           upsert: false,
           contentType: file.type || "application/octet-stream",
         });
@@ -371,9 +396,10 @@ export async function uploadExhibitionMedia(
 
     let savedOriginalPath: string | null = null;
     try {
+      const backupFile = await stripPrivacyExifForBackup(file);
       const { error: originalErr } = await supabase.storage
         .from(BUCKET)
-        .upload(originalPath, file, {
+        .upload(originalPath, backupFile, {
           upsert: false,
           contentType: file.type || "application/octet-stream",
         });
@@ -519,9 +545,10 @@ export async function uploadExhibitionMedia(
 
   let savedOriginalPath: string | null = null;
   try {
+    const backupFile = await stripPrivacyExifForBackup(file);
     const { error: originalErr } = await supabase.storage
       .from(BUCKET)
-      .upload(originalPath, file, {
+      .upload(originalPath, backupFile, {
         upsert: false,
         contentType: file.type || "application/octet-stream",
       });
