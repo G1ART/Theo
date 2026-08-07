@@ -29,7 +29,10 @@ import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
-import { ImageStandardizeEditor } from "@/components/upload/ImageStandardizeEditor";
+import {
+  ImageStandardizeEditor,
+  type EnhancementDraft,
+} from "@/components/upload/ImageStandardizeEditor";
 import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
 import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
@@ -180,6 +183,13 @@ function UploadPageContent() {
     displayAdjust: DisplayAdjust | null;
     /** Whether the standardize editor is expanded for this row. */
     standardizeOpen: boolean;
+    /**
+     * 2026-08-05 (Theo Image Enhance Beta) — user-approved enhancement
+     * draft. When present the publish flow uploads the draft's
+     * `displayFile` as the display copy and persists
+     * `draft.meta` to `artwork_images.enhancement_meta`.
+     */
+    enhancement: EnhancementDraft | null;
   };
   const [images, setImages] = useState<PendingImage[]>([]);
   const [title, setTitle] = useState("");
@@ -244,6 +254,7 @@ function UploadPageContent() {
           previewUrl: URL.createObjectURL(pending.files[0]),
           displayAdjust: null,
           standardizeOpen: false,
+          enhancement: null,
         },
       ]);
       setStep("form");
@@ -558,7 +569,10 @@ function UploadPageContent() {
         const pending = images[i];
         let upload: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
         try {
-          upload = await uploadArtworkImage(pending.file, storageOwner);
+          upload = await uploadArtworkImage(pending.file, storageOwner, {
+            preparedDisplayFile: pending.enhancement?.displayFile ?? null,
+            enhancementMeta: pending.enhancement?.meta ?? null,
+          });
           uploadedPaths.push(upload.displayPath);
           if (upload.originalPath) uploadedPaths.push(upload.originalPath);
         } catch (uploadErr) {
@@ -578,6 +592,7 @@ function UploadPageContent() {
             displayBytes: upload.displayBytes,
             originalBytes: upload.originalBytes,
             compressionMeta: upload.compressionMeta,
+            enhancementMeta: pending.enhancement?.meta ?? null,
           },
         );
         if (attachErr) {
@@ -1096,6 +1111,7 @@ function UploadPageContent() {
                         previewUrl: URL.createObjectURL(f),
                         displayAdjust: null,
                         standardizeOpen: false,
+                        enhancement: null,
                       });
                     });
                     return next;
@@ -1272,6 +1288,17 @@ function UploadPageContent() {
                               ),
                             );
                           }}
+                          enhancement={img.enhancement}
+                          onEnhance={(next) => {
+                            setImages((prev) =>
+                              prev.map((p) =>
+                                p.id === img.id
+                                  ? { ...p, enhancement: next }
+                                  : p,
+                              ),
+                            );
+                          }}
+                          meteringSource={fromExhibition ? "exhibition_single" : "single"}
                         />
                       </div>
                     )}

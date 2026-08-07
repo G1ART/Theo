@@ -27,6 +27,17 @@ export const USAGE_KEYS = {
    * generation 은 카운트된다 — LLM 콜 비용이 이미 발생했기 때문.
    */
   AI_TRANSLATE_DRAFT_GENERATED: "ai.translate_draft.generated",
+  /**
+   * Theo Image Enhance (Beta, 2026-08-05) — lifecycle metering. Every
+   * `metadata` payload must carry `{ mode, provider, latency_ms, source }`
+   * so the beta cohort dashboard can slice usage by pipeline and
+   * upload surface (single / bulk / exhibition_single / exhibition_bulk).
+   */
+  AI_IMAGE_ENHANCE_REQUESTED: "ai.image_enhance.requested",
+  AI_IMAGE_ENHANCE_COMPLETED: "ai.image_enhance.completed",
+  AI_IMAGE_ENHANCE_ACCEPTED: "ai.image_enhance.accepted",
+  AI_IMAGE_ENHANCE_REJECTED: "ai.image_enhance.rejected",
+  AI_IMAGE_ENHANCE_FAILED: "ai.image_enhance.failed",
   AI_ACCEPTED: "ai.accepted",
   // Boards
   BOARD_CREATED: "board.created",

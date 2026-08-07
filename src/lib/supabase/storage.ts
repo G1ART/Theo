@@ -1,6 +1,7 @@
 import { supabase } from "./client";
 import { compressArtworkImage } from "@/lib/image/compress";
 import { renderPdfFirstPageAsWebp } from "@/lib/pdf/renderThumbnail";
+import type { EnhancementMeta } from "@/lib/image/enhancement/types";
 
 /** Serializable subset of the compressor's meta — matches the DB
  *  `artwork_images.compression_meta` jsonb shape. */
@@ -47,6 +48,28 @@ export type ArtworkImageUploadResult = {
   compressionMeta: ArtworkImageCompressionMeta | null;
   /** 압축이 어떤 이유로 skip 되었는지 (정상 압축 완료면 undefined). */
   skippedReason?: "unsupported-mime" | "decode-failed" | "encode-failed" | "still-too-large" | "no-canvas-api" | "animated";
+  /**
+   * Theo Image Enhance (Beta) — carried through when the caller
+   * approved a preview. Written to `artwork_images.enhancement_meta`
+   * by `attachArtworkImage`.
+   */
+  enhancementMeta?: EnhancementMeta | null;
+};
+
+/**
+ * Theo Image Enhance (Beta, 2026-08-05) — optional overrides for the
+ * upload pipeline. When `preparedDisplayPath` is set (server-side
+ * pipeline, e.g. Photoroom hybrid), the display file was already
+ * uploaded by the server route and we only push the ORIGINAL; when
+ * `preparedDisplayFile` is set (local pipeline), that blob becomes the
+ * display copy instead of the compressor's default output. The
+ * ORIGINAL file (`file` argument) is always backed up under
+ * `{userId}/original/…` so the artist can re-edit or roll back.
+ */
+export type ArtworkImageEnhancementOptions = {
+  preparedDisplayFile?: File | null;
+  preparedDisplayPath?: string | null;
+  enhancementMeta?: EnhancementMeta | null;
 };
 
 /**
@@ -72,8 +95,86 @@ export type ArtworkImageUploadResult = {
  */
 export async function uploadArtworkImage(
   file: File,
-  userId: string
+  userId: string,
+  opts?: ArtworkImageEnhancementOptions,
 ): Promise<ArtworkImageUploadResult> {
+  const enhancement = opts?.enhancementMeta ?? null;
+
+  // Server-side pipeline path: the display copy was already produced +
+  // uploaded by the server route (e.g. Photoroom hybrid). We only push
+  // the untouched original for artist download / re-edit, then wire up
+  // the row against the caller-provided display path.
+  if (opts?.preparedDisplayPath) {
+    const uuid = crypto.randomUUID();
+    const safeOriginalName = sanitizeFilename(file.name);
+    const originalPath = `${userId}/original/${uuid}-${safeOriginalName}`;
+    let savedOriginalPath: string | null = null;
+    try {
+      const { error: originalErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(originalPath, file, {
+          upsert: false,
+          contentType: file.type || "application/octet-stream",
+        });
+      if (!originalErr) savedOriginalPath = originalPath;
+      else console.warn("[storage] original backup upload failed (enhanced path)", originalErr);
+    } catch (originalCatch) {
+      console.warn("[storage] original backup upload threw (enhanced path)", originalCatch);
+    }
+    return {
+      displayPath: opts.preparedDisplayPath,
+      displayBytes: 0,
+      originalPath: savedOriginalPath,
+      originalBytes: file.size,
+      compressionMeta: null,
+      enhancementMeta: enhancement,
+    };
+  }
+
+  // Local-pipeline path: the caller preflighted an enhanced File and
+  // wants that to become the display copy instead of the compressor's
+  // default. Original still gets backed up so the workflow stays
+  // non-destructive.
+  if (opts?.preparedDisplayFile) {
+    const uuid = crypto.randomUUID();
+    const displayFile = opts.preparedDisplayFile;
+    const safeDisplayName = sanitizeFilename(displayFile.name);
+    const safeOriginalName = sanitizeFilename(file.name);
+    const displayPath = `${userId}/${uuid}-${safeDisplayName}`;
+    const originalPath = `${userId}/original/${uuid}-${safeOriginalName}`;
+
+    const { error: displayErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(displayPath, displayFile, {
+        upsert: false,
+        contentType: displayFile.type || "image/webp",
+      });
+    if (displayErr) throw displayErr;
+
+    let savedOriginalPath: string | null = null;
+    try {
+      const { error: originalErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(originalPath, file, {
+          upsert: false,
+          contentType: file.type || "application/octet-stream",
+        });
+      if (!originalErr) savedOriginalPath = originalPath;
+      else console.warn("[storage] original backup upload failed (prepared display)", originalErr);
+    } catch (originalCatch) {
+      console.warn("[storage] original backup upload threw (prepared display)", originalCatch);
+    }
+
+    return {
+      displayPath,
+      displayBytes: displayFile.size,
+      originalPath: savedOriginalPath,
+      originalBytes: file.size,
+      compressionMeta: null,
+      enhancementMeta: enhancement,
+    };
+  }
+
   const compressed = await compressArtworkImage(file);
   const uuid = crypto.randomUUID();
 
@@ -93,6 +194,7 @@ export async function uploadArtworkImage(
       originalBytes: compressed.originalBytes,
       compressionMeta: null,
       skippedReason: compressed.reason,
+      enhancementMeta: enhancement,
     };
   }
 
@@ -135,6 +237,7 @@ export async function uploadArtworkImage(
     originalPath: savedOriginalPath,
     originalBytes: compressed.originalBytes,
     compressionMeta: compressed.meta,
+    enhancementMeta: enhancement,
   };
 }
 
@@ -173,6 +276,10 @@ export type ExhibitionMediaUploadResult = {
   pdfThumbnailReady?: boolean;
   /** 압축이 skipped 된 이유 (이미지에 한함). PDF 는 애초에 압축 시도 안 함. */
   skippedReason?: "unsupported-mime" | "decode-failed" | "encode-failed" | "still-too-large" | "no-canvas-api" | "animated";
+  /** Theo Image Enhance (Beta, 2026-08-05) — carried through when the
+   *  caller approved a preview. Persisted to
+   *  `exhibition_media.enhancement_meta`. */
+  enhancementMeta?: EnhancementMeta | null;
 };
 
 const EXHIBITION_MEDIA_PDF_MAX_BYTES = 50 * 1024 * 1024;
@@ -211,9 +318,80 @@ export class ExhibitionMediaValidationError extends Error {
  */
 export async function uploadExhibitionMedia(
   file: File,
-  exhibitionId: string
+  exhibitionId: string,
+  opts?: ArtworkImageEnhancementOptions,
 ): Promise<ExhibitionMediaUploadResult> {
   const uuid = crypto.randomUUID();
+  const enhancement = opts?.enhancementMeta ?? null;
+
+  // Image-only enhancement short-circuits: PDF branch never touches
+  // enhancement (below). Server-uploaded path reuses the provided
+  // display path and only backs up the original.
+  if (!isPdfFile(file) && opts?.preparedDisplayPath) {
+    const safeOriginalName = sanitizeFilename(file.name);
+    const originalPath = `exhibition-media/${exhibitionId}/original/${uuid}-${safeOriginalName}`;
+    let savedOriginalPath: string | null = null;
+    try {
+      const { error: originalErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(originalPath, file, {
+          upsert: false,
+          contentType: file.type || "application/octet-stream",
+        });
+      if (!originalErr) savedOriginalPath = originalPath;
+      else console.warn("[storage] exhibition-media original backup upload failed (enhanced path)", originalErr);
+    } catch (originalCatch) {
+      console.warn("[storage] exhibition-media original backup upload threw (enhanced path)", originalCatch);
+    }
+    return {
+      displayPath: opts.preparedDisplayPath,
+      displayBytes: 0,
+      originalPath: savedOriginalPath,
+      originalBytes: file.size,
+      mediaKind: "image",
+      compressionMeta: null,
+      enhancementMeta: enhancement,
+    };
+  }
+
+  if (!isPdfFile(file) && opts?.preparedDisplayFile) {
+    const displayFile = opts.preparedDisplayFile;
+    const safeDisplayName = sanitizeFilename(displayFile.name);
+    const safeOriginalName = sanitizeFilename(file.name);
+    const displayPath = `exhibition-media/${exhibitionId}/${uuid}-${safeDisplayName}`;
+    const originalPath = `exhibition-media/${exhibitionId}/original/${uuid}-${safeOriginalName}`;
+
+    const { error: displayErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(displayPath, displayFile, {
+        upsert: false,
+        contentType: displayFile.type || "image/webp",
+      });
+    if (displayErr) throw displayErr;
+
+    let savedOriginalPath: string | null = null;
+    try {
+      const { error: originalErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(originalPath, file, {
+          upsert: false,
+          contentType: file.type || "application/octet-stream",
+        });
+      if (!originalErr) savedOriginalPath = originalPath;
+      else console.warn("[storage] exhibition-media original backup upload failed (prepared display)", originalErr);
+    } catch (originalCatch) {
+      console.warn("[storage] exhibition-media original backup upload threw (prepared display)", originalCatch);
+    }
+    return {
+      displayPath,
+      displayBytes: displayFile.size,
+      originalPath: savedOriginalPath,
+      originalBytes: file.size,
+      mediaKind: "image",
+      compressionMeta: null,
+      enhancementMeta: enhancement,
+    };
+  }
 
   if (isPdfFile(file)) {
     if (file.size > EXHIBITION_MEDIA_PDF_MAX_BYTES) {

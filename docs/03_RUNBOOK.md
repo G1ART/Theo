@@ -13,6 +13,7 @@
   - (optional) NEXT_PUBLIC_KRW_TO_USD_RATE
   - (optional) `NEXT_PUBLIC_DIAGNOSTICS=1` — enables `/my/diagnostics` in production (otherwise dev-only). Uses `beta_analytics_events` (apply `p0_beta_hardening_wave1.sql`).
   - 초대 메일 사용 시: SENDGRID_API_KEY, INVITE_FROM_EMAIL
+  - (optional) `PHOTOROOM_API_KEY` — Theo Image Enhance (Beta) 의 "Object" 파이프라인. 서버 전용 (NEXT_PUBLIC_ prefix 붙이지 말 것). 미설정 시 Object 모드는 `provider_unauthorized` fallback 을 반환하고 로컬 flat 파이프라인만 동작한다.
 
 3) Run
 - npm run dev
@@ -53,6 +54,9 @@
   초대 메일(위임·아티스트 초대)을 쓰는 경우 추가:
 - **SENDGRID_API_KEY**
 - **INVITE_FROM_EMAIL** (예: `Abstract <noreply@your-domain.com>`)
+
+  Theo Image Enhance (Beta, 2026-08-05) — "Object" 파이프라인 사용 시:
+- **PHOTOROOM_API_KEY** — [Photoroom SDK](https://sdk.photoroom.com) 의 세그멘테이션 API 키. 서버 전용(Server-side Only). `NEXT_PUBLIC_` prefix 붙이면 안 된다. 없으면 Object 모드가 `provider_unauthorized` fallback 을 반환하고 flat(평면 작품) 파이프라인만 동작한다.
 
 3) Root Directory
 - Must be folder containing package.json for Next.js app (usually ".")

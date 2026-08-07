@@ -46,7 +46,10 @@
     "test:claims-integrity-phase3": "tsx tests/claims-integrity-phase3.test.ts",
     "test:onboarding-banner-refresh": "tsx tests/onboarding-banner-refresh.test.ts",
     "test:size-unit-toggle": "tsx tests/size-unit-toggle.test.ts",
-    "test:size-display": "tsx tests/size-display.test.ts"
+    "test:size-display": "tsx tests/size-display.test.ts",
+    "test:image-enhance-recipe": "tsx src/lib/image/enhancement/__tests__/recipe.test.ts",
+    "test:image-enhance-prepare": "tsx src/lib/image/enhancement/__tests__/prepare.test.ts",
+    "test:image-enhance-geometry": "tsx src/lib/image/enhancement/__tests__/geometry.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

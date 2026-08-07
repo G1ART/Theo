@@ -1,6 +1,64 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
+
+## 2026-08-05 — Theo Image Enhance (Beta) — 작품 이미지 향상 파이프라인
+
+### 배경
+QA 리포트: 아티스트들이 조명/각도 편차가 큰 원본 이미지를 그대로
+업로드하다 보니 프로필/전시 페이지에서 시각적 통일감이 떨어지는
+문제 (특히 평면 회화의 원근 왜곡, 조각/설치 작품의 배경 잡음)가
+반복 관찰됨. 작가/갤러리가 손쉽게 "표준화된 프리뷰"를 얻을 수
+있도록 **비파괴적(non-destructive)** 이고 **철저히 opt-in** 인 이미지
+향상 파이프라인을 도입한다.
+
+### 주요 특징 (Product contract)
+- **이름**: `Theo Image Enhance (Beta)`. 기본 OFF.
+- **비파괴**: 원본은 항상 `original_storage_path` 에 보존; display
+  파일은 사용자가 preview 를 approve 한 후에만 저장된다.
+- **자동 모드**: 로컬 rectangle 신뢰도가 높으면 `Flat` (평면 회화),
+  낮으면 `Object` (조각/설치). 사용자가 언제든 override 가능.
+- **비대상**: blur/glare 복원, generative fill, heavy super-resolution
+  은 하지 않는다 (재촬영 권장 UX).
+
+### 새 파일 / 주요 변경
+- `src/lib/image/enhancement/types.ts` — `EnhancementMode`, `EnhancementProvider`, `EnhancementRecipe`, `EnhancementMeta`, stage/error enums.
+- `src/lib/image/enhancement/localFlatEngine.ts` — canvas-only 로컬 파이프라인 (crop → tone (±15% cap) → unsharp mask → white bezel). opencv.js 는 번들 사이즈 이슈로 초기 릴리즈에서 제외 (`TODO` 로 남김).
+- `src/lib/image/enhancement/objectClient.ts` — Photoroom hybrid 클라이언트 helper (staging 업로드 / 라우트 호출 / cleanup).
+- `src/lib/image/enhancement/index.ts` — barrel exports.
+- `src/lib/image/enhancement/__tests__/*.test.ts` — recipe/meta 정규화 · geometry validation 계약 테스트.
+- `src/app/api/image-enhance/object/route.ts` — Photoroom Segment API 호출 (JWT auth, 스토리지 경로 검증, sharp 로 컴포지트, 스테이징 정리, `EnhancementErrorReason` 정규화, 서버 사이드 usage 이벤트).
+- `src/lib/image/prepareArtworkImageForUpload.ts` — 4개 업로드 경로(단일/벌크/전시 단일/전시 벌크) 공통 계약.
+- `src/lib/image/analyze.ts` — `rectangleConfidence` / `blurScore` / `glareScore` / `mode` 힌트 확장.
+- `src/components/upload/ImageStandardizeEditor.tsx` — 탭 UI (Quick adjust / Theo Enhance), 품질 진단 chip, mode selector, before/after 프리뷰.
+- `src/components/upload/BeforeAfterCompare.tsx` — 드래그/키보드 지원 슬라이더.
+- `src/app/upload/page.tsx` — 단일/전시 단일 업로드 wire-up (`enhancement` 필드, 승인 시 upload 로 전달).
+- `src/app/upload/bulk/page.tsx` — 벌크/전시 벌크 wire-up (선택 → Auto/Flat/Object → 프리뷰 승인 UI, 동시성 2 promise pool).
+- `src/lib/supabase/storage.ts` — `uploadArtworkImage` / `uploadExhibitionMedia` 가 `preparedDisplayFile` / `preparedDisplayPath` / `enhancementMeta` 옵션 수용. `removeStorageFiles` cascade 헬퍼 추가.
+- `src/lib/supabase/artworks.ts` — `ArtworkImage.enhancement_meta` 추가, select · `attachArtworkImage` 지원.
+- `src/lib/entitlements/featureKeys.ts` · `planMatrix.ts` — `ai.image_enhance` 를 모든 플랜에 open (베타).
+- `src/lib/metering/usageKeys.ts` · `types.ts` — `ai.image_enhance.{requested,completed,accepted,rejected,failed}` 5종 추가; 모든 emit 은 `{ mode, provider, latency_ms, source }` 메타데이터 포함.
+- `src/lib/i18n/messages.ts` — 새 UI 카피 (탭/모드/chip/전/후 라벨/벌크 액션/에러 토스트) en·ko 추가.
+- `.env.example`, `docs/03_RUNBOOK.md` — `PHOTOROOM_API_KEY` 갱신.
+
+### Supabase SQL — 수동 실행 필요
+- `supabase/migrations/20260805000000_artwork_image_enhancement.sql`
+  - `public.artwork_images.enhancement_meta jsonb` 추가
+  - `public.exhibition_media.enhancement_meta jsonb` 추가
+  - `plan_feature_matrix` 에 `ai.image_enhance` seed (5개 플랜)
+  - 컬럼 comment 등록
+  - **Supabase Dashboard → SQL Editor 에서 파일 전체 하나로 실행 가능** (PL/pgSQL 함수 정의 없음, seed 만 포함).
+
+### 환경 변수 (**콜아웃**)
+- **`PHOTOROOM_API_KEY` 추가됨** — Vercel Production/Preview 및 `.env.example` 갱신 필요.
+  - 서버 전용. `NEXT_PUBLIC_` prefix 붙이지 말 것.
+  - 미설정 시 Object 모드는 `provider_unauthorized` fallback 반환, Flat(로컬) 모드는 계속 동작.
+
+### Verified
+- `tsc --noEmit` — 통과
+- `npm run lint` — 통과
+- `npm run build` — 통과
+- 신규 unit test 3종 (`src/lib/image/enhancement/__tests__/`) — geometry validation · recipe normalization · meta roundtrip
 
 ## 2026-08-04 (4) — 인터랙티브 커서 통일 (Tailwind Preflight 버튼 커서 리셋 상쇄)
 

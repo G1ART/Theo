@@ -86,6 +86,14 @@ export type ArtworkImage = {
    * NULL = render original as before. See `src/lib/image/displayAdjust.ts`.
    */
   display_adjust?: import("@/lib/image/displayAdjust").DisplayAdjust | null;
+  /**
+   * 2026-08-05 (Theo Image Enhance Beta) — serialized envelope for the
+   * enhancement recipe that produced the currently-stored display copy.
+   * NULL = user did not opt in / legacy row. Original is always kept
+   * at `original_storage_path`. See
+   * `src/lib/image/enhancement/types.ts`.
+   */
+  enhancement_meta?: import("@/lib/image/enhancement/types").EnhancementMeta | null;
 };
 export type ArtistProfile = {
   id?: string;
@@ -492,7 +500,7 @@ const ARTWORK_SELECT = `
   provenance_visible,
   website_import_provenance,
   likes_count,
-  artwork_images(storage_path, sort_order, view_type, display_adjust),
+  artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta),
   profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles, is_public),
   artwork_likes(count),
   claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
@@ -1274,7 +1282,7 @@ export async function getArtworkById(
       artist_sort_order,
       created_at,
       provenance_visible,
-      artwork_images(storage_path, sort_order, view_type, display_adjust),
+      artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
@@ -1324,7 +1332,7 @@ export async function getArtworksByIds(
       artist_sort_order,
       created_at,
       provenance_visible,
-      artwork_images(storage_path, sort_order, view_type, display_adjust),
+      artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
@@ -1370,6 +1378,12 @@ export async function attachArtworkImage(
     originalBytes?: number | null;
     /** Compression algorithm metadata for observability. NULL if skipped. */
     compressionMeta?: Record<string, unknown> | null;
+    /**
+     * 2026-08-05 (Theo Image Enhance Beta) — enhancement recipe /
+     * metadata for the currently-stored display copy. NULL when the
+     * user did not opt in.
+     */
+    enhancementMeta?: import("@/lib/image/enhancement/types").EnhancementMeta | null;
   },
 ) {
   const payload: Record<string, unknown> = {
@@ -1392,6 +1406,9 @@ export async function attachArtworkImage(
   }
   if (opts?.compressionMeta !== undefined) {
     payload.compression_meta = opts.compressionMeta;
+  }
+  if (opts?.enhancementMeta !== undefined) {
+    payload.enhancement_meta = opts.enhancementMeta;
   }
   return supabase.from("artwork_images").insert(payload);
 }

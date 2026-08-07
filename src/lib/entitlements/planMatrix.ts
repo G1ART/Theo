@@ -44,6 +44,9 @@ export const PLAN_FEATURE_MATRIX: Record<FeatureKey, PlanKey[]> = {
   // has a monthly quota (see PLAN_QUOTA_MATRIX below) to keep the LLM
   // bill reasonable when users adopt the bulk dashboard.
   "ai.translate_draft": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
+  // Theo Image Enhance (Beta, 2026-08-05) — every plan opens by default
+  // during the beta window; no quota rule set below so calls never gate.
+  "ai.image_enhance": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
 
   // Boards
   "board.pro_create": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],

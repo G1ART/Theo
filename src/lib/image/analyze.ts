@@ -93,6 +93,22 @@ export type ImageAnalysis = {
    *  crop" chip independent of the tone controls. Not auto-applied —
    *  see the note on `suggested` above. */
   suggestedCrop: DisplayCrop | null;
+  /**
+   * Theo Image Enhance (2026-08-05) — quality diagnostics surfaced by
+   * the new "Theo Enhance" tab. These are heuristic scores in [0,1]
+   * (higher = more of that property present).
+   */
+  rectangleConfidence: number;
+  blurScore: number;
+  glareScore: number;
+  /**
+   * Auto mode suggestion for the enhancement panel. `flat` when the
+   * detector is confident the frame is a rectangle (paintings, works
+   * on paper), `object` when it is not (sculpture, ceramic, in-situ).
+   * `null` when the analyzer can't decide (very small image, decode
+   * error) — callers should default to `object` in that case.
+   */
+  mode: "flat" | "object" | null;
 };
 
 /** Load a `File` into an `HTMLImageElement` via object URL. */
@@ -305,6 +321,131 @@ function suggestCrop(
 }
 
 /**
+ * Laplacian-variance approximation over a downscaled luminance grid.
+ * Used as a fast blur heuristic — the more the second derivative
+ * varies, the sharper the image. We normalize into [0,1] by dividing
+ * against a soft upper bound (600) empirically chosen to bracket
+ * "obviously sharp" scans without saturating on subtly-noisy scans.
+ *
+ * Returned score: 0 = extremely blurred / soft, 1 = crisp.
+ */
+function computeBlurScore(data: Uint8ClampedArray, w: number, h: number): number {
+  if (w < 3 || h < 3) return 0;
+  const lum = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    lum[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  for (let y = 1; y < h - 1; y += 1) {
+    for (let x = 1; x < w - 1; x += 1) {
+      const c = lum[y * w + x];
+      const l = lum[y * w + (x - 1)];
+      const r = lum[y * w + (x + 1)];
+      const t = lum[(y - 1) * w + x];
+      const b = lum[(y + 1) * w + x];
+      const laplacian = l + r + t + b - 4 * c;
+      sum += laplacian;
+      sumSq += laplacian * laplacian;
+      n += 1;
+    }
+  }
+  if (n === 0) return 0;
+  const mean = sum / n;
+  const variance = Math.max(0, sumSq / n - mean * mean);
+  const upper = 600;
+  return Math.min(1, Math.max(0, variance / upper));
+}
+
+/**
+ * Percentage of pixels whose luminance exceeds the highlight threshold
+ * (245). A high value hints at glare / flash reflection on framed
+ * work — Theo Enhance surfaces this as a "재촬영 권장" chip.
+ */
+function computeGlareScore(data: Uint8ClampedArray): number {
+  if (data.length === 0) return 0;
+  const total = data.length / 4;
+  let saturated = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    if (y > 245) saturated += 1;
+  }
+  return Math.min(1, saturated / total);
+}
+
+/**
+ * Rectangle-confidence heuristic. Combines two signals:
+ *   1. Border uniformity — a real framed painting on a wall usually has
+ *      relatively uniform borders (see `detectBackgroundBands`) which
+ *      argues *against* a rectangle-in-frame reading. So we count
+ *      strong edge presence near each border strip instead.
+ *   2. Gradient alignment — if the strongest gradients along the top/
+ *      bottom rows are horizontal, and along the left/right columns
+ *      are vertical, we're likely looking at a rectangular artwork
+ *      captured face-on (or near face-on).
+ *
+ * Result: 0 = clearly non-rectangular (sculpture, in-situ shot), 1 =
+ * clearly a flat rectangular artwork.
+ */
+function computeRectangleConfidence(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+): number {
+  if (w < 8 || h < 8) return 0;
+  const lum = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    lum[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+  const stripDepth = Math.max(3, Math.floor(Math.min(w, h) * 0.08));
+
+  function edgeEnergy(x0: number, y0: number, sw: number, sh: number): {
+    horizontal: number;
+    vertical: number;
+    total: number;
+  } {
+    let horiz = 0;
+    let vert = 0;
+    let total = 0;
+    for (let y = y0 + 1; y < y0 + sh - 1; y += 1) {
+      for (let x = x0 + 1; x < x0 + sw - 1; x += 1) {
+        const c = lum[y * w + x];
+        const gx = lum[y * w + (x + 1)] - lum[y * w + (x - 1)];
+        const gy = lum[(y + 1) * w + x] - lum[(y - 1) * w + x];
+        const mag = Math.abs(gx) + Math.abs(gy);
+        total += mag;
+        if (Math.abs(gy) > Math.abs(gx)) horiz += Math.abs(gy);
+        else vert += Math.abs(gx);
+        void c;
+      }
+    }
+    return { horizontal: horiz, vertical: vert, total };
+  }
+
+  const top = edgeEnergy(0, 0, w, stripDepth);
+  const bottom = edgeEnergy(0, h - stripDepth, w, stripDepth);
+  const left = edgeEnergy(0, 0, stripDepth, h);
+  const right = edgeEnergy(w - stripDepth, 0, stripDepth, h);
+
+  const horizontalAlignment =
+    top.total + bottom.total > 0
+      ? (top.horizontal + bottom.horizontal) / (top.total + bottom.total)
+      : 0;
+  const verticalAlignment =
+    left.total + right.total > 0
+      ? (left.vertical + right.vertical) / (left.total + right.total)
+      : 0;
+  const alignment = (horizontalAlignment + verticalAlignment) / 2;
+
+  const bandArea = Math.max(1, stripDepth * (w + h) * 2);
+  const totalEdgeEnergy = top.total + bottom.total + left.total + right.total;
+  const density = Math.min(1, totalEdgeEnergy / (bandArea * 30));
+
+  return Math.min(1, Math.max(0, alignment * 0.7 + density * 0.3));
+}
+
+/**
  * Full analysis pipeline. Given a browser `File`, return luminance
  * stats + a suggested `DisplayAdjust`.
  */
@@ -329,6 +470,15 @@ export function analyzeImageElement(
     s: tone.s,
     crop: crop ?? undefined,
   });
+  const blurScore = computeBlurScore(imageData.data, w, h);
+  const glareScore = computeGlareScore(imageData.data);
+  const rectangleConfidence = computeRectangleConfidence(imageData.data, w, h);
+  // Decisive thresholds are chosen conservatively — we only report a
+  // definitive `flat` when the rectangle signal is strong AND the image
+  // isn't a small crop where noise dominates.
+  let mode: "flat" | "object" | null = null;
+  if (rectangleConfidence >= 0.55) mode = "flat";
+  else if (rectangleConfidence <= 0.35) mode = "object";
   return {
     width: img.naturalWidth || img.width,
     height: img.naturalHeight || img.height,
@@ -336,5 +486,9 @@ export function analyzeImageElement(
     stdevLuma: stdev,
     suggested,
     suggestedCrop: crop,
+    blurScore,
+    glareScore,
+    rectangleConfidence,
+    mode,
   };
 }

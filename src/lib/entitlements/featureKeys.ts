@@ -38,6 +38,14 @@ export const FEATURE_KEYS = [
    * 월간 상한을 둔다 (`PLAN_QUOTA_MATRIX["ai.translate_draft"]`).
    */
   "ai.translate_draft",
+  /**
+   * 2026-08-05 — Theo Image Enhance (Beta). Single-image & bulk upload
+   * flows opt-in per file. Local flat-artwork pipeline runs in-browser
+   * (no quota cost); object hybrid pipeline calls Photoroom on the
+   * server. Beta window: open to every plan without a quota ceiling
+   * so we can collect usage before drawing the free/pro line.
+   */
+  "ai.image_enhance",
 
   // Boards (shortlists + rooms)
   "board.pro_create",

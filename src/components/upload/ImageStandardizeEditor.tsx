@@ -20,6 +20,28 @@ import {
 } from "@/lib/image/displayAdjust";
 import { analyzeImageFile, type ImageAnalysis } from "@/lib/image/analyze";
 import { useT } from "@/lib/i18n/useT";
+import type {
+  EnhancementMeta,
+  EnhancementMode,
+  FlatRecipe,
+} from "@/lib/image/enhancement/types";
+import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
+import { runFlatEnhancement, flatBlobToFile } from "@/lib/image/enhancement/localFlatEngine";
+import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
+import BeforeAfterCompare from "@/components/upload/BeforeAfterCompare";
+import { recordUsageEvent } from "@/lib/metering";
+import { USAGE_KEYS } from "@/lib/metering/usageKeys";
+
+/**
+ * Enhancement preview state — held by `ImageStandardizeEditor` while
+ * the user reviews a local flat pass. Once approved it becomes the
+ * `EnhancementDraft` handed back to the caller through `onEnhance`.
+ */
+export type EnhancementDraft = {
+  displayFile: File;
+  previewUrl: string;
+  meta: EnhancementMeta;
+};
 
 /**
  * Inline standardization editor for a single uploaded image.
@@ -60,6 +82,22 @@ type Props = {
   /** Compact layout drops the info banner and stacks tighter. Used in
    *  the bulk upload row expander. */
   compact?: boolean;
+  /**
+   * Currently-approved Theo Enhance draft (if any) so the tab can
+   * render the "approved" state on remount. Parent owns the state.
+   */
+  enhancement?: EnhancementDraft | null;
+  /**
+   * Called with a `EnhancementDraft` when the user approves a
+   * preview, or `null` when they reset / reject. Presence of this
+   * callback also toggles whether the "Theo Enhance" tab is shown at
+   * all — callers that haven't wired the upload plumbing yet can
+   * simply omit it and get the historical `QuickAdjustPanel` only.
+   */
+  onEnhance?: (next: EnhancementDraft | null) => void;
+  /** Metering source label so lifecycle events carry the right
+   *  provenance (single / bulk / exhibition_single / exhibition_bulk). */
+  meteringSource?: "single" | "bulk" | "exhibition_single" | "exhibition_bulk";
 };
 
 /** Debounce a value change so slider drag doesn't spam parent state. */
@@ -153,8 +191,15 @@ export function ImageStandardizeEditor({
   onChange,
   className = "",
   compact = false,
+  enhancement,
+  onEnhance,
+  meteringSource = "single",
 }: Props) {
   const { t } = useT();
+  const enhancementEnabled = typeof onEnhance === "function";
+  const [tab, setTab] = useState<"quick" | "enhance">(
+    enhancementEnabled && enhancement ? "enhance" : "quick",
+  );
   const previewUrlRef = useRef<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ImageAnalysis | null>(null);
@@ -196,7 +241,6 @@ export function ImageStandardizeEditor({
   // source of truth for saved adjustments, we mirror it locally so the
   // sliders stay smooth during drag.
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
     setB(value?.b ?? NEUTRAL.b);
     setC(value?.c ?? NEUTRAL.c);
     setS(value?.s ?? NEUTRAL.s);
@@ -211,14 +255,12 @@ export function ImageStandardizeEditor({
         (value?.c != null && Math.abs(value.c - 1) > 0.005) ||
         (value?.s != null && Math.abs(value.s - 1) > 0.005),
     );
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [value?.b, value?.c, value?.s, value?.crop]);
 
   // Object-URL lifecycle for the local preview.
   useEffect(() => {
     const url = URL.createObjectURL(file);
     previewUrlRef.current = url;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewUrl(url);
     return () => {
       try {
@@ -233,10 +275,8 @@ export function ImageStandardizeEditor({
   // top-of-file contract.
   useEffect(() => {
     let alive = true;
-    /* eslint-disable react-hooks/set-state-in-effect */
     setAnalyzing(true);
     setAnalyzeError(null);
-    /* eslint-enable react-hooks/set-state-in-effect */
     analyzeImageFile(file)
       .then((res) => {
         if (!alive) return;
@@ -498,6 +538,196 @@ export function ImageStandardizeEditor({
   }, []);
 
   // ------------------------------------------------------------------
+  // Theo Enhance (Beta) — panel state
+  // ------------------------------------------------------------------
+
+  const [enhanceMode, setEnhanceMode] = useState<EnhancementMode>("auto");
+  const [enhancePreview, setEnhancePreview] = useState<EnhancementDraft | null>(
+    enhancement ?? null,
+  );
+  const [enhanceRunning, setEnhanceRunning] = useState(false);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
+  const enhancePreviewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const url = enhancePreviewUrlRef.current;
+      if (url) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    // Reset preview when the underlying file swaps.
+    if (enhancePreviewUrlRef.current) {
+      try {
+        URL.revokeObjectURL(enhancePreviewUrlRef.current);
+      } catch {}
+      enhancePreviewUrlRef.current = null;
+    }
+    setEnhancePreview(enhancement ?? null);
+  }, [file, enhancement]);
+
+  const resolvedAutoMode: EnhancementMode = useMemo(() => {
+    if (enhanceMode !== "auto") return enhanceMode;
+    if (analysis?.mode === "flat") return "flat";
+    if (analysis?.mode === "object") return "object";
+    return "object";
+  }, [enhanceMode, analysis?.mode]);
+
+  const runEnhancePreview = useCallback(async () => {
+    if (!onEnhance) return;
+    setEnhanceError(null);
+    setEnhanceRunning(true);
+    void recordUsageEvent({
+      key: USAGE_KEYS.AI_IMAGE_ENHANCE_REQUESTED,
+      featureKey: "ai.image_enhance",
+      metadata: {
+        mode: enhanceMode,
+        provider: "local_opencv",
+        source: meteringSource,
+        latency_ms: null,
+      },
+    });
+    try {
+      if (resolvedAutoMode === "object") {
+        // The local engine only covers the flat pipeline. Object mode
+        // requires the server-side Photoroom hybrid, which is wired at
+        // the parent-page level (single/bulk upload pages). Surface a
+        // gentle hint so the user knows why the "Preview" button does
+        // nothing here.
+        setEnhanceError(t("upload.imageEnhance.objectHint"));
+        void recordUsageEvent({
+          key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
+          featureKey: "ai.image_enhance",
+          metadata: {
+            mode: enhanceMode,
+            provider: "local_opencv",
+            source: meteringSource,
+            reason: "object_needs_server",
+            latency_ms: null,
+          },
+        });
+        return;
+      }
+      const seedCrop =
+        crop ?? analysis?.suggestedCrop ?? { x: 0, y: 0, w: 1, h: 1 };
+      const suggestion = analysis?.suggested ?? null;
+      const result = await runFlatEnhancement({
+        file,
+        crop: seedCrop,
+        tone: suggestion
+          ? { b: suggestion.b, c: suggestion.c, s: suggestion.s }
+          : undefined,
+      });
+      const displayFile = flatBlobToFile(file.name, result.blob);
+      const sourceHash = await computeFileSha256(file);
+      const meta: EnhancementMeta = {
+        provider: "local_opencv",
+        mode: enhanceMode,
+        recipe: { kind: "flat", params: result.recipe as FlatRecipe },
+        confidence: analysis?.rectangleConfidence ?? result.confidence,
+        sourceHashSha256: sourceHash,
+        processedAtIso: new Date().toISOString(),
+        latencyMs: result.latencyMs,
+        versions: {
+          schema: ENHANCEMENT_META_SCHEMA_VERSION,
+          engine: "local_canvas_v1",
+        },
+      };
+      if (enhancePreviewUrlRef.current) {
+        try {
+          URL.revokeObjectURL(enhancePreviewUrlRef.current);
+        } catch {}
+      }
+      const url = URL.createObjectURL(displayFile);
+      enhancePreviewUrlRef.current = url;
+      setEnhancePreview({ displayFile, previewUrl: url, meta });
+      void recordUsageEvent({
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: enhanceMode,
+          provider: "local_opencv",
+          source: meteringSource,
+          latency_ms: result.latencyMs,
+        },
+      });
+    } catch (err) {
+      setEnhanceError(
+        err instanceof Error ? err.message : t("upload.imageEnhance.previewError"),
+      );
+      void recordUsageEvent({
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: enhanceMode,
+          provider: "local_opencv",
+          source: meteringSource,
+          reason: "local_pipeline_error",
+          latency_ms: null,
+        },
+      });
+    } finally {
+      setEnhanceRunning(false);
+    }
+  }, [
+    onEnhance,
+    enhanceMode,
+    resolvedAutoMode,
+    meteringSource,
+    t,
+    file,
+    crop,
+    analysis?.suggestedCrop,
+    analysis?.suggested,
+    analysis?.rectangleConfidence,
+  ]);
+
+  const handleEnhanceApprove = useCallback(() => {
+    if (!onEnhance || !enhancePreview) return;
+    onEnhance(enhancePreview);
+    void recordUsageEvent({
+      key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
+      featureKey: "ai.image_enhance",
+      metadata: {
+        mode: enhancePreview.meta.mode,
+        provider: enhancePreview.meta.provider,
+        source: meteringSource,
+        latency_ms: enhancePreview.meta.latencyMs,
+      },
+    });
+  }, [enhancePreview, onEnhance, meteringSource]);
+
+  const handleEnhanceReject = useCallback(() => {
+    if (!onEnhance) return;
+    const previous = enhancePreview;
+    if (enhancePreviewUrlRef.current) {
+      try {
+        URL.revokeObjectURL(enhancePreviewUrlRef.current);
+      } catch {}
+      enhancePreviewUrlRef.current = null;
+    }
+    setEnhancePreview(null);
+    onEnhance(null);
+    if (previous) {
+      void recordUsageEvent({
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_REJECTED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: previous.meta.mode,
+          provider: previous.meta.provider,
+          source: meteringSource,
+          latency_ms: previous.meta.latencyMs,
+        },
+      });
+    }
+  }, [enhancePreview, onEnhance, meteringSource]);
+
+  // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
 
@@ -537,6 +767,204 @@ export function ImageStandardizeEditor({
           </button>
         </div>
       )}
+
+      {enhancementEnabled && (
+        <div
+          role="tablist"
+          aria-label={t("upload.imageEnhance.tablist")}
+          className="flex items-center gap-1 border-b border-zinc-200 pb-2 text-xs"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "quick"}
+            onClick={() => setTab("quick")}
+            className={`rounded-full px-3 py-1 ${
+              tab === "quick"
+                ? "bg-zinc-900 text-white"
+                : "text-zinc-600 hover:bg-zinc-100"
+            }`}
+          >
+            {t("upload.imageEnhance.tabQuick")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "enhance"}
+            onClick={() => setTab("enhance")}
+            className={`rounded-full px-3 py-1 ${
+              tab === "enhance"
+                ? "bg-zinc-900 text-white"
+                : "text-zinc-600 hover:bg-zinc-100"
+            }`}
+          >
+            {t("upload.imageEnhance.tabEnhance")}
+            <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">
+              {t("upload.imageEnhance.beta")}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {enhancementEnabled && tab === "enhance" ? (
+        <div className="space-y-3">
+          {/* Quality diagnosis chips */}
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            {analysis ? (
+              <>
+                <span
+                  className={`rounded-full px-2 py-0.5 ${
+                    analysis.rectangleConfidence >= 0.55
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-zinc-100 text-zinc-600"
+                  }`}
+                  title={t("upload.imageEnhance.rectangleHint")}
+                >
+                  {t("upload.imageEnhance.rectangleConfidence")}
+                  {": "}
+                  {Math.round(analysis.rectangleConfidence * 100)}%
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 ${
+                    analysis.blurScore < 0.15
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-zinc-100 text-zinc-600"
+                  }`}
+                  title={t("upload.imageEnhance.blurHint")}
+                >
+                  {t("upload.imageEnhance.blurScore")}
+                  {": "}
+                  {Math.round(analysis.blurScore * 100)}%
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 ${
+                    analysis.glareScore > 0.05
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-zinc-100 text-zinc-600"
+                  }`}
+                  title={t("upload.imageEnhance.glareHint")}
+                >
+                  {t("upload.imageEnhance.glareScore")}
+                  {": "}
+                  {Math.round(analysis.glareScore * 100)}%
+                </span>
+              </>
+            ) : (
+              <span className="text-zinc-500">
+                {t("upload.imageStandardize.analyzing")}
+              </span>
+            )}
+          </div>
+
+          {/* Reshoot advisory */}
+          {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+              {t("upload.imageEnhance.reshootAdvisory")}
+            </p>
+          )}
+
+          {/* Mode selector */}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-zinc-500">
+              {t("upload.imageEnhance.modeLabel")}
+            </span>
+            {(["auto", "flat", "object"] as EnhancementMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setEnhanceMode(m)}
+                className={`rounded-full border px-2.5 py-1 ${
+                  enhanceMode === m
+                    ? "border-zinc-900 bg-zinc-900 text-white"
+                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                }`}
+              >
+                {t(`upload.imageEnhance.mode.${m}`)}
+              </button>
+            ))}
+            <span className="ml-auto text-[10px] text-zinc-500">
+              {t("upload.imageEnhance.resolvedMode").replace(
+                "{mode}",
+                t(`upload.imageEnhance.mode.${resolvedAutoMode}`),
+              )}
+            </span>
+          </div>
+
+          {/* Preview + actions */}
+          {enhancePreview ? (
+            <>
+              <BeforeAfterCompare
+                beforeSrc={previewUrl ?? ""}
+                afterSrc={enhancePreview.previewUrl}
+                beforeAlt={t("upload.imageEnhance.beforeAlt")}
+                afterAlt={t("upload.imageEnhance.afterAlt")}
+              />
+              <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={handleEnhanceReject}
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+                >
+                  {t("upload.imageEnhance.reject")}
+                </button>
+                <button
+                  type="button"
+                  onClick={runEnhancePreview}
+                  disabled={enhanceRunning}
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  {t("upload.imageEnhance.rerun")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEnhanceApprove}
+                  className="rounded-full bg-zinc-900 px-3 py-1 text-white hover:bg-zinc-800"
+                >
+                  {t("upload.imageEnhance.approve")}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {previewUrl && (
+                <div className="relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-zinc-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewUrl}
+                    alt=""
+                    className="h-full w-full object-contain"
+                    draggable={false}
+                  />
+                </div>
+              )}
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={runEnhancePreview}
+                  disabled={enhanceRunning}
+                  className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {enhanceRunning
+                    ? t("upload.imageEnhance.running")
+                    : t("upload.imageEnhance.previewCta")}
+                </button>
+              </div>
+            </>
+          )}
+
+          {enhanceError && (
+            <p className="text-[11px] text-amber-700">{enhanceError}</p>
+          )}
+          {!enhancePreview && (
+            <p className="text-[11px] leading-relaxed text-zinc-500">
+              {t("upload.imageEnhance.footer")}
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {enhancementEnabled && tab === "enhance" ? null : (
+        <>
 
       {/* Preview + adjustment sliders */}
       <div className="flex gap-3">
@@ -874,6 +1302,8 @@ export function ImageStandardizeEditor({
                 ? t("upload.imageStandardize.savedToneOnly")
                 : t("upload.imageStandardize.appliedHint")}
         </p>
+      )}
+        </>
       )}
     </div>
   );

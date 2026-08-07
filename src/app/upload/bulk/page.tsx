@@ -20,6 +20,23 @@ import {
 import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
+import type { EnhancementDraft } from "@/components/upload/ImageStandardizeEditor";
+import type { EnhancementMode } from "@/lib/image/enhancement/types";
+import {
+  runFlatEnhancement,
+  flatBlobToFile,
+} from "@/lib/image/enhancement/localFlatEngine";
+import {
+  cleanupEnhancedPath,
+  cleanupStagingPath,
+  requestObjectEnhancement,
+  uploadStagingForEnhancement,
+} from "@/lib/image/enhancement/objectClient";
+import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
+import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
+import { analyzeImageFile } from "@/lib/image/analyze";
+import { recordUsageEvent } from "@/lib/metering";
+import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
@@ -107,6 +124,23 @@ export default function BulkUploadPage() {
   const [publishing, setPublishing] = useState(false);
   const [tipsOpen, setTipsOpen] = useState(true);
   const [pendingFiles, setPendingFiles] = useState<{ id: string; file: File }[]>([]);
+  /**
+   * Theo Image Enhance (Beta, 2026-08-05) — per-pending-file
+   * enhancement state. Tracked as a Map so lookups stay O(1) as the
+   * queue grows.
+   */
+  type EnhanceStatus =
+    | { kind: "queued" }
+    | { kind: "processing" }
+    | { kind: "previewing"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean }
+    | { kind: "approved"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean }
+    | { kind: "rejected" }
+    | { kind: "failed"; reason: string };
+  const [pendingEnhance, setPendingEnhance] = useState<Record<string, EnhanceStatus>>({});
+  const [pendingSelected, setPendingSelected] = useState<Set<string>>(new Set());
+  const [bulkEnhanceMode, setBulkEnhanceMode] = useState<EnhancementMode>("auto");
+  const [bulkEnhanceRunning, setBulkEnhanceRunning] = useState(false);
+  const meteringSourceForBulk = fromExhibition ? "exhibition_bulk" : "bulk";
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /**
@@ -370,10 +404,286 @@ export default function BulkUploadPage() {
 
   function removePendingFile(id: string) {
     setPendingFiles((prev) => prev.filter((p) => p.id !== id));
+    setPendingSelected((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setPendingEnhance((prev) => {
+      const existing = prev[id];
+      if (!existing) return prev;
+      if (existing.kind === "previewing" || existing.kind === "approved") {
+        try {
+          URL.revokeObjectURL(existing.draft.previewUrl);
+        } catch {}
+        if (existing.enhancedPath) {
+          void cleanupEnhancedPath(existing.enhancedPath);
+        }
+      }
+      const clone = { ...prev };
+      delete clone[id];
+      return clone;
+    });
   }
 
   function clearPendingFiles() {
+    // Best-effort cleanup of any inflight enhanced blobs / staged paths.
+    for (const [, status] of Object.entries(pendingEnhance)) {
+      if (status.kind === "previewing" || status.kind === "approved") {
+        try {
+          URL.revokeObjectURL(status.draft.previewUrl);
+        } catch {}
+        if (status.enhancedPath) {
+          void cleanupEnhancedPath(status.enhancedPath);
+        }
+      }
+    }
     setPendingFiles([]);
+    setPendingSelected(new Set());
+    setPendingEnhance({});
+  }
+
+  function togglePendingSelected(id: string) {
+    setPendingSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllPending() {
+    setPendingSelected(new Set(pendingFiles.map((p) => p.id)));
+  }
+
+  function clearPendingSelection() {
+    setPendingSelected(new Set());
+  }
+
+  async function enhanceSelectedPending() {
+    if (bulkEnhanceRunning) return;
+    const ids = pendingFiles
+      .filter((p) => pendingSelected.has(p.id))
+      .map((p) => p.id);
+    if (ids.length === 0) {
+      setToast(t("bulk.enhance.selectFirst"));
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    const { data: { session } } = await getSession();
+    if (!session?.user?.id) {
+      setUploadError(t("bulk.uploadNotAuthenticated"));
+      return;
+    }
+    const userId = session.user.id;
+    const exhibitionScopedId = addToExhibitionId ?? null;
+    setBulkEnhanceRunning(true);
+    setPendingEnhance((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = { kind: "processing" };
+      return next;
+    });
+
+    const queue = pendingFiles.filter((p) => ids.includes(p.id));
+    const CONCURRENCY = 2;
+    let nextIdx = 0;
+
+    const processOne = async (slot: { id: string; file: File }) => {
+      const { id, file } = slot;
+      void recordUsageEvent({
+        userId,
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_REQUESTED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: bulkEnhanceMode,
+          provider: "auto",
+          source: meteringSourceForBulk,
+          latency_ms: null,
+        },
+      });
+      let resolvedMode: EnhancementMode = bulkEnhanceMode;
+      if (bulkEnhanceMode === "auto") {
+        try {
+          const analysis = await analyzeImageFile(file);
+          resolvedMode = analysis.mode === "flat" ? "flat" : "object";
+        } catch {
+          resolvedMode = "object";
+        }
+      }
+      const startedAt = performance.now();
+      try {
+        if (resolvedMode === "flat") {
+          const result = await runFlatEnhancement({ file });
+          const displayFile = flatBlobToFile(file.name, result.blob);
+          const url = URL.createObjectURL(displayFile);
+          const sourceHash = await computeFileSha256(file);
+          const draft: EnhancementDraft = {
+            displayFile,
+            previewUrl: url,
+            meta: {
+              provider: "local_opencv",
+              mode: bulkEnhanceMode,
+              recipe: { kind: "flat", params: result.recipe },
+              confidence: result.confidence,
+              sourceHashSha256: sourceHash,
+              processedAtIso: new Date().toISOString(),
+              latencyMs: result.latencyMs,
+              versions: {
+                schema: ENHANCEMENT_META_SCHEMA_VERSION,
+                engine: "local_canvas_v1",
+              },
+            },
+          };
+          setPendingEnhance((prev) => ({
+            ...prev,
+            [id]: { kind: "previewing", draft },
+          }));
+          void recordUsageEvent({
+            userId,
+            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+            featureKey: "ai.image_enhance",
+            metadata: {
+              mode: bulkEnhanceMode,
+              provider: "local_opencv",
+              source: meteringSourceForBulk,
+              latency_ms: Math.round(performance.now() - startedAt),
+            },
+          });
+        } else {
+          // Object hybrid — server route. Upload to per-user staging,
+          // request enhancement, keep the server path in status so
+          // reject/cleanup can nuke it.
+          const scope = exhibitionScopedId
+            ? { kind: "exhibition" as const, exhibitionId: exhibitionScopedId }
+            : { kind: "user" as const, userId };
+          const stagingPath = await uploadStagingForEnhancement(file, scope);
+          const result = await requestObjectEnhancement({
+            inputStoragePath: stagingPath,
+            exhibitionId: exhibitionScopedId,
+            mode: bulkEnhanceMode,
+          });
+          // The server returns a public path; render a preview via getPublicUrl.
+          const { getPublicImageUrl } = await import("@/lib/supabase/storage");
+          const url = getPublicImageUrl(result.enhancedPath);
+          const draft: EnhancementDraft = {
+            // Server pipeline — no local displayFile. We build a stub
+            // File so downstream typing is preserved; the upload step
+            // switches to preparedDisplayPath.
+            displayFile: new File([], `${file.name}.enhanced.webp`, {
+              type: "image/webp",
+            }),
+            previewUrl: url,
+            meta: result.meta,
+          };
+          setPendingEnhance((prev) => ({
+            ...prev,
+            [id]: {
+              kind: "previewing",
+              draft,
+              enhancedPath: result.enhancedPath,
+              exhibitionScoped: !!exhibitionScopedId,
+            },
+          }));
+          void recordUsageEvent({
+            userId,
+            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+            featureKey: "ai.image_enhance",
+            metadata: {
+              mode: bulkEnhanceMode,
+              provider: "photoroom_hybrid",
+              source: meteringSourceForBulk,
+              latency_ms: result.latencyMs,
+            },
+          });
+        }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : "error";
+        setPendingEnhance((prev) => ({
+          ...prev,
+          [id]: { kind: "failed", reason },
+        }));
+        void recordUsageEvent({
+          userId,
+          key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
+          featureKey: "ai.image_enhance",
+          metadata: {
+            mode: bulkEnhanceMode,
+            provider: resolvedMode === "flat" ? "local_opencv" : "photoroom_hybrid",
+            source: meteringSourceForBulk,
+            reason,
+            latency_ms: Math.round(performance.now() - startedAt),
+          },
+        });
+      }
+    };
+
+    const worker = async () => {
+      while (true) {
+        const idx = nextIdx++;
+        if (idx >= queue.length) return;
+        await processOne(queue[idx]);
+      }
+    };
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker());
+    await Promise.all(workers);
+    setBulkEnhanceRunning(false);
+  }
+
+  function approveEnhancement(id: string) {
+    setPendingEnhance((prev) => {
+      const current = prev[id];
+      if (!current || current.kind !== "previewing") return prev;
+      void recordUsageEvent({
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: current.draft.meta.mode,
+          provider: current.draft.meta.provider,
+          source: meteringSourceForBulk,
+          latency_ms: current.draft.meta.latencyMs,
+        },
+      });
+      return {
+        ...prev,
+        [id]: {
+          kind: "approved",
+          draft: current.draft,
+          enhancedPath: current.enhancedPath,
+          exhibitionScoped: current.exhibitionScoped,
+        },
+      };
+    });
+  }
+
+  function rejectEnhancement(id: string) {
+    setPendingEnhance((prev) => {
+      const current = prev[id];
+      if (!current) return prev;
+      if (current.kind === "previewing" || current.kind === "approved") {
+        try {
+          URL.revokeObjectURL(current.draft.previewUrl);
+        } catch {}
+        if (current.enhancedPath) {
+          void cleanupEnhancedPath(current.enhancedPath);
+        }
+        void recordUsageEvent({
+          key: USAGE_KEYS.AI_IMAGE_ENHANCE_REJECTED,
+          featureKey: "ai.image_enhance",
+          metadata: {
+            mode: current.draft.meta.mode,
+            provider: current.draft.meta.provider,
+            source: meteringSourceForBulk,
+            latency_ms: current.draft.meta.latencyMs,
+          },
+        });
+      }
+      return { ...prev, [id]: { kind: "rejected" } };
+    });
+    // Also make sure the staging path (if any) is cleaned. `enhancedPath` above
+    // handles the server output; staging paths are cleaned by the server
+    // route itself on completion (so no extra work required here).
+    void cleanupStagingPath(null);
   }
 
   async function startUpload() {
@@ -406,7 +716,10 @@ export default function BulkUploadPage() {
     const runOne = async (idx: number) => {
       const slot = queue[idx];
       if (!slot) return;
-      const { file } = slot;
+      const { id: slotId, file } = slot;
+      const enhanceStatus = pendingEnhance[slotId];
+      const approvedEnhancement =
+        enhanceStatus && enhanceStatus.kind === "approved" ? enhanceStatus : null;
       const title = deriveTitle(file.name);
       let artworkId: string | null = null;
       let uploadResult: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
@@ -427,14 +740,22 @@ export default function BulkUploadPage() {
         const storageOwner = actingAsProfileId ?? userId;
         // 2026-07-28 auto-compression — returns { displayPath, originalPath,
         // meta, bytes... }. Original is backed up under `{userId}/original/`.
-        uploadResult = await uploadArtworkImage(file, storageOwner);
-        // QA 2026-07-28: bulk uploads now always persist the ORIGINAL.
-        // The previous behaviour silently applied the auto-analyzed
-        // "Theo standard" tone + auto-crop on every image, which
-        // confused artists (works looked different from what they had
-        // just dropped in) and mis-fired on textured backgrounds. Tone
-        // + crop are now opt-in only from the single-work uploader's
-        // interactive editor — the bulk fast-path stays untouched.
+        // 2026-08-05 Theo Image Enhance (Beta) — if the operator approved
+        // an enhancement preview for this file, upload the enhanced
+        // display copy (local pipeline) OR reuse the server-produced
+        // enhanced path (photoroom hybrid) instead of running the default
+        // compressor.
+        uploadResult = await uploadArtworkImage(file, storageOwner, {
+          preparedDisplayFile:
+            approvedEnhancement && !approvedEnhancement.enhancedPath
+              ? approvedEnhancement.draft.displayFile
+              : null,
+          preparedDisplayPath: approvedEnhancement?.enhancedPath ?? null,
+          enhancementMeta: approvedEnhancement?.draft.meta ?? null,
+        });
+        // QA 2026-07-28: bulk uploads never silently auto-apply tone or
+        // crop; DisplayAdjust stays null. Enhancement, when approved,
+        // flows through `enhancement_meta` instead.
         const displayAdjust: import("@/lib/image/displayAdjust").DisplayAdjust | null = null;
         const { error: attachErr } = await attachArtworkImage(
           artworkId,
@@ -445,6 +766,7 @@ export default function BulkUploadPage() {
             displayBytes: uploadResult.displayBytes,
             originalBytes: uploadResult.originalBytes,
             compressionMeta: uploadResult.compressionMeta,
+            enhancementMeta: approvedEnhancement?.draft.meta ?? null,
           },
         );
         if (attachErr) throw attachErr;
@@ -1481,6 +1803,54 @@ export default function BulkUploadPage() {
         {pendingFiles.length > 0 && !uploading && (
           <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
             <h3 className="mb-2 text-sm font-medium">{t("bulk.pendingFiles")} ({pendingFiles.length})</h3>
+
+            {/* Theo Image Enhance (Beta) — selection + mode + run bar */}
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2 text-xs">
+              <button
+                type="button"
+                onClick={selectAllPending}
+                className="rounded-full border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-50"
+              >
+                {t("bulk.enhance.selectAll")}
+              </button>
+              <button
+                type="button"
+                onClick={clearPendingSelection}
+                className="rounded-full border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-50"
+              >
+                {t("bulk.enhance.clearSelection")}
+              </button>
+              <span className="text-zinc-500">
+                {t("bulk.enhance.selectedCount").replace("{n}", String(pendingSelected.size))}
+              </span>
+              <div className="ml-2 flex items-center gap-1">
+                {(["auto", "flat", "object"] as EnhancementMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setBulkEnhanceMode(m)}
+                    className={`rounded-full border px-2 py-1 ${
+                      bulkEnhanceMode === m
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    {t(`upload.imageEnhance.mode.${m}`)}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={enhanceSelectedPending}
+                disabled={bulkEnhanceRunning || pendingSelected.size === 0}
+                className="ml-auto rounded-full bg-zinc-900 px-3 py-1 font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {bulkEnhanceRunning
+                  ? t("bulk.enhance.running")
+                  : t("bulk.enhance.action")}
+              </button>
+            </div>
+
             <div className="mb-3 flex flex-wrap gap-2">
               {pendingFiles.map(({ id, file }) => {
                 // 2026-07-28 auto-compression — quiet chip: show the
@@ -1491,11 +1861,20 @@ export default function BulkUploadPage() {
                 const mb = file.size / (1024 * 1024);
                 const compressible = isCompressibleMime(file.type);
                 const willCompress = compressible && file.size > 5 * 1024 * 1024;
+                const selected = pendingSelected.has(id);
+                const enhance = pendingEnhance[id];
                 return (
                   <span
                     key={id}
                     className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1 text-sm text-zinc-700"
                   >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => togglePendingSelected(id)}
+                      className="h-3.5 w-3.5 accent-zinc-900"
+                      aria-label={t("bulk.enhance.selectFile")}
+                    />
                     <span className="min-w-0 truncate">{file.name}</span>
                     <span className="text-[11px] text-zinc-400">
                       {mb < 0.1 ? "<0.1" : mb.toFixed(1)} MB
@@ -1506,6 +1885,47 @@ export default function BulkUploadPage() {
                         title={t("upload.autoCompressHint")}
                       >
                         {t("upload.autoCompressChip")}
+                      </span>
+                    )}
+                    {enhance?.kind === "processing" && (
+                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                        {t("bulk.enhance.status.processing")}
+                      </span>
+                    )}
+                    {enhance?.kind === "previewing" && (
+                      <>
+                        <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
+                          {t("bulk.enhance.status.previewing")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => approveEnhancement(id)}
+                          className="rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-zinc-800"
+                        >
+                          {t("bulk.enhance.approve")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rejectEnhancement(id)}
+                          className="rounded-full border border-zinc-300 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-zinc-50"
+                        >
+                          {t("bulk.enhance.reject")}
+                        </button>
+                      </>
+                    )}
+                    {enhance?.kind === "approved" && (
+                      <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                        {t("bulk.enhance.status.approved")}
+                      </span>
+                    )}
+                    {enhance?.kind === "rejected" && (
+                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+                        {t("bulk.enhance.status.rejected")}
+                      </span>
+                    )}
+                    {enhance?.kind === "failed" && (
+                      <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title={enhance.reason}>
+                        {t("bulk.enhance.status.failed")}
                       </span>
                     )}
                     <button

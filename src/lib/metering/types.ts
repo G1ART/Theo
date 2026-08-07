@@ -20,6 +20,12 @@ export type UsageEventKey =
   | "ai.board_pitch_pack.generated"
   | "ai.exhibition_review.generated"
   | "ai.delegation_brief.generated"
+  // Theo Image Enhance (Beta, 2026-08-05)
+  | "ai.image_enhance.requested"
+  | "ai.image_enhance.completed"
+  | "ai.image_enhance.accepted"
+  | "ai.image_enhance.rejected"
+  | "ai.image_enhance.failed"
   | "ai.accepted"
   // Boards / shortlists
   | "board.created"
