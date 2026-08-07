@@ -34,18 +34,55 @@ export type EnhancementStage =
 export type NormalizedPoint = [number, number];
 
 /**
+ * Auto White Balance channel multipliers, clamped to [0.7, 1.4] so
+ * saturated single-hue works (a monochrome red painting, a full-blue
+ * cyanotype) never get pushed toward neutral gray by accident.
+ *
+ * `source` records whether the estimate came from the whole downsampled
+ * frame (gray-world) or from the outside-of-rectangle region only
+ * (wall-biased — much more accurate when the analyzer detected a flat
+ * framed work with visible wall around it).
+ */
+export type AwbRecipe = {
+  rMul: number;
+  gMul: number;
+  bMul: number;
+  source: "gray-world" | "wall-biased";
+};
+
+/**
+ * Pro-look pipeline flags (2026-08-06). All fields optional and
+ * skippable via `null`; missing values fall back to sensible defaults.
+ * See `src/lib/image/enhancement/proLook.ts` for the exact math.
+ */
+export type ProLookRecipe = {
+  exposureLumaTarget?: number;
+  claheEnabled?: boolean;
+  claheClipLimit?: number;
+  claheTiles?: number;
+  satBoost?: number;
+  warmthBias?: number;
+};
+
+/**
  * Flat artwork parameters. `sourceCorners` are the four corner points
  * (TL, TR, BR, BL) the local engine warped from. `tone` is the same
  * ±15% clamped brightness/contrast/saturation triple the analyzer
  * suggests. `sharpen` is a scalar 0..1 (small unsharp mask). `bezelPx`
  * is the white bezel added around the warped image (as a fraction of
  * the shorter edge, typically ~0.02).
+ *
+ * `awb` and `proLook` are 2026-08-06 extensions. Both are optional so
+ * legacy rows (`enhancement_meta = NULL` or v1 flat recipes without
+ * these fields) keep working — readers must handle their absence.
  */
 export type FlatRecipe = {
   sourceCorners: [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint] | null;
   tone: { b: number; c: number; s: number };
   sharpen: number;
   bezel: number;
+  awb?: AwbRecipe;
+  proLook?: ProLookRecipe;
 };
 
 /** Object segmentation parameters. Padding + bezel are both fractions
@@ -67,6 +104,48 @@ export type EnhancementRecipe =
  * Explicitly NOT included: any API key, any provider URL, any raw
  * bytes, any request id that leaks user PII.
  */
+/**
+ * Batch-uniformity provenance (2026-08-06). Populated when the operator
+ * turned on the "Bulk tone unify" chip and a corrective delta was
+ * applied. All deltas are clamped to ±5% by the applier.
+ */
+export type BatchNormalizationMeta = {
+  targetLuma: number;
+  targetChroma: number;
+  targetSat: number;
+  appliedDeltas: { b: number; c: number; s: number };
+};
+
+/**
+ * Artist-portfolio coherence provenance (2026-08-06). Populated when
+ * the operator kept the "Artist portfolio tone coherence" chip ON and
+ * an adjustment was applied. Deltas clamped to ±4% by the applier.
+ * `sampleCount` records how many prior public works the target stats
+ * were computed from; when < 3 the coherence step is skipped entirely.
+ */
+export type PortfolioCoherenceMeta = {
+  targetStats: {
+    meanLuma: number;
+    meanChroma: number;
+    meanSat: number;
+    meanContrast: number;
+  };
+  appliedDeltas: { b: number; c: number; s: number };
+  sampleCount: number;
+};
+
+/**
+ * Capture provenance surfaced by the EXIF reader (2026-08-06). Only
+ * the compact fields listed here land in the DB — never GPS, never
+ * personal fields, never a full EXIF dump.
+ */
+export type CaptureProvenance = {
+  /** ISO timestamp of DateTimeOriginal; falls back to file.lastModified. */
+  capturedAtIso: string | null;
+  /** Compact "Make Model (Lens)" string when available, else null. */
+  captureDevice: string | null;
+};
+
 export type EnhancementMeta = {
   provider: EnhancementProvider;
   mode: EnhancementMode;
@@ -87,11 +166,28 @@ export type EnhancementMeta = {
     schema: number;
     engine: string;
   };
+  /** Batch-uniformity provenance (bulk only). Absent for single-image
+   *  enhancements and for bulk batches with the chip OFF. */
+  batchNormalization?: BatchNormalizationMeta;
+  /** Artist-portfolio coherence provenance. Absent when the chip was
+   *  OFF or the artist has < 3 prior public works. */
+  portfolioCoherence?: PortfolioCoherenceMeta;
+  /** ISO capture time (falls back to file.lastModified). */
+  capturedAtIso?: string | null;
+  /** Compact device string, e.g. "Apple iPhone 15 Pro (iPhone 15 Pro back triple camera)". */
+  captureDevice?: string | null;
 };
 
 /** Current schema version for `EnhancementMeta`. Bump when readers must
- *  discriminate between old and new payloads. */
-export const ENHANCEMENT_META_SCHEMA_VERSION = 1;
+ *  discriminate between old and new payloads.
+ *
+ *  v2 (2026-08-06) added the optional `awb` + `proLook` sub-recipes,
+ *  `batchNormalization`, `portfolioCoherence`, `capturedAtIso`, and
+ *  `captureDevice` fields. All are optional so v1 payloads still
+ *  validate — the schema bump lets telemetry (`.completed` events)
+ *  distinguish enhance sessions that produced pro-look output vs the
+ *  legacy pipeline without reading every field. */
+export const ENHANCEMENT_META_SCHEMA_VERSION = 2;
 
 /** Bounds for how much tone the local engine is allowed to shift. */
 export const ENHANCEMENT_TONE_CAP = 0.15;
@@ -151,6 +247,44 @@ export function normalizeEnhancementMeta(
   if (recipeRaw.kind === "flat") {
     const p = (recipeRaw.params ?? {}) as Record<string, unknown>;
     const tone = (p.tone ?? {}) as Record<string, unknown>;
+    const awbRaw = p.awb as Record<string, unknown> | undefined;
+    const proRaw = p.proLook as Record<string, unknown> | undefined;
+    const awb = awbRaw && typeof awbRaw === "object"
+      ? {
+          rMul: clampAwbMul(Number(awbRaw.rMul ?? 1)),
+          gMul: clampAwbMul(Number(awbRaw.gMul ?? 1)),
+          bMul: clampAwbMul(Number(awbRaw.bMul ?? 1)),
+          source: (awbRaw.source === "wall-biased" ? "wall-biased" : "gray-world") as
+            | "gray-world"
+            | "wall-biased",
+        }
+      : undefined;
+    const proLook = proRaw && typeof proRaw === "object"
+      ? {
+          exposureLumaTarget:
+            typeof proRaw.exposureLumaTarget === "number"
+              ? Math.max(60, Math.min(200, Math.round(proRaw.exposureLumaTarget)))
+              : undefined,
+          claheEnabled:
+            typeof proRaw.claheEnabled === "boolean" ? proRaw.claheEnabled : undefined,
+          claheClipLimit:
+            typeof proRaw.claheClipLimit === "number"
+              ? Math.max(0.5, Math.min(6, proRaw.claheClipLimit))
+              : undefined,
+          claheTiles:
+            typeof proRaw.claheTiles === "number"
+              ? Math.max(2, Math.min(16, Math.round(proRaw.claheTiles)))
+              : undefined,
+          satBoost:
+            typeof proRaw.satBoost === "number"
+              ? Math.max(0, Math.min(0.2, proRaw.satBoost))
+              : undefined,
+          warmthBias:
+            typeof proRaw.warmthBias === "number"
+              ? Math.max(-0.1, Math.min(0.1, proRaw.warmthBias))
+              : undefined,
+        }
+      : undefined;
     recipe = {
       kind: "flat",
       params: {
@@ -162,6 +296,8 @@ export function normalizeEnhancementMeta(
         },
         sharpen: clampUnit(Number(p.sharpen ?? 0)),
         bezel: clampUnit(Number(p.bezel ?? 0.02)),
+        ...(awb ? { awb } : {}),
+        ...(proLook ? { proLook } : {}),
       },
     };
   } else {
@@ -203,6 +339,24 @@ export function normalizeEnhancementMeta(
         ? versionsRaw.engine
         : provider,
   };
+  const batchRaw = raw.batchNormalization as Record<string, unknown> | undefined;
+  const batchNormalization =
+    batchRaw && typeof batchRaw === "object"
+      ? normalizeBatchNormalization(batchRaw)
+      : undefined;
+  const portfolioRaw = raw.portfolioCoherence as Record<string, unknown> | undefined;
+  const portfolioCoherence =
+    portfolioRaw && typeof portfolioRaw === "object"
+      ? normalizePortfolioCoherence(portfolioRaw)
+      : undefined;
+  const capturedAtIso =
+    typeof raw.capturedAtIso === "string" && !Number.isNaN(Date.parse(raw.capturedAtIso))
+      ? raw.capturedAtIso
+      : null;
+  const captureDevice =
+    typeof raw.captureDevice === "string" && raw.captureDevice.trim()
+      ? raw.captureDevice.slice(0, 200)
+      : null;
   return {
     provider,
     mode,
@@ -212,6 +366,65 @@ export function normalizeEnhancementMeta(
     processedAtIso: processedAt,
     latencyMs,
     versions,
+    ...(batchNormalization ? { batchNormalization } : {}),
+    ...(portfolioCoherence ? { portfolioCoherence } : {}),
+    ...(capturedAtIso ? { capturedAtIso } : {}),
+    ...(captureDevice ? { captureDevice } : {}),
+  };
+}
+
+function clampAwbMul(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(1.4, Math.max(0.7, n));
+}
+
+function normalizeBatchNormalization(
+  raw: Record<string, unknown>,
+): BatchNormalizationMeta | undefined {
+  const deltas = raw.appliedDeltas as Record<string, unknown> | undefined;
+  if (!deltas || typeof deltas !== "object") return undefined;
+  const clamp5 = (n: unknown): number => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return 0;
+    return Math.min(0.05, Math.max(-0.05, v));
+  };
+  return {
+    targetLuma: Number(raw.targetLuma ?? 0) || 0,
+    targetChroma: Number(raw.targetChroma ?? 0) || 0,
+    targetSat: Number(raw.targetSat ?? 0) || 0,
+    appliedDeltas: {
+      b: clamp5(deltas.b),
+      c: clamp5(deltas.c),
+      s: clamp5(deltas.s),
+    },
+  };
+}
+
+function normalizePortfolioCoherence(
+  raw: Record<string, unknown>,
+): PortfolioCoherenceMeta | undefined {
+  const target = raw.targetStats as Record<string, unknown> | undefined;
+  const deltas = raw.appliedDeltas as Record<string, unknown> | undefined;
+  if (!target || !deltas) return undefined;
+  const clamp4 = (n: unknown): number => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return 0;
+    return Math.min(0.04, Math.max(-0.04, v));
+  };
+  const sampleCount = Number(raw.sampleCount ?? 0);
+  return {
+    targetStats: {
+      meanLuma: Number(target.meanLuma ?? 0) || 0,
+      meanChroma: Number(target.meanChroma ?? 0) || 0,
+      meanSat: Number(target.meanSat ?? 0) || 0,
+      meanContrast: Number(target.meanContrast ?? 0) || 0,
+    },
+    appliedDeltas: {
+      b: clamp4(deltas.b),
+      c: clamp4(deltas.c),
+      s: clamp4(deltas.s),
+    },
+    sampleCount: Number.isFinite(sampleCount) ? Math.max(0, Math.round(sampleCount)) : 0,
   };
 }
 

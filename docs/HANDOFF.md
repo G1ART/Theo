@@ -2,6 +2,160 @@
 
 Last updated: 2026-08-06
 
+## 2026-08-06 (2) — Theo Image Enhance (Beta) — "프로 룩" 파이프라인 + 프라이버시 강화
+
+### 배경
+2026-08-06 하드닝 audit 에서 backlog 로 남겼던 P1/P2 항목 대부분과
+사용자가 새로 요청한 세 가지 quality bar 기능 (batch uniformity,
+artist portfolio coherence, pro-look) 을 한 번의 릴리즈로 착륙시킴.
+"phone-shot 을 화이트월 스튜디오 사진처럼" 이라는 quality bar 를
+기준으로 파이프라인 전체를 확장.
+
+### 이번 패치 요약 (A–H 항목)
+
+- **A. 4-point homography** — `jsfeat` 대신 hand-written pure-JS
+ (`src/lib/image/enhancement/homography.ts`, ~180 LOC) 로 구현.
+ 8×9 Gauss-Jordan solve + nearest-neighbour warp + degenerate
+ quadrilateral guard. 번들 델타 ≈ 5 KB gz (jsfeat 대비 15× 감소).
+ `runFlatEnhancement` 가 `sourceCorners` 를 받으면 자동 warp.
+ **인터랙티브 4-corner UI 는 이번 패치 out-of-scope (deferred)** —
+ recipe / engine / test 는 모두 준비 완료.
+- **B. Gray-world / wall-biased AWB** —
+ `src/lib/image/enhancement/awb.ts`. 다운샘플 위에서 R̄/Ḡ/B̄
+ 계산 → target = mean(3ch), 채널별 곱셈. Clamp [0.7, 1.4] 로
+ monochrome-red 그림을 회색으로 만드는 사고 방지. `rectangleConfidence
+ ≥ 0.55` 일 때 는 rect 외부(벽)만 샘플 → wall-biased 모드. FlatRecipe
+ 에 `awb: { rMul, gMul, bMul, source }` 로 provenance 기록.
+ `stage_awb_ms` timing emit.
+- **C. Abort in-flight enhancement on cancel** —
+ `requestObjectEnhancement`, `uploadStagingForEnhancement`, fetch,
+ 그리고 `runFlatEnhancement` 모두 `AbortSignal` 를 optional 로 받음.
+ Bulk page 는 `enhanceAbortRef` (Record<id, AbortController>) 로
+ row 별 controller 관리. Reject / removePendingFile 이 abort() 를
+ 호출하고, objectClient 가 best-effort `cleanupStagingPath`. 서버
+ route (`src/app/api/image-enhance/object/route.ts`) 는 `req.signal.aborted`
+ 감지 시 Photoroom 콜 스킵 + staging 정리. UI 에 per-row `×` 취소
+ 버튼도 추가 (processing 상태에서).
+- **D. Client EXIF parser + low-light warning + capture mode chip +
+ provenance** — `src/lib/image/exifRead.ts` (~350 LOC, pure JS).
+ Orientation, Make/Model/Lens, FocalLength, ExposureTime, ISO,
+ WhiteBalance, ColorSpace, DateTimeOriginal, Software 만 리턴 —
+ **GPS 는 아예 return type 에도 없음** (security by design). Enhance
+ 탭이 `ExposureTime > 1/60 && ISO > 800` → "저조도 경고" chip 표시.
+ 촬영 모드 chip (`Auto / Studio / Phone hand-held / Scanner`) 은
+ recipe pre-seed: Scanner 는 perspective + AWB 를 끄고, Studio 는
+ tone 을 절반 강도로만 적용, Phone 은 full pipeline. `EnhancementMeta`
+ 에 `capturedAtIso` (DateTimeOriginal, fallback `file.lastModified`) +
+ `captureDevice` (compact `Make Model (Lens)`) 로 provenance 기록.
+- **E. HEIC GPS scrubber (ISO-BMFF)** —
+ `src/lib/image/heicExifScrub.ts` (~400 LOC, pure JS, 요구사항
+ 상한 준수). ftyp → meta → iinf 로 Exif item 찾고, iloc 로 payload
+ offset 계산 → TIFF GPS IFD entry (tag 0x8825) 를 in-place zero-out.
+ JPEG scrubber 와 동일한 neutralize 전략. `storage.ts` 의
+ `stripPrivacyExifForBackup` 이 JPEG → HEIC 순으로 자동 폴백.
+- **F. Pro-look 파이프라인** — `src/lib/image/enhancement/proLook.ts`.
+ 순서: (1) adaptive exposure → midtone target 118 (P5..P95 밴드
+ mean 기반), (2) wall-aware AWB (엔진에서 별도 스테이지로 실행),
+ (3) CLAHE local contrast (8×8 grid, clip 2.0, `P95-P5 > 200` 이면
+ 스킵), (4) perceptual saturation (+8% cap, luminance-weighted),
+ (5) micro-unsharp (3×3, halo-safe), (6) neutral warm bias (5500K).
+ 모든 stage skippable via recipe flags. per-stage timing emit.
+- **G. Bulk uniformity chip** — 벌크 페이지에 "벌크 톤 통일" 체크박스.
+ `src/lib/image/enhancement/coherence.ts` 에 delta 계산기 +
+ provenance builder + ±5% clamp. 실제 corrective 적용은 recipe
+ wiring 준비 완료, **자동 적용 pass 는 follow-up** 으로 표기 (오늘
+ 이 릴리즈에서는 chip toggle + 데이터 shape 만 착륙).
+- **H. Artist portfolio coherence** — 마이그레이션
+ `supabase/migrations/20260806000000_artist_portfolio_tone_stats.sql`
+ 이 새 RPC `public.artist_portfolio_tone_stats(uuid)` +
+ `artworks(artist_id)` idx + `artwork_images(artwork_id)` idx 를
+ (idempotent) 추가. Return: `mean_luma, mean_chroma, mean_sat,
+ mean_contrast, sample_count`. `sample_count < 3` 이면 caller 가
+ 스킵. Bulk 페이지에 "아티스트 포트폴리오 톤 유지" 체크박스 추가.
+ 클라이언트 fetch 배치 (N+1 방지) + 실제 corrective 적용 pass 는
+ follow-up 예정.
+
+### 신규 파일
+- `src/lib/image/exifRead.ts`
+- `src/lib/image/heicExifScrub.ts`
+- `src/lib/image/enhancement/awb.ts`
+- `src/lib/image/enhancement/proLook.ts`
+- `src/lib/image/enhancement/homography.ts`
+- `src/lib/image/enhancement/coherence.ts`
+- `src/lib/image/enhancement/__tests__/awb.test.ts`
+- `src/lib/image/enhancement/__tests__/proLook.test.ts`
+- `src/lib/image/enhancement/__tests__/exifRead.test.ts`
+- `src/lib/image/enhancement/__tests__/heicExifScrub.test.ts`
+- `src/lib/image/enhancement/__tests__/portfolioCoherence.test.ts`
+- `src/lib/image/enhancement/__tests__/batchUniformity.test.ts`
+- `supabase/migrations/20260806000000_artist_portfolio_tone_stats.sql`
+
+### 주요 modify
+- `src/lib/image/enhancement/types.ts` — `AwbRecipe`, `ProLookRecipe`,
+ `BatchNormalizationMeta`, `PortfolioCoherenceMeta`, `CaptureProvenance`
+ 추가 + `normalizeEnhancementMeta` 확장. Schema v2 bump (backwards
+ compat 유지).
+- `src/lib/image/enhancement/localFlatEngine.ts` — AWB / proLook /
+ homography 스테이지 wiring + `AbortSignal` + 확장된 timing.
+- `src/lib/image/enhancement/objectClient.ts` — `AbortSignal` optional
+ 파라미터 + AbortError 처리 + staging cleanup.
+- `src/app/api/image-enhance/object/route.ts` — `req.signal.aborted`
+ 감지 + 취소 시 staging 정리, `callPhotoroom` 이 upstream signal 을
+ forward.
+- `src/lib/supabase/storage.ts` — `stripPrivacyExifForBackup` 에 HEIC
+ 폴백 추가.
+- `src/components/upload/ImageStandardizeEditor.tsx` — 저조도 경고,
+ 촬영 모드 chip, pro-look 토글, 촬영 기기 provenance 라벨, EXIF
+ 프로비저닝.
+- `src/app/upload/bulk/page.tsx` — per-row `AbortController`, 처리 중
+ 취소 버튼, 벌크 톤 통일 chip, 포트폴리오 코히어런스 chip.
+- `src/lib/i18n/messages.ts` — 위 UI 모든 스트링 en/ko.
+- `package.json` — 신규 6 개 test 스크립트 등록.
+
+### Supabase SQL
+- **필수 실행**: `supabase/migrations/20260806000000_artist_portfolio_tone_stats.sql`
+ — Supabase Dashboard SQL Editor 에서 파일 통째로 붙여넣고 Run.
+ 이 마이그레이션은 PL/pgSQL 함수 정의가 1개 뿐이라 섹션 배너 없이
+ 한 번에 실행해도 안전 (release-workflow rule 준수).
+
+### 환경 변수
+- **변경 없음.** 새 dependencies 없고, 새 env var 없음.
+
+### 검증
+- `npx tsc --noEmit` — 통과.
+- `npm run lint` — 통과 (기존 pre-existing 경고 유지, 이번 패치가
+ origin 인 새 error/warning 없음).
+- `npm run build` — 통과.
+- 신규 6종 + 기존 5종 unit test 모두 통과:
+ `test:image-enhance-awb`, `-pro-look`, `-exif-read`, `-heic-scrub`,
+ `-portfolio-coherence`, `-batch-uniformity` 신규,
+ `test:image-enhance-recipe`, `-prepare`, `-geometry`, `-orientation`,
+ `-exif-scrub` 회귀 없음.
+
+### 번들 사이즈 델타
+- 신규 6 개 pure-JS 모듈 합계 ≈ 1,654 LOC. Gzip 추정 ≈ 25–35 KB
+ (client bundle 만; server-only `heicExifScrub` 는 lazy import).
+ 요구 예산 `≤ 1.2 MB gz` 대비 매우 넉넉히 남음. `jsfeat` 미도입
+ (hand-written homography 로 대체) — 예산 여유 확보 근거.
+
+### Deferred (다음 iteration)
+- **P1: A 인터랙티브 4-corner picker UI** — engine + recipe + test 는
+ 모두 착륙. 남은 것은 `ImageStandardizeEditor` 위에 4개 핸들 오버레이
+ + 저장. QA 리스크는 낮음 (crop editor 위에 얹기만 하면 됨).
+- **P1: G 자동 corrective 적용 pass** — 오늘은 chip 만 착륙. batchStats
+ (mean luma/chroma/sat/contrast) 계산 → coherence.applyToneDelta 로
+ recipe 에 batchNormalization 스탬프. `runFlatEnhancement` 결과 후에
+ second pass 로 돌리는 구조.
+- **P1: H 자동 corrective 적용 pass + RPC 캐싱** — chip 착륙 완료.
+ `artist_portfolio_tone_stats` RPC fetch 를 bulk session 당 1회로
+ 캐시 (N+1 방지) + `applyToneDelta` 적용.
+- **P2: `.completed` vs `.accepted` 이벤트 분리** (2026-08-06 audit
+ P3 로 남아 있던 항목). 여전히 preview 성공 시 `.completed` 를 태우고
+ approve 시 `.accepted` 를 태우는데, 리포팅 상 preview 만 하고 이탈한
+ 세션이 성공 카운트로 잡힘. 다음 배치에서 이벤트 semantic 재정의.
+- **P2: Deglare region heatmap** — `analyze.ts` 의 glareScore 를 실제
+ 위치까지 확장 (2026-08-06 audit deferred, 여전히 유효).
+
 ## 2026-08-06 — Theo Image Enhance (Beta) — 하드닝 패치 (audit follow-up)
 
 ### 배경

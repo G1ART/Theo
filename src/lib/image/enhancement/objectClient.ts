@@ -46,7 +46,11 @@ function stagingRoot(scope: EnhancementOwnerScope): string {
 export async function uploadStagingForEnhancement(
   file: File,
   scope: EnhancementOwnerScope,
+  signal?: AbortSignal,
 ): Promise<string> {
+  if (signal?.aborted) {
+    throw new EnhancementError("error", "aborted", 499);
+  }
   const uuid = crypto.randomUUID();
   const path = `${stagingRoot(scope)}/${uuid}-${sanitizeName(file.name)}`;
   const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
@@ -55,6 +59,12 @@ export async function uploadStagingForEnhancement(
   });
   if (error) {
     throw new EnhancementError("storage_error", error.message, 502);
+  }
+  if (signal?.aborted) {
+    // Best-effort remove the just-uploaded staging blob so we don't
+    // leak on user cancel.
+    await cleanupStagingPath(path);
+    throw new EnhancementError("error", "aborted", 499);
   }
   return path;
 }
@@ -81,6 +91,13 @@ export type RequestObjectEnhancementParams = {
   inputStoragePath: string;
   exhibitionId?: string | null;
   mode?: "auto" | "flat" | "object";
+  /**
+   * Cancel the in-flight request. When aborted, the fetch is cancelled
+   * AND a best-effort `cleanupStagingPath` fires so the temp blob does
+   * not linger in Storage. The server detects `req.signal.aborted` and
+   * skips the Photoroom call.
+   */
+  signal?: AbortSignal;
 };
 
 export type RequestObjectEnhancementResult = {
@@ -101,18 +118,31 @@ export async function requestObjectEnhancement(
   if (!accessToken) {
     throw new EnhancementError("not_authorized", "missing_session", 401);
   }
-  const res = await fetch("/api/image-enhance/object", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      inputStoragePath: params.inputStoragePath,
-      exhibitionId: params.exhibitionId ?? null,
-      mode: params.mode ?? "object",
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/image-enhance/object", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        inputStoragePath: params.inputStoragePath,
+        exhibitionId: params.exhibitionId ?? null,
+        mode: params.mode ?? "object",
+      }),
+      signal: params.signal,
+    });
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === "AbortError") {
+      // Client aborted — best-effort staging cleanup so the temp blob
+      // doesn't linger. Fire-and-forget; the caller is responsible for
+      // updating UI state around the abort.
+      void cleanupStagingPath(params.inputStoragePath);
+      throw new EnhancementError("error", "aborted", 499);
+    }
+    throw err;
+  }
   const contentType = res.headers.get("content-type") ?? "";
   const bodyJson: unknown = contentType.includes("application/json")
     ? await res.json().catch(() => null)

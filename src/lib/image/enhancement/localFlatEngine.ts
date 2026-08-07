@@ -32,8 +32,18 @@
  * `sourceCorners` describes a non-axis-aligned quadrilateral.
  */
 
-import type { FlatRecipe, NormalizedPoint } from "./types";
+import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
+import { applyAwb, estimateAwb } from "./awb";
+import {
+  homographyForCorners,
+  warpPerspectiveNearest,
+} from "./homography";
+import {
+  resolveProLookConfig,
+  runProLook,
+  type ProLookTimings,
+} from "./proLook";
 
 export type RunFlatInput = {
   file: File;
@@ -55,6 +65,32 @@ export type RunFlatInput = {
   /** Maximum output long edge in px. Defaults to 4096 to align with
    *  the compression pipeline. */
   maxLongEdge?: number;
+  /**
+   * Pro-look pipeline flags (2026-08-06). When present, the engine
+   * runs the AWB + adaptive-exposure + saturation + micro-unsharp +
+   * warm-bias stages after the classic tone step. Optional CLAHE is
+   * skipped on high-contrast sources. Set `{ enabled: false }` (or
+   * omit) to preserve v1 behavior.
+   */
+  proLook?: ProLookRecipe & { enabled?: boolean };
+  /**
+   * Enable wall-aware AWB. When the analyzer supplied a rectangle
+   * with high confidence, callers pass that rect + its confidence
+   * so we can sample only the wall region. Setting `enabled: false`
+   * or omitting the field entirely skips AWB (v1 behavior).
+   */
+  awb?: {
+    enabled: boolean;
+    rectangle?: { x: number; y: number; w: number; h: number } | null;
+    rectangleConfidence?: number;
+  };
+  /**
+   * Cancel the pipeline at the next stage boundary. When aborted, the
+   * result carries `stageError: "aborted"` and `blob: null`. The
+   * caller MUST treat this as "no output produced" — never wrap the
+   * original bytes in the WebP wrapper.
+   */
+  signal?: AbortSignal;
 };
 
 export type RunFlatResult = {
@@ -82,23 +118,90 @@ export type RunFlatResult = {
    * metering (`.failed` reason) and to explain the fallback to the
    * user. Absent on the happy path.
    */
-  stageError?: "no_canvas_api" | "decode_failed" | "encode_failed";
+  stageError?: "no_canvas_api" | "decode_failed" | "encode_failed" | "aborted";
   /**
    * Per-stage wall-clock timings (ms). Fields land in the metering
    * `.completed` metadata so we can watch mobile-Safari regressions
    * without extra RUM plumbing. All numbers are >= 0 and rounded.
+   *
+   * 2026-08-06 additions: `warpMs`, `awbMs`, and `proLook*` when the
+   * matching stage ran. `proLook*` fields are `null` when disabled.
    */
   stageTimings: {
     decodeMs: number;
     toneMs: number;
     sharpenMs: number;
     encodeMs: number;
+    warpMs?: number;
+    awbMs?: number;
+    proLookExposureMs?: number;
+    proLookClaheMs?: number;
+    proLookSatMs?: number;
+    proLookSharpenMs?: number;
+    proLookWarmthMs?: number;
   };
+  /**
+   * When the AWB stage ran, the computed multipliers. Persisted into
+   * `FlatRecipe.awb` so the recipe can be replayed byte-identically.
+   */
+  awb?: AwbRecipe;
 };
 
 const DEFAULT_MAX_LONG_EDGE = 4096;
 const DEFAULT_BEZEL = 0.02;
 const DEFAULT_SHARPEN = 0.35;
+
+/**
+ * Map corners from full-image normalized space into the crop's local
+ * normalized space (0..1 relative to the crop rect). Returns null when
+ * any corner falls outside the crop rect.
+ */
+function mapCornersIntoCrop(
+  corners: [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint],
+  crop: { x: number; y: number; w: number; h: number },
+): [[number, number], [number, number], [number, number], [number, number]] | null {
+  const out: [number, number][] = [];
+  for (const [x, y] of corners) {
+    const lx = (x - crop.x) / crop.w;
+    const ly = (y - crop.y) / crop.h;
+    out.push([Math.min(1, Math.max(0, lx)), Math.min(1, Math.max(0, ly))]);
+  }
+  return out as [
+    [number, number],
+    [number, number],
+    [number, number],
+    [number, number],
+  ];
+}
+
+/**
+ * Heuristic: does this quadrilateral warrant an actual perspective
+ * warp? Skip when the corners are ≤ 2px off the axis-aligned rectangle
+ * — the compressor's implicit letterbox already handles that case, and
+ * running a full warp on a straight rect is wasteful.
+ */
+function cornersLookQuadrilateral(
+  corners: [[number, number], [number, number], [number, number], [number, number]],
+  outW: number,
+  outH: number,
+): boolean {
+  const targets: [[number, number], [number, number], [number, number], [number, number]] = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  const tolPx = 2 / Math.min(outW, outH);
+  for (let i = 0; i < 4; i += 1) {
+    if (
+      Math.abs(corners[i][0] - targets[i][0]) > tolPx ||
+      Math.abs(corners[i][1] - targets[i][1]) > tolPx
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -308,14 +411,37 @@ export async function runFlatEnhancement(
   };
   const cropNormalized = normalizeCropFromCorners(input.sourceCorners, input.crop);
 
+  const proLookEnabled = input.proLook?.enabled === true;
+  const proLookConfig = resolveProLookConfig(input.proLook);
+  const awbEnabled = input.awb?.enabled === true;
+  let awbRecipe: AwbRecipe | undefined;
+
   const buildRecipe = (): FlatRecipe => ({
     sourceCorners: input.sourceCorners ?? null,
     tone: { b: round3(tone.b), c: round3(tone.c), s: round3(tone.s) },
     sharpen: round3(sharpen),
     bezel: round3(bezel),
+    ...(awbRecipe ? { awb: awbRecipe } : {}),
+    ...(proLookEnabled
+      ? {
+          proLook: {
+            exposureLumaTarget: proLookConfig.exposureLumaTarget,
+            claheEnabled: proLookConfig.claheEnabled,
+            claheClipLimit: proLookConfig.claheClipLimit,
+            claheTiles: proLookConfig.claheTiles,
+            satBoost: proLookConfig.satBoost,
+            warmthBias: proLookConfig.warmthBias,
+          },
+        }
+      : {}),
   });
 
-  const stageTimings = { decodeMs: 0, toneMs: 0, sharpenMs: 0, encodeMs: 0 };
+  const stageTimings: RunFlatResult["stageTimings"] = {
+    decodeMs: 0,
+    toneMs: 0,
+    sharpenMs: 0,
+    encodeMs: 0,
+  };
 
   const bail = (
     stageError: NonNullable<RunFlatResult["stageError"]>,
@@ -326,7 +452,13 @@ export async function runFlatEnhancement(
     confidence: 0,
     stageError,
     stageTimings,
+    ...(awbRecipe ? { awb: awbRecipe } : {}),
   });
+
+  const signal = input.signal;
+  const isAborted = () => signal?.aborted === true;
+
+  if (isAborted()) return bail("aborted");
 
   if (typeof createImageBitmap === "undefined") {
     return bail("no_canvas_api");
@@ -363,6 +495,8 @@ export async function runFlatEnhancement(
   const outW = Math.max(1, Math.round(cropPxW * scale));
   const outH = Math.max(1, Math.round(cropPxH * scale));
 
+  if (isAborted()) return bail("aborted");
+
   let canvas: HTMLCanvasElement | OffscreenCanvas;
   let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   try {
@@ -386,19 +520,95 @@ export async function runFlatEnhancement(
     return bail("decode_failed");
   }
 
+  // Homography warp — only when the caller supplied 4 corners that
+  // describe a non-axis-aligned quadrilateral inside the crop rect.
+  // The crop above already trimmed the frame; corners are re-mapped
+  // into the crop's local pixel space so warping stays lossless.
+  const cornersInCrop: [[number, number], [number, number], [number, number], [number, number]] | null =
+    input.sourceCorners
+      ? mapCornersIntoCrop(input.sourceCorners, cropNormalized)
+      : null;
+  const needsWarp = cornersInCrop
+    ? cornersLookQuadrilateral(cornersInCrop, outW, outH)
+    : false;
+  if (needsWarp && cornersInCrop) {
+    try {
+      const twarp = performance.now();
+      const srcData = ctx.getImageData(0, 0, outW, outH);
+      const pxCorners: [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+      ] = [
+        [cornersInCrop[0][0] * outW, cornersInCrop[0][1] * outH],
+        [cornersInCrop[1][0] * outW, cornersInCrop[1][1] * outH],
+        [cornersInCrop[2][0] * outW, cornersInCrop[2][1] * outH],
+        [cornersInCrop[3][0] * outW, cornersInCrop[3][1] * outH],
+      ];
+      const H = homographyForCorners(pxCorners, outW, outH);
+      if (H) {
+        const warped = warpPerspectiveNearest(srcData, H, outW, outH);
+        if (warped) ctx.putImageData(warped, 0, 0);
+      }
+      stageTimings.warpMs = Math.max(0, Math.round(performance.now() - twarp));
+    } catch {
+      // Warp is best-effort — if the solve is singular fall back to
+      // the crop-only pipeline. Never fail the whole enhancement.
+    }
+  }
+
+  if (isAborted()) return bail("aborted");
+
   let processed: ImageData;
   try {
+    // AWB (2026-08-06). Runs before tone so tone/sat operate on a
+    // neutral base. Uses a 256-long-edge downsample of the current
+    // canvas — cheap and stable across the ImageData sizes we handle.
+    if (awbEnabled) {
+      const tawb = performance.now();
+      const sample = ctx.getImageData(0, 0, outW, outH);
+      awbRecipe = estimateAwb({
+        data: sample.data,
+        width: outW,
+        height: outH,
+        rectangle: input.awb?.rectangle ?? null,
+        rectangleConfidence: input.awb?.rectangleConfidence,
+      });
+      applyAwb(sample.data, awbRecipe);
+      ctx.putImageData(sample, 0, 0);
+      stageTimings.awbMs = Math.max(0, Math.round(performance.now() - tawb));
+    }
+
     const t0 = performance.now();
     const src = ctx.getImageData(0, 0, outW, outH);
     processed = applyTone(src, tone);
     stageTimings.toneMs = Math.max(0, Math.round(performance.now() - t0));
-    const t1 = performance.now();
-    applyUnsharp(processed, sharpen);
-    stageTimings.sharpenMs = Math.max(0, Math.round(performance.now() - t1));
+
+    // Pro-look pipeline (2026-08-06). Runs after classic tone so the
+    // recipe's b/c/s intent is preserved; proLook then does the
+    // "make it feel professional" nudges (adaptive exposure, CLAHE,
+    // perceptual sat, halo-safe sharpen, warm bias).
+    if (proLookEnabled) {
+      const proTimings: ProLookTimings = runProLook(processed, proLookConfig);
+      stageTimings.proLookExposureMs = proTimings.exposureMs;
+      stageTimings.proLookClaheMs = proTimings.claheMs;
+      stageTimings.proLookSatMs = proTimings.satMs;
+      stageTimings.proLookSharpenMs = proTimings.sharpenMs;
+      stageTimings.proLookWarmthMs = proTimings.warmthMs;
+      // proLook.microUnsharp already applied its own halo-safe unsharp.
+      // Skip the aggressive kernel below to avoid double-processing.
+    } else {
+      const t1 = performance.now();
+      applyUnsharp(processed, sharpen);
+      stageTimings.sharpenMs = Math.max(0, Math.round(performance.now() - t1));
+    }
     ctx.putImageData(processed, 0, 0);
   } catch {
     return bail("decode_failed");
   }
+
+  if (isAborted()) return bail("aborted");
 
   // Bezel — draw the processed canvas onto a slightly larger white
   // canvas so the resulting artwork sits on a clean flat mat.
@@ -427,6 +637,7 @@ export async function runFlatEnhancement(
       confidence: 0,
       stageError: "encode_failed",
       stageTimings,
+      ...(awbRecipe ? { awb: awbRecipe } : {}),
     };
   }
   return {
@@ -435,6 +646,7 @@ export async function runFlatEnhancement(
     latencyMs: latency,
     confidence: 1,
     stageTimings,
+    ...(awbRecipe ? { awb: awbRecipe } : {}),
   };
 }
 

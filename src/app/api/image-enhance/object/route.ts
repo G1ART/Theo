@@ -161,11 +161,16 @@ class HandlerError extends Error {
   }
 }
 
-async function callPhotoroom(input: Blob, filename: string): Promise<Blob> {
+async function callPhotoroom(input: Blob, filename: string, upstreamSignal?: AbortSignal): Promise<Blob> {
   const apiKey = process.env.PHOTOROOM_API_KEY;
   if (!apiKey) throw new HandlerError("provider_unauthorized", "no_api_key");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const onUpstreamAbort = () => controller.abort();
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) controller.abort();
+    else upstreamSignal.addEventListener("abort", onUpstreamAbort, { once: true });
+  }
   try {
     const form = new FormData();
     form.append("image_file", input, filename);
@@ -202,6 +207,7 @@ async function callPhotoroom(input: Blob, filename: string): Promise<Blob> {
     throw new HandlerError("error", "provider_fetch_failed");
   } finally {
     clearTimeout(timeout);
+    if (upstreamSignal) upstreamSignal.removeEventListener("abort", onUpstreamAbort);
   }
 }
 
@@ -377,12 +383,22 @@ export async function POST(req: Request): Promise<NextResponse> {
     const inputBytes = new Uint8Array(await inputBlob.arrayBuffer());
     const sourceHash = await sha256Hex(inputBytes);
 
+    // Client-abort short-circuit (2026-08-06). If the caller aborted
+    // while we were fetching the staging bytes, skip Photoroom and
+    // clean up. Also propagate the request signal into `callPhotoroom`
+    // so the outbound provider fetch itself is cancellable.
+    if (req.signal?.aborted) {
+      await supabase.storage.from(STORAGE_BUCKET).remove([inputPath]).catch(() => undefined);
+      return degradedResponse("error", { reason: "aborted" });
+    }
+
     const photoroomStartedAt = Date.now();
     let subjectBlob: Blob;
     try {
       subjectBlob = await callPhotoroom(
         new Blob([inputBytes], { type: mime }),
         derivedOutputName(inputPath.split("/").pop() ?? "input"),
+        req.signal,
       );
     } catch (err) {
       const reason = err instanceof HandlerError ? err.reason : "error";

@@ -31,6 +31,20 @@ import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
 import BeforeAfterCompare from "@/components/upload/BeforeAfterCompare";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
+import {
+  formatCaptureDevice,
+  isLowLightExif,
+  readExif,
+  type ExifReadResult,
+} from "@/lib/image/exifRead";
+
+/**
+ * Capture-mode chip (2026-08-06). Pre-seeds the enhance pipeline so
+ * scanner captures skip perspective correction, studio captures use a
+ * lighter tone, and phone hand-held captures run the full pro-look
+ * pipeline.
+ */
+type CaptureMode = "auto" | "studio" | "phone" | "scanner";
 
 /**
  * Enhancement preview state — held by `ImageStandardizeEditor` while
@@ -548,6 +562,27 @@ export function ImageStandardizeEditor({
   const [enhanceRunning, setEnhanceRunning] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhancePreviewUrlRef = useRef<string | null>(null);
+  // 2026-08-06 — EXIF capture provenance + low-light warning. Reads
+  // parse client-side once per file. NEVER returns GPS (see exifRead).
+  const [exif, setExif] = useState<ExifReadResult | null>(null);
+  useEffect(() => {
+    let alive = true;
+    readExif(file).then((res) => {
+      if (alive) setExif(res);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [file]);
+  const lowLight = exif ? isLowLightExif(exif) : false;
+  const captureDeviceLabel = exif ? formatCaptureDevice(exif) : null;
+  // Capture mode — auto-seeds off phone-shot detection when the EXIF
+  // is confident. User can override.
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
+  // Pro-look toggle — default on when the analyzer picked flat OR the
+  // user selected phone hand-held mode.
+  const [proLookOn, setProLookOn] = useState<boolean>(true);
+  const proLookEnabled = captureMode === "scanner" ? false : proLookOn;
 
   useEffect(() => {
     return () => {
@@ -616,11 +651,45 @@ export function ImageStandardizeEditor({
       const seedCrop =
         crop ?? analysis?.suggestedCrop ?? { x: 0, y: 0, w: 1, h: 1 };
       const suggestion = analysis?.suggested ?? null;
+      // Capture-mode presets — the scanner path disables perspective +
+      // AWB; studio uses lighter tone; phone hand-held is the full
+      // pipeline (matches proLookOn default).
+      const isScanner = captureMode === "scanner";
+      const wantsAwb = !isScanner;
+      const wantsProLook = proLookEnabled;
+      // Homography wiring is delivered as a library API in this patch —
+      // the interactive corner picker UI ships in a follow-up. When
+      // the recipe carries `sourceCorners` (from a persisted row), the
+      // engine warps automatically. See homography.ts.
       const result = await runFlatEnhancement({
         file,
         crop: seedCrop,
         tone: suggestion
-          ? { b: suggestion.b, c: suggestion.c, s: suggestion.s }
+          ? {
+              b:
+                captureMode === "studio"
+                  ? 1 + ((suggestion.b ?? 1) - 1) * 0.5
+                  : suggestion.b,
+              c:
+                captureMode === "studio"
+                  ? 1 + ((suggestion.c ?? 1) - 1) * 0.5
+                  : suggestion.c,
+              s:
+                captureMode === "studio"
+                  ? 1 + ((suggestion.s ?? 1) - 1) * 0.5
+                  : suggestion.s,
+            }
+          : undefined,
+        proLook: wantsProLook ? { enabled: true } : undefined,
+        awb: wantsAwb
+          ? {
+              enabled: true,
+              rectangle:
+                analysis?.rectangleConfidence && analysis.rectangleConfidence >= 0.55
+                  ? seedCrop
+                  : null,
+              rectangleConfidence: analysis?.rectangleConfidence ?? 0,
+            }
           : undefined,
       });
       // A null blob means the canvas pipeline couldn't produce output
@@ -647,6 +716,11 @@ export function ImageStandardizeEditor({
       }
       const displayFile = flatBlobToFile(file.name, result.blob);
       const sourceHash = await computeFileSha256(file);
+      // Capture provenance — falls back to lastModified when EXIF is
+      // absent (PNG/HEIC/WebP inputs).
+      const capturedAtIso =
+        exif?.dateTimeOriginal ?? new Date(file.lastModified).toISOString();
+      const captureDevice = exif ? formatCaptureDevice(exif) : null;
       const meta: EnhancementMeta = {
         provider: "local_opencv",
         mode: enhanceMode,
@@ -657,8 +731,10 @@ export function ImageStandardizeEditor({
         latencyMs: result.latencyMs,
         versions: {
           schema: ENHANCEMENT_META_SCHEMA_VERSION,
-          engine: "local_canvas_v1",
+          engine: proLookEnabled ? "local_canvas_pro_v2" : "local_canvas_v1",
         },
+        capturedAtIso,
+        captureDevice,
       };
       if (enhancePreviewUrlRef.current) {
         try {
@@ -713,6 +789,9 @@ export function ImageStandardizeEditor({
     analysis?.suggestedCrop,
     analysis?.suggested,
     analysis?.rectangleConfidence,
+    captureMode,
+    exif,
+    proLookEnabled,
   ]);
 
   const handleEnhanceApprove = useCallback(() => {
@@ -888,6 +967,64 @@ export function ImageStandardizeEditor({
           {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
               {t("upload.imageEnhance.reshootAdvisory")}
+            </p>
+          )}
+
+          {/* Low-light warning (2026-08-06). Driven by EXIF ExposureTime
+              > 1/60 && ISO > 800. Never based on GPS. */}
+          {lowLight && (
+            <p
+              className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+              title={t("upload.imageEnhance.lowLightAdvisory")}
+            >
+              <span className="rounded-full bg-amber-200 px-2 py-0.5 text-amber-900">
+                {t("upload.imageEnhance.lowLight")}
+              </span>
+              <span>{t("upload.imageEnhance.lowLightAdvisory")}</span>
+            </p>
+          )}
+
+          {/* Capture-mode chip */}
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="text-zinc-500">
+              {t("upload.imageEnhance.captureMode.label")}
+            </span>
+            {(["auto", "studio", "phone", "scanner"] as CaptureMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setCaptureMode(m)}
+                className={`rounded-full border px-2.5 py-1 ${
+                  captureMode === m
+                    ? "border-zinc-900 bg-zinc-900 text-white"
+                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                }`}
+                title={t("upload.imageEnhance.captureMode.hint")}
+              >
+                {t(`upload.imageEnhance.captureMode.${m}`)}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setProLookOn((v) => !v)}
+              className={`ml-auto rounded-full border px-2.5 py-1 ${
+                proLookEnabled
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                  : "border-zinc-300 text-zinc-600 hover:bg-zinc-50"
+              }`}
+              title={t("upload.imageEnhance.proLook.hint")}
+              disabled={captureMode === "scanner"}
+            >
+              {proLookEnabled
+                ? t("upload.imageEnhance.proLook.on")
+                : t("upload.imageEnhance.proLook.off")}
+            </button>
+          </div>
+
+          {/* Capture-device provenance line (compact). Never shows GPS. */}
+          {captureDeviceLabel && (
+            <p className="text-[10px] text-zinc-500">
+              {t("upload.imageEnhance.captureDeviceLabel")}: {captureDeviceLabel}
             </p>
           )}
 

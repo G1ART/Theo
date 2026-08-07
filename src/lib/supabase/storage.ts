@@ -3,6 +3,7 @@ import { compressArtworkImage } from "@/lib/image/compress";
 import { renderPdfFirstPageAsWebp } from "@/lib/pdf/renderThumbnail";
 import type { EnhancementMeta } from "@/lib/image/enhancement/types";
 import { scrubJpegGps } from "@/lib/image/exifScrub";
+import { scrubHeicGps } from "@/lib/image/heicExifScrub";
 
 /**
  * Best-effort GPS scrub of the untouched original before it lands in
@@ -16,9 +17,21 @@ import { scrubJpegGps } from "@/lib/image/exifScrub";
  * the backup slot.
  */
 async function stripPrivacyExifForBackup(file: File): Promise<File> {
+  // JPEG first — cheap fast-path that covers ~90 % of phone captures.
   try {
-    const res = await scrubJpegGps(file);
-    return res.file;
+    const jpegRes = await scrubJpegGps(file);
+    if (jpegRes.scrubbed) return jpegRes.file;
+  } catch {
+    // Fall through to HEIC path.
+  }
+  // HEIC / HEIF (iPhone default). ISO-BMFF walker locates the embedded
+  // Exif item and zeroes the GPS IFD entry, same neutralize approach
+  // as JPEG. Detection is dual (mime + ftyp brand) so a mislabeled
+  // `.jpg` HEIC also gets covered when the JPEG scrubber returned
+  // `skippedReason: "not_jpeg"` above.
+  try {
+    const heicRes = await scrubHeicGps(file);
+    return heicRes.file;
   } catch {
     return file;
   }

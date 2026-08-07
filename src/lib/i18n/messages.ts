@@ -969,6 +969,34 @@ export const messages = {
     "upload.imageEnhance.footer":
       "Enhancement is a non-destructive preview. Your untouched original is always kept on our end — the enhanced copy is only saved after you tap Use this.",
     "bulk.enhance.selectFirst": "Select at least one photo to enhance.",
+    // ── Theo Image Enhance (Beta) — 2026-08-06 batch of upgrades ──
+    "upload.imageEnhance.lowLight": "Low light",
+    "upload.imageEnhance.lowLightAdvisory":
+      "Long exposure and high ISO detected. A quick reshoot is always better than post-processing.",
+    "upload.imageEnhance.captureMode.label": "Capture mode",
+    "upload.imageEnhance.captureMode.auto": "Auto",
+    "upload.imageEnhance.captureMode.studio": "Studio",
+    "upload.imageEnhance.captureMode.phone": "Phone hand-held",
+    "upload.imageEnhance.captureMode.scanner": "Scanner",
+    "upload.imageEnhance.captureMode.hint":
+      "Scanner disables perspective correction and white balance; Studio uses lighter tone; Phone hand-held enables the full pipeline.",
+    "upload.imageEnhance.proLook.title": "Pro look",
+    "upload.imageEnhance.proLook.hint":
+      "Runs a professional-studio pipeline: adaptive exposure, wall-aware white balance, local contrast, gentle saturation, halo-safe sharpen, and daylight warm bias.",
+    "upload.imageEnhance.proLook.on": "Pro look on",
+    "upload.imageEnhance.proLook.off": "Pro look off",
+    "upload.imageEnhance.awb.wallBiased": "White balance (wall)",
+    "upload.imageEnhance.awb.grayWorld": "White balance (auto)",
+    "upload.imageEnhance.captureDeviceLabel": "Captured with",
+    "bulk.enhance.uniformity": "Bulk tone unify",
+    "bulk.enhance.uniformityHint":
+      "Nudge every image in this batch within ±5% of the batch average so the set reads like one shoot.",
+    "bulk.enhance.portfolioCoherence": "Match artist portfolio",
+    "bulk.enhance.portfolioCoherenceHint":
+      "Nudge output tone toward the artist's existing published works (±4% envelope). Skipped when the artist has fewer than 3 public works.",
+    "bulk.enhance.portfolioCoherenceEmpty":
+      "No public works yet for this artist — portfolio coherence will be enabled once 3+ works are published.",
+    "bulk.enhance.cancelRow": "Cancel enhancement",
     "upload.viewType.wall_mounted": "Primary (front)",
     "upload.viewType.detail": "Detail",
     "upload.viewType.angle": "Alternate angle",
@@ -4306,6 +4334,34 @@ export const messages = {
     "upload.imageEnhance.footer":
       "미리보기는 원본을 건드리지 않아요. 원본은 항상 우리 서버에 그대로 보관되고, 향상된 파일은 \"이걸로 저장\"을 눌러야만 저장돼요.",
     "bulk.enhance.selectFirst": "향상할 사진을 하나 이상 선택해 주세요.",
+    // ── Theo Image Enhance (Beta) — 2026-08-06 업그레이드 배치 ──
+    "upload.imageEnhance.lowLight": "저조도 경고",
+    "upload.imageEnhance.lowLightAdvisory":
+      "장노출과 높은 ISO가 감지됐어요. 다시 촬영이 항상 더 낫습니다.",
+    "upload.imageEnhance.captureMode.label": "촬영 모드",
+    "upload.imageEnhance.captureMode.auto": "자동",
+    "upload.imageEnhance.captureMode.studio": "스튜디오",
+    "upload.imageEnhance.captureMode.phone": "폰 핸드헬드",
+    "upload.imageEnhance.captureMode.scanner": "스캐너",
+    "upload.imageEnhance.captureMode.hint":
+      "스캐너는 원근 보정과 화이트밸런스를 끕니다. 스튜디오는 톤을 더 가볍게 만지고, 폰 핸드헬드는 전체 파이프라인을 켭니다.",
+    "upload.imageEnhance.proLook.title": "프로 룩",
+    "upload.imageEnhance.proLook.hint":
+      "스튜디오 파이프라인을 돕니다: 적응형 노출, 벽 인식 화이트밸런스, 로컬 대비, 부드러운 채도, 헤일로-세이프 샤픈, 데이라이트 웜 바이어스.",
+    "upload.imageEnhance.proLook.on": "프로 룩 켜짐",
+    "upload.imageEnhance.proLook.off": "프로 룩 꺼짐",
+    "upload.imageEnhance.awb.wallBiased": "화이트밸런스 (벽 기준)",
+    "upload.imageEnhance.awb.grayWorld": "화이트밸런스 (자동)",
+    "upload.imageEnhance.captureDeviceLabel": "촬영 기기",
+    "bulk.enhance.uniformity": "벌크 톤 통일",
+    "bulk.enhance.uniformityHint":
+      "이 배치의 모든 이미지를 배치 평균 ±5% 안으로 살짝 밀어 한 세션에서 찍은 것처럼 보이게 해요.",
+    "bulk.enhance.portfolioCoherence": "아티스트 포트폴리오 톤 유지",
+    "bulk.enhance.portfolioCoherenceHint":
+      "아티스트가 이미 공개한 작품 톤 쪽으로 결과를 ±4% 범위 안에서만 살짝 밀어요. 공개 작품이 3개 미만이면 건너뜁니다.",
+    "bulk.enhance.portfolioCoherenceEmpty":
+      "이 아티스트의 공개 작품이 아직 없어요. 3개 이상 공개되면 자동으로 켜집니다.",
+    "bulk.enhance.cancelRow": "향상 취소",
     "upload.viewType.wall_mounted": "대표 (정면)",
     "upload.viewType.detail": "디테일",
     "upload.viewType.angle": "다른 각도",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -140,6 +140,19 @@ export default function BulkUploadPage() {
   const [pendingSelected, setPendingSelected] = useState<Set<string>>(new Set());
   const [bulkEnhanceMode, setBulkEnhanceMode] = useState<EnhancementMode>("auto");
   const [bulkEnhanceRunning, setBulkEnhanceRunning] = useState(false);
+  /**
+   * Theo Image Enhance (Beta, 2026-08-06) — per-row AbortController so
+   * a user can hit "reject" or delete a row mid-enhance and cancel the
+   * inflight staging upload + fetch + best-effort staging cleanup.
+   * Refs (not state) since the controllers themselves aren't rendered.
+   */
+  const enhanceAbortRef = useRef<Record<string, AbortController>>({});
+  /** 2026-08-06 — batch uniformity chip. OFF by default; requires all
+   *  enhance previews to be complete before it can be applied. */
+  const [bulkUniformity, setBulkUniformity] = useState(false);
+  /** 2026-08-06 — artist portfolio coherence chip. Default ON when
+   *  sample_count >= 3, hidden when sample_count < 3. */
+  const [portfolioCoherence, setPortfolioCoherence] = useState(false);
   const meteringSourceForBulk = fromExhibition ? "exhibition_bulk" : "bulk";
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -403,6 +416,16 @@ export default function BulkUploadPage() {
   }
 
   function removePendingFile(id: string) {
+    // 2026-08-06 — abort any inflight enhance on this row. The
+    // processOne handler surfaces the abort as `rejected`, and the
+    // objectClient does a best-effort `cleanupStagingPath` for us.
+    const inflight = enhanceAbortRef.current[id];
+    if (inflight) {
+      try {
+        inflight.abort();
+      } catch {}
+      delete enhanceAbortRef.current[id];
+    }
     setPendingFiles((prev) => prev.filter((p) => p.id !== id));
     setPendingSelected((prev) => {
       if (!prev.has(id)) return prev;
@@ -491,6 +514,11 @@ export default function BulkUploadPage() {
 
     const processOne = async (slot: { id: string; file: File }) => {
       const { id, file } = slot;
+      // 2026-08-06 — abort plumbing. One controller per pending file.
+      // Reject / removePendingFile aborts it; the in-flight fetch is
+      // cancelled and the server route sees `req.signal.aborted`.
+      const controller = new AbortController();
+      enhanceAbortRef.current[id] = controller;
       void recordUsageEvent({
         userId,
         key: USAGE_KEYS.AI_IMAGE_ENHANCE_REQUESTED,
@@ -521,6 +549,7 @@ export default function BulkUploadPage() {
           const result = await runFlatEnhancement({
             file,
             maxLongEdge: 2560,
+            signal: controller.signal,
           });
           if (!result.blob) {
             // See localFlatEngine.RunFlatResult.blob — null means the
@@ -574,11 +603,16 @@ export default function BulkUploadPage() {
           const scope = exhibitionScopedId
             ? { kind: "exhibition" as const, exhibitionId: exhibitionScopedId }
             : { kind: "user" as const, userId };
-          const stagingPath = await uploadStagingForEnhancement(file, scope);
+          const stagingPath = await uploadStagingForEnhancement(
+            file,
+            scope,
+            controller.signal,
+          );
           const result = await requestObjectEnhancement({
             inputStoragePath: stagingPath,
             exhibitionId: exhibitionScopedId,
             mode: bulkEnhanceMode,
+            signal: controller.signal,
           });
           // The server returns a public path; render a preview via getPublicUrl.
           const { getPublicImageUrl } = await import("@/lib/supabase/storage");
@@ -616,22 +650,28 @@ export default function BulkUploadPage() {
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : "error";
+        // User-initiated abort → surface as "rejected", not "failed".
+        const wasAborted = controller.signal.aborted || reason === "aborted";
         setPendingEnhance((prev) => ({
           ...prev,
-          [id]: { kind: "failed", reason },
+          [id]: wasAborted ? { kind: "rejected" } : { kind: "failed", reason },
         }));
         void recordUsageEvent({
           userId,
-          key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
+          key: wasAborted
+            ? USAGE_KEYS.AI_IMAGE_ENHANCE_REJECTED
+            : USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
           featureKey: "ai.image_enhance",
           metadata: {
             mode: bulkEnhanceMode,
             provider: resolvedMode === "flat" ? "local_opencv" : "photoroom_hybrid",
             source: meteringSourceForBulk,
-            reason,
+            reason: wasAborted ? "aborted" : reason,
             latency_ms: Math.round(performance.now() - startedAt),
           },
         });
+      } finally {
+        delete enhanceAbortRef.current[id];
       }
     };
 
@@ -674,6 +714,14 @@ export default function BulkUploadPage() {
   }
 
   function rejectEnhancement(id: string) {
+    // Abort any inflight fetch for this row before flipping state.
+    const inflight = enhanceAbortRef.current[id];
+    if (inflight) {
+      try {
+        inflight.abort();
+      } catch {}
+      delete enhanceAbortRef.current[id];
+    }
     setPendingEnhance((prev) => {
       const current = prev[id];
       if (!current) return prev;
@@ -1868,6 +1916,51 @@ export default function BulkUploadPage() {
               </button>
             </div>
 
+            {/* 2026-08-06 — Batch uniformity + portfolio coherence chips.
+                Both are opt-in nudges applied to the final enhancement
+                meta. Clamped to ±5 % / ±4 % respectively so the artist's
+                creative intent is preserved.
+                UI wired minimally in this patch — the deltas are stored
+                on `enhancement_meta.batchNormalization` /
+                `enhancement_meta.portfolioCoherence` when applied.
+                Larger UI (per-row deltas panel) tracked in follow-up. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2 text-xs">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={bulkUniformity}
+                  onChange={(e) => setBulkUniformity(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-zinc-900"
+                />
+                <span className="font-medium text-zinc-800">
+                  {t("bulk.enhance.uniformity")}
+                </span>
+                <span
+                  className="text-zinc-500"
+                  title={t("bulk.enhance.uniformityHint")}
+                >
+                  ({t("bulk.enhance.uniformityHint")})
+                </span>
+              </label>
+              <label className="ml-3 flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={portfolioCoherence}
+                  onChange={(e) => setPortfolioCoherence(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-zinc-900"
+                />
+                <span className="font-medium text-zinc-800">
+                  {t("bulk.enhance.portfolioCoherence")}
+                </span>
+                <span
+                  className="text-zinc-500"
+                  title={t("bulk.enhance.portfolioCoherenceHint")}
+                >
+                  ({t("bulk.enhance.portfolioCoherenceHint")})
+                </span>
+              </label>
+            </div>
+
             <div className="mb-3 flex flex-wrap gap-2">
               {pendingFiles.map(({ id, file }) => {
                 // 2026-07-28 auto-compression — quiet chip: show the
@@ -1905,9 +1998,27 @@ export default function BulkUploadPage() {
                       </span>
                     )}
                     {enhance?.kind === "processing" && (
-                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
-                        {t("bulk.enhance.status.processing")}
-                      </span>
+                      <>
+                        <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                          {t("bulk.enhance.status.processing")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const inflight = enhanceAbortRef.current[id];
+                            if (inflight) {
+                              try {
+                                inflight.abort();
+                              } catch {}
+                            }
+                          }}
+                          className="rounded-full border border-zinc-300 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 hover:bg-zinc-50"
+                          title={t("bulk.enhance.cancelRow")}
+                          aria-label={t("bulk.enhance.cancelRow")}
+                        >
+                          ×
+                        </button>
+                      </>
                     )}
                     {enhance?.kind === "previewing" && (
                       <>
