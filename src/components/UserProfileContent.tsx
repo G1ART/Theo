@@ -50,6 +50,7 @@ import { Chip, EmptyState, LaneChips, PageShell, type LaneOption } from "@/compo
 import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
 import { ProfileCoverBand } from "@/components/profile/ProfileCoverBand";
 import { ProfileInlineCards } from "@/components/profile/ProfileInlineCards";
+import { InlineAuthGate } from "@/components/auth/InlineAuthGate";
 import { isArtistRole } from "@/lib/identity/roles";
 import { BilingualContextualNudge } from "@/components/bilingual/BilingualContextualNudge";
 
@@ -103,6 +104,9 @@ export function UserProfileContent({
   const [showUpdatedBanner, setShowUpdatedBanner] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
+  // "Session resolved" latch so the anonymous Statement/CV gate never
+  // flashes for a signed-in viewer during the initial client session read.
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [active, setActive] = useState<ActiveStudioTab>({ kind: "persona", tab: "all" });
   const [localArtworks, setLocalArtworks] = useState<ArtworkWithLikes[]>(artworks);
@@ -212,6 +216,7 @@ export function UserProfileContent({
     getSession().then(({ data: { session } }) => {
       const uid = session?.user?.id;
       setViewerId(uid ?? null);
+      setSessionChecked(true);
       if (uid) {
         resolveOwner(uid);
         return;
@@ -711,6 +716,22 @@ export function UserProfileContent({
           artist-only, and both are suppressed when the visitor picks
           the Collector role tab. */}
       {roleTab === "artist" && isArtistRole({ main_role: profile.main_role ?? null, roles }) && (
+        sessionChecked && !viewerId ? (
+          // Feed-first cold front door: anonymous visitors see the public
+          // profile (name, avatar, bio, works grid) but the deeper
+          // Statement / CV section is replaced by the "Join now to explore
+          // more" inline gate (wireframe image 2). Returning members reach
+          // it via the gate's Log in link; the full section renders
+          // unchanged for signed-in viewers below.
+          <section className="mb-6">
+            <InlineAuthGate
+              variant="card"
+              title={t("authGate.profile.title")}
+              description={t("authGate.profile.description")}
+              nextPath={pathname}
+            />
+          </section>
+        ) : (
         <>
           <ProfileInlineCards
             statement={pickLocalizedStatement(profile, locale) || null}
@@ -748,6 +769,7 @@ export function UserProfileContent({
             />
           </div>
         </>
+        )
       )}
 
       {isOwner && (

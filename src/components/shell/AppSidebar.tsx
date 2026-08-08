@@ -18,6 +18,7 @@ import {
 } from "@/lib/supabase/delegations";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
+import { onboardingUrlWithNext } from "@/lib/identity/routing";
 
 /**
  * Desktop-only left navigation for the Theo AppShell (Aug-2026 redesign).
@@ -62,6 +63,13 @@ type NavItem = {
   match: (p: string) => boolean;
   /** Optional numeric badge (e.g. delegation pending count). */
   badge?: number;
+  /**
+   * True when the destination is publicly browsable with no session
+   * (e.g. Explore/feed). Anonymous visitors follow these links as-is;
+   * account-gated rows instead route through the sign-up gate with the
+   * destination preserved as `next` (see `renderNavRow`).
+   */
+  pub?: boolean;
 };
 
 export function AppSidebar({
@@ -174,6 +182,7 @@ export function AppSidebar({
       key: "nav.explore",
       href: "/feed?tab=all&sort=latest",
       match: (p) => p.startsWith("/feed"),
+      pub: true,
     },
     {
       key: "nav.messages",
@@ -223,10 +232,18 @@ export function AppSidebar({
 
   function renderNavRow(item: NavItem) {
     const active = item.match(pathname);
+    // Feed-first cold front door: anonymous visitors follow public rows
+    // (Explore) directly, but account-gated rows route to sign-up with
+    // the destination preserved as `next` so tapping never dead-ends on
+    // a bare /login bounce that loses where they were headed.
+    const href =
+      loggedIn || item.pub
+        ? item.href
+        : onboardingUrlWithNext({ nextPath: item.href });
     return (
       <Link
         key={item.key}
-        href={item.href}
+        href={href}
         className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[15px] transition-colors ${
           active
             ? `font-bold text-zinc-900 ${activeAccent}`
@@ -279,22 +296,35 @@ export function AppSidebar({
       </div>
 
       <div className="mt-auto flex flex-col gap-1">
-        {/* Secondary nav — spacer then Notifications / Setting / Delegations. */}
-        <button
-          type="button"
-          onClick={onOpenNotifications}
-          className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-left text-[15px] text-zinc-600 transition-colors hover:text-zinc-900`}
-          aria-haspopup="dialog"
-        >
-          <span>{t("nav.notifications")}</span>
-          {unread > 0 && (
-            <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-              {unread > 99 ? "99+" : unread}
-            </span>
-          )}
-        </button>
+        {/* Secondary nav — spacer then Notifications / Setting / Delegations.
+            Notifications opens the drawer for members; anonymous visitors
+            get a gated row that routes to sign-up (the drawer needs a
+            session to fetch anything). Delegations is a deep account
+            feature, so it is hidden entirely for anonymous visitors. */}
+        {loggedIn ? (
+          <button
+            type="button"
+            onClick={onOpenNotifications}
+            className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-left text-[15px] text-zinc-600 transition-colors hover:text-zinc-900`}
+            aria-haspopup="dialog"
+          >
+            <span>{t("nav.notifications")}</span>
+            {unread > 0 && (
+              <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
+          </button>
+        ) : (
+          <Link
+            href={onboardingUrlWithNext({ nextPath: "/notifications" })}
+            className="relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[15px] text-zinc-600 transition-colors hover:text-zinc-900"
+          >
+            <span>{t("nav.notifications")}</span>
+          </Link>
+        )}
         {renderNavRow(settingsItem)}
-        {renderNavRow(delegationsItem)}
+        {loggedIn && renderNavRow(delegationsItem)}
 
         <div className="mt-2 flex items-center gap-3 pl-3 text-xs text-zinc-400">
           <button
@@ -420,9 +450,24 @@ export function AppSidebar({
             </button>
           </div>
         ) : (
-          <Link href="/login" className="pl-3 text-zinc-600 hover:text-zinc-900">
-            {t("nav.login")}
-          </Link>
+          // Anonymous — single prominent "시작하기 / 로그인" CTA replacing
+          // the whole Switch Account / Log out block. Sign-up primary
+          // (cold-visitor convention), login secondary for returning
+          // members. Both preserve the current location as `next`.
+          <div className="mt-3 flex flex-col gap-2 pl-3 pr-2">
+            <Link
+              href={onboardingUrlWithNext({ nextPath: pathname || null })}
+              className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+            >
+              {t("nav.getStarted")}
+            </Link>
+            <Link
+              href="/login"
+              className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            >
+              {t("nav.login")}
+            </Link>
+          </div>
         )}
       </div>
     </nav>

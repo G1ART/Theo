@@ -27,6 +27,20 @@ export const messages = {
     // Secondary affordance shown under the Switch Account self-row —
     // the wireframe's sanctioned public-profile entry point.
     "nav.viewMyPublicProfile": "View my public profile",
+    // Feed-first cold front door (2026-08-07) — anonymous app-shell CTA
+    // and the reusable inline auth gate ("Join now to explore more").
+    "nav.getStarted": "Get started",
+    "authGate.title": "Join now to explore more",
+    "authGate.description":
+      "Sign up to view full profiles, save works, follow artists, and send inquiries.",
+    "authGate.artwork.title": "Join now to explore more",
+    "authGate.artwork.description":
+      "Sign up to like and save this work, follow the artist, and ask about price and availability.",
+    "authGate.profile.title": "Join now to explore more",
+    "authGate.profile.description":
+      "Sign up to read the full statement and CV, and to connect with this artist.",
+    "authGate.primaryCta": "Get started",
+    "authGate.secondaryCta": "Log in",
     "shell.searchPlaceholder": "Search",
     "shell.searchSubmit": "Search",
     "shell.newsTitle": "Theo News",
@@ -3399,6 +3413,18 @@ export const messages = {
     "nav.saved": "저장",
     "nav.delegations": "위임",
     "nav.viewMyPublicProfile": "내 공개 프로필 보기",
+    "nav.getStarted": "시작하기",
+    "authGate.title": "더 둘러보려면 지금 가입하세요",
+    "authGate.description":
+      "가입하면 전체 프로필 보기, 작품 저장, 작가 팔로우, 문의 보내기를 이용할 수 있어요.",
+    "authGate.artwork.title": "더 둘러보려면 지금 가입하세요",
+    "authGate.artwork.description":
+      "가입하면 이 작품을 좋아요·저장하고, 작가를 팔로우하고, 가격과 판매 여부를 문의할 수 있어요.",
+    "authGate.profile.title": "더 둘러보려면 지금 가입하세요",
+    "authGate.profile.description":
+      "가입하면 전체 소개글과 CV를 보고, 이 작가와 연결될 수 있어요.",
+    "authGate.primaryCta": "시작하기",
+    "authGate.secondaryCta": "로그인",
     "shell.searchPlaceholder": "검색",
     "shell.searchSubmit": "검색",
     "shell.newsTitle": "Theo News",

@@ -50,6 +50,20 @@ export function loginUrlWithNext(opts?: RouteOpts): string {
   return `${LOGIN_PATH}?next=${encodeURIComponent(safe)}`;
 }
 
+/**
+ * Build the sign-up (onboarding) path for a cold visitor, preserving
+ * `next`. Companion to `loginUrlWithNext` — the platform's cold-visitor
+ * convention is sign-up-first, so gated actions on public surfaces
+ * (inline auth gate, account-only nav rows) route here with the current
+ * location as `next` so the user round-trips back after joining. `next`
+ * is always run through `safeNextPath` to prevent open redirects.
+ */
+export function onboardingUrlWithNext(opts?: RouteOpts): string {
+  const safe = safeNextPath(opts?.nextPath);
+  if (!safe) return ONBOARDING_PATH;
+  return `${ONBOARDING_PATH}?next=${encodeURIComponent(safe)}`;
+}
+
 export type RouteDecision = { to: string };
 
 /**

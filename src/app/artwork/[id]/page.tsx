@@ -70,6 +70,7 @@ import { useActingAs } from "@/context/ActingAsContext";
 import { ArtworkPassportHeader } from "@/components/artwork/ArtworkPassportHeader";
 import { ArtworkImageStage } from "@/components/artwork/ArtworkImageStage";
 import { GatedField } from "@/components/visibility/GatedField";
+import { InlineAuthGate } from "@/components/auth/InlineAuthGate";
 import { BilingualContextualNudge } from "@/components/bilingual/BilingualContextualNudge";
 import {
   getArtworkPassportForViewer,
@@ -108,6 +109,10 @@ function ArtworkDetailContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  // Distinguishes "session not yet resolved" from "confirmed anonymous"
+  // so the anonymous inline auth gate never flashes for a signed-in
+  // viewer during the initial client session read.
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [liked, setLiked] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -332,6 +337,7 @@ function ArtworkDetailContent() {
   useEffect(() => {
     getSession().then(({ data: { session } }) => {
       setUserId(session?.user?.id ?? null);
+      setSessionChecked(true);
     });
   }, []);
 
@@ -1230,6 +1236,21 @@ function ArtworkDetailContent() {
                 </button>
               )}
             </div>
+            {/* Feed-first cold front door: anonymous visitors see the image
+                + public metadata above, then this inline gate consolidates
+                the deeper actions (save/board, follow the artist, price &
+                availability inquiry) behind sign-up. `sessionChecked`
+                prevents a gate flash for signed-in viewers. */}
+            {sessionChecked && !userId && (
+              <div className="mt-4">
+                <InlineAuthGate
+                  variant="card"
+                  title={t("authGate.artwork.title")}
+                  description={t("authGate.artwork.description")}
+                  nextPath={`/artwork/${artwork.id}`}
+                />
+              </div>
+            )}
             {showProvenance && (
               <div className="mt-4">
                 <ArtworkProvenanceBlock artwork={artwork} viewerId={userId} variant="full" />

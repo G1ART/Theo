@@ -20,8 +20,10 @@
 //   5. `/invites/delegation` preserves `next` on its signup link so
 //      invite flows round-trip through identity-finish cleanly.
 //   6. Front-door IA (Finalization patch):
-//        a. `/` sends non-members to `/onboarding`, not `/login`. The
-//           signup-first path must be the only public entry.
+//        a. `/` sends anonymous visitors to the PUBLIC feed
+//           (DEFAULT_DESTINATION), NOT to `/login`. As of 2026-08-07 the
+//           cold front door is feed-first: browsing is the landing
+//           experience and auth is surfaced by deeper gated actions.
 //        b. `/login` is login-first: no email-link form is rendered
 //           unconditionally, and no user-facing string contains the
 //           old "매직" / "magic link" terminology.
@@ -182,21 +184,30 @@ function fail(msg) {
   }
 }
 
-// --- Invariant 6a: `/` sends non-members to /onboarding (signup-first) --
+// --- Invariant 6a: `/` sends anonymous visitors to the public feed ------
 {
   const path = join(repoRoot, "src/app/page.tsx");
   const body = read(path);
-  // The no-session branch must redirect to the signup surface. If
-  // anyone flips this back to `/login` (or imports `LOGIN_PATH`
-  // alongside `router.replace`), the front door has regressed.
-  if (!/ONBOARDING_PATH/.test(body) || !/router\.replace\(\s*ONBOARDING_PATH\s*\)/.test(body)) {
+  // Feed-first cold front door (2026-08-07): the no-session branch must
+  // redirect to the PUBLIC feed (DEFAULT_DESTINATION). If anyone flips
+  // this to `/login` OR back to the old `/onboarding` wall, the
+  // browse-first front door has regressed.
+  if (
+    !/DEFAULT_DESTINATION/.test(body) ||
+    !/router\.replace\(\s*DEFAULT_DESTINATION\s*\)/.test(body)
+  ) {
     fail(
-      `[front-door] src/app/page.tsx must redirect non-members to /onboarding via ONBOARDING_PATH (signup-first entry)`,
+      `[front-door] src/app/page.tsx must redirect anonymous visitors to the public feed via DEFAULT_DESTINATION (feed-first entry)`,
     );
   }
   if (/router\.replace\(\s*LOGIN_PATH\s*\)/.test(body)) {
     fail(
-      `[front-door] src/app/page.tsx must not redirect non-members to LOGIN_PATH — use ONBOARDING_PATH instead`,
+      `[front-door] src/app/page.tsx must not redirect anonymous visitors to LOGIN_PATH — use DEFAULT_DESTINATION (public feed)`,
+    );
+  }
+  if (/router\.replace\(\s*ONBOARDING_PATH\s*\)/.test(body)) {
+    fail(
+      `[front-door] src/app/page.tsx must not wall anonymous visitors behind ONBOARDING_PATH — the feed is the public landing`,
     );
   }
 }

@@ -1,6 +1,75 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-06
+Last updated: 2026-08-07
+
+## 2026-08-07 (2) — Feed-first cold front door + reusable inline auth gate
+
+### 배경 / 목표
+익명(로그아웃) 방문자가 로그인 벽(`Theo 로그인` 화면)에 막히지 않고
+**피드를 그대로 둘러보는 것**을 랜딩 경험으로 삼도록 변경. 로그인/회원가입은
+더 깊은 액션(작품 상세의 가격·문의·좋아요·저장, 작가 Statement/CV, 팔로우,
+개인화 "For you" 탭 등)을 시도할 때 **자연스럽게** inline 카드
+("더 둘러보려면 지금 가입하세요 / 로그인", 와이어프레임 image 2)로 노출.
+
+### 변경 요약
+- **A. Front door (`src/app/page.tsx`)** — 세션이 없을 때
+  `router.replace(ONBOARDING_PATH)` → `router.replace(DEFAULT_DESTINATION)`
+  (공개 피드 `/feed?tab=all&sort=latest`). 로그인된 라우팅
+  (`routeByAuthState`)은 그대로. REVOCABLE DECISION 주석을 "feed-first"로
+  갱신.
+- **B. 라우팅 헬퍼 (`src/lib/identity/routing.ts`)** — `loginUrlWithNext`
+  의 짝인 `onboardingUrlWithNext({ nextPath })` 추가. `next`는 항상
+  `safeNextPath`를 통과(open-redirect 방지). 신규 로직 중복 없이 재사용.
+- **C. 재사용 inline 게이트 (`src/components/auth/InlineAuthGate.tsx`)** —
+  `{ title?, description?, nextPath?, variant?: "card" | "inline" | "overlay" }`.
+  Primary "시작하기/회원가입" → `onboardingUrlWithNext`, secondary "로그인"
+  → `loginUrlWithNext`. 전부 i18n (en+ko). 와이어프레임의 subtle bordered
+  card 룩.
+- **D. App shell 익명 대응 (`src/components/shell/AppSidebar.tsx`)** —
+  Explore(공개)는 그대로, 계정 전용 nav(Messages/Workspace/Saved/Upload/
+  Setting/Notifications)는 익명일 때 `onboardingUrlWithNext(next=대상)`로
+  라우트(무음 실패/404 없음). Delegations는 익명에서 숨김. 하단
+  Switch Account/Log out 블록은 익명일 때 단일 "시작하기 / 로그인" CTA로
+  대체. RightRail(`MyConnectionRail`)은 이미 세션 없을 때 빈 상태로
+  degrade — 크래시 없음.
+- **E. Artwork 상세 (`src/app/artwork/[id]/page.tsx`)** — 익명도 이미지 +
+  기본 메타(제목/작가/연도/매체)를 봄(공개 passport RPC가 published 작품을
+  익명에게 반환, price/availability/description은 서버에서 redact). 좋아요/
+  저장/문의/팔로우는 기존대로 게이트(LikeButton은 "가입하고 좋아요"). 추가로
+  `sessionChecked && !userId`일 때 InlineAuthGate 카드를 상호작용 행 아래에
+  노출. **RLS 변경 불필요** (기존 `get_artwork_passport_for_viewer`가
+  익명 published 접근 이미 지원).
+- **F. Artist 프로필 (`src/components/UserProfileContent.tsx`)** — 익명은
+  공개 프로필(이름/아바타/bio/공개 작품 그리드)을 봄. Statement/CV 섹션은
+  익명일 때 InlineAuthGate("Join now to explore more")로 대체. 로그인
+  사용자는 완전히 동일. 비공개 프로필은 기존 `PrivateProfileShell` 유지.
+- **G. Smoke test (`tests/onboarding-smoke.mjs`)** — Invariant 6a를
+  "`/`는 익명 방문자를 공개 피드(DEFAULT_DESTINATION)로 보낸다"로 재작성.
+  `LOGIN_PATH`/`ONBOARDING_PATH` 리다이렉트는 회귀로 fail.
+
+### No-regression sweep
+- `/e/[id]` 전시 상세 — 이미 공개, 익명 degrade OK(저장 버튼만 게이트). 변경 없음.
+- `/people` (사람 디렉토리 + 검색) — `AuthGate`로 계속 보호. 네트워킹/디렉토리
+  성격의 계정 surface라 의도적으로 게이트 유지(공개 discovery 대상 아님).
+- `next` 왕복: 모든 게이트가 `onboardingUrlWithNext`/`loginUrlWithNext`로
+  현재 위치를 `next`에 실어 인증 후 복귀.
+
+### Supabase SQL
+- **없음.** 새/수정 마이그레이션 없음 — 순수 client/routing 변경. 기존
+  `get_artwork_passport_for_viewer`(SECURITY DEFINER)가 이미 익명 published
+  작품을 반환하므로 RLS 변경 불필요.
+
+### 환경 변수
+- **추가/변경 없음.**
+
+### Verified
+- `npx tsc --noEmit` 통과.
+- `npm run build` 통과 (exit 0).
+- `node tests/onboarding-smoke.mjs` — "all invariants hold".
+- `npm run lint` — 신규 lint 문제 0. 남은 error/warning은 모두 기존 repo
+  baseline(set-state-in-effect / no-explicit-any 등)으로 이번 변경과 무관.
+
+---
 
 ## 2026-08-06 (2) — Theo Image Enhance (Beta) — "프로 룩" 파이프라인 + 프라이버시 강화
 
