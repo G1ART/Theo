@@ -57,7 +57,9 @@
     "test:image-enhance-exif-read": "tsx src/lib/image/enhancement/__tests__/exifRead.test.ts",
     "test:image-enhance-heic-scrub": "tsx src/lib/image/enhancement/__tests__/heicExifScrub.test.ts",
     "test:image-enhance-portfolio-coherence": "tsx src/lib/image/enhancement/__tests__/portfolioCoherence.test.ts",
-    "test:image-enhance-batch-uniformity": "tsx src/lib/image/enhancement/__tests__/batchUniformity.test.ts"
+    "test:image-enhance-batch-uniformity": "tsx src/lib/image/enhancement/__tests__/batchUniformity.test.ts",
+    "test:image-enhance-corner-picker": "tsx src/lib/image/enhancement/__tests__/cornerPickerGeometry.test.ts",
+    "test:image-enhance-glare-regions": "tsx src/lib/image/enhancement/__tests__/glareRegions.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

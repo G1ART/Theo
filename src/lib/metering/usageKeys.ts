@@ -34,6 +34,18 @@ export const USAGE_KEYS = {
    * upload surface (single / bulk / exhibition_single / exhibition_bulk).
    */
   AI_IMAGE_ENHANCE_REQUESTED: "ai.image_enhance.requested",
+  /**
+   * Fires when the enhancement pipeline (local flat OR photoroom hybrid)
+   * produced a *preview* the user is looking at. Reserve `.completed`
+   * for the moment an approved enhancement lands in the *published*
+   * artwork_images row.
+   *
+   * Historical note (2026-08-07): before this batch `.completed` fired
+   * at preview time. Data migration for archival clarity is optional —
+   * dashboards should treat any pre-2026-08-07 `.completed` events as
+   * `.previewed`.
+   */
+  AI_IMAGE_ENHANCE_PREVIEWED: "ai.image_enhance.previewed",
   AI_IMAGE_ENHANCE_COMPLETED: "ai.image_enhance.completed",
   AI_IMAGE_ENHANCE_ACCEPTED: "ai.image_enhance.accepted",
   AI_IMAGE_ENHANCE_REJECTED: "ai.image_enhance.rejected",

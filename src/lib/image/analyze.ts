@@ -16,6 +16,10 @@ import type {
   DisplayCrop,
 } from "@/lib/image/displayAdjust";
 import { normalizeDisplayAdjust } from "@/lib/image/displayAdjust";
+import {
+  extractGlareRegions,
+  type GlareRegion,
+} from "@/lib/image/enhancement/glareRegions";
 
 /** Downscaled sample size (px on the longest side). 256 is more than
  *  enough for stable histogram/edge estimation and keeps analysis under
@@ -101,6 +105,14 @@ export type ImageAnalysis = {
   rectangleConfidence: number;
   blurScore: number;
   glareScore: number;
+  /**
+   * Theo Image Enhance (2026-08-07) — bounding boxes of the largest
+   * saturated-highlight patches, in normalized [0,1] coordinates,
+   * sorted by area descending. Capped at 5 regions to keep the
+   * overlay legible. Empty when glareScore is under threshold. See
+   * `glareRegions.ts` for the extraction contract.
+   */
+  glareRegions: GlareRegion[];
   /**
    * Auto mode suggestion for the enhancement panel. `flat` when the
    * detector is confident the frame is a rectangle (paintings, works
@@ -473,6 +485,12 @@ export function analyzeImageElement(
   const blurScore = computeBlurScore(imageData.data, w, h);
   const glareScore = computeGlareScore(imageData.data);
   const rectangleConfidence = computeRectangleConfidence(imageData.data, w, h);
+  // Only pay the connected-component cost when the scalar hint says we
+  // might have something to highlight — the extractor short-circuits
+  // fast on a fully-under-threshold image but this saves the outer
+  // allocation on the common "nothing to see here" path.
+  const glareRegions: GlareRegion[] =
+    glareScore > 0.02 ? extractGlareRegions(imageData.data, w, h) : [];
   // Decisive thresholds are chosen conservatively — we only report a
   // definitive `flat` when the rectangle signal is strong AND the image
   // isn't a small crop where noise dominates.
@@ -489,6 +507,7 @@ export function analyzeImageElement(
     blurScore,
     glareScore,
     rectangleConfidence,
+    glareRegions,
     mode,
   };
 }

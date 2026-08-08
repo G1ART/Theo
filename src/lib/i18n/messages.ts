@@ -955,6 +955,10 @@ export const messages = {
       "Couldn't read this image for enhancement.",
     "upload.imageEnhance.error.error": "Enhancement failed. Please try again.",
     "upload.imageEnhance.error.network": "Network error while enhancing.",
+    "upload.imageEnhance.error.not_authorized":
+      "You're not signed in. Sign in and try enhancing again.",
+    "upload.imageEnhance.error.storage_error":
+      "The storage backend couldn't hold the temp file. Try again in a moment.",
     "upload.imageEnhance.tablist": "Image editor",
     "upload.imageEnhance.tabQuick": "Quick adjust",
     "upload.imageEnhance.tabEnhance": "Theo Enhance",
@@ -1011,6 +1015,21 @@ export const messages = {
     "bulk.enhance.portfolioCoherenceEmpty":
       "No public works yet for this artist — portfolio coherence will be enabled once 3+ works are published.",
     "bulk.enhance.cancelRow": "Cancel enhancement",
+    "bulk.enhance.uniformityApplied": "Batch tones unified.",
+    "enhance.portfolioCoherenceApplied": "Matched to the artist's portfolio.",
+    "upload.imageEnhance.perspective.toggle": "Perspective correction",
+    "upload.imageEnhance.perspective.hint":
+      "Drag the four corners over the artwork's edges to straighten. Arrow keys nudge 1 px, Shift+arrow nudges 10 px.",
+    "upload.imageEnhance.perspective.cornerLabel": "Corner {corner}",
+    "upload.imageEnhance.perspective.reset": "Auto-detect again",
+    "upload.imageEnhance.perspective.cancel": "Cancel",
+    "upload.imageEnhance.perspective.confirm": "Apply corners",
+    "upload.imageEnhance.perspective.applied": "Corners applied",
+    "upload.imageEnhance.glareOverlay.toggle": "Show glare hotspots",
+    "upload.imageEnhance.glareOverlay.hint":
+      "Highlight the blown-out patches so you can decide whether to re-shoot from a slight angle.",
+    "upload.imageEnhance.glareOverlay.reshootHint":
+      "Re-shoot these areas from a slight angle if possible.",
     "upload.viewType.wall_mounted": "Primary (front)",
     "upload.viewType.detail": "Detail",
     "upload.viewType.angle": "Alternate angle",
@@ -4332,6 +4351,10 @@ export const messages = {
       "이미지를 읽지 못했어요. 다시 시도해 주세요.",
     "upload.imageEnhance.error.error": "향상에 실패했어요. 잠시 뒤 다시 시도해 주세요.",
     "upload.imageEnhance.error.network": "네트워크 오류가 발생했어요.",
+    "upload.imageEnhance.error.not_authorized":
+      "로그인 세션이 만료됐어요. 다시 로그인한 뒤 향상을 시도해 주세요.",
+    "upload.imageEnhance.error.storage_error":
+      "임시 파일을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
     "upload.imageEnhance.tablist": "이미지 편집",
     "upload.imageEnhance.tabQuick": "빠른 조정",
     "upload.imageEnhance.tabEnhance": "Theo 향상",
@@ -4388,6 +4411,21 @@ export const messages = {
     "bulk.enhance.portfolioCoherenceEmpty":
       "이 아티스트의 공개 작품이 아직 없어요. 3개 이상 공개되면 자동으로 켜집니다.",
     "bulk.enhance.cancelRow": "향상 취소",
+    "bulk.enhance.uniformityApplied": "벌크 톤을 통일했어요",
+    "enhance.portfolioCoherenceApplied": "포트폴리오 톤을 이어갔어요",
+    "upload.imageEnhance.perspective.toggle": "원근 보정",
+    "upload.imageEnhance.perspective.hint":
+      "네 모서리를 작품 경계에 맞춰 드래그해 반듯하게 잡아요. 화살표 키는 1px, Shift+화살표는 10px 씩 움직여요.",
+    "upload.imageEnhance.perspective.cornerLabel": "{corner} 모서리",
+    "upload.imageEnhance.perspective.reset": "자동 감지로 되돌리기",
+    "upload.imageEnhance.perspective.cancel": "취소",
+    "upload.imageEnhance.perspective.confirm": "코너 적용",
+    "upload.imageEnhance.perspective.applied": "코너 적용됨",
+    "upload.imageEnhance.glareOverlay.toggle": "글레어 위치",
+    "upload.imageEnhance.glareOverlay.hint":
+      "반사광이 심한 영역을 붉은 사각형으로 표시해요. 살짝 각도를 틀어 재촬영해 보세요.",
+    "upload.imageEnhance.glareOverlay.reshootHint":
+      "이 영역을 다시 촬영하세요",
     "upload.viewType.wall_mounted": "대표 (정면)",
     "upload.viewType.detail": "디테일",
     "upload.viewType.angle": "다른 각도",

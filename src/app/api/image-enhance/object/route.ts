@@ -481,7 +481,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     void recordUsageEvent(
       {
         userId: user.id,
-        key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+        // 2026-08-07 semantic split — this route builds a *preview*;
+        // `.completed` is reserved for the moment an approved
+        // enhancement lands in a published artwork_images row. Fired
+        // as `.previewed` here so dashboards can distinguish "the
+        // pipeline ran" from "the user actually shipped it".
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
         featureKey: "ai.image_enhance",
         metadata: {
           mode: modeForMetering,

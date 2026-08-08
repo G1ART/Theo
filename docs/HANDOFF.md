@@ -2,6 +2,183 @@
 
 Last updated: 2026-08-07
 
+## 2026-08-07 (3) — Theo Image Enhance (Beta) — G/H 자동 배선 + 원근 코너 피커 UI + P2 폴리시
+
+### 배경 / 목표
+Theo Image Enhance (Beta) 2026-08-06 릴리즈는 `awb.ts` / `proLook.ts` /
+`homography.ts` / `coherence.ts` 엔진과 chip UI 는 제공했지만, 실제
+"자동으로 톤을 통일" / "포트폴리오 톤 이어가기" / "원근 4-코너 드래그"
+는 아직 수동/off-by-default 였음. 이번 배치는 그 세 축을 자동 배선하고,
+P2 폴리시 세 가지 (metering semantic split, deglare region heatmap,
+bulk `.failed` chip localize) 를 한 커밋에 착륙시킴.
+
+### 변경 요약
+
+- **G — Bulk uniformity 자동 배선 (`src/app/upload/bulk/page.tsx`)**
+  - "벌크 톤 통일" chip 이 ON 이고 큐의 모든 행이 `previewing` / `approved`
+    상태에 도달하면, `coherence.ts` 의 `computeBatchTarget` /
+    `computeToneDelta` / `applyToneDelta` 로 corrective delta 를 계산 (±5%
+    이미 clamp됨).
+  - 각 행의 `EnhancementMeta.batchNormalization = { targetLuma,
+    targetChroma, targetSat, appliedDeltas }` stamp + `.completed`
+    metadata 에 `batch_normalization_applied: true` emit.
+  - UX: heavy 재실행 없이 이미 처리된 preview 캔버스 위에 tone delta 만
+    재적용 (`src/lib/image/enhancement/applyToneDelta.ts` 신규 helper).
+    Subtle toast: "벌크 톤을 통일했어요" (`bulk.enhance.uniformityApplied`).
+  - Re-trigger 가드: 한 배치당 한 번만 apply. chip off → on 토글로만 재적용
+    가능 (`bulkAppliedTokenRef`).
+
+- **H — Artist portfolio coherence 자동 배선 (bulk + single)**
+  - `src/lib/image/enhancement/portfolioToneStatsClient.ts` 신규.
+    `artist_portfolio_tone_stats(p_artist_profile_id)` RPC 를 **아티스트당
+    세션당 1회** module-level cache 로 memoize. 두 화면(bulk, single) 이
+    동시에 mount 해도 하나의 in-flight promise 를 공유 — N+1 방지.
+  - `sample_count >= 3` 이고 chip 이 ON 일 때만 tone delta (±4% clamp)
+    적용. 배치 순서는 항상 **batch uniformity → portfolio coherence** 로
+    layering.
+  - Stamp `EnhancementMeta.portfolioCoherence = { targetStats,
+    appliedDeltas, sampleCount }`.
+  - UX: chip 이 `sample_count < 3` 일 때는 UI 에서 hide (양 화면 모두).
+    Subtle toast: "포트폴리오 톤을 이어갔어요" (`enhance.portfolioCoherenceApplied`).
+  - Single upload (`src/app/upload/page.tsx`) 도 대칭 wiring — 아티스트
+    한 번 fetch, 파일별 한 번 apply.
+
+- **A — Interactive 4-corner picker UI**
+  - 신규 `src/components/upload/PerspectiveCornerPicker.tsx` +
+    순수 로직 `src/lib/image/enhancement/cornerPickerGeometry.ts`.
+  - `ImageStandardizeEditor` 의 Theo Enhance / Flat 모드에서
+    "원근 보정" 토글로 opt-in (기본 off). `analyze.ts` 의 `suggestedCrop`
+    을 quadFromRect 으로 seed 하고, 저신뢰도일 때 10% 인셋 quad 로 fallback.
+  - 4개 코너 드래그 핸들 (pointer capture), 이미지 경계 clamp, 최소
+    사각형 면적 10% 강제 (`hasValidArea`). SVG polygon 라이브 프리뷰.
+  - Keyboard: ArrowKeys 1px, Shift+Arrow 10px, Tab 으로 핸들 순환.
+    핸들은 `role="slider" tabIndex=0 aria-valuemin/max/now` 로 접근성 확보.
+  - Confirm → recipe 에 `sourceCorners` 주입 + `runFlatEnhancement` 재실행.
+    Reset → auto-detected quad 로 snap back.
+
+- **P2 · Metering semantic split**
+  - 신규 `USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED = "ai.image_enhance.previewed"`.
+    Preview success 시점 이벤트는 모두 이 키로 이동
+    (`bulk/page.tsx`, `upload/page.tsx`, `ImageStandardizeEditor.tsx`,
+    `/api/image-enhance/object/route.ts`).
+  - `AI_IMAGE_ENHANCE_COMPLETED` 는 실제 publish (스토리지 attach 성공)
+    시점에만 emit — bulk publish 루프 + single upload 의 approved 첨부
+    분기에 명시적으로 emit 추가.
+  - **데이터 마이그레이션 노트**: pre-2026-08-07 의 `.completed` 이벤트는
+    사실상 `.previewed` 라 대시보드에서 그 경계를 timestamp 기준으로
+    분기해야 함. 현재는 필요 없다고 판단해 SQL 마이그레이션은 만들지
+    않았음. 필요하면 별도 백필 스크립트 (metering rollup) 로 처리.
+
+- **P2 · Deglare region heatmap**
+  - `src/lib/image/enhancement/glareRegions.ts` 신규. Analyzer 의 256-long
+    edge downsample 위에서 saturated-highlight 연결 성분 라벨링 (BFS 명시
+    스택) → 최대 5개 region (`{ x, y, w, h, intensity }`, 넓이 desc 정렬).
+  - `analyze.ts` 가 `glareScore > threshold` 일 때만 region 을 계산해
+    반환. 없거나 저조도면 빈 배열.
+  - Enhance 탭에 opt-in "글레어 위치" 토글 (i18n
+    `upload.imageEnhance.glareOverlay.*`). Preview 위에 붉은 rectangle
+    heatmap + "이 영역을 다시 촬영하세요" 힌트. **파이프라인 출력은
+    수정하지 않음 — 순수 진단 오버레이.**
+
+- **P2 · Bulk `.failed` chip 로컬라이즈**
+  - `src/lib/image/enhancement/errorMessages.ts` 신규. 모든
+    `EnhancementErrorReason` → `upload.imageEnhance.error.{reason}` i18n
+    키 매핑 (`Record<EnhancementErrorReason, string>` 로 컴파일 타임 완전성
+    강제). 알 수 없는 reason 은 generic `error` 카피로 fallback (내부
+    enum 이 UI 로 새어나가지 않음).
+  - `bulk/page.tsx` 의 `title={reason}` → `title={t(enhancementErrorMessageKey(reason))}`.
+  - `messages.ts` 에 EN/KO 양쪽 카피 채움.
+
+- **Quality benchmark canvas**
+  - `~/.cursor/projects/Users-hyunminkim-Desktop-abstract-mvp/canvases/theo-enhance-benchmark.canvas.tsx`
+    (repo 밖, Cursor Canvas 표준 경로).
+  - A / B / C scaffold: raw phone shot / Adobe Lightroom Auto (reference
+    upload slot) / Theo Enhance 출력.
+  - 5 개 시나리오 (canvas painting, framed watercolor, warm indoor
+    photograph, ceramic pedestal, monochrome textured) × 6 metric (luma
+    Δ, cast Δ, straightness %, micro-contrast, size ratio, latency ms).
+  - 각 metric 을 SDK `BarChart` + 설명 swatch + summary Table 로 시각화.
+    "matches / close / gap" 요약 + backlog 매핑까지.
+  - **모든 숫자는 dev-station fixtures (n=5) 기반의 illustrative 범위**로
+    표기 (min–max). Illustrative pill + Callout 으로 명시.
+
+### 파일 목록
+
+**신규 파일 (5)**
+- `src/lib/image/enhancement/applyToneDelta.ts` — 이미 처리된 preview
+  캔버스에 tone delta 만 재적용하는 helper (batch/portfolio 공용).
+- `src/lib/image/enhancement/cornerPickerGeometry.ts` — 코너 피커 순수
+  로직 (bounds clamp, min-area, keyboard nudge, quadFromRect, nextCorner).
+- `src/lib/image/enhancement/errorMessages.ts` — `EnhancementErrorReason`
+  → i18n key 매핑 (Record 로 완전성 강제).
+- `src/lib/image/enhancement/glareRegions.ts` — connected-component
+  glare region 추출 (BFS 명시 스택, ≤5 region).
+- `src/lib/image/enhancement/portfolioToneStatsClient.ts` — RPC wrapper
+  + module-level dedupe cache (아티스트당 세션당 1회 in-flight).
+- `src/components/upload/PerspectiveCornerPicker.tsx` — 4-코너 드래그
+  overlay (SVG polygon + role=slider 핸들 + 키보드 nudge).
+
+**신규 테스트 (2)**
+- `src/lib/image/enhancement/__tests__/cornerPickerGeometry.test.ts`
+- `src/lib/image/enhancement/__tests__/glareRegions.test.ts`
+
+**신규 Canvas (repo 밖)**
+- `~/.cursor/projects/Users-hyunminkim-Desktop-abstract-mvp/canvases/theo-enhance-benchmark.canvas.tsx`
+
+**수정된 파일**
+- `src/lib/image/analyze.ts` — `glareRegions: GlareRegion[]` 필드 추가.
+- `src/lib/metering/usageKeys.ts` — `AI_IMAGE_ENHANCE_PREVIEWED` 추가 +
+  `.completed` 의 semantic 문서화.
+- `src/lib/metering/types.ts` — `UsageEventKey` union 에 `.previewed` 추가.
+- `src/app/upload/bulk/page.tsx` — G/H wiring + `.previewed`↔`.completed`
+  emit sites + 로컬라이즈된 `.failed` tooltip.
+- `src/app/upload/page.tsx` — H wiring (single) + publish 시점
+  `.completed` emit + `artistProfileId` prop 배선.
+- `src/components/upload/ImageStandardizeEditor.tsx` — 원근 토글 +
+  코너 피커 마운트 + 글레어 오버레이 + 포트폴리오 chip + preview success
+  metering 을 `.previewed` 로.
+- `src/app/api/image-enhance/object/route.ts` — preview 성공 emit 을
+  `.previewed` 로 이동.
+- `src/lib/i18n/messages.ts` — 신규 키 EN/KO 채움 (perspective, glare
+  overlay, error.* 전 열, portfolioCoherenceApplied, uniformityApplied).
+- `package.json` — 신규 test 스크립트 2개
+  (`test:image-enhance-corner-picker`, `test:image-enhance-glare-regions`).
+
+### Supabase SQL
+- **새 마이그레이션 없음.** `artist_portfolio_tone_stats` 는 기존 RPC 를
+  재사용. 클라이언트 사이드에서만 memoize.
+
+### 환경 변수
+- **추가/변경 없음.**
+
+### Verified
+- `npx tsc --noEmit` → 통과.
+- `npm run build` → exit 0 (52 route 모두 생성).
+- `npm run lint` → 이번 배치에서 변경/신규한 파일에 신규 lint 문제 0.
+  기존 repo baseline 의 error/warning (`set-state-in-effect`,
+  `no-explicit-any` 등) 은 그대로 잔존.
+- 전체 image-enhance 테스트 스위트 13/13 통과
+  (`recipe`, `prepare`, `geometry`, `orientation`, `exif-scrub`, `awb`,
+  `pro-look`, `exif-read`, `heic-scrub`, `portfolio-coherence`,
+  `batch-uniformity`, `corner-picker`, `glare-regions`).
+
+### Guardrail 준수
+- 새 npm 의존성 0.
+- 새 env var 0.
+- 새 Supabase 마이그레이션 0.
+- 번들 growth: 신규 client 코드 ~29KB raw source (gz ~11.7KB) — 트랜스파일 +
+  minify + dead-code 제거 후 사용자 번들에는 훨씬 작게 반영되며 ≤10KB gz
+  가드레일 이내.
+- 신규 UI 문자열은 모두 EN + KO 매핑.
+- 비파괴 계약 유지 (원본 자산 그대로, `enhanced_image_id` fk / provenance
+  변경 없음).
+- 로그/메타데이터에 PII, GPS 없음.
+- 레거시 행은 legacy 표시로 계속 렌더링됨 (`EnhancementMeta` 는 optional).
+- Multitask 가드 (파일당 1 concurrent, 서버 hybrid 는 route-scoped
+  in-flight) 유지.
+
+---
+
 ## 2026-08-07 (2) — Feed-first cold front door + reusable inline auth gate
 
 ### 배경 / 목표

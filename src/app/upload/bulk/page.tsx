@@ -33,6 +33,20 @@ import {
   uploadStagingForEnhancement,
 } from "@/lib/image/enhancement/objectClient";
 import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
+import {
+  BATCH_ENVELOPE,
+  PORTFOLIO_ENVELOPE,
+  applyToneDelta,
+  buildBatchNormalizationMeta,
+  buildPortfolioCoherenceMeta,
+  computeToneDelta,
+  toneSignature,
+  type ToneDelta,
+  type ToneSignature,
+} from "@/lib/image/enhancement/coherence";
+import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
+import { fetchArtistPortfolioToneStats } from "@/lib/image/enhancement/portfolioToneStatsClient";
+import { enhancementErrorMessageKey } from "@/lib/image/enhancement/errorMessages";
 import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
 import { analyzeImageFile } from "@/lib/image/analyze";
 import { recordUsageEvent } from "@/lib/metering";
@@ -153,6 +167,33 @@ export default function BulkUploadPage() {
   /** 2026-08-06 — artist portfolio coherence chip. Default ON when
    *  sample_count >= 3, hidden when sample_count < 3. */
   const [portfolioCoherence, setPortfolioCoherence] = useState(false);
+  /**
+   * 2026-08-07 — G / H auto-wiring bookkeeping.
+   *
+   * `run tokens` bump every time a chip toggles OFF → ON so we can
+   * re-run the pass on the same set of rows without triggering the
+   * "already applied" guard. `appliedTokenRef` records the last-applied
+   * combination of (token, sorted-ids, artistId) to enforce
+   * apply-once-per-batch semantics.
+   *
+   * `portfolioStatsRef` is the N+1 protection contract enforcement:
+   *   ONE `artist_portfolio_tone_stats` RPC call per artist per bulk
+   *   session, cached in a Map keyed by artist id. This ref is read
+   *   inside effects and MUST NOT be replaced by a per-file fetch —
+   *   verify by grepping `fetchArtistPortfolioToneStats` and ensuring
+   *   the only call site is the memoized effect below.
+   */
+  const bulkUniformityRunToken = useRef<number>(0);
+  const portfolioCoherenceRunToken = useRef<number>(0);
+  const bulkAppliedTokenRef = useRef<string>("");
+  const portfolioAppliedTokenRef = useRef<string>("");
+  const portfolioStatsRef = useRef<
+    Map<string, { signature: ToneSignature; sampleCount: number } | null>
+  >(new Map());
+  const [portfolioFetchState, setPortfolioFetchState] = useState<
+    Record<string, "idle" | "fetching" | "ready">
+  >({});
+  const uniformityApplyingRef = useRef<boolean>(false);
   const meteringSourceForBulk = fromExhibition ? "exhibition_bulk" : "bulk";
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -583,7 +624,9 @@ export default function BulkUploadPage() {
           }));
           void recordUsageEvent({
             userId,
-            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+            // 2026-08-07 semantic split — preview success = `.previewed`.
+            // `.completed` is emitted only from the publish flow below.
+            key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
             featureKey: "ai.image_enhance",
             metadata: {
               mode: bulkEnhanceMode,
@@ -638,7 +681,8 @@ export default function BulkUploadPage() {
           }));
           void recordUsageEvent({
             userId,
-            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+            // 2026-08-07 semantic split — see comment above.
+            key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
             featureKey: "ai.image_enhance",
             metadata: {
               mode: bulkEnhanceMode,
@@ -751,6 +795,258 @@ export default function BulkUploadPage() {
     void cleanupStagingPath(null);
   }
 
+  // 2026-08-07 — Toggle-tracker: bump the run token every OFF → ON so a
+  // user can re-apply after toggling. We also RESET the applied token
+  // so the effect below can re-fire on the same row set.
+  useEffect(() => {
+    if (bulkUniformity) {
+      bulkUniformityRunToken.current += 1;
+      bulkAppliedTokenRef.current = "";
+    }
+  }, [bulkUniformity]);
+  useEffect(() => {
+    if (portfolioCoherence) {
+      portfolioCoherenceRunToken.current += 1;
+      portfolioAppliedTokenRef.current = "";
+    }
+  }, [portfolioCoherence]);
+
+  // 2026-08-07 — Artist id resolution for the portfolio coherence pass.
+  // Prefer an explicitly selected artist; fall back to the acting-as
+  // principal so delegate-uploaded batches still get coherence when the
+  // delegate is uploading on behalf of a known artist principal.
+  const artistIdForCoherence: string | null =
+    selectedArtist?.id ?? actingAsProfileId ?? null;
+
+  // 2026-08-07 — Fetch portfolio tone stats ONCE per artist per bulk
+  // session, memoized in `portfolioStatsRef`. This is the N+1
+  // protection contract from release brief §H — DO NOT call this RPC
+  // from inside the per-file loop; if you find another callsite,
+  // consolidate through this cache.
+  useEffect(() => {
+    if (!portfolioCoherence) return;
+    const artistId = artistIdForCoherence;
+    if (!artistId) return;
+    if (portfolioStatsRef.current.has(artistId)) return;
+    if (portfolioFetchState[artistId] === "fetching") return;
+    setPortfolioFetchState((s) => ({ ...s, [artistId]: "fetching" }));
+    void fetchArtistPortfolioToneStats(artistId).then((stats) => {
+      portfolioStatsRef.current.set(artistId, stats);
+      setPortfolioFetchState((s) => ({ ...s, [artistId]: "ready" }));
+    });
+  }, [portfolioCoherence, artistIdForCoherence, portfolioFetchState]);
+
+  // 2026-08-07 — G + H auto-wiring effect. Fires when:
+  //   (a) at least one chip is on
+  //   (b) every pendingEnhance entry is in `previewing` or `approved`
+  //   (c) apply-once-per-batch guard hasn't already fired for this
+  //       combination of (chip run token × row-id set × artist id)
+  //
+  // Portfolio coherence layers on TOP of batch uniformity — apply
+  // batch delta first, then compute portfolio delta on the shifted
+  // signature so the two nudges compose without exceeding either
+  // envelope's intent.
+  useEffect(() => {
+    const rows = Object.entries(pendingEnhance);
+    if (rows.length === 0) return;
+    // Every row must be past the preview stage.
+    const eligible = rows.filter(
+      ([, s]) => s.kind === "previewing" || s.kind === "approved",
+    );
+    if (eligible.length !== rows.length || eligible.length === 0) return;
+    if (uniformityApplyingRef.current) return;
+
+    const rowIds = eligible.map(([id]) => id).sort().join(",");
+    const bulkKey = `${bulkUniformityRunToken.current}:${rowIds}`;
+    const portfolioKey = `${portfolioCoherenceRunToken.current}:${rowIds}:${artistIdForCoherence ?? ""}`;
+    const shouldRunBulk =
+      bulkUniformity && bulkAppliedTokenRef.current !== bulkKey;
+    const portfolioSample =
+      artistIdForCoherence
+        ? portfolioStatsRef.current.get(artistIdForCoherence) ?? null
+        : null;
+    const shouldRunPortfolio =
+      portfolioCoherence &&
+      portfolioAppliedTokenRef.current !== portfolioKey &&
+      !!artistIdForCoherence &&
+      !!portfolioSample &&
+      portfolioSample.sampleCount >= 3;
+    if (!shouldRunBulk && !shouldRunPortfolio) return;
+
+    // Mark tokens synchronously so re-renders during the async apply
+    // don't queue a second pass.
+    if (shouldRunBulk) bulkAppliedTokenRef.current = bulkKey;
+    if (shouldRunPortfolio) portfolioAppliedTokenRef.current = portfolioKey;
+    uniformityApplyingRef.current = true;
+
+    (async () => {
+      try {
+        // Snapshot the row set at effect fire — the async work must
+        // not race with mutations that happen while we re-encode.
+        const snapshot: Array<{
+          id: string;
+          draft: EnhancementDraft;
+          enhancedPath?: string | null;
+          exhibitionScoped?: boolean;
+          kind: "previewing" | "approved";
+        }> = eligible.map(([id, s]) => {
+          const status = s as
+            | { kind: "previewing"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean }
+            | { kind: "approved"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean };
+          return {
+            id,
+            draft: status.draft,
+            enhancedPath: status.enhancedPath,
+            exhibitionScoped: status.exhibitionScoped,
+            kind: status.kind,
+          };
+        });
+
+        // Extract the tone triples currently baked into each recipe.
+        const triples = snapshot.map(({ draft }) => {
+          const recipe = draft.meta.recipe;
+          if (recipe.kind === "flat") {
+            return recipe.params.tone;
+          }
+          // Object recipes don't carry an explicit tone triple. Fall
+          // back to the neutral 1/1/1 point so the target average is
+          // dominated by flat rows (which are the ones we can actually
+          // nudge visually anyway).
+          return { b: 1, c: 1, s: 1 };
+        });
+
+        const batchTarget: ToneSignature = shouldRunBulk
+          ? {
+              meanLuma:
+                triples.reduce((sum, t) => sum + t.b * 128, 0) / triples.length,
+              meanChroma:
+                triples.reduce((sum, t) => sum + t.c * t.s * 60, 0) / triples.length,
+              meanSat:
+                triples.reduce((sum, t) => sum + t.s, 0) / triples.length,
+              meanContrast:
+                triples.reduce((sum, t) => sum + t.c, 0) / triples.length,
+            }
+          : { meanLuma: 0, meanChroma: 0, meanSat: 0, meanContrast: 0 };
+
+        // Process rows sequentially so we never OOM by running four
+        // canvas decodes in parallel on mobile Safari. This is a
+        // display-only re-tone; each row is ~40–120ms.
+        let appliedAny = false;
+        for (const row of snapshot) {
+          const current = row.draft.meta.recipe.kind === "flat"
+            ? row.draft.meta.recipe.params.tone
+            : { b: 1, c: 1, s: 1 };
+          const currentSig = toneSignature(current);
+
+          const batchDelta: ToneDelta = shouldRunBulk
+            ? computeToneDelta(currentSig, batchTarget, BATCH_ENVELOPE)
+            : { b: 0, c: 0, s: 0 };
+          const afterBatch = shouldRunBulk
+            ? applyToneDelta(current, batchDelta)
+            : current;
+
+          let portfolioDelta: ToneDelta = { b: 0, c: 0, s: 0 };
+          let finalTone = afterBatch;
+          if (shouldRunPortfolio && portfolioSample) {
+            const afterBatchSig = toneSignature(afterBatch);
+            portfolioDelta = computeToneDelta(
+              afterBatchSig,
+              portfolioSample.signature,
+              PORTFOLIO_ENVELOPE,
+            );
+            finalTone = applyToneDelta(afterBatch, portfolioDelta);
+          }
+
+          // Compose the visual delta as the sum of the two deltas so
+          // the canvas re-tone stays a single pass. Clamp per envelope.
+          const combinedDelta: ToneDelta = {
+            b: (shouldRunBulk ? batchDelta.b : 0) + (shouldRunPortfolio ? portfolioDelta.b : 0),
+            c: (shouldRunBulk ? batchDelta.c : 0) + (shouldRunPortfolio ? portfolioDelta.c : 0),
+            s: (shouldRunBulk ? batchDelta.s : 0) + (shouldRunPortfolio ? portfolioDelta.s : 0),
+          };
+          const retone = await applyToneDeltaToFile(row.draft.displayFile, combinedDelta);
+
+          const nextMeta: typeof row.draft.meta = {
+            ...row.draft.meta,
+            recipe:
+              row.draft.meta.recipe.kind === "flat"
+                ? {
+                    kind: "flat",
+                    params: {
+                      ...row.draft.meta.recipe.params,
+                      tone: finalTone,
+                    },
+                  }
+                : row.draft.meta.recipe,
+            ...(shouldRunBulk
+              ? { batchNormalization: buildBatchNormalizationMeta(batchTarget, batchDelta) }
+              : {}),
+            ...(shouldRunPortfolio && portfolioSample
+              ? {
+                  portfolioCoherence: buildPortfolioCoherenceMeta(
+                    portfolioSample.signature,
+                    portfolioDelta,
+                    portfolioSample.sampleCount,
+                  ),
+                }
+              : {}),
+          };
+
+          const oldPreviewUrl = row.draft.previewUrl;
+          const nextDraft: EnhancementDraft = retone
+            ? {
+                displayFile: retone.file,
+                previewUrl: retone.previewUrl,
+                meta: nextMeta,
+              }
+            : {
+                displayFile: row.draft.displayFile,
+                previewUrl: row.draft.previewUrl,
+                meta: nextMeta,
+              };
+
+          setPendingEnhance((prev) => {
+            const existing = prev[row.id];
+            if (!existing || (existing.kind !== "previewing" && existing.kind !== "approved")) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [row.id]: {
+                kind: existing.kind,
+                draft: nextDraft,
+                enhancedPath: existing.enhancedPath,
+                exhibitionScoped: existing.exhibitionScoped,
+              },
+            };
+          });
+          if (retone && oldPreviewUrl && oldPreviewUrl.startsWith("blob:")) {
+            try {
+              URL.revokeObjectURL(oldPreviewUrl);
+            } catch {}
+          }
+          appliedAny = true;
+        }
+        if (appliedAny && shouldRunBulk) {
+          setToast(t("bulk.enhance.uniformityApplied"));
+          setTimeout(() => setToast(null), 2500);
+        } else if (appliedAny && shouldRunPortfolio) {
+          setToast(t("enhance.portfolioCoherenceApplied"));
+          setTimeout(() => setToast(null), 2500);
+        }
+      } finally {
+        uniformityApplyingRef.current = false;
+      }
+    })();
+  }, [
+    pendingEnhance,
+    bulkUniformity,
+    portfolioCoherence,
+    artistIdForCoherence,
+    portfolioFetchState,
+    t,
+  ]);
+
   async function startUpload() {
     if (pendingFiles.length === 0) return;
     const { data: { session } } = await getSession();
@@ -837,6 +1133,25 @@ export default function BulkUploadPage() {
         if (attachErr) throw attachErr;
         uploadedIds.push(artworkId);
         setUploadSucceeded((n) => n + 1);
+        // 2026-08-07 — Publish-time `.completed` emit. Semantic split
+        // from the preview-time `.previewed` emit above; only fires
+        // for rows that actually shipped an approved enhancement so
+        // dashboards can measure the "preview → publish" funnel.
+        if (approvedEnhancement) {
+          void recordUsageEvent({
+            userId,
+            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+            featureKey: "ai.image_enhance",
+            metadata: {
+              mode: approvedEnhancement.draft.meta.mode,
+              provider: approvedEnhancement.draft.meta.provider,
+              source: meteringSourceForBulk,
+              latency_ms: approvedEnhancement.draft.meta.latencyMs,
+              batch_normalization_applied: !!approvedEnhancement.draft.meta.batchNormalization,
+              portfolio_coherence_applied: !!approvedEnhancement.draft.meta.portfolioCoherence,
+            },
+          });
+        }
       } catch (err) {
         const message = formatBulkFileUploadFailure(file.name, err, t);
         // Surface the latest failure prominently AND keep a per-file log
@@ -1942,23 +2257,36 @@ export default function BulkUploadPage() {
                   ({t("bulk.enhance.uniformityHint")})
                 </span>
               </label>
-              <label className="ml-3 flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={portfolioCoherence}
-                  onChange={(e) => setPortfolioCoherence(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-zinc-900"
-                />
-                <span className="font-medium text-zinc-800">
-                  {t("bulk.enhance.portfolioCoherence")}
-                </span>
-                <span
-                  className="text-zinc-500"
-                  title={t("bulk.enhance.portfolioCoherenceHint")}
-                >
-                  ({t("bulk.enhance.portfolioCoherenceHint")})
-                </span>
-              </label>
+              {/* 2026-08-07 — Chip is HIDDEN when the RPC returned
+                  sample_count < 3 (artist has fewer than 3 public works).
+                  We show it when we haven't fetched yet OR when we have
+                  enough samples to run coherence. */}
+              {(() => {
+                const stats = artistIdForCoherence
+                  ? portfolioStatsRef.current.get(artistIdForCoherence)
+                  : undefined;
+                const hasEnoughSamples = !stats || stats.sampleCount >= 3;
+                if (!hasEnoughSamples) return null;
+                return (
+                  <label className="ml-3 flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={portfolioCoherence}
+                      onChange={(e) => setPortfolioCoherence(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-zinc-900"
+                    />
+                    <span className="font-medium text-zinc-800">
+                      {t("bulk.enhance.portfolioCoherence")}
+                    </span>
+                    <span
+                      className="text-zinc-500"
+                      title={t("bulk.enhance.portfolioCoherenceHint")}
+                    >
+                      ({t("bulk.enhance.portfolioCoherenceHint")})
+                    </span>
+                  </label>
+                );
+              })()}
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2">
@@ -2052,7 +2380,10 @@ export default function BulkUploadPage() {
                       </span>
                     )}
                     {enhance?.kind === "failed" && (
-                      <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title={enhance.reason}>
+                      <span
+                        className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                        title={t(enhancementErrorMessageKey(enhance.reason))}
+                      >
                         {t("bulk.enhance.status.failed")}
                       </span>
                     )}

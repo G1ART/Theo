@@ -21,7 +21,15 @@ export type UsageEventKey =
   | "ai.exhibition_review.generated"
   | "ai.delegation_brief.generated"
   // Theo Image Enhance (Beta, 2026-08-05)
+  //
+  // 2026-08-07 semantic split — `.previewed` fires when the pipeline
+  // produces a preview the user is looking at; `.completed` is reserved
+  // for the point at which an approved enhancement lands in the
+  // published storage row. Prior batches used `.completed` for the
+  // preview stage; historical events in `usage_events` for that period
+  // should be interpreted as "previewed" (see HANDOFF 2026-08-07).
   | "ai.image_enhance.requested"
+  | "ai.image_enhance.previewed"
   | "ai.image_enhance.completed"
   | "ai.image_enhance.accepted"
   | "ai.image_enhance.rejected"

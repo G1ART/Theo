@@ -24,6 +24,7 @@ import type {
   EnhancementMeta,
   EnhancementMode,
   FlatRecipe,
+  NormalizedPoint,
 } from "@/lib/image/enhancement/types";
 import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
 import { runFlatEnhancement, flatBlobToFile } from "@/lib/image/enhancement/localFlatEngine";
@@ -37,6 +38,24 @@ import {
   readExif,
   type ExifReadResult,
 } from "@/lib/image/exifRead";
+import { PerspectiveCornerPicker } from "@/components/upload/PerspectiveCornerPicker";
+import {
+  defaultInsetQuad,
+  quadFromRect,
+  type Quad,
+} from "@/lib/image/enhancement/cornerPickerGeometry";
+import {
+  fetchArtistPortfolioToneStats,
+  type PortfolioToneStats,
+} from "@/lib/image/enhancement/portfolioToneStatsClient";
+import {
+  PORTFOLIO_ENVELOPE,
+  applyToneDelta,
+  buildPortfolioCoherenceMeta,
+  computeToneDelta,
+  toneSignature,
+} from "@/lib/image/enhancement/coherence";
+import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
 
 /**
  * Capture-mode chip (2026-08-06). Pre-seeds the enhance pipeline so
@@ -112,6 +131,15 @@ type Props = {
   /** Metering source label so lifecycle events carry the right
    *  provenance (single / bulk / exhibition_single / exhibition_bulk). */
   meteringSource?: "single" | "bulk" | "exhibition_single" | "exhibition_bulk";
+  /**
+   * Artist profile id, used to fetch portfolio-tone statistics for the
+   * H — portfolio coherence pass (release brief 2026-08-07). The
+   * parent page is expected to have fetched this once per session and
+   * to pass the same id to every editor mount so the module-level
+   * cache in `portfolioToneStatsClient.ts` dedupes across editors.
+   * When null the coherence chip is hidden.
+   */
+  artistProfileId?: string | null;
 };
 
 /** Debounce a value change so slider drag doesn't spam parent state. */
@@ -208,6 +236,7 @@ export function ImageStandardizeEditor({
   enhancement,
   onEnhance,
   meteringSource = "single",
+  artistProfileId = null,
 }: Props) {
   const { t } = useT();
   const enhancementEnabled = typeof onEnhance === "function";
@@ -584,6 +613,50 @@ export function ImageStandardizeEditor({
   const [proLookOn, setProLookOn] = useState<boolean>(true);
   const proLookEnabled = captureMode === "scanner" ? false : proLookOn;
 
+  // 2026-08-07 — Perspective correction. Opt-in only per file so the
+  // "Preview" button never surprises the user with a warped output.
+  // `perspectiveCorners` is the *committed* 4-corner picker result
+  // (persisted into the recipe on next preview run).
+  const [perspectiveOpen, setPerspectiveOpen] = useState<boolean>(false);
+  const [perspectiveCorners, setPerspectiveCorners] = useState<
+    [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint] | null
+  >(null);
+
+  // 2026-08-07 — Glare heatmap toggle. Non-destructive overlay: never
+  // touches the pipeline output, just draws red rectangles over the
+  // saturated-highlight regions the analyzer surfaced.
+  const [glareOverlayOn, setGlareOverlayOn] = useState<boolean>(false);
+
+  // 2026-08-07 — H (portfolio coherence) on the single upload path.
+  // Fetches the artist's portfolio tone signature once per session
+  // per artist (see the module-level cache in
+  // `portfolioToneStatsClient.ts`). Chip is hidden when the artist
+  // has fewer than 3 public works.
+  const [portfolioCoherenceOn, setPortfolioCoherenceOn] = useState<boolean>(false);
+  const [portfolioStats, setPortfolioStats] = useState<PortfolioToneStats | null>(null);
+  const portfolioToastRef = useRef<boolean>(false);
+  useEffect(() => {
+    let alive = true;
+    if (!artistProfileId) {
+      setPortfolioStats(null);
+      return () => {
+        alive = false;
+      };
+    }
+    // NOTE: single fetch per artist per tab — see the module-level
+    // dedupe map inside `fetchArtistPortfolioToneStats`. Multiple
+    // editors mounting simultaneously will share ONE inflight promise.
+    void fetchArtistPortfolioToneStats(artistProfileId).then((stats) => {
+      if (!alive) return;
+      setPortfolioStats(stats);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [artistProfileId]);
+  const portfolioAvailable =
+    !!portfolioStats && portfolioStats.sampleCount >= 3;
+
   useEffect(() => {
     return () => {
       const url = enhancePreviewUrlRef.current;
@@ -657,13 +730,14 @@ export function ImageStandardizeEditor({
       const isScanner = captureMode === "scanner";
       const wantsAwb = !isScanner;
       const wantsProLook = proLookEnabled;
-      // Homography wiring is delivered as a library API in this patch —
-      // the interactive corner picker UI ships in a follow-up. When
-      // the recipe carries `sourceCorners` (from a persisted row), the
-      // engine warps automatically. See homography.ts.
+      // Homography — when the user opted into "원근 보정" and confirmed
+      // corners via `PerspectiveCornerPicker`, pass them through. The
+      // engine warps automatically. See homography.ts + the picker
+      // component for the geometry contract.
       const result = await runFlatEnhancement({
         file,
         crop: seedCrop,
+        sourceCorners: perspectiveCorners,
         tone: suggestion
           ? {
               b:
@@ -741,11 +815,62 @@ export function ImageStandardizeEditor({
           URL.revokeObjectURL(enhancePreviewUrlRef.current);
         } catch {}
       }
-      const url = URL.createObjectURL(displayFile);
-      enhancePreviewUrlRef.current = url;
-      setEnhancePreview({ displayFile, previewUrl: url, meta });
+      let finalDisplayFile = displayFile;
+      let finalPreviewUrl = URL.createObjectURL(displayFile);
+      let finalMeta = meta;
+      // 2026-08-07 — Portfolio coherence pass on the single upload
+      // path. Symmetric to bulk's G/H auto-wiring but per-file: we
+      // apply ±4 % delta to the just-produced preview when the chip
+      // is on AND we have >=3 samples cached for this artist.
+      if (
+        portfolioCoherenceOn &&
+        portfolioAvailable &&
+        portfolioStats &&
+        result.recipe
+      ) {
+        const currentTone = result.recipe.tone;
+        const currentSig = toneSignature(currentTone);
+        const delta = computeToneDelta(currentSig, portfolioStats.signature, PORTFOLIO_ENVELOPE);
+        const retone = await applyToneDeltaToFile(displayFile, delta);
+        const nextTone = applyToneDelta(currentTone, delta);
+        finalMeta = {
+          ...meta,
+          recipe: {
+            kind: "flat",
+            params: {
+              ...meta.recipe.kind === "flat" ? meta.recipe.params : { sourceCorners: null, tone: nextTone, sharpen: 0, bezel: 0 },
+              tone: nextTone,
+            },
+          },
+          portfolioCoherence: buildPortfolioCoherenceMeta(
+            portfolioStats.signature,
+            delta,
+            portfolioStats.sampleCount,
+          ),
+        };
+        if (retone) {
+          try {
+            URL.revokeObjectURL(finalPreviewUrl);
+          } catch {}
+          finalDisplayFile = retone.file;
+          finalPreviewUrl = retone.previewUrl;
+        }
+        if (!portfolioToastRef.current) {
+          portfolioToastRef.current = true;
+        }
+      }
+      enhancePreviewUrlRef.current = finalPreviewUrl;
+      setEnhancePreview({
+        displayFile: finalDisplayFile,
+        previewUrl: finalPreviewUrl,
+        meta: finalMeta,
+      });
       void recordUsageEvent({
-        key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+        // 2026-08-07 semantic split — preview success emits `.previewed`,
+        // never `.completed`. `.completed` is reserved for the moment
+        // this enhancement lands in a published storage row (fired
+        // from the upload/publish flow).
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
         featureKey: "ai.image_enhance",
         metadata: {
           mode: enhanceMode,
@@ -792,6 +917,10 @@ export function ImageStandardizeEditor({
     captureMode,
     exif,
     proLookEnabled,
+    perspectiveCorners,
+    portfolioCoherenceOn,
+    portfolioAvailable,
+    portfolioStats,
   ]);
 
   const handleEnhanceApprove = useCallback(() => {
@@ -1055,6 +1184,91 @@ export function ImageStandardizeEditor({
             </span>
           </div>
 
+          {/* 2026-08-07 — H (portfolio coherence) chip. Hidden when
+              the artist has fewer than 3 published works. */}
+          {portfolioAvailable && (
+            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-700">
+              <input
+                type="checkbox"
+                checked={portfolioCoherenceOn}
+                onChange={(e) => setPortfolioCoherenceOn(e.target.checked)}
+                className="h-3.5 w-3.5 accent-zinc-900"
+              />
+              <span className="font-medium">
+                {t("bulk.enhance.portfolioCoherence")}
+              </span>
+              <span
+                className="text-zinc-500"
+                title={t("bulk.enhance.portfolioCoherenceHint")}
+              >
+                ({t("bulk.enhance.portfolioCoherenceHint")})
+              </span>
+            </label>
+          )}
+
+          {/* 2026-08-07 — Perspective correction opt-in toggle. Only
+              meaningful in flat mode: object mode composites on a white
+              canvas so 4-corner warp is orthogonal. */}
+          {resolvedAutoMode === "flat" && (
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setPerspectiveOpen((v) => !v)}
+                className={`rounded-full border px-2.5 py-1 ${
+                  perspectiveOpen || perspectiveCorners
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                }`}
+                aria-pressed={perspectiveOpen}
+                title={t("upload.imageEnhance.perspective.hint")}
+              >
+                {t("upload.imageEnhance.perspective.toggle")}
+              </button>
+              {perspectiveCorners && !perspectiveOpen && (
+                <span className="text-[10px] text-emerald-700">
+                  {t("upload.imageEnhance.perspective.applied")}
+                </span>
+              )}
+              {analysis && analysis.glareRegions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setGlareOverlayOn((v) => !v)}
+                  className={`rounded-full border px-2.5 py-1 ${
+                    glareOverlayOn
+                      ? "border-rose-500 bg-rose-50 text-rose-800"
+                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  aria-pressed={glareOverlayOn}
+                  title={t("upload.imageEnhance.glareOverlay.hint")}
+                >
+                  {t("upload.imageEnhance.glareOverlay.toggle")}
+                </button>
+              )}
+            </div>
+          )}
+
+          {perspectiveOpen && previewUrl && (
+            <PerspectiveCornerPicker
+              imageUrl={previewUrl}
+              imageWidth={analysis?.width || 1024}
+              imageHeight={analysis?.height || 1024}
+              initialCorners={perspectiveCorners}
+              autoDetectedCorners={
+                analysis && analysis.rectangleConfidence >= 0.55
+                  ? quadFromRect(analysis.suggestedCrop) ?? defaultInsetQuad(0.1)
+                  : defaultInsetQuad(0.1)
+              }
+              onConfirm={(q: Quad) => {
+                setPerspectiveCorners(q);
+                setPerspectiveOpen(false);
+                // Re-run so the confirmed corners immediately re-flow
+                // the pipeline. Fire-and-forget; UI reflects `enhanceRunning`.
+                void runEnhancePreview();
+              }}
+              onCancel={() => setPerspectiveOpen(false)}
+            />
+          )}
+
           {/* Preview + actions */}
           {enhancePreview ? (
             <>
@@ -1100,6 +1314,37 @@ export function ImageStandardizeEditor({
                     className="h-full w-full object-contain"
                     draggable={false}
                   />
+                  {/* 2026-08-07 — Non-destructive glare overlay. Renders
+                      once the analyzer has produced regions and the
+                      user toggles the chip on. Never modifies the
+                      pipeline output. */}
+                  {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
+                    <>
+                      <svg
+                        className="pointer-events-none absolute inset-0 h-full w-full"
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                        aria-hidden
+                      >
+                        {analysis.glareRegions.map((r, i) => (
+                          <rect
+                            key={i}
+                            x={r.x * 100}
+                            y={r.y * 100}
+                            width={r.w * 100}
+                            height={r.h * 100}
+                            fill="rgba(244,63,94,0.15)"
+                            stroke="rgba(244,63,94,0.7)"
+                            strokeWidth={0.5}
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        ))}
+                      </svg>
+                      <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-900/70 px-2 py-1 text-[10px] text-white">
+                        {t("upload.imageEnhance.glareOverlay.reshootHint")}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
               <div className="flex items-center justify-end">

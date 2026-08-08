@@ -33,6 +33,8 @@ import {
   ImageStandardizeEditor,
   type EnhancementDraft,
 } from "@/components/upload/ImageStandardizeEditor";
+import { recordUsageEvent } from "@/lib/metering";
+import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
 import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
@@ -601,6 +603,26 @@ function UploadPageContent() {
           setError(formatSupabaseError(attachErr, t, "errors.failedAttachImage"));
           setIsSubmitting(false);
           return;
+        }
+        // 2026-08-07 — Publish-time `.completed` for approved
+        // enhancements. Fires ONLY when the enhancement actually
+        // landed in a published storage row. See `metering/types.ts`
+        // for the `.previewed` vs `.completed` semantic split.
+        if (pending.enhancement) {
+          const meta = pending.enhancement.meta;
+          void recordUsageEvent({
+            userId: userId ?? undefined,
+            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+            featureKey: "ai.image_enhance",
+            metadata: {
+              mode: meta.mode,
+              provider: meta.provider,
+              source: fromExhibition ? "exhibition_single" : "single",
+              latency_ms: meta.latencyMs,
+              batch_normalization_applied: !!meta.batchNormalization,
+              portfolio_coherence_applied: !!meta.portfolioCoherence,
+            },
+          });
         }
       }
 
@@ -1299,6 +1321,7 @@ function UploadPageContent() {
                             );
                           }}
                           meteringSource={fromExhibition ? "exhibition_single" : "single"}
+                          artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
                         />
                       </div>
                     )}
