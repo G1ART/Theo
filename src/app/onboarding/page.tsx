@@ -52,19 +52,27 @@ function OnboardingInner() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const {
-        data: { session },
-      } = await getSession();
-      if (cancelled) return;
-      if (!session) {
+      try {
+        const {
+          data: { session },
+        } = await getSession();
+        if (cancelled) return;
+        if (!session) {
+          setMode("signup");
+          return;
+        }
+        const state = await getMyAuthState();
+        if (cancelled) return;
+        await ensureFreeEntitlement(session.user.id);
+        const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
+        router.replace(to);
+      } catch {
+        // Mobile Safari private mode / storage partitioning / flaky network
+        // can make getSession throw. Fall back to the signup form rather
+        // than staying stuck on the loading mark (mode === "check").
+        if (cancelled) return;
         setMode("signup");
-        return;
       }
-      const state = await getMyAuthState();
-      if (cancelled) return;
-      await ensureFreeEntitlement(session.user.id);
-      const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
-      router.replace(to);
     })();
     return () => {
       cancelled = true;

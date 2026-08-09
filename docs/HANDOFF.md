@@ -1,6 +1,34 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-07
+Last updated: 2026-08-09
+
+## 2026-08-09 — 모바일 세션 체크 실패/지연 시 블랭크 로딩 방지 (프론트 도어 폴백 강화)
+
+### 배경 / 문제
+모바일 Safari 프라이빗 모드 / storage partitioning / 불안정한 네트워크에서
+supabase-js `getSession()` 이 **행(hang)** 하거나 **throw** 할 수 있음. 기존
+루트(`/`)·온보딩(`/onboarding`) 페이지는 세션 체크가 try/catch·타임아웃
+없는 async IIFE 안에 있어, 이 경우 방문자가 `<TheoLoadingMark />` 로딩
+화면에 영구히 갇혀 "블랭크 화면"처럼 보이는 미처리 엣지 케이스가 있었음.
+
+### 변경 요약
+
+- **`src/app/page.tsx`** — 루트 세션 체크를 `Promise.race` 로 ~4000ms
+  타임아웃과 경합시키고 전체 본문을 try/catch 로 감쌈. 타임아웃/에러/세션
+  없음 등 **모든 실패 경로에서 `router.replace(DEFAULT_DESTINATION)`** 로
+  공개 피드에 착륙 → 로딩 마크에 갇히지 않음. 해피 패스(유효 세션 →
+  `routeByAuthState`)와 `cancelled` 가드 시맨틱은 그대로 유지.
+- **`src/app/onboarding/page.tsx`** — 마운트 `useEffect` 의 세션 체크를
+  try/catch 로 감싸, `getSession()` 이 throw 하면 `mode === "check"` 로딩
+  마크에 머무는 대신 `setMode("signup")` 으로 회원가입 폼을 노출.
+  로그인된 방문자 short-circuit(happy path)·`cancelled` 가드는 유지.
+
+### 배포 메모
+- **Supabase SQL: 없음** (이번 패치는 `.sql` 파일을 건드리지 않음).
+- **환경 변수 변경: 없음.**
+
+Verified: `npx tsc --noEmit` → exit 0 (신규 타입 에러 없음). `node
+tests/onboarding-smoke.mjs` → "all invariants hold" 통과.
 
 ## 2026-08-07 (3) — Theo Image Enhance (Beta) — G/H 자동 배선 + 원근 코너 피커 UI + P2 폴리시
 
