@@ -7,23 +7,35 @@
  *   1. adaptiveExposure   — anchor midtones around a target luma
  *      (default 118). Compute from histogram P5..P95 range so bright
  *      works don't clip and dark works don't crush.
+ *      2026-08-09: exposure gain applied in LINEAR light (sRGB EOTF
+ *      decode → gain → encode) plus a compact filmic soft shoulder
+ *      so highlights roll off instead of clipping. Preserves the
+ *      black point (0 stays 0) to keep dark works from muddy grey.
  *   2. wallAwareAwb       — supplied by `awb.ts`; called by the engine
  *      before this stage runs, but the recipe result is stored here
  *      for provenance. NO-OP inside `runProLook` — the engine has
  *      already applied it.
  *   3. localContrastClahe — 8×8 tile grid CLAHE approximation with
- *      clip limit 2.0. Skipped on already-high-contrast sources
- *      (P95-P5 > 200) to avoid double-processing.
- *   4. perceptualSat      — luminance-weighted saturation boost so
- *      shadows/highlights don't neonize. Capped at +8 %.
- *   5. microUnsharp       — 3×3 unsharp (halo-safe) at amount 0.4.
- *      Replaces the previous aggressive `[-1..9..-1]` kernel.
+ *      clip limit 1.2 (down from 2.0 pre-2026-08-09 to avoid the
+ *      "over-crunched" look reported by QA). Skipped on already-high-
+ *      contrast sources (P95-P5 > 200) to avoid double-processing.
+ *   4. perceptualSat      — luminance-weighted saturation boost in
+ *      LINEAR light so shadows/highlights don't neonize. Capped at
+ *      +9 %.
+ *   5. microUnsharp       — 3×3 unsharp (halo-safe). Default amount
+ *      dropped from 0.4 → 0.2 (2026-08-09) so line-art doesn't ring.
  *   6. neutralWarmBias    — gentle temperature nudge toward 5500K so
  *      the output feels like a daylight-balanced studio.
  *
  * All stages read/write directly on `ImageData`. All stages are
  * skippable via recipe flags. Timings are returned so the caller can
  * emit `stage_prolook_*_ms` metering.
+ *
+ * Reference standards (informational — none of the below are strict
+ * requirements, but the tuning targets these envelopes):
+ *   - FADGI 4-star guideline: neutral WB, ΔE ≤ 4 on X-Rite patches.
+ *   - Metamorfoze: gentle tone curve, no highlight clipping.
+ *   - ISO 19264-1 range B: color accuracy for cultural heritage.
  */
 
 import type { ProLookRecipe } from "./types";
@@ -35,16 +47,65 @@ export type ProLookConfig = {
   claheTiles: number;
   satBoost: number;
   warmthBias: number;
+  unsharpAmount: number;
 };
 
+// 2026-08-09 Phase 2 defaults — see the header comment. Softer than
+// the 2026-08-06 originals (satBoost 0.08 → 0.06, claheClipLimit 2.0
+// → 1.2, warmthBias 0.03 → 0.02, unsharp 0.4 → 0.2) to land closer to
+// FADGI/Metamorfoze envelopes for typical cultural-heritage capture.
 export const PRO_LOOK_DEFAULTS: ProLookConfig = {
   exposureLumaTarget: 118,
   claheEnabled: true,
-  claheClipLimit: 2.0,
+  claheClipLimit: 1.2,
   claheTiles: 8,
-  satBoost: 0.08,
-  warmthBias: 0.03,
+  satBoost: 0.06,
+  warmthBias: 0.02,
+  unsharpAmount: 0.2,
 };
+
+// ─── sRGB ↔ linear-light helpers ─────────────────────────────────
+// Piecewise sRGB EOTF (IEC 61966-2-1). Cached as 256-entry LUTs so
+// the hot inner loops don't call Math.pow per pixel.
+
+const SRGB_TO_LINEAR_LUT = (() => {
+  const lut = new Float32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    const c = i / 255;
+    lut[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }
+  return lut;
+})();
+
+export function srgbToLinear(u8: number): number {
+  const i = u8 < 0 ? 0 : u8 > 255 ? 255 : u8 | 0;
+  return SRGB_TO_LINEAR_LUT[i];
+}
+
+export function linearToSrgb(f: number): number {
+  const x = f <= 0 ? 0 : f >= 1 ? 1 : f;
+  const s = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+  return Math.round(s * 255);
+}
+
+/**
+ * Compact ACES-style filmic tone curve. Maps linear-light [0..∞) into
+ * [0..1) with a soft shoulder so bright highlights roll off instead of
+ * clipping. Preserves the black point (0 → 0) so dark works don't
+ * gain a muddy grey lift. See Krzysztof Narkowicz's 2016 "ACES
+ * filmic tone mapping curve" post for the coefficient rationale.
+ */
+export function filmicToneCurve(x: number): number {
+  const a = 2.51;
+  const b = 0.03;
+  const c = 2.43;
+  const d = 0.59;
+  const e = 0.14;
+  const num = x * (a * x + b);
+  const den = x * (c * x + d) + e;
+  const y = num / den;
+  return y <= 0 ? 0 : y >= 1 ? 1 : y;
+}
 
 export type ProLookTimings = {
   exposureMs: number;
@@ -63,6 +124,7 @@ export function resolveProLookConfig(recipe?: ProLookRecipe): ProLookConfig {
     claheTiles: recipe.claheTiles ?? PRO_LOOK_DEFAULTS.claheTiles,
     satBoost: recipe.satBoost ?? PRO_LOOK_DEFAULTS.satBoost,
     warmthBias: recipe.warmthBias ?? PRO_LOOK_DEFAULTS.warmthBias,
+    unsharpAmount: PRO_LOOK_DEFAULTS.unsharpAmount,
   };
 }
 
@@ -115,19 +177,22 @@ export function percentileRange(data: Uint8ClampedArray): { p5: number; p95: num
   return { p5, p95 };
 }
 
-// ─── Stage 1: adaptive exposure ───────────────────────────────────
+// ─── Stage 1: adaptive exposure (linear-light + filmic shoulder) ──
 /**
- * Anchor the midtone luma toward `target`. Instead of a global gain
- * (which crushes bright highlights), we compute a mid-anchored gain by
- * looking at the mean luma inside the P5..P95 band — the range that
- * actually carries subject detail.
+ * Anchor the midtone luma toward `target`. 2026-08-09 rewrite: gain
+ * is applied in LINEAR light (sRGB EOTF decode → multiply → re-encode)
+ * so bright highlights don't crush. Above the linear knee the filmic
+ * tone curve rolls off so we never hard-clip. Black point (0) is
+ * preserved.
+ *
+ * Mid-anchored gain is computed from the P5..P95 luma band so the
+ * long tails don't skew the target — the sRGB luma statistic is the
+ * one we're already collecting for CLAHE-skip, so we keep the input
+ * space consistent with the histogram helpers.
  */
 export function adaptiveExposure(data: Uint8ClampedArray, target: number): void {
   const { p5, p95 } = percentileRange(data);
   const total = data.length / 4;
-  // Mean of pixels inside [p5, p95]. Compare against integer-rounded
-  // luma so a uniform sample whose float luma sits *just above* the
-  // integer percentile (e.g. 59.298 vs P95=59) still gets included.
   let sum = 0;
   let count = 0;
   for (let i = 0; i < data.length; i += 4) {
@@ -141,12 +206,17 @@ export function adaptiveExposure(data: Uint8ClampedArray, target: number): void 
   if (count === 0 || total < 32) return;
   const mid = sum / count;
   if (mid < 4) return;
-  // Cap gain to ±30 % so we never crush or blow the image.
+  // Cap gain to ±30 % so we never crush or blow the image. Applied in
+  // linear light after the filmic curve so the numeric range still
+  // reflects "how much brighter do we want the midtone?".
   const gain = Math.min(1.3, Math.max(0.7, target / mid));
   for (let i = 0; i < data.length; i += 4) {
-    data[i] = clamp255(data[i] * gain);
-    data[i + 1] = clamp255(data[i + 1] * gain);
-    data[i + 2] = clamp255(data[i + 2] * gain);
+    const rl = srgbToLinear(data[i]) * gain;
+    const gl = srgbToLinear(data[i + 1]) * gain;
+    const bl = srgbToLinear(data[i + 2]) * gain;
+    data[i] = linearToSrgb(filmicToneCurve(rl));
+    data[i + 1] = linearToSrgb(filmicToneCurve(gl));
+    data[i + 2] = linearToSrgb(filmicToneCurve(bl));
   }
 }
 
@@ -259,15 +329,17 @@ export function claheLocalContrast(
   }
 }
 
-// ─── Stage 4: perceptual saturation lift ──────────────────────────
+// ─── Stage 4: perceptual saturation lift (linear-light) ───────────
 /**
- * Add a small saturation lift. Shadows / highlights get a smaller lift
+ * Add a small saturation lift, computed in LINEAR light so bright
+ * saturated pixels don't blow. Shadows / highlights get a smaller lift
  * (weighted by `1 - |y - 128| / 128`) so blacks don't turn purple and
- * whites don't turn cyan.
+ * whites don't turn cyan. Cap raised from 0.08 → 0.09 in 2026-08-09
+ * to keep the "strong" intensity chip visibly different from "normal".
  */
 export function perceptualSaturation(data: Uint8ClampedArray, boost: number): void {
   if (boost <= 0) return;
-  const b = Math.min(0.08, boost);
+  const b = Math.min(0.09, boost);
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];
@@ -275,9 +347,13 @@ export function perceptualSaturation(data: Uint8ClampedArray, boost: number): vo
     const y = luma(r, g, bl);
     const shadowLift = 1 - Math.abs(y - 128) / 128;
     const s = 1 + b * shadowLift;
-    data[i] = clamp255(y + (r - y) * s);
-    data[i + 1] = clamp255(y + (g - y) * s);
-    data[i + 2] = clamp255(y + (bl - y) * s);
+    const rl = srgbToLinear(r);
+    const gl = srgbToLinear(g);
+    const bll = srgbToLinear(bl);
+    const yl = REC709_R * rl + REC709_G * gl + REC709_B * bll;
+    data[i] = linearToSrgb(yl + (rl - yl) * s);
+    data[i + 1] = linearToSrgb(yl + (gl - yl) * s);
+    data[i + 2] = linearToSrgb(yl + (bll - yl) * s);
   }
 }
 
@@ -379,9 +455,11 @@ export function runProLook(
   perceptualSaturation(data, config.satBoost);
   timings.satMs = Math.max(0, Math.round(now() - t2));
 
-  // Stage 5
+  // Stage 5 — micro unsharp. Amount pulled from config (default 0.2
+  // as of 2026-08-09, down from the previous hardcoded 0.4 which was
+  // producing haloing on high-contrast line art).
   const t3 = now();
-  microUnsharp(data, image.width, image.height, 0.4);
+  microUnsharp(data, image.width, image.height, config.unsharpAmount);
   timings.sharpenMs = Math.max(0, Math.round(now() - t3));
 
   // Stage 6

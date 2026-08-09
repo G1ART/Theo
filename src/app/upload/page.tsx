@@ -1157,7 +1157,7 @@ function UploadPageContent() {
                     <div className="flex items-center gap-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={img.previewUrl}
+                        src={img.enhancement?.previewUrl ?? img.previewUrl}
                         alt=""
                         className="h-14 w-14 shrink-0 rounded object-cover"
                       />
@@ -1295,6 +1295,11 @@ function UploadPageContent() {
                           {t("upload.imageStandardize.appliedChip")}
                         </span>
                       )}
+                      {img.enhancement && !img.standardizeOpen && (
+                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
+                          {t("upload.imageEnhance.appliedChip")}
+                        </span>
+                      )}
                     </div>
                     {img.standardizeOpen && (
                       <div className="mt-2">
@@ -1315,7 +1320,18 @@ function UploadPageContent() {
                             setImages((prev) =>
                               prev.map((p) =>
                                 p.id === img.id
-                                  ? { ...p, enhancement: next }
+                                  ? {
+                                      ...p,
+                                      enhancement: next,
+                                      // 2026-08-09 Todo 6: collapse
+                                      // the editor after the user
+                                      // approves an enhancement so
+                                      // the list shows the "저장됨"
+                                      // chip + thumbnail instead of
+                                      // the still-open tools.
+                                      standardizeOpen:
+                                        next != null ? false : p.standardizeOpen,
+                                    }
                                   : p,
                               ),
                             );

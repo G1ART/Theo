@@ -1021,10 +1021,40 @@ export const messages = {
     "upload.imageEnhance.perspective.hint":
       "Drag the four corners over the artwork's edges to straighten. Arrow keys nudge 1 px, Shift+arrow nudges 10 px.",
     "upload.imageEnhance.perspective.cornerLabel": "Corner {corner}",
-    "upload.imageEnhance.perspective.reset": "Auto-detect again",
+    "upload.imageEnhance.perspective.reset": "Reset corners",
     "upload.imageEnhance.perspective.cancel": "Cancel",
     "upload.imageEnhance.perspective.confirm": "Apply corners",
     "upload.imageEnhance.perspective.applied": "Corners applied",
+    "upload.imageEnhance.perspective.autoAppliedChip":
+      "Auto perspective applied · adjust",
+    "upload.imageEnhance.autoRunCta": "Run Theo auto-enhance",
+    "upload.imageEnhance.intensity.label": "Strength",
+    "upload.imageEnhance.intensity.light": "Light",
+    "upload.imageEnhance.intensity.normal": "Normal",
+    "upload.imageEnhance.intensity.strong": "Strong",
+    "upload.imageEnhance.intensity.hint":
+      "Light preserves your original tone. Strong pushes contrast, saturation, and warmth further.",
+    "upload.imageEnhance.advancedToggle": "Advanced settings",
+    "upload.imageEnhance.quickHint":
+      "Changes here don't affect the enhanced file that will be saved. Use the Theo Enhance tab if you want your edits kept.",
+    "upload.imageEnhance.applied.title": "Enhanced version saved",
+    "upload.imageEnhance.applied.reopen": "Edit again",
+    "upload.imageEnhance.applied.revert": "Revert to original",
+    "upload.imageEnhance.applied.status": "Enhanced version saved for this image.",
+    "upload.imageEnhance.saveCta": "Save this",
+    "upload.imageEnhance.rerunCta": "Run again",
+    "upload.imageEnhance.cancelCta": "Cancel",
+    "upload.imageEnhance.perspective.openBtn": "Perspective correction (adjust corners)",
+    "upload.imageEnhance.inputType.label": "Input type",
+    "upload.imageEnhance.inputType.auto": "Auto",
+    "upload.imageEnhance.inputType.scanner": "Scanner",
+    "upload.imageEnhance.inputType.studio": "Studio",
+    "upload.imageEnhance.inputType.hint":
+      "Scanner disables perspective correction and white balance; Studio uses a lighter tone; Auto picks a preset from the file.",
+    "upload.imageEnhance.controls.glare.hint":
+      "Highlights bright reflection patches so you can decide whether to re-shoot from a slight angle.",
+    "upload.imageEnhance.controls.portfolio.hint":
+      "Nudges output tone within ±4% toward the artist's existing public works.",
     "upload.imageEnhance.glareOverlay.toggle": "Show glare hotspots",
     "upload.imageEnhance.glareOverlay.hint":
       "Highlight the blown-out patches so you can decide whether to re-shoot from a slight angle.",
@@ -4417,10 +4447,40 @@ export const messages = {
     "upload.imageEnhance.perspective.hint":
       "네 모서리를 작품 경계에 맞춰 드래그해 반듯하게 잡아요. 화살표 키는 1px, Shift+화살표는 10px 씩 움직여요.",
     "upload.imageEnhance.perspective.cornerLabel": "{corner} 모서리",
-    "upload.imageEnhance.perspective.reset": "자동 감지로 되돌리기",
+    "upload.imageEnhance.perspective.reset": "코너 리셋",
     "upload.imageEnhance.perspective.cancel": "취소",
     "upload.imageEnhance.perspective.confirm": "코너 적용",
     "upload.imageEnhance.perspective.applied": "코너 적용됨",
+    "upload.imageEnhance.perspective.autoAppliedChip":
+      "자동 원근 보정 적용됨 · 조정",
+    "upload.imageEnhance.autoRunCta": "Theo 자동 보정 실행",
+    "upload.imageEnhance.intensity.label": "보정 세기",
+    "upload.imageEnhance.intensity.light": "약하게",
+    "upload.imageEnhance.intensity.normal": "기본",
+    "upload.imageEnhance.intensity.strong": "강하게",
+    "upload.imageEnhance.intensity.hint":
+      "약하게는 원본에 가깝게, 강하게는 대비·채도·온도를 더 살립니다.",
+    "upload.imageEnhance.advancedToggle": "고급 설정",
+    "upload.imageEnhance.quickHint":
+      "여기서 조정한 값은 저장에 반영되지 않아요. 저장하려면 Theo 자동 보정 탭을 이용하세요.",
+    "upload.imageEnhance.applied.title": "향상본이 저장되었어요",
+    "upload.imageEnhance.applied.reopen": "다시 편집",
+    "upload.imageEnhance.applied.revert": "원본으로 되돌리기",
+    "upload.imageEnhance.applied.status": "이 이미지에 향상본이 저장되었습니다.",
+    "upload.imageEnhance.saveCta": "이걸로 저장",
+    "upload.imageEnhance.rerunCta": "다시 실행",
+    "upload.imageEnhance.cancelCta": "취소",
+    "upload.imageEnhance.perspective.openBtn": "원근 보정 (코너 조정)",
+    "upload.imageEnhance.inputType.label": "입력 유형",
+    "upload.imageEnhance.inputType.auto": "자동",
+    "upload.imageEnhance.inputType.scanner": "스캐너",
+    "upload.imageEnhance.inputType.studio": "스튜디오",
+    "upload.imageEnhance.inputType.hint":
+      "스캐너는 원근 보정과 화이트밸런스를 끕니다. 스튜디오는 톤을 더 가볍게 손봅니다. 자동은 파일에 맞춰 프리셋을 선택합니다.",
+    "upload.imageEnhance.controls.glare.hint":
+      "반사광이 심한 영역을 표시해서 다시 촬영할지 판단할 수 있어요.",
+    "upload.imageEnhance.controls.portfolio.hint":
+      "아티스트의 기존 공개 작품 톤 쪽으로 결과를 ±4% 안에서만 밀어줍니다.",
     "upload.imageEnhance.glareOverlay.toggle": "글레어 위치",
     "upload.imageEnhance.glareOverlay.hint":
       "반사광이 심한 영역을 붉은 사각형으로 표시해요. 살짝 각도를 틀어 재촬영해 보세요.",

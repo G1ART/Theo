@@ -2,6 +2,146 @@
 
 Last updated: 2026-08-09
 
+## 2026-08-09 — Theo 이미지 보정 툴 고도화 (Phase 1 기본기·컨트롤 단순화 + Phase 2 색감 재설계)
+
+### 배경 / 문제
+- QA 리포트: 코너 조작이 자꾸 원래 위치로 튀어 원근 보정을 못 씀
+  (부모에서 매 렌더마다 새 array reference 를 넘겨서 picker `useEffect`
+  가 드래그 도중 quad 를 리셋).
+- 코너 핸들(16px)이 이미지 모서리에 붙으면 컨테이너 `overflow-hidden`
+  으로 반쯤 잘림, SVG `preserveAspectRatio="none"` 과 `object-contain`
+  좌표계 불일치.
+- Attribution context banner (`sticky top-14`) 가 편집기 위를 덮음.
+- 처음 미리보기를 누르면 분석 미완료라 전체 프레임으로 실행되고, 두 번째
+  실행부터 자동 크롭이 잡히던 UX 버그. 분석기(EXIF 미적용) vs 엔진(EXIF
+  적용) 방향 불일치도 함께 정정.
+- 승인해도 도구가 계속 열려있어서 "저장이 됐나?" 애매함, 리스트 썸네일은
+  원본 그대로.
+- 색감이 어둡고 거칠다는 지속적 리포트: gamma sRGB 에서 전 연산, 이중
+  톤 스택, 과한 CLAHE clip, halo 튀는 unsharp.
+
+### 변경 요약
+
+**Phase 1 — 기본기·정확성 + 컨트롤 단순화**
+
+- **코너 스냅백 제거** (`src/components/upload/PerspectiveCornerPicker.tsx`,
+  `src/components/upload/ImageStandardizeEditor.tsx`)
+  - Picker 는 mount / `resetToken` 변경 / 명시적 "코너 리셋" 시에만
+    seed. 드래그 중(`dragCornerRef.current != null`) 재-seed 금지.
+  - 부모에서 `autoDetectedCorners`/`initialCorners` 를 `useMemo` 로
+    안정화. 매 렌더마다 새 array 를 넘기지 않음.
+- **코너 조작성 개선**
+  - 컨테이너의 `overflow-hidden` 을 이미지 wrapper 안쪽으로만 이동 →
+    핸들은 외부 컨테이너에 배치되어 잘리지 않음.
+  - 핸들: 시각적 dot 은 14px, hit target 은 44×44px (touch friendly)
+    + `focus-visible` 링. `touch-action: none`.
+  - 실제 렌더된 image rect (object-contain letterbox) 를 계산해서
+    SVG polygon 과 핸들 위치를 그 rect 에 pin. Quick Adjust crop
+    editor 와 동일한 pattern.
+- **Attribution banner inline 화** (`src/components/upload/AttributionContextBanner.tsx`)
+  - `sticky top-14 z-20 -mx-4 ...` 제거. 일반 inline 슬림 배너로 전환.
+    편집기 컨트롤을 절대 덮지 않음.
+- **첫 크롭 정확화** (`src/lib/image/analyze.ts`,
+  `src/components/upload/ImageStandardizeEditor.tsx`)
+  - `analyze.ts` 를 `createImageBitmap(file, { imageOrientation: "from-image" })`
+    기반으로 재작성 → analyzer 와 engine 좌표계 정합 (portrait EXIF
+    회전 이미지의 sideways 크롭 버그 해소). `HTMLImageElement`
+    fallback 유지.
+  - 편집기: 미리보기 버튼 `disabled = enhanceRunning || !analysis`.
+  - 분석 완료 시 `didAutoPreviewRef` 가드로 1회 자동 프리뷰 실행.
+  - 고신뢰 평면(rectangleConfidence ≥ 0.55) + 사용자가 코너 안 잡음 +
+    scanner input 아닐 때 자동으로 `quadFromRect(suggestedCrop)` 을
+    `sourceCorners` 로 전달 (자동 원근 보정). "자동 원근 보정 적용됨 ·
+    조정" chip 이 뜨고 클릭하면 picker 가 열려 사용자가 조정 가능.
+- **키스톤 aspect ratio 정확화** (`src/lib/image/enhancement/homography.ts`,
+  `src/lib/image/enhancement/localFlatEngine.ts`)
+  - Zhang/Cao 평균 변길이 heuristic 로 목표 aspect ratio 산정
+    (`estimateRectifiedAspect`). 이전엔 크롭 bounding box 의 aspect
+    를 그대로 썼는데, 사다리꼴 촬영에서는 실제 작품 aspect 보다
+    가로/세로가 더 큰 rect 로 warping 되어 왜곡이 남았음.
+  - Warp 결과 canvas 를 새 aspect 로 리사이즈 → tone / proLook /
+    bezel / encode 는 warping 후 canvas 크기(`workW`/`workH`)를 그대로 사용.
+  - 단위 테스트: `src/lib/image/enhancement/__tests__/geometry.test.ts`
+    에 identity + keystoned quad + degenerate quad + homography
+    round-trip 4가지 assertion 추가.
+- **저장 완료 UX**
+  - `handleEnhanceApprove` → `editingAfterSave=false`,
+    aria-live 상태 "이 이미지에 향상본이 저장되었습니다.", `advancedOpen=false`.
+  - 편집기 재-오픈 시 `enhancement` 있으면 slim "저장됨" 카드 렌더
+    (썸네일 + 향상됨 배지 + 다시 편집 / 원본으로 되돌리기 버튼).
+  - 부모 (`src/app/upload/page.tsx`): `onEnhance(next)` 승인시
+    `standardizeOpen=false` 로 접기. 리스트 썸네일은
+    `img.enhancement?.previewUrl ?? img.previewUrl` 로 향상본 우선.
+    닫힌 상태에서도 "향상됨" chip 렌더.
+- **컨트롤 단순화** (`src/components/upload/ImageStandardizeEditor.tsx`)
+  - Basic view: 큰 "Theo 자동 보정 실행" 버튼 + 3-way "보정 세기
+    (약하게/기본/강하게)" segmented + "원근 보정 (코너 조정)"
+    버튼만. 미리보기 있으면 BeforeAfter + "이걸로 저장" / "다시 실행" /
+    "취소".
+  - Advanced (`<details>` 접이식): 단일 "입력 유형" (auto/스튜디오/스캐너)
+    로 이전 captureMode + enhanceMode 통합. Scanner 는 자동으로
+    pro-look off. 글레어 위치 표시 토글, 포트폴리오 톤 일치 checkbox,
+    분석 진단 chip 3종, 촬영 기기 라벨.
+  - 각 항목에 한 줄 한국어 hint. 신규 i18n 키 대량 추가 (en + ko).
+  - Quick Adjust 탭 상단에 "여기서 조정한 값은 저장에 반영되지 않아요.
+    저장하려면 Theo 자동 보정 탭을 이용하세요." hint.
+
+**Phase 2 — 색감 표준 기반 재설계** (`src/lib/image/enhancement/proLook.ts`,
+`src/lib/image/enhancement/awb.ts`, `src/lib/image/enhancement/localFlatEngine.ts`)
+
+- **선형광(linear light) 변환 + 필름형 톤커브**
+  - sRGB EOTF LUT (`srgbToLinear` / `linearToSrgb`) + ACES-style 소프트
+    쇼울더 (`filmicToneCurve`) 를 신설. 하이라이트 클립 방지 + 블랙포인트
+    (0 → 0) 보존.
+  - `adaptiveExposure`: gain 을 LINEAR 로 곱한 후 filmic curve.
+  - `perceptualSaturation`: 채도 lift 를 LINEAR 로 계산 (섀도우 lift
+    가중치 유지). Cap 0.08 → 0.09.
+- **이중 톤 스택 제거** (`localFlatEngine.ts`)
+  - proLook ON 시 classic `applyTone(b,c,s)` 를 skip. analyzer 의 tone
+    은 이미 proLook 의 exposure 목표에 반영되므로 중복 적용을 피함.
+- **PRO_LOOK_DEFAULTS 재조정 (2026-08-09)**
+  - `claheClipLimit`: 2.0 → **1.2**
+  - `satBoost`: 0.08 → **0.06**
+  - `warmthBias`: 0.03 → **0.02**
+  - `unsharpAmount`: 하드코딩 0.4 → 신규 config 필드, default **0.2**
+  - `exposureLumaTarget`: 118 유지 (intensity=strong 이면 +8, light 면 -6)
+- **AWB 클램프 재조정** (`awb.ts`)
+  - Wall-biased 모드는 새 clamp [0.85, 1.25] → 따뜻한 실내 조명에서
+    벽을 지나치게 neutralize 하지 않음.
+  - Gray-world 는 기존 [0.7, 1.4] 유지.
+- **Classic brightness math 정정** (`localFlatEngine.ts:applyTone`)
+  - 기존 `(x - 128) * c + 128 * b` (부적절 pedestal) →
+    표준 `((x - 128) * c + 128) * b`. proLook OFF 경로 대상 (proLook ON
+    은 classic tone skip 이라 사실상 영향 없음).
+- **Intensity 배선** (`ImageStandardizeEditor.tsx`)
+  - `intensityMultiplier(light|normal|strong) = 0.6 | 1.0 | 1.4` 를
+    tone delta, `satBoost`, `warmthBias`, `claheClipLimit`,
+    `exposureLumaTarget` 에 반영.
+
+### 배포 메모
+
+- **Supabase SQL 돌려야 할 것은 없음**. 이번 패치는 `.sql` 파일을
+  건드리지 않음. `enhancement_meta` 스키마도 그대로 (recipe 형태 확장
+  없음 — pro-look config 는 `unsharpAmount` 필드가 늘었지만 recipe 로는
+  persist 하지 않고 runtime config 로만 사용).
+- **환경 변수 변경: 없음.**
+
+### 팔로우업 (다음 배치 후보)
+
+- **원형 작품 타원 → 정원 복원**: 4-corner homography 는 사각형 전용.
+  회화 중 원형/타원형 (mandala, tondo, plate 사진) 은 별도의 5-point
+  fitting 이 필요. Phase 3 아이템으로 남김.
+- **Benchmark canvas (`canvases/theo-enhance-benchmark.canvas.tsx`)**:
+  현재 저장소에 파일이 없어서 이번 배치엔 추가 안 함. 새 pipeline
+  before/after tuning 용으로 다음 배치에 신규 생성 고려.
+- **Sub-agent 요청 metering split**: `AI_IMAGE_ENHANCE_PREVIEWED`
+  이벤트에 intensity chip 정보 추가 여부는 다음 배치에서 판단.
+
+Verified:
+- `npx tsc --noEmit` → exit 0.
+- `npm run test:image-enhance-{geometry,pro-look,awb,recipe,portfolio-coherence,batch-uniformity,corner-picker,glare-regions,orientation,prepare,exif-scrub,exif-read,heic-scrub}` → all "contract: OK".
+- Dev server (port 3000, parent-managed) 계속 실행 중 — HMR 로 자동 반영.
+
 ## 2026-08-09 — 모바일 세션 체크 실패/지연 시 블랭크 로딩 방지 (프론트 도어 폴백 강화)
 
 ### 배경 / 문제

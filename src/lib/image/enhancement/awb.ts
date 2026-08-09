@@ -58,9 +58,20 @@ export type AwbEstimateInput = {
 export const AWB_MUL_MIN = 0.7;
 export const AWB_MUL_MAX = 1.4;
 
-function clampMul(n: number): number {
+/**
+ * 2026-08-09 relaxed clamps for the wall-biased branch. Warm indoor
+ * lighting on a truly-neutral wall would otherwise get pulled full
+ * ±30 % toward gray and strip the room feel; a narrower ±15 % window
+ * preserves the warm cast while still fixing bad phone AWB. Gray-world
+ * fallback keeps the wider [0.7, 1.4] window since it has less prior
+ * information to work with.
+ */
+export const AWB_WALL_MUL_MIN = 0.85;
+export const AWB_WALL_MUL_MAX = 1.25;
+
+function clampMul(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return 1;
-  return Math.min(AWB_MUL_MAX, Math.max(AWB_MUL_MIN, n));
+  return Math.min(max, Math.max(min, n));
 }
 
 function round3(n: number): number {
@@ -157,9 +168,11 @@ export function estimateAwb(input: AwbEstimateInput): AwbMultipliers {
   const g = Math.max(eps, means.g);
   const b = Math.max(eps, means.b);
   const target = (r + g + b) / 3;
-  const rMul = clampMul(target / r);
-  const gMul = clampMul(target / g);
-  const bMul = clampMul(target / b);
+  const minMul = source === "wall-biased" ? AWB_WALL_MUL_MIN : AWB_MUL_MIN;
+  const maxMul = source === "wall-biased" ? AWB_WALL_MUL_MAX : AWB_MUL_MAX;
+  const rMul = clampMul(target / r, minMul, maxMul);
+  const gMul = clampMul(target / g, minMul, maxMul);
+  const bMul = clampMul(target / b, minMul, maxMul);
 
   return {
     rMul: round3(rMul),

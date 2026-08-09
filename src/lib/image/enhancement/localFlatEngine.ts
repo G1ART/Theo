@@ -36,6 +36,7 @@ import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./ty
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import { applyAwb, estimateAwb } from "./awb";
 import {
+  estimateRectifiedAspect,
   homographyForCorners,
   warpPerspectiveNearest,
 } from "./homography";
@@ -248,13 +249,19 @@ function applyTone(
   const c = clampTone(tone.c);
   const s = clampTone(tone.s);
 
+  // 2026-08-09 correctness fix: brightness (b) was previously applied
+  // as `... + 128 * b`, which quietly re-added a fixed grey pedestal
+  // regardless of the input. Standard form is `((x - 128) * c + 128) * b`
+  // — contrast pivots around mid-grey, then brightness multiplies the
+  // whole result. This matters only for the Pro Look OFF path (pro-look
+  // now skips this stage entirely per the linear-light rewrite).
   for (let i = 0; i < bIn.length; i += 4) {
     let r = bIn[i];
     let g = bIn[i + 1];
     let bl = bIn[i + 2];
-    r = (r - 128) * c + 128 * b;
-    g = (g - 128) * c + 128 * b;
-    bl = (bl - 128) * c + 128 * b;
+    r = ((r - 128) * c + 128) * b;
+    g = ((g - 128) * c + 128) * b;
+    bl = ((bl - 128) * c + 128) * b;
     const y = 0.299 * r + 0.587 * g + 0.114 * bl;
     r = y + (r - y) * s;
     g = y + (g - y) * s;
@@ -524,6 +531,10 @@ export async function runFlatEnhancement(
   // describe a non-axis-aligned quadrilateral inside the crop rect.
   // The crop above already trimmed the frame; corners are re-mapped
   // into the crop's local pixel space so warping stays lossless.
+  // 2026-08-09: rectified target aspect is derived from the corner
+  // edge lengths (Zhang/Cao heuristic) rather than the crop bounding
+  // box, so keystoned photographs land at the artwork's true aspect
+  // instead of the framing rectangle's aspect.
   const cornersInCrop: [[number, number], [number, number], [number, number], [number, number]] | null =
     input.sourceCorners
       ? mapCornersIntoCrop(input.sourceCorners, cropNormalized)
@@ -531,6 +542,10 @@ export async function runFlatEnhancement(
   const needsWarp = cornersInCrop
     ? cornersLookQuadrilateral(cornersInCrop, outW, outH)
     : false;
+  // Track the *post-warp* dimensions so downstream stages (tone,
+  // proLook, bezel, encode) all agree on the current canvas geometry.
+  let workW = outW;
+  let workH = outH;
   if (needsWarp && cornersInCrop) {
     try {
       const twarp = performance.now();
@@ -546,10 +561,31 @@ export async function runFlatEnhancement(
         [cornersInCrop[2][0] * outW, cornersInCrop[2][1] * outH],
         [cornersInCrop[3][0] * outW, cornersInCrop[3][1] * outH],
       ];
-      const H = homographyForCorners(pxCorners, outW, outH);
+      const targetAspect = estimateRectifiedAspect(pxCorners);
+      const longEdge = Math.max(outW, outH);
+      let warpOutW: number;
+      let warpOutH: number;
+      if (targetAspect >= 1) {
+        warpOutW = longEdge;
+        warpOutH = Math.max(1, Math.round(longEdge / targetAspect));
+      } else {
+        warpOutH = longEdge;
+        warpOutW = Math.max(1, Math.round(longEdge * targetAspect));
+      }
+      const H = homographyForCorners(pxCorners, warpOutW, warpOutH);
       if (H) {
-        const warped = warpPerspectiveNearest(srcData, H, outW, outH);
-        if (warped) ctx.putImageData(warped, 0, 0);
+        const warped = warpPerspectiveNearest(srcData, H, warpOutW, warpOutH);
+        if (warped) {
+          // Replace the source canvas with a fresh surface sized to
+          // the rectified aspect so subsequent stages (tone, proLook,
+          // bezel, encode) don't have to know a warp happened.
+          const rectifiedSurface = makeCanvas(warpOutW, warpOutH);
+          canvas = rectifiedSurface.canvas;
+          ctx = rectifiedSurface.ctx;
+          ctx.putImageData(warped, 0, 0);
+          workW = warpOutW;
+          workH = warpOutH;
+        }
       }
       stageTimings.warpMs = Math.max(0, Math.round(performance.now() - twarp));
     } catch {
@@ -567,11 +603,11 @@ export async function runFlatEnhancement(
     // canvas — cheap and stable across the ImageData sizes we handle.
     if (awbEnabled) {
       const tawb = performance.now();
-      const sample = ctx.getImageData(0, 0, outW, outH);
+      const sample = ctx.getImageData(0, 0, workW, workH);
       awbRecipe = estimateAwb({
         data: sample.data,
-        width: outW,
-        height: outH,
+        width: workW,
+        height: workH,
         rectangle: input.awb?.rectangle ?? null,
         rectangleConfidence: input.awb?.rectangleConfidence,
       });
@@ -581,8 +617,13 @@ export async function runFlatEnhancement(
     }
 
     const t0 = performance.now();
-    const src = ctx.getImageData(0, 0, outW, outH);
-    processed = applyTone(src, tone);
+    const src = ctx.getImageData(0, 0, workW, workH);
+    // 2026-08-09 color-linear: skip classic multiplicative tone when
+    // Pro Look is enabled — its adaptive exposure + tone curve already
+    // targets the same midtone, and doing both stacks the effect and
+    // produces the muddy result reported in QA. Preserve classic tone
+    // for the Pro Look OFF path so recipe replay stays byte-identical.
+    processed = proLookEnabled ? src : applyTone(src, tone);
     stageTimings.toneMs = Math.max(0, Math.round(performance.now() - t0));
 
     // Pro-look pipeline (2026-08-06). Runs after classic tone so the
@@ -612,9 +653,9 @@ export async function runFlatEnhancement(
 
   // Bezel — draw the processed canvas onto a slightly larger white
   // canvas so the resulting artwork sits on a clean flat mat.
-  const bezelPx = Math.round(bezel * Math.min(outW, outH));
-  const finalW = outW + bezelPx * 2;
-  const finalH = outH + bezelPx * 2;
+  const bezelPx = Math.round(bezel * Math.min(workW, workH));
+  const finalW = workW + bezelPx * 2;
+  const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
   try {
     const t0 = performance.now();

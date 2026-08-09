@@ -147,15 +147,54 @@ function loadFile(file: File): Promise<HTMLImageElement> {
   });
 }
 
-/** Draw an `HTMLImageElement` into a downscaled canvas for analysis. */
-function toSampleCanvas(img: HTMLImageElement): {
+/**
+ * Decode `file` with EXIF orientation applied when the browser supports
+ * it, so the analyzer's visual `width/height` and pixel data match the
+ * enhancement engine's oriented bitmap (`decodeOriented` in
+ * localFlatEngine.ts). Falls back to plain `createImageBitmap` and then
+ * to `HTMLImageElement` (older Safari) so all downstream analysis stays
+ * on a single, consistent coordinate system.
+ */
+async function decodeOriented(
+  file: File,
+): Promise<
+  | { bitmap: ImageBitmap; width: number; height: number }
+  | { image: HTMLImageElement; width: number; height: number }
+> {
+  if (typeof createImageBitmap !== "undefined") {
+    try {
+      const bmp = await createImageBitmap(file, {
+        imageOrientation: "from-image",
+      } as ImageBitmapOptions);
+      return { bitmap: bmp, width: bmp.width, height: bmp.height };
+    } catch {
+      try {
+        const bmp = await createImageBitmap(file);
+        return { bitmap: bmp, width: bmp.width, height: bmp.height };
+      } catch {
+        // Fall through to <img> path below.
+      }
+    }
+  }
+  const image = await loadFile(file);
+  return {
+    image,
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height,
+  };
+}
+
+/** Draw an `HTMLImageElement` or `ImageBitmap` into a downscaled canvas for analysis. */
+function toSampleCanvas(
+  src: HTMLImageElement | ImageBitmap,
+  w0: number,
+  h0: number,
+): {
   ctx: CanvasRenderingContext2D;
   canvas: HTMLCanvasElement;
   w: number;
   h: number;
 } {
-  const w0 = img.naturalWidth || img.width;
-  const h0 = img.naturalHeight || img.height;
   const longEdge = Math.max(w0, h0);
   const scale = longEdge > SAMPLE_LONG_EDGE ? SAMPLE_LONG_EDGE / longEdge : 1;
   const w = Math.max(1, Math.round(w0 * scale));
@@ -165,7 +204,7 @@ function toSampleCanvas(img: HTMLImageElement): {
   canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("canvas_2d_unavailable");
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.drawImage(src as CanvasImageSource, 0, 0, w, h);
   return { ctx, canvas, w, h };
 }
 
@@ -459,18 +498,39 @@ function computeRectangleConfidence(
 
 /**
  * Full analysis pipeline. Given a browser `File`, return luminance
- * stats + a suggested `DisplayAdjust`.
+ * stats + a suggested `DisplayAdjust`. Decodes with EXIF orientation
+ * applied (when supported) so the analyzer's coordinate system matches
+ * the enhancement engine's oriented bitmap.
  */
 export async function analyzeImageFile(file: File): Promise<ImageAnalysis> {
-  const img = await loadFile(file);
-  return analyzeImageElement(img);
+  const decoded = await decodeOriented(file);
+  const src = "bitmap" in decoded ? decoded.bitmap : decoded.image;
+  const result = analyzeImageSource(src, decoded.width, decoded.height);
+  if ("bitmap" in decoded) {
+    try {
+      decoded.bitmap.close();
+    } catch {}
+  }
+  return result;
 }
 
-/** Same as `analyzeImageFile` but takes an already-loaded element. */
-export function analyzeImageElement(
-  img: HTMLImageElement,
+/**
+ * Same as `analyzeImageFile` but takes an already-loaded element.
+ * Retained for callers that still hand-decode via `<img>` — orientation
+ * matches whatever the element already resolved to.
+ */
+export function analyzeImageElement(img: HTMLImageElement): ImageAnalysis {
+  const w0 = img.naturalWidth || img.width;
+  const h0 = img.naturalHeight || img.height;
+  return analyzeImageSource(img, w0, h0);
+}
+
+function analyzeImageSource(
+  src: HTMLImageElement | ImageBitmap,
+  width: number,
+  height: number,
 ): ImageAnalysis {
-  const { ctx, w, h } = toSampleCanvas(img);
+  const { ctx, w, h } = toSampleCanvas(src, width, height);
   const imageData = ctx.getImageData(0, 0, w, h);
   const { mean, stdev } = lumaStats(imageData.data);
   const tone = suggestTone(mean, stdev);
@@ -485,21 +545,14 @@ export function analyzeImageElement(
   const blurScore = computeBlurScore(imageData.data, w, h);
   const glareScore = computeGlareScore(imageData.data);
   const rectangleConfidence = computeRectangleConfidence(imageData.data, w, h);
-  // Only pay the connected-component cost when the scalar hint says we
-  // might have something to highlight — the extractor short-circuits
-  // fast on a fully-under-threshold image but this saves the outer
-  // allocation on the common "nothing to see here" path.
   const glareRegions: GlareRegion[] =
     glareScore > 0.02 ? extractGlareRegions(imageData.data, w, h) : [];
-  // Decisive thresholds are chosen conservatively — we only report a
-  // definitive `flat` when the rectangle signal is strong AND the image
-  // isn't a small crop where noise dominates.
   let mode: "flat" | "object" | null = null;
   if (rectangleConfidence >= 0.55) mode = "flat";
   else if (rectangleConfidence <= 0.35) mode = "object";
   return {
-    width: img.naturalWidth || img.width,
-    height: img.naturalHeight || img.height,
+    width,
+    height,
     meanLuma: mean,
     stdevLuma: stdev,
     suggested,

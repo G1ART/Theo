@@ -54,9 +54,15 @@ export function AttributionContextBanner(props: {
   const showPendingChip = isExternal && hasEmail && !hasPendingInviteForEmail;
   const showAlreadyPendingChip = isExternal && hasEmail && hasPendingInviteForEmail;
 
+  // 2026-08-09: inline slim banner (was previously `sticky top-14 z-20`).
+  // The upload flow now renders an interactive image editor with a
+  // perspective corner picker; a sticky banner sitting above them
+  // covered controls at the top of the editor. Parents render this
+  // component ABOVE the editor already so the message is still highly
+  // visible without needing to overlay other UI.
   return (
     <div
-      className="sticky top-14 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-y border-zinc-200 bg-zinc-50/95 px-4 py-2 text-xs backdrop-blur sm:mx-0 sm:rounded-lg sm:border sm:top-16"
+      className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs"
       role="status"
       aria-label={t("upload.contextBanner.uploadingFor").replace("{name}", artistName)}
     >

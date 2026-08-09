@@ -43,13 +43,17 @@ import assert from "node:assert/strict";
     void before;
   }
 
-  // ── 2. Adaptive exposure moves midtones toward target.
+  // ── 2. Adaptive exposure moves midtones toward target and stays
+  //     under the filmic shoulder (2026-08-09 linear-light rewrite).
+  //     Before: 60 * 1.3 = 78 in sRGB. After: gain applied in linear,
+  //     then filmic curve rolls off — expected mean lands in [58, 78]
+  //     depending on the sRGB EOTF round-trip. The critical guardrails
+  //     are (1) mean rose, and (2) mean never overshoots the target.
   {
     const w = 32;
     const h = 32;
     const data = new Uint8ClampedArray(w * h * 4);
     for (let i = 0; i < data.length; i += 4) {
-      // Dim image, mean luma ≈ 60.
       data[i] = 55;
       data[i + 1] = 60;
       data[i + 2] = 65;
@@ -62,11 +66,15 @@ import assert from "node:assert/strict";
       afterMean > beforeMean,
       `mean rose ${beforeMean.toFixed(1)} -> ${afterMean.toFixed(1)}`,
     );
-    // Should converge close to target (within cap): at 118/60 = 1.97
-    // it hits the 1.3 hard cap, so afterMean ≈ 60 * 1.3 = 78.
     assert.ok(
-      Math.abs(afterMean - 78) < 8,
-      `midtone ~ target-adjusted (afterMean=${afterMean.toFixed(1)})`,
+      afterMean <= 118,
+      `mean stays under target (filmic shoulder, got ${afterMean.toFixed(1)})`,
+    );
+    // Regression guard: with the linear-light + filmic pipeline the
+    // dark-toned input should land somewhere in the 55–80 band.
+    assert.ok(
+      afterMean >= 55 && afterMean <= 80,
+      `midtone in expected band [55, 80] (got ${afterMean.toFixed(1)})`,
     );
   }
 

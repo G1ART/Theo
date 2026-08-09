@@ -66,6 +66,28 @@ import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
 type CaptureMode = "auto" | "studio" | "phone" | "scanner";
 
 /**
+ * 2026-08-09: user-facing "input type" selector consolidates the old
+ * captureMode + enhanceMode into a single Advanced control. The
+ * enhanceMode "object" branch is opt-in through the Advanced fold; the
+ * common Basic path stays on auto + adjustable intensity.
+ */
+type InputType = "auto" | "studio" | "scanner";
+
+/**
+ * 2026-08-09: three-way strength selector for the Basic view. Maps to
+ * multipliers around the Pro Look defaults so all three settings stay
+ * within the standards envelope (FADGI/Metamorfoze) but let the user
+ * dial back for delicate paintings or push harder for phone snapshots.
+ */
+type Intensity = "light" | "normal" | "strong";
+
+function intensityMultiplier(i: Intensity): number {
+  if (i === "light") return 0.6;
+  if (i === "strong") return 1.4;
+  return 1;
+}
+
+/**
  * Enhancement preview state — held by `ImageStandardizeEditor` while
  * the user reviews a local flat pass. Once approved it becomes the
  * `EnhancementDraft` handed back to the caller through `onEnhance`.
@@ -584,13 +606,35 @@ export function ImageStandardizeEditor({
   // Theo Enhance (Beta) — panel state
   // ------------------------------------------------------------------
 
-  const [enhanceMode, setEnhanceMode] = useState<EnhancementMode>("auto");
+  // 2026-08-09 Todo 7: Basic view no longer exposes a mode selector —
+  // `enhanceMode` stays "auto" and the analyzer resolves flat vs object.
+  // The setter is intentionally unused so we keep the pipeline API stable
+  // and can re-expose the selector in Advanced without a state change.
+  const [enhanceMode] = useState<EnhancementMode>("auto");
   const [enhancePreview, setEnhancePreview] = useState<EnhancementDraft | null>(
     enhancement ?? null,
   );
   const [enhanceRunning, setEnhanceRunning] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhancePreviewUrlRef = useRef<string | null>(null);
+  // 2026-08-09: Basic-view intensity selector.
+  const [intensity, setIntensity] = useState<Intensity>("normal");
+  // 2026-08-09: consolidated input-type selector living inside Advanced.
+  const [inputType, setInputType] = useState<InputType>("auto");
+  // 2026-08-09: Advanced fold is collapsed by default. Uncontrolled
+  // <details> would re-collapse on every parent re-render, so we own
+  // the state.
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
+  // 2026-08-09: when an enhancement is already saved (parent supplied
+  // `enhancement` OR the user just approved a preview), we render a
+  // compact "saved" card. `editingAfterSave` opts the user back into
+  // the full tools on demand.
+  const [editingAfterSave, setEditingAfterSave] = useState<boolean>(false);
+  // 2026-08-09: aria-live status text — assistive announcement for the
+  // save flow. Cleared on tab change / rerun so screen readers don't
+  // repeat stale announcements.
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const didAutoPreviewRef = useRef<boolean>(false);
   // 2026-08-06 — EXIF capture provenance + low-light warning. Reads
   // parse client-side once per file. NEVER returns GPS (see exifRead).
   const [exif, setExif] = useState<ExifReadResult | null>(null);
@@ -605,12 +649,14 @@ export function ImageStandardizeEditor({
   }, [file]);
   const lowLight = exif ? isLowLightExif(exif) : false;
   const captureDeviceLabel = exif ? formatCaptureDevice(exif) : null;
-  // Capture mode — auto-seeds off phone-shot detection when the EXIF
-  // is confident. User can override.
-  const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
-  // Pro-look toggle — default on when the analyzer picked flat OR the
-  // user selected phone hand-held mode.
-  const [proLookOn, setProLookOn] = useState<boolean>(true);
+  // Capture mode — derived from the consolidated `inputType` selector
+  // (Advanced fold). The `phone` legacy value is folded into `auto`
+  // since the analyzer already picks the right pipeline from EXIF.
+  const captureMode: CaptureMode = inputType;
+  // Pro-look is always on for the "auto" / "studio" path so the
+  // simplified basic view is opinionated. Scanner input forces it off
+  // (existing engine contract).
+  const proLookOn = true;
   const proLookEnabled = captureMode === "scanner" ? false : proLookOn;
 
   // 2026-08-07 — Perspective correction. Opt-in only per file so the
@@ -621,6 +667,11 @@ export function ImageStandardizeEditor({
   const [perspectiveCorners, setPerspectiveCorners] = useState<
     [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint] | null
   >(null);
+  // Bump this integer to force PerspectiveCornerPicker to re-seed from
+  // its auto-detected corners. Only bumped on explicit user actions
+  // (analysis re-fires with a new rectangle, or the auto-detect chip
+  // is tapped) — never as a side-effect of parent re-renders.
+  const [perspectiveResetToken] = useState<number>(0);
 
   // 2026-08-07 — Glare heatmap toggle. Non-destructive overlay: never
   // touches the pipeline output, just draws red rectangles over the
@@ -686,6 +737,27 @@ export function ImageStandardizeEditor({
     return "object";
   }, [enhanceMode, analysis?.mode]);
 
+  // 2026-08-09 corner-stick fix: stabilize the array identity so
+  // PerspectiveCornerPicker doesn't see a new prop reference every
+  // parent render. Keyed on the meaningful scalar inputs — the picker
+  // only re-seeds when THESE change (via `resetToken`).
+  const autoDetectedCornersMemo = useMemo<Quad | null>(() => {
+    if (!analysis) return null;
+    if (analysis.rectangleConfidence < 0.55) return defaultInsetQuad(0.1);
+    return quadFromRect(analysis.suggestedCrop) ?? defaultInsetQuad(0.1);
+  }, [
+    analysis,
+    analysis?.suggestedCrop?.x,
+    analysis?.suggestedCrop?.y,
+    analysis?.suggestedCrop?.w,
+    analysis?.suggestedCrop?.h,
+    analysis?.rectangleConfidence,
+  ]);
+  const perspectiveInitialCornersMemo = useMemo<Quad | null>(
+    () => perspectiveCorners,
+    [perspectiveCorners],
+  );
+
   const runEnhancePreview = useCallback(async () => {
     if (!onEnhance) return;
     setEnhanceError(null);
@@ -730,6 +802,39 @@ export function ImageStandardizeEditor({
       const isScanner = captureMode === "scanner";
       const wantsAwb = !isScanner;
       const wantsProLook = proLookEnabled;
+      // Intensity multiplier: Studio is inherently gentler, so scale
+      // by 0.5x on top of the user-chosen intensity. Applies to the
+      // analyzer tone deltas AND the proLook config below.
+      const iMult =
+        (captureMode === "studio" ? 0.5 : 1) * intensityMultiplier(intensity);
+      // 2026-08-09 auto keystone: when the analyzer is confident it
+      // saw a flat rectangle AND the user hasn't picked corners
+      // manually, pass the auto-detected corners so the pipeline
+      // straightens the shot on first run. Scanner input skips this.
+      const autoCorners: [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+      ] | null =
+        !perspectiveCorners &&
+        !isScanner &&
+        analysis &&
+        analysis.rectangleConfidence >= 0.55
+          ? quadFromRect(analysis.suggestedCrop)
+          : null;
+      const sourceCornersToSend = perspectiveCorners ?? autoCorners;
+      // 2026-08-09 pro-look tuning: pull Phase 2 defaults + intensity
+      // multiplier. Values documented in proLook.ts and Todo 8.
+      const proLookConfigOverrides = wantsProLook
+        ? {
+            enabled: true,
+            satBoost: Math.min(0.09, 0.06 * iMult),
+            warmthBias: Math.max(-0.05, Math.min(0.05, 0.02 * iMult)),
+            claheClipLimit: Math.min(2.0, Math.max(0.8, 1.2 * (iMult === 0 ? 1 : Math.sqrt(iMult)))),
+            exposureLumaTarget: Math.round(118 + (intensity === "strong" ? 8 : intensity === "light" ? -6 : 0)),
+          }
+        : undefined;
       // Homography — when the user opted into "원근 보정" and confirmed
       // corners via `PerspectiveCornerPicker`, pass them through. The
       // engine warps automatically. See homography.ts + the picker
@@ -737,24 +842,15 @@ export function ImageStandardizeEditor({
       const result = await runFlatEnhancement({
         file,
         crop: seedCrop,
-        sourceCorners: perspectiveCorners,
+        sourceCorners: sourceCornersToSend,
         tone: suggestion
           ? {
-              b:
-                captureMode === "studio"
-                  ? 1 + ((suggestion.b ?? 1) - 1) * 0.5
-                  : suggestion.b,
-              c:
-                captureMode === "studio"
-                  ? 1 + ((suggestion.c ?? 1) - 1) * 0.5
-                  : suggestion.c,
-              s:
-                captureMode === "studio"
-                  ? 1 + ((suggestion.s ?? 1) - 1) * 0.5
-                  : suggestion.s,
+              b: 1 + ((suggestion.b ?? 1) - 1) * iMult,
+              c: 1 + ((suggestion.c ?? 1) - 1) * iMult,
+              s: 1 + ((suggestion.s ?? 1) - 1) * iMult,
             }
           : undefined,
-        proLook: wantsProLook ? { enabled: true } : undefined,
+        proLook: proLookConfigOverrides,
         awb: wantsAwb
           ? {
               enabled: true,
@@ -911,6 +1007,7 @@ export function ImageStandardizeEditor({
     t,
     file,
     crop,
+    analysis,
     analysis?.suggestedCrop,
     analysis?.suggested,
     analysis?.rectangleConfidence,
@@ -921,11 +1018,49 @@ export function ImageStandardizeEditor({
     portfolioCoherenceOn,
     portfolioAvailable,
     portfolioStats,
+    intensity,
   ]);
+
+  // 2026-08-09 Todo 4: auto-run a first preview as soon as analysis
+  // completes, ONLY when the user is on the Enhance tab and hasn't
+  // already got a saved enhancement or in-flight run. Guarded by a ref
+  // so re-analysis of the same file doesn't re-fire.
+  useEffect(() => {
+    if (!onEnhance) return;
+    if (tab !== "enhance") return;
+    if (!analysis) return;
+    if (enhancePreview) return;
+    if (enhancement) return;
+    if (enhanceRunning) return;
+    if (didAutoPreviewRef.current) return;
+    // Object mode needs the server-side hybrid pipeline; skip auto-run
+    // there so we don't surface the "objectHint" error unexpectedly.
+    if (resolvedAutoMode === "object") return;
+    didAutoPreviewRef.current = true;
+    void runEnhancePreview();
+  }, [
+    analysis,
+    tab,
+    onEnhance,
+    enhancePreview,
+    enhancement,
+    enhanceRunning,
+    resolvedAutoMode,
+    runEnhancePreview,
+  ]);
+
+  // Reset the auto-preview sentinel when the underlying file changes
+  // so a fresh upload gets its own first-run preview.
+  useEffect(() => {
+    didAutoPreviewRef.current = false;
+  }, [file]);
 
   const handleEnhanceApprove = useCallback(() => {
     if (!onEnhance || !enhancePreview) return;
     onEnhance(enhancePreview);
+    setEditingAfterSave(false);
+    setSaveStatus(t("upload.imageEnhance.applied.status"));
+    setAdvancedOpen(false);
     void recordUsageEvent({
       key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
       featureKey: "ai.image_enhance",
@@ -936,7 +1071,7 @@ export function ImageStandardizeEditor({
         latency_ms: enhancePreview.meta.latencyMs,
       },
     });
-  }, [enhancePreview, onEnhance, meteringSource]);
+  }, [enhancePreview, onEnhance, meteringSource, t]);
 
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
@@ -1044,337 +1179,414 @@ export function ImageStandardizeEditor({
 
       {enhancementEnabled && tab === "enhance" ? (
         <div className="space-y-3">
-          {/* Quality diagnosis chips */}
-          <div className="flex flex-wrap gap-2 text-[11px]">
-            {analysis ? (
-              <>
-                <span
-                  className={`rounded-full px-2 py-0.5 ${
-                    analysis.rectangleConfidence >= 0.55
-                      ? "bg-emerald-50 text-emerald-700"
-                      : "bg-zinc-100 text-zinc-600"
-                  }`}
-                  title={t("upload.imageEnhance.rectangleHint")}
-                >
-                  {t("upload.imageEnhance.rectangleConfidence")}
-                  {": "}
-                  {Math.round(analysis.rectangleConfidence * 100)}%
-                </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 ${
-                    analysis.blurScore < 0.15
-                      ? "bg-amber-50 text-amber-700"
-                      : "bg-zinc-100 text-zinc-600"
-                  }`}
-                  title={t("upload.imageEnhance.blurHint")}
-                >
-                  {t("upload.imageEnhance.blurScore")}
-                  {": "}
-                  {Math.round(analysis.blurScore * 100)}%
-                </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 ${
-                    analysis.glareScore > 0.05
-                      ? "bg-amber-50 text-amber-700"
-                      : "bg-zinc-100 text-zinc-600"
-                  }`}
-                  title={t("upload.imageEnhance.glareHint")}
-                >
-                  {t("upload.imageEnhance.glareScore")}
-                  {": "}
-                  {Math.round(analysis.glareScore * 100)}%
-                </span>
-              </>
-            ) : (
-              <span className="text-zinc-500">
-                {t("upload.imageStandardize.analyzing")}
-              </span>
-            )}
-          </div>
+          {/* Aria-live region — announces save/reset transitions for
+              screen readers. Kept visually hidden. */}
+          <p
+            className="sr-only"
+            aria-live="polite"
+            role="status"
+          >
+            {saveStatus ?? ""}
+          </p>
 
-          {/* Reshoot advisory */}
-          {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-              {t("upload.imageEnhance.reshootAdvisory")}
-            </p>
-          )}
-
-          {/* Low-light warning (2026-08-06). Driven by EXIF ExposureTime
-              > 1/60 && ISO > 800. Never based on GPS. */}
-          {lowLight && (
-            <p
-              className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
-              title={t("upload.imageEnhance.lowLightAdvisory")}
-            >
-              <span className="rounded-full bg-amber-200 px-2 py-0.5 text-amber-900">
-                {t("upload.imageEnhance.lowLight")}
-              </span>
-              <span>{t("upload.imageEnhance.lowLightAdvisory")}</span>
-            </p>
-          )}
-
-          {/* Capture-mode chip */}
-          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="text-zinc-500">
-              {t("upload.imageEnhance.captureMode.label")}
-            </span>
-            {(["auto", "studio", "phone", "scanner"] as CaptureMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setCaptureMode(m)}
-                className={`rounded-full border px-2.5 py-1 ${
-                  captureMode === m
-                    ? "border-zinc-900 bg-zinc-900 text-white"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                }`}
-                title={t("upload.imageEnhance.captureMode.hint")}
-              >
-                {t(`upload.imageEnhance.captureMode.${m}`)}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setProLookOn((v) => !v)}
-              className={`ml-auto rounded-full border px-2.5 py-1 ${
-                proLookEnabled
-                  ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                  : "border-zinc-300 text-zinc-600 hover:bg-zinc-50"
-              }`}
-              title={t("upload.imageEnhance.proLook.hint")}
-              disabled={captureMode === "scanner"}
-            >
-              {proLookEnabled
-                ? t("upload.imageEnhance.proLook.on")
-                : t("upload.imageEnhance.proLook.off")}
-            </button>
-          </div>
-
-          {/* Capture-device provenance line (compact). Never shows GPS. */}
-          {captureDeviceLabel && (
-            <p className="text-[10px] text-zinc-500">
-              {t("upload.imageEnhance.captureDeviceLabel")}: {captureDeviceLabel}
-            </p>
-          )}
-
-          {/* Mode selector */}
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-zinc-500">
-              {t("upload.imageEnhance.modeLabel")}
-            </span>
-            {(["auto", "flat", "object"] as EnhancementMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setEnhanceMode(m)}
-                className={`rounded-full border px-2.5 py-1 ${
-                  enhanceMode === m
-                    ? "border-zinc-900 bg-zinc-900 text-white"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                }`}
-              >
-                {t(`upload.imageEnhance.mode.${m}`)}
-              </button>
-            ))}
-            <span className="ml-auto text-[10px] text-zinc-500">
-              {t("upload.imageEnhance.resolvedMode").replace(
-                "{mode}",
-                t(`upload.imageEnhance.mode.${resolvedAutoMode}`),
-              )}
-            </span>
-          </div>
-
-          {/* 2026-08-07 — H (portfolio coherence) chip. Hidden when
-              the artist has fewer than 3 published works. */}
-          {portfolioAvailable && (
-            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-700">
-              <input
-                type="checkbox"
-                checked={portfolioCoherenceOn}
-                onChange={(e) => setPortfolioCoherenceOn(e.target.checked)}
-                className="h-3.5 w-3.5 accent-zinc-900"
-              />
-              <span className="font-medium">
-                {t("bulk.enhance.portfolioCoherence")}
-              </span>
-              <span
-                className="text-zinc-500"
-                title={t("bulk.enhance.portfolioCoherenceHint")}
-              >
-                ({t("bulk.enhance.portfolioCoherenceHint")})
-              </span>
-            </label>
-          )}
-
-          {/* 2026-08-07 — Perspective correction opt-in toggle. Only
-              meaningful in flat mode: object mode composites on a white
-              canvas so 4-corner warp is orthogonal. */}
-          {resolvedAutoMode === "flat" && (
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <button
-                type="button"
-                onClick={() => setPerspectiveOpen((v) => !v)}
-                className={`rounded-full border px-2.5 py-1 ${
-                  perspectiveOpen || perspectiveCorners
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                }`}
-                aria-pressed={perspectiveOpen}
-                title={t("upload.imageEnhance.perspective.hint")}
-              >
-                {t("upload.imageEnhance.perspective.toggle")}
-              </button>
-              {perspectiveCorners && !perspectiveOpen && (
-                <span className="text-[10px] text-emerald-700">
-                  {t("upload.imageEnhance.perspective.applied")}
-                </span>
-              )}
-              {analysis && analysis.glareRegions.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setGlareOverlayOn((v) => !v)}
-                  className={`rounded-full border px-2.5 py-1 ${
-                    glareOverlayOn
-                      ? "border-rose-500 bg-rose-50 text-rose-800"
-                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                  }`}
-                  aria-pressed={glareOverlayOn}
-                  title={t("upload.imageEnhance.glareOverlay.hint")}
-                >
-                  {t("upload.imageEnhance.glareOverlay.toggle")}
-                </button>
-              )}
-            </div>
-          )}
-
-          {perspectiveOpen && previewUrl && (
-            <PerspectiveCornerPicker
-              imageUrl={previewUrl}
-              imageWidth={analysis?.width || 1024}
-              imageHeight={analysis?.height || 1024}
-              initialCorners={perspectiveCorners}
-              autoDetectedCorners={
-                analysis && analysis.rectangleConfidence >= 0.55
-                  ? quadFromRect(analysis.suggestedCrop) ?? defaultInsetQuad(0.1)
-                  : defaultInsetQuad(0.1)
-              }
-              onConfirm={(q: Quad) => {
-                setPerspectiveCorners(q);
-                setPerspectiveOpen(false);
-                // Re-run so the confirmed corners immediately re-flow
-                // the pipeline. Fire-and-forget; UI reflects `enhanceRunning`.
-                void runEnhancePreview();
-              }}
-              onCancel={() => setPerspectiveOpen(false)}
-            />
-          )}
-
-          {/* Preview + actions */}
-          {enhancePreview ? (
-            <>
-              <BeforeAfterCompare
-                beforeSrc={previewUrl ?? ""}
-                afterSrc={enhancePreview.previewUrl}
-                beforeAlt={t("upload.imageEnhance.beforeAlt")}
-                afterAlt={t("upload.imageEnhance.afterAlt")}
-              />
-              <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={handleEnhanceReject}
-                  className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
-                >
-                  {t("upload.imageEnhance.reject")}
-                </button>
-                <button
-                  type="button"
-                  onClick={runEnhancePreview}
-                  disabled={enhanceRunning}
-                  className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  {t("upload.imageEnhance.rerun")}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleEnhanceApprove}
-                  className="rounded-full bg-zinc-900 px-3 py-1 text-white hover:bg-zinc-800"
-                >
-                  {t("upload.imageEnhance.approve")}
-                </button>
+          {/* SAVED VIEW — parent already has an approved enhancement.
+              Compact confirmation card + "다시 편집" / "원본으로 되돌리기"
+              affordances. User has to explicitly opt back in to see the
+              full tools. */}
+          {enhancement && !editingAfterSave ? (
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={enhancement.previewUrl}
+                  alt=""
+                  className="h-16 w-16 shrink-0 rounded-md border border-white object-cover"
+                  draggable={false}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium text-white">
+                      {t("upload.imageEnhance.appliedChip")}
+                    </span>
+                    <span className="text-xs font-medium text-emerald-900">
+                      {t("upload.imageEnhance.applied.title")}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingAfterSave(true);
+                        setSaveStatus(null);
+                      }}
+                      className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
+                    >
+                      {t("upload.imageEnhance.applied.reopen")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleEnhanceReject();
+                        setEditingAfterSave(false);
+                        setSaveStatus(null);
+                      }}
+                      className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-100"
+                    >
+                      {t("upload.imageEnhance.applied.revert")}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </>
+            </div>
           ) : (
             <>
-              {previewUrl && (
-                <div className="relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-zinc-100">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={previewUrl}
-                    alt=""
-                    className="h-full w-full object-contain"
-                    draggable={false}
-                  />
-                  {/* 2026-08-07 — Non-destructive glare overlay. Renders
-                      once the analyzer has produced regions and the
-                      user toggles the chip on. Never modifies the
-                      pipeline output. */}
-                  {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
-                    <>
-                      <svg
-                        className="pointer-events-none absolute inset-0 h-full w-full"
-                        viewBox="0 0 100 100"
-                        preserveAspectRatio="none"
-                        aria-hidden
-                      >
-                        {analysis.glareRegions.map((r, i) => (
-                          <rect
-                            key={i}
-                            x={r.x * 100}
-                            y={r.y * 100}
-                            width={r.w * 100}
-                            height={r.h * 100}
-                            fill="rgba(244,63,94,0.15)"
-                            stroke="rgba(244,63,94,0.7)"
-                            strokeWidth={0.5}
-                            vectorEffect="non-scaling-stroke"
-                          />
-                        ))}
-                      </svg>
-                      <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-900/70 px-2 py-1 text-[10px] text-white">
-                        {t("upload.imageEnhance.glareOverlay.reshootHint")}
-                      </p>
-                    </>
-                  )}
-                </div>
+              {/* Reshoot advisory */}
+              {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  {t("upload.imageEnhance.reshootAdvisory")}
+                </p>
               )}
-              <div className="flex items-center justify-end">
+
+              {/* Low-light warning (2026-08-06). */}
+              {lowLight && (
+                <p
+                  className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+                  title={t("upload.imageEnhance.lowLightAdvisory")}
+                >
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-amber-900">
+                    {t("upload.imageEnhance.lowLight")}
+                  </span>
+                  <span>{t("upload.imageEnhance.lowLightAdvisory")}</span>
+                </p>
+              )}
+
+              {/* BASIC — one-shot auto-enhance CTA + intensity + perspective */}
+              <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3">
                 <button
                   type="button"
-                  onClick={runEnhancePreview}
-                  disabled={enhanceRunning}
-                  className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-800 disabled:opacity-50"
+                  onClick={() => {
+                    setSaveStatus(null);
+                    void runEnhancePreview();
+                  }}
+                  disabled={enhanceRunning || !analysis}
+                  className="w-full rounded-full bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {enhanceRunning
                     ? t("upload.imageEnhance.running")
-                    : t("upload.imageEnhance.previewCta")}
+                    : t("upload.imageEnhance.autoRunCta")}
                 </button>
-              </div>
-            </>
-          )}
 
-          {enhanceError && (
-            <p className="text-[11px] text-amber-700">{enhanceError}</p>
-          )}
-          {!enhancePreview && (
-            <p className="text-[11px] leading-relaxed text-zinc-500">
-              {t("upload.imageEnhance.footer")}
-            </p>
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="text-zinc-600">
+                    {t("upload.imageEnhance.intensity.label")}
+                  </span>
+                  {(["light", "normal", "strong"] as Intensity[]).map((i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setIntensity(i)}
+                      className={`rounded-full border px-2.5 py-1 ${
+                        intensity === i
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      {t(`upload.imageEnhance.intensity.${i}`)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10.5px] leading-relaxed text-zinc-500">
+                  {t("upload.imageEnhance.intensity.hint")}
+                </p>
+
+                {resolvedAutoMode === "flat" && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setPerspectiveOpen((v) => !v)}
+                      className={`rounded-full border px-2.5 py-1 ${
+                        perspectiveOpen || perspectiveCorners
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      aria-pressed={perspectiveOpen}
+                      title={t("upload.imageEnhance.perspective.hint")}
+                    >
+                      {t("upload.imageEnhance.perspective.openBtn")}
+                    </button>
+                    {perspectiveCorners && !perspectiveOpen && (
+                      <span className="text-[10px] text-emerald-700">
+                        {t("upload.imageEnhance.perspective.applied")}
+                      </span>
+                    )}
+                    {/* Auto-keystone chip. Visible when the analyzer is
+                        confident AND the user hasn't taken over corners.
+                        Click opens the picker so the user can nudge. */}
+                    {!perspectiveCorners &&
+                      !perspectiveOpen &&
+                      analysis &&
+                      analysis.rectangleConfidence >= 0.55 &&
+                      captureMode !== "scanner" && (
+                        <button
+                          type="button"
+                          onClick={() => setPerspectiveOpen(true)}
+                          className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] text-emerald-800 hover:bg-emerald-100"
+                        >
+                          {t("upload.imageEnhance.perspective.autoAppliedChip")}
+                        </button>
+                      )}
+                  </div>
+                )}
+              </div>
+
+              {perspectiveOpen && previewUrl && (
+                <PerspectiveCornerPicker
+                  imageUrl={previewUrl}
+                  imageWidth={analysis?.width || 1024}
+                  imageHeight={analysis?.height || 1024}
+                  initialCorners={perspectiveInitialCornersMemo}
+                  autoDetectedCorners={autoDetectedCornersMemo}
+                  resetToken={perspectiveResetToken}
+                  onConfirm={(q: Quad) => {
+                    setPerspectiveCorners(q);
+                    setPerspectiveOpen(false);
+                    void runEnhancePreview();
+                  }}
+                  onCancel={() => setPerspectiveOpen(false)}
+                />
+              )}
+
+              {/* Preview + save/rerun/cancel */}
+              {enhancePreview ? (
+                <>
+                  <BeforeAfterCompare
+                    beforeSrc={previewUrl ?? ""}
+                    afterSrc={enhancePreview.previewUrl}
+                    beforeAlt={t("upload.imageEnhance.beforeAlt")}
+                    afterAlt={t("upload.imageEnhance.afterAlt")}
+                  />
+                  <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleEnhanceReject}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {t("upload.imageEnhance.cancelCta")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={runEnhancePreview}
+                      disabled={enhanceRunning || !analysis}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {t("upload.imageEnhance.rerunCta")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleEnhanceApprove}
+                      className="rounded-full bg-zinc-900 px-3 py-1 text-white hover:bg-zinc-800"
+                    >
+                      {t("upload.imageEnhance.saveCta")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                previewUrl && (
+                  <div className="relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-zinc-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl}
+                      alt=""
+                      className="h-full w-full object-contain"
+                      draggable={false}
+                    />
+                    {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
+                      <>
+                        <svg
+                          className="pointer-events-none absolute inset-0 h-full w-full"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio="none"
+                          aria-hidden
+                        >
+                          {analysis.glareRegions.map((r, i) => (
+                            <rect
+                              key={i}
+                              x={r.x * 100}
+                              y={r.y * 100}
+                              width={r.w * 100}
+                              height={r.h * 100}
+                              fill="rgba(244,63,94,0.15)"
+                              stroke="rgba(244,63,94,0.7)"
+                              strokeWidth={0.5}
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          ))}
+                        </svg>
+                        <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-900/70 px-2 py-1 text-[10px] text-white">
+                          {t("upload.imageEnhance.glareOverlay.reshootHint")}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* ADVANCED — folded by default. Everything the user rarely
+                  needs lives here: input type, glare overlay, portfolio
+                  coherence, quality diagnosis chips. */}
+              <details
+                open={advancedOpen}
+                onToggle={(e) =>
+                  setAdvancedOpen((e.target as HTMLDetailsElement).open)
+                }
+                className="rounded-lg border border-zinc-200 bg-white"
+              >
+                <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
+                  {t("upload.imageEnhance.advancedToggle")}
+                </summary>
+                <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
+                  {/* Consolidated input type */}
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="text-zinc-600">
+                        {t("upload.imageEnhance.inputType.label")}
+                      </span>
+                      {(["auto", "studio", "scanner"] as InputType[]).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setInputType(m)}
+                          className={`rounded-full border px-2.5 py-1 ${
+                            inputType === m
+                              ? "border-zinc-900 bg-zinc-900 text-white"
+                              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                          }`}
+                        >
+                          {t(`upload.imageEnhance.inputType.${m}`)}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10.5px] leading-relaxed text-zinc-500">
+                      {t("upload.imageEnhance.inputType.hint")}
+                    </p>
+                  </div>
+
+                  {/* Glare overlay toggle */}
+                  {analysis && analysis.glareRegions.length > 0 && (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => setGlareOverlayOn((v) => !v)}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                          glareOverlayOn
+                            ? "border-rose-500 bg-rose-50 text-rose-800"
+                            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                        aria-pressed={glareOverlayOn}
+                      >
+                        {t("upload.imageEnhance.glareOverlay.toggle")}
+                      </button>
+                      <p className="text-[10.5px] leading-relaxed text-zinc-500">
+                        {t("upload.imageEnhance.controls.glare.hint")}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Portfolio coherence checkbox */}
+                  {portfolioAvailable && (
+                    <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
+                      <input
+                        type="checkbox"
+                        checked={portfolioCoherenceOn}
+                        onChange={(e) => setPortfolioCoherenceOn(e.target.checked)}
+                        className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
+                      />
+                      <span>
+                        <span className="font-medium">
+                          {t("bulk.enhance.portfolioCoherence")}
+                        </span>
+                        <span className="ml-1 text-zinc-500">
+                          {t("upload.imageEnhance.controls.portfolio.hint")}
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
+                  {/* Quality diagnosis chips — read-only */}
+                  {analysis && (
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <span
+                        className={`rounded-full px-2 py-0.5 ${
+                          analysis.rectangleConfidence >= 0.55
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-zinc-100 text-zinc-600"
+                        }`}
+                        title={t("upload.imageEnhance.rectangleHint")}
+                      >
+                        {t("upload.imageEnhance.rectangleConfidence")}
+                        {": "}
+                        {Math.round(analysis.rectangleConfidence * 100)}%
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 ${
+                          analysis.blurScore < 0.15
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-zinc-100 text-zinc-600"
+                        }`}
+                        title={t("upload.imageEnhance.blurHint")}
+                      >
+                        {t("upload.imageEnhance.blurScore")}
+                        {": "}
+                        {Math.round(analysis.blurScore * 100)}%
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 ${
+                          analysis.glareScore > 0.05
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-zinc-100 text-zinc-600"
+                        }`}
+                        title={t("upload.imageEnhance.glareHint")}
+                      >
+                        {t("upload.imageEnhance.glareScore")}
+                        {": "}
+                        {Math.round(analysis.glareScore * 100)}%
+                      </span>
+                    </div>
+                  )}
+
+                  {captureDeviceLabel && (
+                    <p className="text-[10px] text-zinc-500">
+                      {t("upload.imageEnhance.captureDeviceLabel")}: {captureDeviceLabel}
+                    </p>
+                  )}
+                </div>
+              </details>
+
+              {enhanceError && (
+                <p className="text-[11px] text-amber-700">{enhanceError}</p>
+              )}
+              {!enhancePreview && (
+                <p className="text-[11px] leading-relaxed text-zinc-500">
+                  {t("upload.imageEnhance.footer")}
+                </p>
+              )}
+            </>
           )}
         </div>
       ) : null}
 
       {enhancementEnabled && tab === "enhance" ? null : (
         <>
+
+      {/* 2026-08-09 Todo 7: Quick Adjust doesn't feed the enhanced
+          upload — surface that expectation up-front so users don't
+          drag sliders and then be confused when the saved file is the
+          untouched original. */}
+      {enhancementEnabled && (
+        <p className="rounded-md bg-zinc-50 px-3 py-2 text-[11px] leading-relaxed text-zinc-600">
+          {t("upload.imageEnhance.quickHint")}
+        </p>
+      )}
 
       {/* Preview + adjustment sliders */}
       <div className="flex gap-3">

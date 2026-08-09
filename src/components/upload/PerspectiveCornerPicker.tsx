@@ -59,6 +59,14 @@ type Props = {
   /** Corners the "Reset" button should snap back to. Typically the
    *  auto-detected corners from `analyze.ts`. */
   autoDetectedCorners: Quad | null;
+  /**
+   * Reset sentinel. Parent bumps this integer to explicitly re-seed the
+   * picker (e.g. auto-detected corners re-computed after a new
+   * analyzer run). Any change in this value snaps the internal quad
+   * back to `seedQuad`. Without a change, parent re-renders never wipe
+   * the user's in-flight drag. Optional — omit to only seed on mount.
+   */
+  resetToken?: number;
   /** Called with the final quad when the user confirms. */
   onConfirm: (quad: Quad) => void;
   /** Called when the user closes the picker without confirming. */
@@ -73,11 +81,15 @@ export function PerspectiveCornerPicker({
   imageHeight,
   initialCorners,
   autoDetectedCorners,
+  resetToken,
   onConfirm,
   onCancel,
 }: Props) {
   const { t } = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // Seed derivation. Re-evaluates on every render but does NOT drive a
+  // re-seed effect by itself — see the sentinel guards below.
   const seedQuad = useMemo<Quad>(() => {
     const seed = initialCorners && hasValidArea(initialCorners)
       ? initialCorners
@@ -87,20 +99,39 @@ export function PerspectiveCornerPicker({
     return seed;
   }, [initialCorners, autoDetectedCorners]);
 
+  const seedQuadRef = useRef<Quad>(seedQuad);
+  seedQuadRef.current = seedQuad;
+
   const [quad, setQuad] = useState<Quad>(seedQuad);
   const [activeCorner, setActiveCorner] = useState<CornerIndex>(0);
   const dragCornerRef = useRef<CornerIndex | null>(null);
   const dragOriginRef = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
+  // Local reset counter — bumped when the user clicks "reset". Combined
+  // with `resetToken` (parent-driven) drives the re-seed effect below.
+  const [localResetTick, setLocalResetTick] = useState(0);
 
-  // If the parent re-seeds (e.g. Reset), snap back.
+  // Re-seed ONLY on mount and on explicit reset (parent bump of
+  // `resetToken` or local reset button). Never on unrelated parent
+  // re-renders — that used to wipe an in-flight drag. See release
+  // 2026-08-09 corner-stick fix.
   useEffect(() => {
-    setQuad(seedQuad);
-  }, [seedQuad]);
+    if (dragCornerRef.current != null) return;
+    setQuad(seedQuadRef.current);
+  }, [resetToken, localResetTick]);
 
   const rectBounds = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return null;
-    return el.getBoundingClientRect();
+    // Prefer the actually-rendered image rect (object-contain letterbox)
+    // over the raw container rect — otherwise handles land outside the
+    // visible image when the container aspect ratio doesn't match the
+    // image aspect ratio. Falls back to container rect on early mount
+    // before the image has laid out.
+    const el = imgRef.current;
+    if (el && el.getBoundingClientRect().width > 0) {
+      return el.getBoundingClientRect();
+    }
+    const c = containerRef.current;
+    if (!c) return null;
+    return c.getBoundingClientRect();
   }, []);
 
   const onPointerDown = useCallback(
@@ -191,6 +222,7 @@ export function PerspectiveCornerPicker({
       ? autoDetectedCorners
       : defaultInsetQuad(0.1);
     setQuad(target);
+    setLocalResetTick((n) => n + 1);
   }, [autoDetectedCorners]);
 
   const points = useMemo(
@@ -198,49 +230,112 @@ export function PerspectiveCornerPicker({
     [quad],
   );
 
+  // Track the object-contain rendered image rect relative to the outer
+  // container so handles + SVG overlay align with the visible pixels.
+  // Falls back to the container itself before the image lays out. See
+  // ImageStandardizeEditor's Quick Adjust crop editor for the same
+  // pattern (2026-08-09 corner-grab fix).
+  const [imgRect, setImgRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }>({ left: 0, top: 0, width: 0, height: 0 });
+  useEffect(() => {
+    const container = containerRef.current;
+    const img = imgRef.current;
+    if (!container) return;
+    const measure = () => {
+      const cr = container.getBoundingClientRect();
+      const target = img && img.getBoundingClientRect().width > 0 ? img : container;
+      const r = target.getBoundingClientRect();
+      setImgRect({
+        left: r.left - cr.left,
+        top: r.top - cr.top,
+        width: r.width,
+        height: r.height,
+      });
+    };
+    measure();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(measure);
+      ro.observe(container);
+      if (img) ro.observe(img);
+      return () => ro.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [imageUrl, imageWidth, imageHeight]);
+
+  const HANDLE_DOT = 14;
+  const HANDLE_HIT = 44;
+
   return (
     <div className="space-y-2">
       <div
         ref={containerRef}
-        className="relative w-full overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100"
+        className="relative w-full rounded-lg border border-zinc-300 bg-zinc-100"
         style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full object-contain"
-          draggable={false}
-        />
-        {/* Quad outline as an SVG polygon */}
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          aria-hidden
-        >
-          <polygon
-            points={quad.map(([x, y]) => `${x * 100},${y * 100}`).join(" ")}
-            fill="rgba(16,185,129,0.08)"
-            stroke="rgba(16,185,129,0.9)"
-            strokeWidth={0.4}
-            vectorEffect="non-scaling-stroke"
+        {/* Image lives inside its own overflow-hidden wrapper so the
+            outer container can host handles that sit right on the
+            edges without being clipped. */}
+        <div className="absolute inset-0 overflow-hidden rounded-lg">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imgRef}
+            src={imageUrl}
+            alt=""
+            className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+            draggable={false}
           />
-        </svg>
-        {/* Draggable corner handles */}
-        {quad.map((pt, idx) => {
+        </div>
+        {/* Quad outline sized to the actual rendered image rect so the
+            polygon lines up with the letterboxed image, not the raw
+            container. `preserveAspectRatio="none"` combined with an
+            explicit width/height matching the image rect gives us a
+            precise 1:1 mapping from normalized [0,1] to overlay px. */}
+        {imgRect.width > 0 && imgRect.height > 0 && (
+          <svg
+            className="pointer-events-none absolute"
+            style={{
+              left: `${imgRect.left}px`,
+              top: `${imgRect.top}px`,
+              width: `${imgRect.width}px`,
+              height: `${imgRect.height}px`,
+            }}
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden
+          >
+            <polygon
+              points={quad.map(([x, y]) => `${x * 100},${y * 100}`).join(" ")}
+              fill="rgba(16,185,129,0.08)"
+              stroke="rgba(16,185,129,0.9)"
+              strokeWidth={0.4}
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
+        {/* Draggable corner handles. The visible dot stays small (~14px)
+            but each handle wraps a transparent 44×44 hit target so it's
+            easy to grab on touch and never bleeds off the container. */}
+        {imgRect.width > 0 && imgRect.height > 0 && quad.map((pt, idx) => {
           const cornerIdx = idx as CornerIndex;
           const [x, y] = pt;
           const isActive = activeCorner === cornerIdx;
-          const style: CSSProperties = {
-            left: `${x * 100}%`,
-            top: `${y * 100}%`,
-            transform: "translate(-50%, -50%)",
-            touchAction: "none",
-          };
+          const cx = imgRect.left + x * imgRect.width;
+          const cy = imgRect.top + y * imgRect.height;
           const label = t(
             "upload.imageEnhance.perspective.cornerLabel",
           ).replace("{corner}", HANDLE_LABELS[cornerIdx]);
+          const wrapperStyle: CSSProperties = {
+            left: `${cx - HANDLE_HIT / 2}px`,
+            top: `${cy - HANDLE_HIT / 2}px`,
+            width: `${HANDLE_HIT}px`,
+            height: `${HANDLE_HIT}px`,
+            touchAction: "none",
+          };
           return (
             <div
               key={cornerIdx}
@@ -257,13 +352,19 @@ export function PerspectiveCornerPicker({
               onPointerCancel={onPointerUp}
               onKeyDown={onHandleKeyDown(cornerIdx)}
               onFocus={() => setActiveCorner(cornerIdx)}
-              className={`absolute h-4 w-4 cursor-move rounded-full border-2 outline-none ${
-                isActive
-                  ? "border-emerald-600 bg-white ring-2 ring-emerald-400"
-                  : "border-emerald-500 bg-white hover:ring-2 hover:ring-emerald-300"
-              }`}
-              style={style}
-            />
+              className="absolute flex cursor-move items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+              style={wrapperStyle}
+            >
+              <span
+                aria-hidden
+                className={`block rounded-full border-2 shadow ${
+                  isActive
+                    ? "border-emerald-600 bg-white ring-2 ring-emerald-400"
+                    : "border-emerald-500 bg-white"
+                }`}
+                style={{ width: `${HANDLE_DOT}px`, height: `${HANDLE_DOT}px` }}
+              />
+            </div>
           );
         })}
         {/* Data hint used by callers to confirm the polygon renders. */}
