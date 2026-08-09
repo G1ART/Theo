@@ -34,7 +34,12 @@
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
-import { applyAwb, estimateAwb } from "./awb";
+import {
+  applyAwb,
+  computeWallAnchoredGains,
+  estimateAwb,
+  type WallAnchoredGains,
+} from "./awb";
 import {
   estimateRectifiedAspect,
   homographyForCorners,
@@ -67,6 +72,14 @@ export type RunFlatInput = {
    *  the compression pipeline. */
   maxLongEdge?: number;
   /**
+   * G2 (2026-08-10) — optional override for the post-warp rectified
+   * aspect ratio (width / height). Normally the engine derives this
+   * from the source corners via `estimateRectifiedAspect`. Setting a
+   * value here bypasses the heuristic — useful for the ellipse-to-
+   * circle restoration flow where the caller wants a 1:1 target.
+   */
+  targetAspect?: number;
+  /**
    * Pro-look pipeline flags (2026-08-06). When present, the engine
    * runs the AWB + adaptive-exposure + saturation + micro-unsharp +
    * warm-bias stages after the classic tone step. Optional CLAHE is
@@ -84,6 +97,21 @@ export type RunFlatInput = {
     enabled: boolean;
     rectangle?: { x: number; y: number; w: number; h: number } | null;
     rectangleConfidence?: number;
+    /**
+     * G1 (2026-08-10) — Wall-anchored white balance sample.
+     *
+     *  - `wallSample: { x, y }` (normalized [0,1] on the OUTPUT canvas)
+     *    — user clicked the wall; sample a 32×32 patch centered there.
+     *  - `wallSample: "auto"` (default when this field is absent /
+     *    undefined) — the engine calls `computeWallAnchoredGains` in
+     *    auto-detect mode: largest bright + near-neutral connected
+     *    region touching an image edge. Falls back to gray-world when
+     *    no wall is found.
+     *  - `wallSample: "off"` — skip wall-anchored path entirely; use
+     *    gray-world only (kept for callers that opt out for backup
+     *    reasons, e.g. tests).
+     */
+    wallSample?: { x: number; y: number } | "auto" | "off";
   };
   /**
    * Cancel the pipeline at the next stage boundary. When aborted, the
@@ -438,6 +466,15 @@ export async function runFlatEnhancement(
             claheTiles: proLookConfig.claheTiles,
             satBoost: proLookConfig.satBoost,
             warmthBias: proLookConfig.warmthBias,
+            // G3 (2026-08-10) — persist adaptive tunables when the
+            // engine ran with non-default values so a recipe replay
+            // reproduces the same pixels.
+            ...(proLookConfig.unsharpAmount !== undefined
+              ? { unsharpAmount: proLookConfig.unsharpAmount }
+              : {}),
+            ...(proLookConfig.highlightCompress
+              ? { highlightCompress: proLookConfig.highlightCompress }
+              : {}),
           },
         }
       : {}),
@@ -561,7 +598,12 @@ export async function runFlatEnhancement(
         [cornersInCrop[2][0] * outW, cornersInCrop[2][1] * outH],
         [cornersInCrop[3][0] * outW, cornersInCrop[3][1] * outH],
       ];
-      const targetAspect = estimateRectifiedAspect(pxCorners);
+      const targetAspect =
+        typeof input.targetAspect === "number" &&
+        Number.isFinite(input.targetAspect) &&
+        input.targetAspect > 0
+          ? input.targetAspect
+          : estimateRectifiedAspect(pxCorners);
       const longEdge = Math.max(outW, outH);
       let warpOutW: number;
       let warpOutH: number;
@@ -598,20 +640,64 @@ export async function runFlatEnhancement(
 
   let processed: ImageData;
   try {
-    // AWB (2026-08-06). Runs before tone so tone/sat operate on a
-    // neutral base. Uses a 256-long-edge downsample of the current
-    // canvas — cheap and stable across the ImageData sizes we handle.
+    // AWB. Runs before tone so tone/sat operate on a neutral base.
+    // Uses the current canvas ImageData directly — no downsample —
+    // because the wall region needs pixel-accurate edge-touching
+    // detection, and the ImageData here is already capped at the
+    // engine's `maxLongEdge` (default 2560 as of 2026-08-10 / G5).
+    //
+    // G1 (2026-08-10): try wall-anchored gains first (targets
+    // MATTE_WHITE_POINT = #f3f3f3 = 243), fall back to the classic
+    // gray-world / wall-biased estimator when no wall region is
+    // detected. See awb.ts for the anchoring rationale.
     if (awbEnabled) {
       const tawb = performance.now();
       const sample = ctx.getImageData(0, 0, workW, workH);
-      awbRecipe = estimateAwb({
-        data: sample.data,
-        width: workW,
-        height: workH,
-        rectangle: input.awb?.rectangle ?? null,
-        rectangleConfidence: input.awb?.rectangleConfidence,
-      });
-      applyAwb(sample.data, awbRecipe);
+      const wallSample = input.awb?.wallSample ?? "auto";
+      let anchored: WallAnchoredGains | null = null;
+      if (wallSample !== "off") {
+        const sampleRegion =
+          typeof wallSample === "object" && wallSample
+            ? (() => {
+                const patch = 32;
+                const cx = Math.round(wallSample.x * workW);
+                const cy = Math.round(wallSample.y * workH);
+                return {
+                  x: Math.max(0, cx - patch / 2),
+                  y: Math.max(0, cy - patch / 2),
+                  w: patch,
+                  h: patch,
+                };
+              })()
+            : undefined;
+        anchored = computeWallAnchoredGains(
+          { data: sample.data, width: workW, height: workH },
+          sampleRegion ? { sampleRegion } : {},
+        );
+      }
+      if (anchored) {
+        awbRecipe = {
+          rMul: anchored.r,
+          gMul: anchored.g,
+          bMul: anchored.b,
+          // AwbRecipe.source is a compact enum shared with the DB
+          // schema; the new anchored variants still fit under
+          // "wall-biased" (the wall is the reference in both paths).
+          // The tighter provenance (auto vs pick, area fraction) lives
+          // in metering, not the persisted recipe.
+          source: "wall-biased",
+        };
+        applyAwb(sample.data, awbRecipe);
+      } else {
+        awbRecipe = estimateAwb({
+          data: sample.data,
+          width: workW,
+          height: workH,
+          rectangle: input.awb?.rectangle ?? null,
+          rectangleConfidence: input.awb?.rectangleConfidence,
+        });
+        applyAwb(sample.data, awbRecipe);
+      }
       ctx.putImageData(sample, 0, 0);
       stageTimings.awbMs = Math.max(0, Math.round(performance.now() - tawb));
     }

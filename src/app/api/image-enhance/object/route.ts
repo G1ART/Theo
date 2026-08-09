@@ -241,7 +241,16 @@ async function compositeOnWhite(subjectBytes: Buffer): Promise<{
     scale === 1
       ? subjectBytes
       : await sharp(subjectBytes, { failOn: "none" })
-          .resize({ width: subjW, height: subjH, fit: "inside" })
+          // G5 (2026-08-10) — explicit `withoutEnlargement: true` so
+          // a small subject is never upscaled to the 2560 target.
+          // `subjW/subjH` already respect the cap via the `scale`
+          // math above; this is a defensive guard.
+          .resize({
+            width: subjW,
+            height: subjH,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
           .toBuffer();
 
   const canvasEdge = Math.round(Math.max(subjW, subjH) * (1 + OBJECT_PADDING * 2));

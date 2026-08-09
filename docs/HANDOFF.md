@@ -1,6 +1,99 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
+
+## 2026-08-10 — 이미지 보정 품질 라운드 (G1~G5)
+
+### 배경
+- 사용자의 그래픽 디자이너 워크플로 PDF (Lightroom+Photoshop) + AI 프롬프트 라이브러리 PDF 를 품질 레퍼런스로 삼아, 구조 변경 없이 로컬 파이프라인 5개 지점만 정교화. 4:5 캔버스 강제·`#f3f3f3` 배경 합성·드롭섀도우·이중 PNG·시리즈 일관성·AI 재해석 프리미엄·EXIF 렌즈 보정 등은 이번 라운드 범위 아님.
+
+### 변경 요약
+
+**G1 — 벽 앵커 화이트밸런스** (`src/lib/image/enhancement/awb.ts`,
+`src/lib/image/enhancement/localFlatEngine.ts`,
+`src/components/upload/ImageStandardizeEditor.tsx`,
+`src/lib/i18n/messages.ts`)
+
+- `computeWallAnchoredGains(imageData, { sampleRegion? })` 신규 export.
+ - `sampleRegion` 제공 시 → 32×32 (범위 clamp) 패치 median RGB 로 게인 산출 → target = `MATTE_WHITE_POINT` (#f3f3f3).
+ - 미제공 시 자동 검출: `Rec.601 luma ≥ 상위 40 %` 이면서 `max(R,G,B)−min(R,G,B) < 12` (Lab chroma ≈ 6 근사) 인 픽셀 중 4변에 닿는 최대 연결 영역을 flood-fill 로 찾음. 영역 면적 < 3 % 또는 luma stddev > 20 이면 `null` 반환하고 gray-world 로 폴백.
+- 엔진 (`localFlatEngine`) 은 `wallSample: {x,y} | "auto" | "off"` 새 필드로 받아 tone/proLook 이전에 gains 를 적용. 실패 시 기존 `estimateAwb` (gray-world) 로 폴백. `AwbRecipe.source` 는 `wall-biased` 를 그대로 유지 (스키마 후방호환).
+- Basic 패널에 `WB: 벽 자동 · 다시 뽑기 · 벽 지정 · 원본 WB로 복원` 칩 로우 + 사용자가 프리뷰 이미지에서 wall 을 클릭하면 정규화 좌표를 저장 → 재실행. 힌트: "화이트월을 클릭하면 벽 기준으로 색이 맞춰집니다."
+- 스캐너 입력 유형에서는 WB 자체가 비활성이므로 칩도 숨김.
+- 신규 i18n 키 (en/ko): `imageEnhance.wb.{autoLabel,pickLabel,rePickLabel,resetLabel,pickHint,noWallDetected}`.
+
+**G2 — 기하 시드 개선** (`src/lib/image/analyze.ts`,
+`src/lib/image/enhancement/edges.ts` 신규,
+`src/lib/image/enhancement/ellipse.ts` 신규,
+`src/lib/image/enhancement/localFlatEngine.ts`,
+`src/components/upload/ImageStandardizeEditor.tsx`)
+
+- Rectangle 경로: `detectBestQuadrilateral(imageData)` — 128 롱엣지 다운샘플 luma → Sobel magnitude → 상위 10 % 픽셀의 principal-axis fit → 4 코너 반환. Confidence (fit 안쪽 픽셀 비율) ≥ 0.4 일 때만 `analysis.suggestedRectangleCorners` 로 노출. Fallback 은 기존 `suggestedCrop` → 10 % inset.
+- Ellipse 경로: `detectDominantEllipse(mask)` — 배경 대비 파생 mask 의 2차 모멘트로 major/minor 축 산출. `analysis.ellipse.aspect` 가 1 에서 ±3 % 이상 벗어나면 `shapeHint === "circular"` 로 chip 노출. 사용자가 켜면 `ellipseRestorationCorners` 로 소스 코너 대체 + 새 필드 `runFlatEnhancement({ targetAspect: 1 })` 로 1:1 target 아스펙트 강제 → 엔진의 homography 파이프라인이 타원을 원으로 warp.
+- UI 칩: "자동 원형 복원 · 적용해 보기" / "자동 원형 복원 적용됨 · 조정" / "되돌리기".
+- 자동 keystone: 코너 시드 우선순위 = edge fit → suggestedCrop bbox → inset (기존 로직).
+- 신규 테스트: `edges.test.ts` (axis-aligned + 30 ° tilted rectangle + blank input), `ellipse.test.ts` (perfect circle + 1.1× stretch + 복원 코너 형상 + contrast mask 경로).
+
+**G3 — 마티에르 적응형 튜닝** (`src/lib/image/enhancement/proLook.tunables.ts` 신규,
+`src/lib/image/enhancement/proLook.ts`,
+`src/lib/image/enhancement/types.ts`,
+`src/components/upload/ImageStandardizeEditor.tsx`)
+
+- `computeAdaptiveBases({ blurScore, glareScore })`:
+ - `unsharpAmount = clamp(0.15 + 0.35 × blur, 0.15, 0.45)`
+ - `claheClipLimit = clamp(1.0 + 0.6 × blur, 1.0, 1.6)`
+ - `highlightCompress = glare > 0.4 ? 0.15 × glare : 0`
+- `resolveAdaptiveProLook({...signals, intensityMultiplier, paintingMode})`:
+ - Intensity 곱셈 후 재클램프 (unsharp ∈ [0.1, 0.5], CLAHE ∈ [0.8, 2.0], highlightCompress ∈ [0, 0.4]).
+ - `paintingMode` (analysis.mode === "flat" 또는 studio 입력) → `satBoost` 캡 **0.03** (아니면 0.06).
+- `proLook.ts` 에 `highlightCompress(data, amount)` 스테이지 추가 — histogram-based P95 위의 픽셀을 linear light 에서 `1 − cap` 배 축소. Unsharp 이전에 실행되어 이미 blown-out 된 highlight 를 sharpen 하지 않음.
+- `adaptiveExposure` 는 sRGB 출력 시 `min(MATTE_WHITE_POINT_LUMA + 7, 255) = 250` 방어 클램프 추가 → 벽 이 절대 순백 이상으로 튀지 않음 (G4 연동).
+- `ProLookRecipe` 는 `unsharpAmount`, `highlightCompress` 옵셔널 필드 확장 (구 payload 는 그대로 valid).
+- 신규 테스트: `adaptive.test.ts` (blur → unsharp 상승 / glare → highlight 압축 트리거 / painting satBoost cap / 실제 압축 픽셀 감소).
+
+**G4 — 매트 화이트포인트 `#f3f3f3` 앵커** (`src/lib/image/enhancement/awb.ts`,
+`src/lib/image/enhancement/proLook.ts`)
+
+- `MATTE_WHITE_POINT = { r: 243, g: 243, b: 243 }` + `MATTE_WHITE_POINT_LUMA = 243` 공유 상수 export.
+- G1 wall-anchored gains 의 target 은 (243,243,243) — 순백 (255) 이 아님. 벽이 화이트 갤러리 매트로 남고 sterile 순백으로 clipping 되지 않음.
+- `proLook.adaptiveExposure` 출력 캡 = 250 (매트 + 소량 헤드룸). filmic tone curve 는 이미 대부분 240 아래로 roll-off 하므로 실제 clip 은 극단 하이라이트에서만 발생.
+- 배경 대체·컴포지트·페인팅 없음 (톤 타깃만).
+
+**G5 — 롱엣지 2560 통일** (`src/components/upload/ImageStandardizeEditor.tsx`,
+`src/app/api/image-enhance/object/route.ts`)
+
+- 싱글/전시-연동 업로드: `ImageStandardizeEditor.runEnhancePreview` 가 `runFlatEnhancement({ maxLongEdge: 2560, ... })` 로 명시. 이전엔 엔진 default 4096 을 상속받아 bulk (2560) 와 불일치.
+- Bulk 업로드: 기존 2560 유지 (변경 없음).
+- 서버측 `object/route.ts` 의 sharp resize 에 `withoutEnlargement: true` 명시 (scale 계산 상 이미 upscale 은 없지만 방어).
+- Never upscale — 원본이 작으면 그대로 통과.
+
+### 휴리스틱 선택 (기본값)
+
+- 벽 auto-detect chroma proxy: `max−min < 12` (u8 RGB, Lab chroma ≈ 6 근사)
+- 벽 auto-detect luma cutoff: 상위 40 % percentile
+- 벽 gate: 영역 면적 < 3 % 또는 luma stddev > 20 → null 반환
+- 사용자 클릭 patch: 32×32 (범위 clamp)
+- Edge rectangle keep fraction: 상위 10 %
+- Rectangle confidence surfaced threshold: ≥ 0.4
+- Ellipse restoration trigger: `|aspect − 1| > 0.03` AND `confidence ≥ 0.6`
+- Highlight compression trigger: `glareScore > 0.4`
+- adaptiveExposure 출력 sRGB 캡: 250 (매트 + 7)
+
+### Supabase SQL
+- 돌려야 할 것은 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `npx tsc --noEmit` clean.
+- 이미지 향상 tests (16개) 전부 통과 — 신규 `edges.test.ts`, `ellipse.test.ts`, `adaptive.test.ts` 포함.
+- `npm run build` 성공.
+
+### 후속 (미착수)
+- Drop shadow, 4:5 canvas 강제, Layer-1 컷아웃 PNG 이중 저장, `artist_display_profile` 시리즈 일관성 테이블, AI 재해석 프리미엄 스캐폴드, EXIF-based 렌즈/CA 보정 — 전부 이번 라운드 범위 아님.
+
+---
 
 ## 2026-08-09 (UX) — 업로드 작가 연결 스텝 자동 진입 + 버튼 라벨 명확화
 

@@ -28,6 +28,7 @@ import type {
 } from "@/lib/image/enhancement/types";
 import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
 import { runFlatEnhancement, flatBlobToFile } from "@/lib/image/enhancement/localFlatEngine";
+import { resolveAdaptiveProLook } from "@/lib/image/enhancement/proLook.tunables";
 import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
 import BeforeAfterCompare from "@/components/upload/BeforeAfterCompare";
 import { recordUsageEvent } from "@/lib/metering";
@@ -44,6 +45,7 @@ import {
   quadFromRect,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
+import { ellipseRestorationCorners } from "@/lib/image/enhancement/ellipse";
 import {
   fetchArtistPortfolioToneStats,
   type PortfolioToneStats,
@@ -678,6 +680,23 @@ export function ImageStandardizeEditor({
   // saturated-highlight regions the analyzer surfaced.
   const [glareOverlayOn, setGlareOverlayOn] = useState<boolean>(false);
 
+  // G1 (2026-08-10) — Wall-anchored WB pick point (normalized [0,1]
+  // in image space). `null` means the engine auto-detects the wall
+  // region; a `{ x, y }` object means the user clicked on the image
+  // to pin the sample. `pickingWall` is a transient state: while true
+  // the click surface consumes clicks into wall-pick instead of the
+  // default no-op.
+  const [wallPick, setWallPick] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [pickingWall, setPickingWall] = useState<boolean>(false);
+
+  // G2 (2026-08-10) — ellipse (round-subject) restoration toggle.
+  // Auto-suggests when the analyzer detects a circular subject with
+  // aspect distortion > 3 %. User can dismiss ("되돌리기") to revert
+  // to the ellipse (non-restored) pipeline.
+  const [ellipseRestored, setEllipseRestored] = useState<boolean>(false);
+
   // 2026-08-07 — H (portfolio coherence) on the single upload path.
   // Fetches the artist's portfolio tone signature once per session
   // per artist (see the module-level cache in
@@ -746,9 +765,18 @@ export function ImageStandardizeEditor({
   // PerspectiveCornerPicker doesn't see a new prop reference every
   // parent render. Keyed on the meaningful scalar inputs — the picker
   // only re-seeds when THESE change (via `resetToken`).
+  //
+  // G2 (2026-08-10) — prefer the edge-based rectangle detector
+  // (`suggestedRectangleCorners`) over the axis-aligned bounding box
+  // when it's confident (>= 0.4). Falls back to the bounding-box quad
+  // when the edge detector is weak, and to a 10 % inset quad when
+  // even that fails (usually a very soft image without clear borders).
   const autoDetectedCornersMemo = useMemo<Quad | null>(() => {
     if (!analysis) return null;
-    if (analysis.rectangleConfidence < 0.55) return defaultInsetQuad(0.1);
+    if (analysis.suggestedRectangleCorners) {
+      return analysis.suggestedRectangleCorners as Quad;
+    }
+    if (analysis.rectangleConfidence < 0.4) return defaultInsetQuad(0.1);
     return quadFromRect(analysis.suggestedCrop) ?? defaultInsetQuad(0.1);
   }, [
     analysis,
@@ -756,6 +784,7 @@ export function ImageStandardizeEditor({
     analysis?.suggestedCrop?.y,
     analysis?.suggestedCrop?.w,
     analysis?.suggestedCrop?.h,
+    analysis?.suggestedRectangleCorners,
     analysis?.rectangleConfidence,
   ]);
   const perspectiveInitialCornersMemo = useMemo<Quad | null>(
@@ -816,28 +845,97 @@ export function ImageStandardizeEditor({
       // saw a flat rectangle AND the user hasn't picked corners
       // manually, pass the auto-detected corners so the pipeline
       // straightens the shot on first run. Scanner input skips this.
+      //
+      // G2 (2026-08-10) — prefer the edge-detected quadrilateral over
+      // the axis-aligned bounding box; falls back gracefully.
       const autoCorners: [
         NormalizedPoint,
         NormalizedPoint,
         NormalizedPoint,
         NormalizedPoint,
-      ] | null =
-        !perspectiveCorners &&
+      ] | null = (() => {
+        if (perspectiveCorners || isScanner || !analysis) return null;
+        if (analysis.suggestedRectangleCorners) {
+          return analysis.suggestedRectangleCorners as [
+            NormalizedPoint,
+            NormalizedPoint,
+            NormalizedPoint,
+            NormalizedPoint,
+          ];
+        }
+        if (analysis.rectangleConfidence >= 0.55) {
+          return quadFromRect(analysis.suggestedCrop);
+        }
+        return null;
+      })();
+      // G2 (2026-08-10) — ellipse restoration override. When the user
+      // opts into "restore circle" and the ellipse fit deviates from
+      // 1:1 by more than 3 %, replace the source corners with the
+      // ellipse's tight rotated bounding-quad and force a 1:1 target
+      // aspect. This makes the engine warp the ellipse into an
+      // axis-aligned circle without touching any other stage.
+      const wantsEllipseRestore =
+        ellipseRestored &&
         !isScanner &&
-        analysis &&
-        analysis.rectangleConfidence >= 0.55
-          ? quadFromRect(analysis.suggestedCrop)
+        !!analysis?.ellipse &&
+        Math.abs(analysis.ellipse.aspect - 1) > 0.03 &&
+        analysis.ellipse.confidence >= 0.6;
+      const ellipseCorners: [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+      ] | null =
+        wantsEllipseRestore && analysis?.ellipse
+          ? (ellipseRestorationCorners(analysis.ellipse) as [
+              NormalizedPoint,
+              NormalizedPoint,
+              NormalizedPoint,
+              NormalizedPoint,
+            ])
           : null;
-      const sourceCornersToSend = perspectiveCorners ?? autoCorners;
-      // 2026-08-09 pro-look tuning: pull Phase 2 defaults + intensity
-      // multiplier. Values documented in proLook.ts and Todo 8.
-      const proLookConfigOverrides = wantsProLook
+      const sourceCornersToSend = wantsEllipseRestore
+        ? ellipseCorners
+        : (perspectiveCorners ?? autoCorners);
+      const targetAspectOverride = wantsEllipseRestore ? 1 : undefined;
+      // G3 (2026-08-10) — adaptive pro-look tuning. Instead of the
+      // static intensity-multiplier scaling we used pre-G3, resolve
+      // the tunables from analyzer signals (blurScore / glareScore)
+      // and the user's paintingMode flag. See proLook.tunables.ts
+      // for the mapping rationale.
+      const paintingMode =
+        analysis?.mode === "flat" || captureMode === "studio";
+      const adaptive =
+        wantsProLook && analysis
+          ? resolveAdaptiveProLook(
+              {
+                blurScore: analysis.blurScore,
+                glareScore: analysis.glareScore,
+                intensityMultiplier: iMult,
+                paintingMode,
+              },
+              {
+                exposureLumaTarget: Math.round(
+                  118 +
+                    (intensity === "strong"
+                      ? 8
+                      : intensity === "light"
+                      ? -6
+                      : 0),
+                ),
+                warmthBias: Math.max(-0.05, Math.min(0.05, 0.02 * iMult)),
+              },
+            )
+          : null;
+      const proLookConfigOverrides = wantsProLook && adaptive
         ? {
             enabled: true,
-            satBoost: Math.min(0.09, 0.06 * iMult),
-            warmthBias: Math.max(-0.05, Math.min(0.05, 0.02 * iMult)),
-            claheClipLimit: Math.min(2.0, Math.max(0.8, 1.2 * (iMult === 0 ? 1 : Math.sqrt(iMult)))),
-            exposureLumaTarget: Math.round(118 + (intensity === "strong" ? 8 : intensity === "light" ? -6 : 0)),
+            satBoost: adaptive.satBoost,
+            warmthBias: adaptive.warmthBias,
+            claheClipLimit: adaptive.claheClipLimit,
+            exposureLumaTarget: adaptive.exposureLumaTarget,
+            unsharpAmount: adaptive.unsharpAmount,
+            highlightCompress: adaptive.highlightCompress,
           }
         : undefined;
       // Homography — when the user opted into "원근 보정" and confirmed
@@ -846,8 +944,14 @@ export function ImageStandardizeEditor({
       // component for the geometry contract.
       const result = await runFlatEnhancement({
         file,
+        // G5 (2026-08-10): unify long-edge cap to 2560 across every
+        // upload path. Single + exhibition-linked used to inherit the
+        // engine's 4096 default; bulk was already at 2560. Never
+        // upscales (see `scale = longestCropEdge > maxLongEdge`).
+        maxLongEdge: 2560,
         crop: seedCrop,
         sourceCorners: sourceCornersToSend,
+        targetAspect: targetAspectOverride,
         tone: suggestion
           ? {
               b: 1 + ((suggestion.b ?? 1) - 1) * iMult,
@@ -864,6 +968,11 @@ export function ImageStandardizeEditor({
                   ? seedCrop
                   : null,
               rectangleConfidence: analysis?.rectangleConfidence ?? 0,
+              // G1 wall-anchored WB. When the user clicked on the
+              // wall we send that point; otherwise the engine auto-
+              // detects the wall region. Falls back to gray-world if
+              // neither yields a stable region.
+              wallSample: wallPick ?? "auto",
             }
           : undefined,
       });
@@ -1024,6 +1133,8 @@ export function ImageStandardizeEditor({
     portfolioAvailable,
     portfolioStats,
     intensity,
+    wallPick,
+    ellipseRestored,
   ]);
 
   // 2026-08-09 Todo 4: auto-run a first preview as soon as analysis
@@ -1323,6 +1434,121 @@ export function ImageStandardizeEditor({
                   </p>
                 )}
 
+                {/* G1 (2026-08-10) — Wall-anchored WB chip row. */}
+                {captureMode !== "scanner" && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className="text-zinc-600">
+                      {t("upload.imageEnhance.wb.autoLabel")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWallPick(null);
+                        setPickingWall(false);
+                        setSaveStatus(null);
+                        void runEnhancePreview();
+                      }}
+                      className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
+                      title={t("upload.imageEnhance.wb.pickHint")}
+                    >
+                      {t("upload.imageEnhance.wb.rePickLabel")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickingWall((v) => {
+                          const next = !v;
+                          if (next && enhancePreview) {
+                            // Show raw preview so the user has the
+                            // pre-processed wall in front of them to
+                            // click. The pick handler re-runs preview
+                            // once the click lands.
+                            if (enhancePreviewUrlRef.current) {
+                              try {
+                                URL.revokeObjectURL(enhancePreviewUrlRef.current);
+                              } catch {}
+                              enhancePreviewUrlRef.current = null;
+                            }
+                            setEnhancePreview(null);
+                          }
+                          return next;
+                        });
+                      }}
+                      aria-pressed={pickingWall}
+                      className={`rounded-full border px-2.5 py-1 ${
+                        pickingWall || wallPick
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      title={t("upload.imageEnhance.wb.pickHint")}
+                    >
+                      {t("upload.imageEnhance.wb.pickLabel")}
+                    </button>
+                    {wallPick && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWallPick(null);
+                          setPickingWall(false);
+                          void runEnhancePreview();
+                        }}
+                        className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
+                      >
+                        {t("upload.imageEnhance.wb.resetLabel")}
+                      </button>
+                    )}
+                    {pickingWall && (
+                      <span className="text-[10.5px] text-emerald-700">
+                        {t("upload.imageEnhance.wb.pickHint")}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* G2 (2026-08-10) — Auto ellipse restoration chip.
+                    Only surfaced when the analyzer detected a circular
+                    subject with a >3 % aspect distortion; the chip
+                    lets the user toggle the affine restoration. */}
+                {analysis &&
+                  analysis.shapeHint === "circular" &&
+                  analysis.ellipse &&
+                  Math.abs(analysis.ellipse.aspect - 1) > 0.03 &&
+                  captureMode !== "scanner" && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEllipseRestored((v) => !v);
+                          setSaveStatus(null);
+                          void runEnhancePreview();
+                        }}
+                        aria-pressed={ellipseRestored}
+                        className={`rounded-full border px-2.5 py-1 ${
+                          ellipseRestored
+                            ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                        title={t("upload.imageEnhance.ellipse.hint")}
+                      >
+                        {ellipseRestored
+                          ? t("upload.imageEnhance.ellipse.appliedChip")
+                          : t("upload.imageEnhance.ellipse.suggestChip")}
+                      </button>
+                      {ellipseRestored && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEllipseRestored(false);
+                            void runEnhancePreview();
+                          }}
+                          className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
+                        >
+                          {t("upload.imageEnhance.ellipse.undoChip")}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                 {resolvedAutoMode === "flat" && (
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
                     <button
@@ -1416,7 +1642,29 @@ export function ImageStandardizeEditor({
                 </>
               ) : (
                 previewUrl && (
-                  <div className="relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-zinc-100">
+                  <div
+                    className={`relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-zinc-100 ${
+                      pickingWall ? "cursor-crosshair" : ""
+                    }`}
+                    onClick={(e) => {
+                      if (!pickingWall) return;
+                      // Compute normalized (x, y) in the container's
+                      // rect. Since the <img> uses object-contain, the
+                      // rendered image is letterboxed within the
+                      // container — for the wall-pick heuristic a
+                      // 32×32 patch we don't need to invert the
+                      // letterbox precisely (user is clicking on the
+                      // visible wall, which is well inside the frame).
+                      const el = e.currentTarget as HTMLDivElement;
+                      const rect = el.getBoundingClientRect();
+                      const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                      const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+                      setWallPick({ x: nx, y: ny });
+                      setPickingWall(false);
+                      setSaveStatus(null);
+                      void runEnhancePreview();
+                    }}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={previewUrl}
@@ -1424,6 +1672,18 @@ export function ImageStandardizeEditor({
                       className="h-full w-full object-contain"
                       draggable={false}
                     />
+                    {wallPick && !pickingWall && (
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute rounded-full border-2 border-emerald-500 bg-emerald-500/20"
+                        style={{
+                          left: `calc(${wallPick.x * 100}% - 8px)`,
+                          top: `calc(${wallPick.y * 100}% - 8px)`,
+                          width: 16,
+                          height: 16,
+                        }}
+                      />
+                    )}
                     {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
                       <>
                         <svg

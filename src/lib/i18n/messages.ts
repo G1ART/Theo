@@ -1061,6 +1061,21 @@ export const messages = {
       "Highlight the blown-out patches so you can decide whether to re-shoot from a slight angle.",
     "upload.imageEnhance.glareOverlay.reshootHint":
       "Re-shoot these areas from a slight angle if possible.",
+    "upload.imageEnhance.wb.autoLabel": "WB: wall auto",
+    "upload.imageEnhance.wb.pickLabel": "Pick wall",
+    "upload.imageEnhance.wb.rePickLabel": "Re-detect",
+    "upload.imageEnhance.wb.resetLabel": "Reset WB",
+    "upload.imageEnhance.wb.pickHint":
+      "Click a white-wall area — colors will balance against that point.",
+    "upload.imageEnhance.wb.noWallDetected":
+      "No wall region detected — using gray-world fallback.",
+    "upload.imageEnhance.ellipse.suggestChip":
+      "Restore circle · try",
+    "upload.imageEnhance.ellipse.appliedChip":
+      "Auto circle restored · adjust",
+    "upload.imageEnhance.ellipse.undoChip": "Undo",
+    "upload.imageEnhance.ellipse.hint":
+      "Round subjects tilt slightly in phone photos — this warps the ellipse back to a true circle.",
     "upload.viewType.wall_mounted": "Primary (front)",
     "upload.viewType.detail": "Detail",
     "upload.viewType.angle": "Alternate angle",
@@ -4488,6 +4503,21 @@ export const messages = {
       "반사광이 심한 영역을 붉은 사각형으로 표시해요. 살짝 각도를 틀어 재촬영해 보세요.",
     "upload.imageEnhance.glareOverlay.reshootHint":
       "이 영역을 다시 촬영하세요",
+    "upload.imageEnhance.wb.autoLabel": "WB: 벽 자동",
+    "upload.imageEnhance.wb.pickLabel": "벽 지정",
+    "upload.imageEnhance.wb.rePickLabel": "다시 뽑기",
+    "upload.imageEnhance.wb.resetLabel": "원본 WB로 복원",
+    "upload.imageEnhance.wb.pickHint":
+      "화이트월을 클릭하면 벽 기준으로 색이 맞춰집니다.",
+    "upload.imageEnhance.wb.noWallDetected":
+      "벽 영역을 못 잡아서 자동 밸런스로 보정했어요.",
+    "upload.imageEnhance.ellipse.suggestChip":
+      "자동 원형 복원 · 적용해 보기",
+    "upload.imageEnhance.ellipse.appliedChip":
+      "자동 원형 복원 적용됨 · 조정",
+    "upload.imageEnhance.ellipse.undoChip": "되돌리기",
+    "upload.imageEnhance.ellipse.hint":
+      "원형 작품(도자기 등)을 살짝 기울여 찍었을 때, 타원을 다시 원으로 되돌립니다.",
     "upload.viewType.wall_mounted": "대표 (정면)",
     "upload.viewType.detail": "디테일",
     "upload.viewType.angle": "다른 각도",

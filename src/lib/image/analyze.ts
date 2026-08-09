@@ -20,6 +20,12 @@ import {
   extractGlareRegions,
   type GlareRegion,
 } from "@/lib/image/enhancement/glareRegions";
+import { detectBestQuadrilateral, type EdgeRectFit } from "@/lib/image/enhancement/edges";
+import {
+  detectDominantEllipse,
+  maskFromBackgroundContrast,
+  type EllipseFit,
+} from "@/lib/image/enhancement/ellipse";
 
 /** Downscaled sample size (px on the longest side). 256 is more than
  *  enough for stable histogram/edge estimation and keeps analysis under
@@ -121,6 +127,31 @@ export type ImageAnalysis = {
    * error) — callers should default to `object` in that case.
    */
   mode: "flat" | "object" | null;
+  /**
+   * G2 (2026-08-10) — improved perspective-picker auto-seed. When the
+   * edge-based quadrilateral detector finds a well-supported rectangle
+   * (confidence ≥ 0.4) we surface its corners here in normalized [0,1]
+   * TL/TR/BR/BL. Consumers should prefer this over the bounding-box
+   * `suggestedCrop` for seeding the perspective corners.
+   */
+  suggestedRectangleCorners: EdgeRectFit["corners"] | null;
+  /**
+   * G2 (2026-08-10) — dominant ellipse fit, populated when the
+   * subject silhouette (via a background-contrast mask fallback)
+   * yields a strong elliptical result. `null` when the fit is weak
+   * or the analyzer decided the subject is flat/rectangular.
+   * Consumers use `aspect` + `confidence` to decide whether to offer
+   * the "restore circle" chip.
+   */
+  ellipse: EllipseFit | null;
+  /**
+   * G2 (2026-08-10) — coarse shape hint. `circular` fires when the
+   * ellipse detector is confident AND the analyzer thinks this isn't
+   * a flat rectangle (rectangleConfidence < 0.55). `rectangular` fires
+   * on high rectangleConfidence. `null` when either detector is
+   * inconclusive.
+   */
+  shapeHint: "rectangular" | "circular" | null;
 };
 
 /** Load a `File` into an `HTMLImageElement` via object URL. */
@@ -550,6 +581,37 @@ function analyzeImageSource(
   let mode: "flat" | "object" | null = null;
   if (rectangleConfidence >= 0.55) mode = "flat";
   else if (rectangleConfidence <= 0.35) mode = "object";
+
+  // G2 (2026-08-10) — improved auto-seed via edge-based quadrilateral
+  // detection. Uses a moment-based principal-axis fit on Sobel edges
+  // (see `edges.ts`). Falls back to `null` when the fit is degenerate
+  // or confidence is below the "worth surfacing" bar (< 0.4).
+  const rectFit = detectBestQuadrilateral(imageData.data, w, h);
+  const suggestedRectangleCorners =
+    rectFit && rectFit.confidence >= 0.4 ? rectFit.corners : null;
+
+  // G2 (2026-08-10) — dominant ellipse fit for pottery / round works.
+  // We derive a coarse subject mask from background contrast (corner
+  // sampling) — good enough when the artwork sits on a plain matte.
+  // For phone captures on busy backgrounds `confidence` will be low
+  // and the caller will skip the restore-circle chip.
+  const ellipseMask = maskFromBackgroundContrast(imageData.data, w, h);
+  const ellipseFit = detectDominantEllipse(ellipseMask, w, h);
+
+  let shapeHint: "rectangular" | "circular" | null = null;
+  if (rectangleConfidence >= 0.55) shapeHint = "rectangular";
+  else if (
+    ellipseFit &&
+    ellipseFit.confidence >= 0.75 &&
+    // Only surface as "circular" when the ellipse is a reasonable
+    // approximation of a round subject — not a heavily stretched
+    // ellipse (which would be a false positive on a landscape
+    // painting silhouette).
+    ellipseFit.aspect < 2.0 &&
+    rectangleConfidence < 0.55
+  ) {
+    shapeHint = "circular";
+  }
   return {
     width,
     height,
@@ -562,5 +624,8 @@ function analyzeImageSource(
     rectangleConfidence,
     glareRegions,
     mode,
+    suggestedRectangleCorners,
+    ellipse: ellipseFit && ellipseFit.confidence >= 0.6 ? ellipseFit : null,
+    shapeHint,
   };
 }

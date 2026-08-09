@@ -39,6 +39,7 @@
  */
 
 import type { ProLookRecipe } from "./types";
+import { MATTE_WHITE_POINT_LUMA } from "./awb";
 
 export type ProLookConfig = {
   exposureLumaTarget: number;
@@ -48,6 +49,12 @@ export type ProLookConfig = {
   satBoost: number;
   warmthBias: number;
   unsharpAmount: number;
+  /**
+   * G3 (2026-08-10) — highlight compression amount [0..1]. Applied
+   * before the unsharp stage to knock down the top 5 % of pixels so
+   * glary shots don't blow out. Zero disables the stage.
+   */
+  highlightCompress?: number;
 };
 
 // 2026-08-09 Phase 2 defaults — see the header comment. Softer than
@@ -124,8 +131,58 @@ export function resolveProLookConfig(recipe?: ProLookRecipe): ProLookConfig {
     claheTiles: recipe.claheTiles ?? PRO_LOOK_DEFAULTS.claheTiles,
     satBoost: recipe.satBoost ?? PRO_LOOK_DEFAULTS.satBoost,
     warmthBias: recipe.warmthBias ?? PRO_LOOK_DEFAULTS.warmthBias,
-    unsharpAmount: PRO_LOOK_DEFAULTS.unsharpAmount,
+    // G3 (2026-08-10) — adaptive `unsharpAmount` + `highlightCompress`.
+    // Recipe overrides win when present; otherwise the pre-adaptive
+    // default holds.
+    unsharpAmount: recipe.unsharpAmount ?? PRO_LOOK_DEFAULTS.unsharpAmount,
+    highlightCompress: recipe.highlightCompress ?? 0,
   };
+}
+
+/**
+ * G3 highlight compression — reduce the top-5 % luminance pixels by
+ * `amount` in linear light. Applied BEFORE unsharp so the unsharp
+ * doesn't sharpen an already-clipped highlight. `amount` is a
+ * fraction in [0, 0.4]; the pass is a no-op at 0. See
+ * `proLook.tunables.ts` for the adaptive formula.
+ */
+export function highlightCompress(
+  data: Uint8ClampedArray,
+  amount: number,
+): void {
+  if (amount <= 0) return;
+  const cap = Math.min(0.4, Math.max(0, amount));
+  // Compute the 95th percentile luminance (u8) via a histogram.
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < data.length; i += 4) {
+    const y = luma(data[i], data[i + 1], data[i + 2]) | 0;
+    hist[y < 0 ? 0 : y > 255 ? 255 : y] += 1;
+  }
+  const total = data.length / 4;
+  const target = Math.round(total * 0.95);
+  let acc = 0;
+  let p95 = 255;
+  for (let i = 0; i < 256; i += 1) {
+    acc += hist[i];
+    if (acc >= target) {
+      p95 = i;
+      break;
+    }
+  }
+  if (p95 >= 255) return;
+  // Reduce pixels above p95 by `cap` in LINEAR light — preserves
+  // subtle textures instead of clipping.
+  for (let i = 0; i < data.length; i += 4) {
+    const y = luma(data[i], data[i + 1], data[i + 2]);
+    if (y <= p95) continue;
+    const rl = srgbToLinear(data[i]);
+    const gl = srgbToLinear(data[i + 1]);
+    const bl = srgbToLinear(data[i + 2]);
+    const factor = 1 - cap;
+    data[i] = linearToSrgb(rl * factor);
+    data[i + 1] = linearToSrgb(gl * factor);
+    data[i + 2] = linearToSrgb(bl * factor);
+  }
 }
 
 // ─── Utilities ────────────────────────────────────────────────────
@@ -210,13 +267,23 @@ export function adaptiveExposure(data: Uint8ClampedArray, target: number): void 
   // linear light after the filmic curve so the numeric range still
   // reflects "how much brighter do we want the midtone?".
   const gain = Math.min(1.3, Math.max(0.7, target / mid));
+  // G4 (2026-08-10) — never allow the final white point to exceed
+  // 250/255 luminance. The filmic curve on its own already caps around
+  // 240 for normal inputs; this clamp is a defensive backstop so a
+  // strong-intensity multiplier or an already-hot input can never
+  // sneak a pixel above the matte reference. See MATTE_WHITE_POINT
+  // in `awb.ts` for the anchor rationale.
+  const cap = Math.min(255, MATTE_WHITE_POINT_LUMA + 7);
   for (let i = 0; i < data.length; i += 4) {
     const rl = srgbToLinear(data[i]) * gain;
     const gl = srgbToLinear(data[i + 1]) * gain;
     const bl = srgbToLinear(data[i + 2]) * gain;
-    data[i] = linearToSrgb(filmicToneCurve(rl));
-    data[i + 1] = linearToSrgb(filmicToneCurve(gl));
-    data[i + 2] = linearToSrgb(filmicToneCurve(bl));
+    const rs = linearToSrgb(filmicToneCurve(rl));
+    const gs = linearToSrgb(filmicToneCurve(gl));
+    const bs = linearToSrgb(filmicToneCurve(bl));
+    data[i] = rs > cap ? cap : rs;
+    data[i + 1] = gs > cap ? cap : gs;
+    data[i + 2] = bs > cap ? cap : bs;
   }
 }
 
@@ -454,6 +521,14 @@ export function runProLook(
   const t2 = now();
   perceptualSaturation(data, config.satBoost);
   timings.satMs = Math.max(0, Math.round(now() - t2));
+
+  // G3 (2026-08-10) — highlight compression runs BEFORE unsharp so
+  // the unsharp mask doesn't amplify already-blown pixels. `amount`
+  // is set by `resolveAdaptiveProLook` based on the analyzer's
+  // glareScore; the pass is a fast no-op when 0.
+  if (config.highlightCompress && config.highlightCompress > 0) {
+    highlightCompress(data, config.highlightCompress);
+  }
 
   // Stage 5 — micro unsharp. Amount pulled from config (default 0.2
   // as of 2026-08-09, down from the previous hardcoded 0.4 which was

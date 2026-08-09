@@ -62,6 +62,14 @@ export type ProLookRecipe = {
   claheTiles?: number;
   satBoost?: number;
   warmthBias?: number;
+  /**
+   * G3 (2026-08-10) — adaptive-tunable overlays. When present the
+   * engine passes them into `ProLookConfig`; when absent the engine
+   * falls back to `PRO_LOOK_DEFAULTS`. Persisted only when a caller
+   * intentionally wrote them into the recipe.
+   */
+  unsharpAmount?: number;
+  highlightCompress?: number;
 };
 
 /**
