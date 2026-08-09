@@ -2,6 +2,32 @@
 
 Last updated: 2026-08-09
 
+## 2026-08-09 (UX) — 업로드 작가 연결 스텝 자동 진입 + 버튼 라벨 명확화
+
+### 배경
+- QA 리포트: 개별 업로드에서 온보딩 작가를 드롭다운으로 선택해도 별도의 "작가 정보 확인" 버튼을 눌러야 다음 스텝으로 넘어감. 드롭다운에 이미 `@handle`이 노출돼 확인이 끝난 상태라 불필요한 스텝.
+- 같은 버튼 라벨("작가 정보 확인")이 "프로필 확인?" vs "동명이인 체크?" 로 오해됨.
+
+### 변경
+- **개별 업로드** (`src/app/upload/page.tsx`): 드롭다운의 온보딩(`kind === "profile"`) 결과 클릭 시 `selectedArtist` 설정과 동시에 `setStep("form")`으로 자동 진입.
+- **일괄 업로드** (`src/app/upload/bulk/page.tsx`): 대칭적으로 온보딩 작가 클릭 시 `setAttributionStepDone(true)`.
+- **외부 작가 경로 유지**: 이름 + 이메일 등 추가 입력이 필요하므로 명시적 클릭 유지.
+- **라벨 명확화** (`upload.confirmAttribution`): "작가 정보 확인" → "다음: 작품 정보 입력" (EN: "Confirm artist" → "Next: Artwork details"). 여전히 외부 작가/재입장 경우에 노출됨.
+
+### 후속 (미착수)
+- 여러 작가가 참여한 협업 작품(한 작품 · 다수 작가) 지원. 현재 `artworks` 스키마가 단일 `artist_profile_id`라 join table (`artwork_artists`) + RPC/RLS 확장이 필요. UI-only 스텁은 데이터 유실 위험이 있어 넣지 않음. 추후 별도 마이그레이션과 함께 도입 예정.
+
+### Supabase SQL
+- 돌려야 할 것은 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `npx tsc --noEmit` clean.
+
+---
+
 ## 2026-08-09 (hotfix) — Theo 향상 "자동 보정 실행" 버튼 무반응 수정
 
 ### 배경

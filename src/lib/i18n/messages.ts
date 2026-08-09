@@ -843,7 +843,7 @@ export const messages = {
     "upload.notifyOnProfileInterestViaEmail": "Also allow Theo to email this address when someone shows interest in the artist's profile",
     "upload.inviteSent": "Invite email sent.",
     "upload.inviteSentFailed": "Invite email could not be sent.",
-    "upload.confirmAttribution": "Confirm artist",
+    "upload.confirmAttribution": "Next: Artwork details",
     "upload.inviteWillSendOnPublish":
       "We'll email the invite to this artist when you publish.",
     "upload.emailAlreadyInvitedHint":
@@ -4271,7 +4271,7 @@ export const messages = {
     "upload.notifyOnProfileInterestViaEmail": "이 이메일로 프로필 관심 알림도 보낼 수 있음 (누군가가 작가를 궁금해할 때)",
     "upload.inviteSent": "초대 이메일을 보냈습니다.",
     "upload.inviteSentFailed": "이메일 발송에 실패했습니다.",
-    "upload.confirmAttribution": "작가 정보 확인",
+    "upload.confirmAttribution": "다음: 작품 정보 입력",
     "upload.inviteWillSendOnPublish": "게시하면 이 작가에게 초대장이 발송됩니다.",
     "upload.emailAlreadyInvitedHint":
       "이미 초대 대기 중인 이메일이에요 — 새 이메일은 발송되지 않고, 이 작품은 같은 작가 계정에 연결됩니다.",

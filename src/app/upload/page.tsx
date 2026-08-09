@@ -949,6 +949,15 @@ function UploadPageContent() {
                                 setUseExternalArtist(false);
                                 setArtistResults([]);
                                 setArtistSearch("");
+                                // Auto-advance: for onboarded artists the
+                                // dropdown already shows the @handle so the
+                                // operator has enough context to identify
+                                // the right person. Requiring an extra
+                                // "Confirm" click was rated confusing in
+                                // QA 2026-08-09. External-artist path stays
+                                // manual because it still needs name/email.
+                                setError(null);
+                                setStep("form");
                               }}
                               className={`w-full px-4 py-2 text-left text-sm hover:bg-zinc-50 ${
                                 selectedArtist?.id === a.id ? "bg-zinc-100 font-medium" : ""

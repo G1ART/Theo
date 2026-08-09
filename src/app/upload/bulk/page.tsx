@@ -1945,6 +1945,11 @@ export default function BulkUploadPage() {
                               });
                               setArtistResults([]);
                               setArtistSearch("");
+                              // Auto-advance past the attribution step for
+                              // onboarded artists — mirrors single upload
+                              // (QA 2026-08-09). External artist path
+                              // stays manual because it still needs email.
+                              setAttributionStepDone(true);
                             }}
                             className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
                           >
