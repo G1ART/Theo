@@ -732,10 +732,15 @@ export function ImageStandardizeEditor({
 
   const resolvedAutoMode: EnhancementMode = useMemo(() => {
     if (enhanceMode !== "auto") return enhanceMode;
-    if (analysis?.mode === "flat") return "flat";
-    if (analysis?.mode === "object") return "object";
-    return "object";
-  }, [enhanceMode, analysis?.mode]);
+    // Auto mode always runs the local flat pipeline. It is safe on any
+    // image — corners/AWB become no-ops when analyzer confidence is
+    // low, and the server-side "object" (background removal) path is
+    // opt-in via an explicit input selector, never derived from the
+    // analyzer's flat-vs-object heuristic. Previously this fell back
+    // to "object" whenever `analysis.mode` was null/object, which
+    // silently blocked the auto-run + preview button (QA 2026-08-09).
+    return "flat";
+  }, [enhanceMode]);
 
   // 2026-08-09 corner-stick fix: stabilize the array identity so
   // PerspectiveCornerPicker doesn't see a new prop reference every
@@ -1298,6 +1303,25 @@ export function ImageStandardizeEditor({
                 <p className="text-[10.5px] leading-relaxed text-zinc-500">
                   {t("upload.imageEnhance.intensity.hint")}
                 </p>
+
+                {/* Inline status/error near the CTA so users don't miss it
+                    (the trailing error slot below the Advanced <details>
+                    is easy to scroll past on tall images). */}
+                {enhanceRunning && !enhancePreview && (
+                  <p className="text-[11px] text-zinc-500" aria-live="polite">
+                    {t("upload.imageEnhance.running")}
+                  </p>
+                )}
+                {enhanceError && (
+                  <p className="text-[11px] text-amber-700" role="alert">
+                    {enhanceError}
+                  </p>
+                )}
+                {!analysis && !analyzeError && (
+                  <p className="text-[11px] text-zinc-500" aria-live="polite">
+                    {t("upload.imageEnhance.preparing")}
+                  </p>
+                )}
 
                 {resolvedAutoMode === "flat" && (
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">

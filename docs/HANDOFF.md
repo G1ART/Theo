@@ -2,6 +2,33 @@
 
 Last updated: 2026-08-09
 
+## 2026-08-09 (hotfix) — Theo 향상 "자동 보정 실행" 버튼 무반응 수정
+
+### 배경
+- QA 리포트: Basic 뷰의 "Theo 자동 보정 실행" 버튼을 눌러도 아무 일도 일어나지 않음. Quick Adjust 크롭은 정상 작동.
+
+### 원인
+- `resolvedAutoMode` (`src/components/upload/ImageStandardizeEditor.tsx:733-738`)이 `analysis?.mode`가 `null` 또는 `"object"`일 때 `"object"`로 폴백. 그런데 `enhanceMode`는 상수 `"auto"`이고 setter도 없어 "object" 브랜치는 사실상 도달 불가한 dead path였음. 결과적으로 분석기가 사각형 확신을 못 잡은 이미지(대부분의 손 촬영 벽걸이 그림 포함)에서:
+  - 자동 프리뷰 useEffect가 `resolvedAutoMode === "object"` 로 스킵.
+  - 수동 버튼 클릭도 `runEnhancePreview()` 내부에서 조기 리턴하며 `enhanceError`만 세팅. 에러 슬롯이 `<details>` 아래에 있어 스크롤 밖으로 밀려 보이지 않음.
+
+### 변경
+- `resolvedAutoMode`: auto 모드는 언제나 로컬 flat 파이프라인을 실행하도록 단순화 (`return "flat"`). 로컬 엔진은 어떤 이미지든 안전 — 신뢰도 낮으면 코너/AWB가 자연스레 no-op.
+- Basic 패널 안에 실행중 / 준비중 / 에러 상태를 함께 렌더링해 사용자가 절대 놓치지 않도록.
+- 새 i18n 키 `upload.imageEnhance.preparing` (en/ko).
+
+### Supabase SQL
+- 돌려야 할 것은 없음.
+
+### 환경 변수
+- 변경 없음.
+
+### Verified
+- `npx tsc --noEmit` clean (기존 `renderThumbnail.ts` 이슈 무관).
+- 로컬 dev 서버에서 재현 케이스 확인.
+
+---
+
 ## 2026-08-09 — Theo 이미지 보정 툴 고도화 (Phase 1 기본기·컨트롤 단순화 + Phase 2 색감 재설계)
 
 ### 배경 / 문제
