@@ -205,26 +205,42 @@ function mapCornersIntoCrop(
 
 /**
  * Heuristic: does this quadrilateral warrant an actual perspective
- * warp? Skip when the corners are ≤ 2px off the axis-aligned rectangle
+ * warp? Skip when the corners are close to the axis-aligned rectangle
  * — the compressor's implicit letterbox already handles that case, and
  * running a full warp on a straight rect is wasteful.
+ *
+ * §Fix B (2026-08-10): the previous 2 px tolerance was too tight —
+ * a near-axis-aligned edge-detector seed would slip past and rotate
+ * the whole image on straight-on captures. Widened to 0.5 % of the
+ * smaller output edge (~5 px on a 1024-wide preview, ~13 px at 2560),
+ * matching the `AXIS_ALIGNED_TOLERANCE` used by the auto-seed gate.
  */
 function cornersLookQuadrilateral(
   corners: [[number, number], [number, number], [number, number], [number, number]],
   outW: number,
   outH: number,
 ): boolean {
+  // Compute the smallest enclosing axis-aligned rectangle in local
+  // [0,1] space and compare corner-by-corner. Using the bounding box
+  // (rather than [(0,0),(1,0),…]) means a quad occupying only part
+  // of the crop still gets a fair "is it rotated?" check.
+  const xs = corners.map((p) => p[0]);
+  const ys = corners.map((p) => p[1]);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const yMin = Math.min(...ys);
+  const yMax = Math.max(...ys);
   const targets: [[number, number], [number, number], [number, number], [number, number]] = [
-    [0, 0],
-    [1, 0],
-    [1, 1],
-    [0, 1],
+    [xMin, yMin],
+    [xMax, yMin],
+    [xMax, yMax],
+    [xMin, yMax],
   ];
-  const tolPx = 2 / Math.min(outW, outH);
+  const tol = Math.max(0.005, 5 / Math.min(outW, outH));
   for (let i = 0; i < 4; i += 1) {
     if (
-      Math.abs(corners[i][0] - targets[i][0]) > tolPx ||
-      Math.abs(corners[i][1] - targets[i][1]) > tolPx
+      Math.abs(corners[i][0] - targets[i][0]) > tol ||
+      Math.abs(corners[i][1] - targets[i][1]) > tol
     ) {
       return true;
     }

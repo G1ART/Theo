@@ -132,9 +132,20 @@ export type ImageAnalysis = {
    * edge-based quadrilateral detector finds a well-supported rectangle
    * (confidence ≥ 0.4) we surface its corners here in normalized [0,1]
    * TL/TR/BR/BL. Consumers should prefer this over the bounding-box
-   * `suggestedCrop` for seeding the perspective corners.
+   * `suggestedCrop` for seeding the perspective picker, but must gate
+   * *automated warps* on the tighter `suggestedRectangleConfidence`
+   * threshold — see §Fix B (2026-08-10).
    */
   suggestedRectangleCorners: EdgeRectFit["corners"] | null;
+  /**
+   * §Fix B (2026-08-10) — edge-detector confidence surfaced alongside
+   * `suggestedRectangleCorners`. The auto-warp gating helper
+   * (`resolveAutoCorners`) requires this to be ≥ 0.65 before using the
+   * edge-based corners as the pipeline seed; below that we fall back
+   * to the axis-aligned bounding-box quad so we never distort a
+   * straight-on capture on a low-confidence rotated fit.
+   */
+  suggestedRectangleConfidence: number | null;
   /**
    * G2 (2026-08-10) — dominant ellipse fit, populated when the
    * subject silhouette (via a background-contrast mask fallback)
@@ -589,6 +600,7 @@ function analyzeImageSource(
   const rectFit = detectBestQuadrilateral(imageData.data, w, h);
   const suggestedRectangleCorners =
     rectFit && rectFit.confidence >= 0.4 ? rectFit.corners : null;
+  const suggestedRectangleConfidence = rectFit ? rectFit.confidence : null;
 
   // G2 (2026-08-10) — dominant ellipse fit for pottery / round works.
   // We derive a coarse subject mask from background contrast (corner
@@ -625,6 +637,7 @@ function analyzeImageSource(
     glareRegions,
     mode,
     suggestedRectangleCorners,
+    suggestedRectangleConfidence,
     ellipse: ellipseFit && ellipseFit.confidence >= 0.6 ? ellipseFit : null,
     shapeHint,
   };

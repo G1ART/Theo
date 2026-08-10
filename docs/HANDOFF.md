@@ -2,6 +2,99 @@
 
 Last updated: 2026-08-10
 
+## 2026-08-10 — 이미지 보정 UX 하드픽스 + 계기판 대폭 단순화
+
+### 배경
+G1~G5 릴리즈 (`987cd5f`) 직후 QA 라운드에서 3 가지 회귀·UX 이슈가 리포트됨.
+이번 패치는 파이프라인 알고리즘을 건드리지 않고 UI·게이팅 로직만 수정.
+
+### 변경 요약
+
+**Fix A — 4:5 강제 캔버스 유출 원상복구**
+(`src/components/upload/BeforeAfterCompare.tsx:124`,
+`src/components/upload/ImageStandardizeEditor.tsx:1646, 1880`)
+
+- `aspect-[4/5]` Tailwind 클래스가 이미지 편집 미리보기 컨테이너 3곳에
+ 하드코딩되어 있어, 사용자가 보는 프레임이 4:5 로 letterbox → "툴이
+ 4:5 캔버스를 강제한다" 는 리포트로 이어짐. 파이프라인 출력 자체는
+ 원본 aspect 를 그대로 유지 (`localFlatEngine.outW/outH`,
+ sharp `.resize({ fit: "inside" })`) — 순수 CSS 유출.
+- `BeforeAfterCompare` 에 `aspectRatio?: number | null` prop 추가.
+ caller (`ImageStandardizeEditor`) 는 `analysis.width / analysis.height` 를
+ 전달 → 컨테이너가 원본 이미지 aspect 를 따름. prop 이 없을 때는 4:3
+ (뉴트럴 랜드스케이프) 폴백, 절대 4:5 로 회귀하지 않음.
+- Enhance 탭 raw 미리보기 컨테이너도 `style={{ aspectRatio }}` 로 동적
+ aspect 사용.
+
+**Fix B — 회귀된 tapered rectangle 자동 복원 복원**
+(`src/lib/image/enhancement/cornerPickerGeometry.ts` — `isAxisAligned`,
+`resolveAutoCorners` 신규 export,
+`src/lib/image/analyze.ts` — `suggestedRectangleConfidence` 노출,
+`src/lib/image/enhancement/localFlatEngine.ts:cornersLookQuadrilateral`,
+`src/components/upload/ImageStandardizeEditor.tsx:autoCorners`)
+
+- 근본 원인: G2 에서 도입된 `analysis.suggestedRectangleCorners` (edge
+ detector confidence ≥ 0.4) 를 무조건 warp seed 로 채용 → 검출기가
+ rotated bounding rect 만 반환하므로, 저-confidence · 벽/프레임 잡음이
+ 강한 사진에서 잘못된 warp 가 걸림. `cornersLookQuadrilateral` 의 tolPx
+ 도 2px 로 지나치게 tight 해서 미세한 흔들림에도 warp 가 트리거.
+- 신규 `resolveAutoCorners(analysis)` 게이트: edge 코너를 채택하려면
+ `suggestedRectangleConfidence ≥ 0.65` AND `rectangleConfidence ≥ 0.55`
+ AND `!isAxisAligned(quad)` 3 조건 모두 만족. 그렇지 않으면
+ `quadFromRect(suggestedCrop)` (axis-aligned bbox) 폴백 → 엔진은 warp
+ 스킵하고 crop-only 로 진행. 어느 것도 안 되면 null (auto keystone
+ 자체 비활성).
+- `cornersLookQuadrilateral` 은 이제 corners 의 최소 enclosing axis-aligned
+ box 를 기준으로 비교, 허용 오차 = `max(0.005, 5/min(outW,outH))` 로
+ 확장. 진짜 tapered 쿼드는 이 문턱을 항상 넘고, 미세 회전된 seed 는
+ pass-through.
+- 신규 회귀 테스트 `keystoneRegression.test.ts` 7 개 guardrail: (a)
+ 저-conf edge quad → bbox 폴백 (b) 고-conf rotated quad → 원본 반환 (c)
+ edge=null + rect-conf 높음 → bbox (d) 모두 낮음 → null (e)
+ `estimateRectifiedAspect` 가 tapered 쿼드에서 실제 aspect 를 ±3 % 안에
+ 복원 (f) end-to-end warp 로 원상 복원된 bbox 가 target aspect 를 ±3 %
+ 안에서 채움 (g) edges 검출기가 tilted rect 에서 non-null 반환.
+
+**Fix C — Basic 패널 대폭 단순화**
+(`src/components/upload/ImageStandardizeEditor.tsx` 렌더 트리,
+`src/lib/i18n/messages.ts` 신규/변경 키)
+
+- Before: Basic 뷰에 primary widget 8~10개 (CTA · 세기 · 상태 · WB 4칩 ·
+ 원근 · 자동 원형 · 진단 등) — 사용자가 "계기판이 너무 복잡해서 뭘 써야
+ 할지 모르겠다" 는 리포트.
+- After: Basic 뷰 정확히 3 primary widget +
+ 자동 감지 chip strip + before/after + 저장/되돌리기 액션 로우 + 상태
+ 라인만:
+ 1. `Theo 자동 보정 실행` / `다시 실행` 큰 CTA + 1줄 힌트
+    ("핸드폰 사진을 원작에 가깝게 자동 보정합니다.")
+ 2. `보정 강도` 3-way chip (약하게 · 보통 · 강하게)
+ 3. `원근 보정 (수동 코너 조정)` 토글 — 눌러야 `PerspectiveCornerPicker`
+ 가 인라인으로 열림.
+- Auto-detect chip strip (실제로 적용된 것만): `자동 원근 보정 적용됨
+ · 조정`, `자동 원형 복원 적용됨 · 되돌리기`, `WB: 벽 자동 감지`.
+ `autoWarpFired`, `wallAutoFired` 는 preview meta 를 검사해서 실제
+ 감지가 성공한 경우만 true.
+- Advanced `<details>` 로 이동: WB chip 로우 (다시 뽑기 · 벽 지정 · 원본
+ WB로 복원), 입력 유형 selector, glare overlay, portfolio coherence,
+ 진단 chip 3개, reshoot / low-light advisory, capture device label,
+ ellipse restoration 세부 chip.
+- Advanced 헤더 라벨을 `"고급 설정 (WB · 입력 유형 · 진단)"` 으로 명시.
+- 신규 i18n 키 (en/ko): `imageEnhance.autoRunHint`,
+ `imageEnhance.chip.autoPerspective`, `imageEnhance.chip.autoEllipse`,
+ `imageEnhance.chip.autoWallWb`, `imageEnhance.undoCta`.
+ 강도 라벨 `"보정 세기"` → `"보정 강도"`, `기본` → `보통`, CTA 카피 정리.
+
+**Supabase SQL 돌려야 할 것은 없음** (스키마 변경 없음).
+
+**환경 변수 변경 없음** (기존 `.env.example` 그대로).
+
+### Verified
+- `npx tsc --noEmit` clean.
+- 17 개 image-enhance 테스트 모두 pass (신규 `test:image-enhance-keystone-regression` 포함).
+- `npm run build` 성공.
+
+---
+
 ## 2026-08-10 — 이미지 보정 품질 라운드 (G1~G5)
 
 ### 배경

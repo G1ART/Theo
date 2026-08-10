@@ -150,3 +150,84 @@ export function quadFromRect(
   ];
   return hasValidArea(quad) ? quad : null;
 }
+
+/**
+ * Max deviation (in normalized [0,1] units) that any corner may be
+ * from an axis-aligned rectangle for the quad to still count as
+ * "axis-aligned enough to skip a warp." A rotated / keystoned quad
+ * always exceeds this on at least one corner.
+ */
+export const AXIS_ALIGNED_TOLERANCE = 0.005;
+
+/**
+ * True when every corner of `quad` sits within `AXIS_ALIGNED_TOLERANCE`
+ * of the smallest enclosing axis-aligned rectangle. Used by the
+ * pipeline to decide whether a homography warp is worth running —
+ * micro-jitter on an edge detector shouldn't rotate the whole image.
+ */
+export function isAxisAligned(quad: Quad): boolean {
+  const xs = quad.map((p) => p[0]);
+  const ys = quad.map((p) => p[1]);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const yMin = Math.min(...ys);
+  const yMax = Math.max(...ys);
+  const targets: Quad = [
+    [xMin, yMin],
+    [xMax, yMin],
+    [xMax, yMax],
+    [xMin, yMax],
+  ];
+  for (let i = 0; i < 4; i += 1) {
+    if (
+      Math.abs(quad[i][0] - targets[i][0]) > AXIS_ALIGNED_TOLERANCE ||
+      Math.abs(quad[i][1] - targets[i][1]) > AXIS_ALIGNED_TOLERANCE
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * G2/§FixB (2026-08-10) — pick a safe auto-seed for the perspective
+ * warp when the user has not manually placed corners.
+ *
+ * Priority:
+ *   1. Edge-detected corners (`suggestedRectangleCorners`) ONLY when
+ *      the edge detector is strongly confident AND the analyzer's
+ *      rectangle-in-frame heuristic also fires. This gates against
+ *      the G2 regression where a low-confidence rotated-envelope fit
+ *      pushed a bogus warp through the pipeline.
+ *   2. Bounding-box quad from the analyzer's suggested crop when
+ *      rectangle confidence is high. This is axis-aligned so
+ *      `isAxisAligned` returns true and the engine skips the warp
+ *      (crop-only path) — matching pre-G5 behavior on straight-on
+ *      captures.
+ *   3. Null — analyzer isn't confident enough; leave the image
+ *      alone.
+ */
+export function resolveAutoCorners(analysis: {
+  suggestedRectangleCorners?: Quad | null;
+  suggestedRectangleConfidence?: number | null;
+  suggestedCrop?: { x: number; y: number; w: number; h: number } | null;
+  rectangleConfidence?: number;
+}): Quad | null {
+  const rectConf = analysis.rectangleConfidence ?? 0;
+  const edgeConf = analysis.suggestedRectangleConfidence ?? 0;
+  const edge = analysis.suggestedRectangleCorners ?? null;
+  if (
+    edge &&
+    hasValidArea(edge) &&
+    edgeConf >= 0.65 &&
+    rectConf >= 0.55 &&
+    !isAxisAligned(edge)
+  ) {
+    return edge;
+  }
+  if (rectConf >= 0.55) {
+    const bbox = quadFromRect(analysis.suggestedCrop);
+    if (bbox) return bbox;
+  }
+  return null;
+}

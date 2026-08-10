@@ -1028,14 +1028,22 @@ export const messages = {
     "upload.imageEnhance.perspective.applied": "Corners applied",
     "upload.imageEnhance.perspective.autoAppliedChip":
       "Auto perspective applied · adjust",
-    "upload.imageEnhance.autoRunCta": "Run Theo auto-enhance",
+    "upload.imageEnhance.autoRunCta": "Run auto-enhance",
+    "upload.imageEnhance.autoRunHint":
+      "Automatically corrects phone captures toward the original artwork.",
+    "upload.imageEnhance.chip.autoPerspective":
+      "Auto perspective · adjust",
+    "upload.imageEnhance.chip.autoEllipse":
+      "Auto circle restore · undo",
+    "upload.imageEnhance.chip.autoWallWb": "WB: wall auto",
+    "upload.imageEnhance.undoCta": "Undo",
     "upload.imageEnhance.intensity.label": "Strength",
     "upload.imageEnhance.intensity.light": "Light",
     "upload.imageEnhance.intensity.normal": "Normal",
     "upload.imageEnhance.intensity.strong": "Strong",
     "upload.imageEnhance.intensity.hint":
       "Light preserves your original tone. Strong pushes contrast, saturation, and warmth further.",
-    "upload.imageEnhance.advancedToggle": "Advanced settings",
+    "upload.imageEnhance.advancedToggle": "Advanced settings (WB · input type · diagnostics)",
     "upload.imageEnhance.quickHint":
       "Changes here don't affect the enhanced file that will be saved. Use the Theo Enhance tab if you want your edits kept.",
     "upload.imageEnhance.applied.title": "Enhanced version saved",
@@ -4471,13 +4479,21 @@ export const messages = {
     "upload.imageEnhance.perspective.autoAppliedChip":
       "자동 원근 보정 적용됨 · 조정",
     "upload.imageEnhance.autoRunCta": "Theo 자동 보정 실행",
-    "upload.imageEnhance.intensity.label": "보정 세기",
+    "upload.imageEnhance.autoRunHint":
+      "핸드폰 사진을 원작에 가깝게 자동 보정합니다.",
+    "upload.imageEnhance.chip.autoPerspective":
+      "자동 원근 보정 적용됨 · 조정",
+    "upload.imageEnhance.chip.autoEllipse":
+      "자동 원형 복원 적용됨 · 되돌리기",
+    "upload.imageEnhance.chip.autoWallWb": "WB: 벽 자동 감지",
+    "upload.imageEnhance.undoCta": "되돌리기",
+    "upload.imageEnhance.intensity.label": "보정 강도",
     "upload.imageEnhance.intensity.light": "약하게",
-    "upload.imageEnhance.intensity.normal": "기본",
+    "upload.imageEnhance.intensity.normal": "보통",
     "upload.imageEnhance.intensity.strong": "강하게",
     "upload.imageEnhance.intensity.hint":
       "약하게는 원본에 가깝게, 강하게는 대비·채도·온도를 더 살립니다.",
-    "upload.imageEnhance.advancedToggle": "고급 설정",
+    "upload.imageEnhance.advancedToggle": "고급 설정 (WB · 입력 유형 · 진단)",
     "upload.imageEnhance.quickHint":
       "여기서 조정한 값은 저장에 반영되지 않아요. 저장하려면 Theo 자동 보정 탭을 이용하세요.",
     "upload.imageEnhance.applied.title": "향상본이 저장되었어요",

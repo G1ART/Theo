@@ -26,6 +26,15 @@ type Props = {
   className?: string;
   /** Initial divider position in percent. Defaults to 50. */
   initialPercent?: number;
+  /**
+   * 2026-08-10 hotfix — the container aspect ratio. When provided the
+   * outer box uses the caller-supplied aspect so the preview matches
+   * the source image (never letterboxed into a hard-coded 4:5 canvas).
+   * Callers that don't know the aspect can omit this and get a sane
+   * loose default (image-friendly `4/3`), never a portrait-forcing
+   * `4/5`. See release brief 2026-08-10 §Fix A.
+   */
+  aspectRatio?: number | null;
 };
 
 export function BeforeAfterCompare({
@@ -35,6 +44,7 @@ export function BeforeAfterCompare({
   afterAlt,
   className = "",
   initialPercent = 50,
+  aspectRatio = null,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [percent, setPercent] = useState(() =>
@@ -118,15 +128,25 @@ export function BeforeAfterCompare({
     return () => ro.disconnect();
   }, []);
 
+  // 2026-08-10 §Fix A: never force a 4:5 canvas. Use the caller-supplied
+  // aspect (typically `analysis.width / analysis.height`) so the preview
+  // frame matches the source image. When the caller can't supply one
+  // (rare — analyzer still running), fall back to `4/3`, a neutral
+  // landscape-ish default that doesn't crop portrait shots to a fixed
+  // 4:5 letterbox.
+  const containerAspect =
+    aspectRatio && Number.isFinite(aspectRatio) && aspectRatio > 0
+      ? aspectRatio
+      : 4 / 3;
   return (
     <div
       ref={containerRef}
-      className={`relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-zinc-100 select-none ${className}`}
+      className={`relative w-full overflow-hidden rounded-lg bg-zinc-100 select-none ${className}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      style={{ touchAction: "none" }}
+      style={{ touchAction: "none", aspectRatio: `${containerAspect}` }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
