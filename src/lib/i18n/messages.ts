@@ -2221,6 +2221,11 @@ export const messages = {
     "network.empty.search": "No one matches your search.",
     "network.openProfile": "Open profile",
     "network.loadMore": "Load more",
+    "network.persona.title": "Theo Community",
+    "network.persona.live": "Live",
+    "network.persona.a11yBar":
+      "Community composition: {artist} artists, {curator} curators, {gallerist} gallerists, {collector} collectors",
+    "network.persona.empty": "Filling in soon",
     "studio.portfolio.title": "Portfolio",
     "studio.portfolio.sectionExhibitions": "Exhibitions",
     "studio.portfolio.reorderOnPublic": "Reorder on public profile",
@@ -5705,6 +5710,11 @@ export const messages = {
     "network.empty.search": "검색 결과가 없어요.",
     "network.openProfile": "프로필 열기",
     "network.loadMore": "더 보기",
+    "network.persona.title": "Theo 커뮤니티",
+    "network.persona.live": "실시간",
+    "network.persona.a11yBar":
+      "커뮤니티 구성 · 아티스트 {artist}, 큐레이터 {curator}, 갤러리스트 {gallerist}, 컬렉터 {collector}",
+    "network.persona.empty": "곧 채워집니다",
     "studio.portfolio.title": "포트폴리오",
     "studio.portfolio.sectionExhibitions": "전시",
     "studio.portfolio.reorderOnPublic": "공개 프로필에서 순서 변경",

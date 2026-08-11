@@ -2,6 +2,41 @@
 
 Last updated: 2026-08-10
 
+## 2026-08-10 — /my/network 우측 rail에 Theo 커뮤니티 카드 추가 (페르소나 스택드 바)
+
+### 변경 요약
+
+- 신규 훅 `usePersonaCounts` (`src/lib/hooks/usePersonaCounts.ts`) 로
+  `/people` 슬림 pill 이 쓰던 realtime `persona-counts` 구독 + 60s
+  polling + focus refetch + 700ms 디바운스 로직을 재사용 가능한
+  형태로 추출. `PersonaCountPanel` (`src/app/people/PersonaCountPanel.tsx`)
+  은 이 훅을 소비하도록 리팩터 (외부 동작·비주얼은 identical).
+- 신규 컴포넌트 `PersonaCommunityCard`
+  (`src/components/network/PersonaCommunityCard.tsx`): 가로 스택드 바
+  (`h-2 rounded-full`, 아티스트→큐레이터→갤러리스트→컬렉터 순 zinc
+  gradient) + 2-col 범례 (모바일 `<640px` 에서 1-col 로 붕괴) +
+  live pulse 도트. 카운트는 `useCountUp` (easeOutCubic, reduced-motion
+  존중) 로 진입 애니메이션. 전체 합이 0 이면 "곧 채워집니다" 힌트로
+  대체. `role="img"` + `aria-label`로 스크린리더 접근성.
+- `/my/network` 우측 rail 순서:
+  네 네트워크(팔로워/팔로잉/접근요청) → **Theo 커뮤니티(신규)** →
+  관계 데스크 tip → (기타). 삽입 위치는 `NetworkRail.tsx` —
+  `/my/network/layout.tsx` 가 `AppShell rightRail={<NetworkRail />}`
+  으로 라우팅하므로 rail 정의 파일이 실질적 삽입 지점.
+- i18n: `network.persona.title` / `.live` / `.a11yBar` (`{artist}`
+  등 토큰) / `.empty` 4개 키를 en/ko 양쪽에 추가. role 라벨은 기존
+  `people.role.*` 재사용.
+
+### 릴리즈 노트
+
+- Supabase SQL 돌려야 할 것은 없음 (`count_personas` RPC 와 마이그레이션
+  변경 없음).
+- 환경 변수 변경 없음.
+- Verified: `npx tsc --noEmit` clean · `npm run build` success ·
+  기존 lint / test 회귀 없음 (사전 존재하던
+  `test:sprint6-2-network-hub` 실패는 본 패치와 무관, 사전에 동일하게
+  실패 확인).
+
 ## 2026-08-10 — 이미지 보정 위저드 기본화 + 라벨/벽 밝기/원근 게이트 조정
 
 ### 배경

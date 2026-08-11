@@ -1,19 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useT } from "@/lib/i18n/useT";
-import { supabase } from "@/lib/supabase/client";
 import { ROLE_OPTIONS } from "@/lib/supabase/artists";
-import { getPersonaCounts, type PersonaCounts } from "@/lib/supabase/personaCounts";
-
-// Poll fallback in case the realtime channel is dropped or the table is not
-// broadcasting for a given client. Cheap at our scale; realtime is primary.
-const POLL_MS = 60_000;
-// Coalesce bursts of profile changes into a single refetch.
-const REFETCH_DEBOUNCE_MS = 700;
-
-const EMPTY: PersonaCounts = { artist: 0, curator: 0, gallerist: 0, collector: 0 };
+import { usePersonaCounts } from "@/lib/hooks/usePersonaCounts";
 
 /**
  * Live persona-slot counter for the People page.
@@ -23,55 +13,13 @@ const EMPTY: PersonaCounts = { artist: 0, curator: 0, gallerist: 0, collector: 0
  * than a large hero panel. Counts animate up on entry and tick in real time
  * as members sign up / change roles. Multi-persona members count once per
  * role (server-side `count_personas`).
+ *
+ * The realtime/polling/focus-refetch plumbing is shared with
+ * `PersonaCommunityCard` via `usePersonaCounts`.
  */
 export function PersonaCountPanel() {
   const { t } = useT();
-  const [counts, setCounts] = useState<PersonaCounts>(EMPTY);
-  const [ready, setReady] = useState(false);
-  const debounceRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function refetch() {
-      const { data, error } = await getPersonaCounts();
-      if (cancelled || error) return;
-      setCounts(data);
-      setReady(true);
-    }
-
-    function scheduleRefetch() {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-      debounceRef.current = window.setTimeout(() => {
-        void refetch();
-      }, REFETCH_DEBOUNCE_MS);
-    }
-
-    void refetch();
-
-    // Primary: realtime on new signups / role edits.
-    const channel: RealtimeChannel = supabase
-      .channel("persona-counts")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        () => scheduleRefetch(),
-      )
-      .subscribe();
-
-    // Fallbacks: periodic poll + refresh when the tab regains focus.
-    const poll = window.setInterval(() => void refetch(), POLL_MS);
-    const onFocus = () => void refetch();
-    window.addEventListener("focus", onFocus);
-
-    return () => {
-      cancelled = true;
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-      window.clearInterval(poll);
-      window.removeEventListener("focus", onFocus);
-      void supabase.removeChannel(channel);
-    };
-  }, []);
+  const { counts, ready } = usePersonaCounts();
 
   return (
     <div className="sticky top-14 z-30 -mx-1 mb-6 pt-2">

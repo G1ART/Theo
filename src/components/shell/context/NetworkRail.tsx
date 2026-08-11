@@ -6,6 +6,7 @@ import { useT } from "@/lib/i18n/useT";
 import { supabase } from "@/lib/supabase/client";
 import { getMyStats } from "@/lib/supabase/me";
 import { listAccessRequestsForMe } from "@/lib/supabase/relationshipAccess";
+import { PersonaCommunityCard } from "@/components/network/PersonaCommunityCard";
 
 /**
  * Network hub context rail.
@@ -104,6 +105,8 @@ export function NetworkRail() {
           ))}
         </ul>
       </section>
+
+      <PersonaCommunityCard />
 
       <section aria-label={t("rail.network.tipHeading")}>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
