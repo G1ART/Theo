@@ -38,7 +38,9 @@ import {
   applyAwb,
   computeWallAnchoredGains,
   estimateAwb,
+  resolveWallBrightnessTarget,
   type WallAnchoredGains,
+  type WallBrightness,
 } from "./awb";
 import {
   estimateRectifiedAspect,
@@ -113,6 +115,18 @@ export type RunFlatInput = {
      */
     wallSample?: { x: number; y: number } | "auto" | "off";
   };
+  /**
+   * F2 (2026-08-10) — matte white target selector. Threads a
+   * user-facing chip ("soft" | "normal" | "bright") through to:
+   *   - `computeWallAnchoredGains(..., { target })` so the sampled
+   *     wall's median lands on the chosen luma (245 / 248 / 252),
+   *   - the pro-look adaptive-exposure cap (`target + 5`, clamped
+   *     to 255) so bright chips unlock a higher highlight ceiling
+   *     and soft chips keep the historical roll-off.
+   * When omitted the engine falls back to the legacy
+   * `MATTE_WHITE_POINT` (243) so pre-F2 recipes replay byte-identically.
+   */
+  wallBrightness?: WallBrightness;
   /**
    * Cancel the pipeline at the next stage boundary. When aborted, the
    * result carries `stageError: "aborted"` and `blob: null`. The
@@ -463,7 +477,27 @@ export async function runFlatEnhancement(
   const cropNormalized = normalizeCropFromCorners(input.sourceCorners, input.crop);
 
   const proLookEnabled = input.proLook?.enabled === true;
-  const proLookConfig = resolveProLookConfig(input.proLook);
+  // F2 (2026-08-10) — user-supplied wall brightness target. When
+  // omitted we stay on the historical `MATTE_WHITE_POINT` (243) so
+  // bulk / legacy callers keep replaying identically. The wizard
+  // supplies `normal` (248) by default.
+  const wallBrightnessTarget = resolveWallBrightnessTarget(input.wallBrightness);
+  const wallBrightnessSupplied = typeof input.wallBrightness === "string";
+  const proLookRecipeIn: (ProLookRecipe & { enabled?: boolean }) | undefined =
+    wallBrightnessSupplied
+      ? {
+          ...(input.proLook ?? {}),
+          // Cap = target + 5, clamped 0..255. When the user chose
+          // "bright" (252) we allow the top end to reach 255; "normal"
+          // (248) yields 253; "soft" (245) yields 250 (same as
+          // legacy). See proLook.adaptiveExposure for how this is
+          // consumed.
+          whiteCapLuma:
+            input.proLook?.whiteCapLuma ??
+            Math.min(255, wallBrightnessTarget + 5),
+        }
+      : input.proLook;
+  const proLookConfig = resolveProLookConfig(proLookRecipeIn);
   const awbEnabled = input.awb?.enabled === true;
   let awbRecipe: AwbRecipe | undefined;
 
@@ -490,6 +524,9 @@ export async function runFlatEnhancement(
               : {}),
             ...(proLookConfig.highlightCompress
               ? { highlightCompress: proLookConfig.highlightCompress }
+              : {}),
+            ...(typeof proLookConfig.whiteCapLuma === "number"
+              ? { whiteCapLuma: proLookConfig.whiteCapLuma }
               : {}),
           },
         }
@@ -688,7 +725,15 @@ export async function runFlatEnhancement(
             : undefined;
         anchored = computeWallAnchoredGains(
           { data: sample.data, width: workW, height: workH },
-          sampleRegion ? { sampleRegion } : {},
+          {
+            ...(sampleRegion ? { sampleRegion } : {}),
+            // F2 (2026-08-10) — thread the user's wall-brightness
+            // chip into the AWB target so a "bright" (252) chip
+            // lifts the whole wall by ~4 luma vs "normal" (248).
+            // When the caller didn't supply `wallBrightness` this
+            // stays at 243 (MATTE_WHITE_POINT).
+            ...(wallBrightnessSupplied ? { target: wallBrightnessTarget } : {}),
+          },
         );
       }
       if (anchored) {

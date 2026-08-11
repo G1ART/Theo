@@ -77,14 +77,54 @@ export const AWB_WALL_MUL_MAX = 1.25;
  * pure white and the piece retains room feel. Sourced from the
  * user's professional workflow PDF; not a rendering background —
  * a purely numeric tone target.
+ *
+ * 2026-08-10 F2 — `MATTE_WHITE_POINT` is the LEGACY default target
+ * that engine callers get when they don't opt into the new
+ * `wallBrightness` param. The three canonical wall-brightness
+ * levels are exposed via `WALL_BRIGHTNESS_TARGETS` (245 / 248 / 252)
+ * and drive `computeWallAnchoredGains(..., { target })`. The
+ * wizard UX supplies `normal` (248) by default; bulk / legacy
+ * callers keep landing on 243 for byte-identical replay.
  */
 export const MATTE_WHITE_POINT = { r: 243, g: 243, b: 243 } as const;
 
 /**
  * Convenience: MATTE_WHITE_POINT.g / 255, expressed as a linear-luma
- * fraction. proLook's adaptive exposure caps highlight targets here.
+ * fraction. proLook's adaptive exposure caps highlight targets here
+ * when no explicit `whiteCapLuma` override is supplied.
  */
 export const MATTE_WHITE_POINT_LUMA = 243;
+
+/**
+ * F2 (2026-08-10) — user-facing wall brightness levels. Each maps to
+ * a numeric matte white target that the AWB and pro-look exposure cap
+ * derive their landing point from. `normal` (248) is the wizard
+ * default — a small bump from the historical 243 that the user asked
+ * for so the wall reads visibly whitened without clipping into sterile
+ * pure white. `soft` / `bright` sit ±3-4 on either side.
+ */
+export type WallBrightness = "soft" | "normal" | "bright";
+
+export const WALL_BRIGHTNESS_TARGETS: Record<WallBrightness, number> = {
+  soft: 245,
+  normal: 248,
+  bright: 252,
+};
+
+/**
+ * Resolve a numeric matte white target from a `WallBrightness` chip.
+ * Returns the legacy `MATTE_WHITE_POINT.g` (243) when passed
+ * `undefined` — this is what preserves the old on-disk recipe for
+ * bulk / non-wizard callers.
+ */
+export function resolveWallBrightnessTarget(
+  brightness: WallBrightness | undefined | null,
+): number {
+  if (brightness && brightness in WALL_BRIGHTNESS_TARGETS) {
+    return WALL_BRIGHTNESS_TARGETS[brightness];
+  }
+  return MATTE_WHITE_POINT.g;
+}
 
 /** Gains produced by `computeWallAnchoredGains` (G1). Named
  *  `WallAnchoredGains` to keep it separate from `AwbMultipliers`,
@@ -413,6 +453,14 @@ export type ComputeWallAnchoredOptions = {
    * clamped inside the image, and skip auto-detection entirely.
    */
   sampleRegion?: { x: number; y: number; w: number; h: number };
+  /**
+   * F2 (2026-08-10) — override the matte white target the sampled
+   * wall's median RGB is mapped onto. Callers thread the numeric
+   * value from `WALL_BRIGHTNESS_TARGETS` here. When omitted we fall
+   * back to `MATTE_WHITE_POINT` (243) for byte-identical replay of
+   * pre-F2 recipes.
+   */
+  target?: { r: number; g: number; b: number } | number;
 };
 
 export function computeWallAnchoredGains(
@@ -420,7 +468,11 @@ export function computeWallAnchoredGains(
   opts: ComputeWallAnchoredOptions = {},
 ): WallAnchoredGains | null {
   const { data, width, height } = input;
-  const target = MATTE_WHITE_POINT;
+  const rawTarget = opts.target;
+  const target =
+    typeof rawTarget === "number"
+      ? { r: rawTarget, g: rawTarget, b: rawTarget }
+      : rawTarget ?? MATTE_WHITE_POINT;
 
   const finalize = (
     medianR: number,

@@ -42,10 +42,12 @@ import {
 import { PerspectiveCornerPicker } from "@/components/upload/PerspectiveCornerPicker";
 import {
   defaultInsetQuad,
+  hasValidArea,
   quadFromRect,
   resolveAutoCorners,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
+import type { WallBrightness } from "@/lib/image/enhancement/awb";
 import { ellipseRestorationCorners } from "@/lib/image/enhancement/ellipse";
 import {
   fetchArtistPortfolioToneStats,
@@ -194,6 +196,31 @@ function fromSliderValue(v: number): number {
  *  slightly clears) the 0.05 threshold in `normalizeDisplayAdjust` so
  *  we never commit a rect the persistence layer will silently drop. */
 const MIN_CROP_SIDE = 0.1;
+
+/**
+ * True when any corner of `a` deviates from the matching corner of
+ * `b` by more than `tol` in either axis. Used by the wizard to
+ * decide whether the "자동 감지값 복원" secondary action should
+ * appear. `tol` defaults to 0.005 (0.5 % of the normalized image
+ * width / height) — same tolerance the geometry helper uses for
+ * axis-aligned detection.
+ */
+function quadsDiffer(
+  a: Quad | null | undefined,
+  b: Quad | null | undefined,
+  tol: number = 0.005,
+): boolean {
+  if (!a || !b) return false;
+  for (let i = 0; i < 4; i += 1) {
+    if (
+      Math.abs(a[i][0] - b[i][0]) > tol ||
+      Math.abs(a[i][1] - b[i][1]) > tol
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Handle definitions for the interactive crop rect. */
 type CropHandle =
@@ -624,10 +651,39 @@ export function ImageStandardizeEditor({
   const [intensity, setIntensity] = useState<Intensity>("normal");
   // 2026-08-09: consolidated input-type selector living inside Advanced.
   const [inputType, setInputType] = useState<InputType>("auto");
-  // 2026-08-09: Advanced fold is collapsed by default. Uncontrolled
-  // <details> would re-collapse on every parent re-render, so we own
-  // the state.
-  const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
+  // F2 (2026-08-10) — wall brightness chip. `normal` is the wizard
+  // default (matte target 248 — bumped from the historical 243 so
+  // walls actually read as white); users can dial to `soft` (245)
+  // or `bright` (252) per image.
+  const [wallBrightness, setWallBrightness] = useState<WallBrightness>("normal");
+  // F4 (2026-08-10) — wizard step machine. Step 1 = perspective +
+  // crop, step 2 = tone + wall, step 3 = review + save. Users can
+  // freely revisit any step they have already advanced past; future
+  // steps are unlocked once a preview exists (step 2 → 3 requires
+  // a successful `runEnhancePreview`).
+  const [wizardStep, setWizardStep] = useState<
+    "perspective" | "tone" | "confirm"
+  >("perspective");
+  // Track whether the user has touched the picker on step 1. Enables
+  // the "자동 감지값 복원" secondary action.
+  const [perspectiveUserAdjusted, setPerspectiveUserAdjusted] =
+    useState<boolean>(false);
+  // Advanced-fold: "이 단계 건너뛰기" — when true, step 1 forwards to
+  // step 2 without applying any perspective correction (source
+  // corners forced to null so the pipeline runs crop-only).
+  const [perspectiveSkipped, setPerspectiveSkipped] = useState<boolean>(false);
+  // Advanced-fold: "원본 비율 유지" — when true, the engine keeps
+  // the source aspect intact instead of rectifying to the estimated
+  // artwork aspect. Threaded via `targetAspect`.
+  const [keepOriginalAspect, setKeepOriginalAspect] = useState<boolean>(false);
+  // F4 (2026-08-10) — per-step advanced folds live in their own
+  // state so the two steps don't share a collapse state. The
+  // pre-F4 single `advancedOpen` was removed with the drastic
+  // simplification since each wizard step now hosts its own
+  // <details> section.
+  const [perspectiveAdvancedOpen, setPerspectiveAdvancedOpen] =
+    useState<boolean>(false);
+  const [toneAdvancedOpen, setToneAdvancedOpen] = useState<boolean>(false);
   // 2026-08-09: when an enhancement is already saved (parent supplied
   // `enhancement` OR the user just approved a preview), we render a
   // compact "saved" card. `editingAfterSave` opts the user back into
@@ -662,19 +718,27 @@ export function ImageStandardizeEditor({
   const proLookOn = true;
   const proLookEnabled = captureMode === "scanner" ? false : proLookOn;
 
-  // 2026-08-07 — Perspective correction. Opt-in only per file so the
-  // "Preview" button never surprises the user with a warped output.
-  // `perspectiveCorners` is the *committed* 4-corner picker result
-  // (persisted into the recipe on next preview run).
-  const [perspectiveOpen, setPerspectiveOpen] = useState<boolean>(false);
+  // 2026-08-07 — Perspective correction. `perspectiveCorners` is
+  // the *committed* 4-corner picker result (persisted into the
+  // recipe on next preview run). Since F4 (2026-08-10) the picker
+  // is always inline as Step 1 of the wizard, so the pre-F4
+  // `perspectiveOpen` toggle no longer exists.
   const [perspectiveCorners, setPerspectiveCorners] = useState<
     [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint] | null
   >(null);
   // Bump this integer to force PerspectiveCornerPicker to re-seed from
   // its auto-detected corners. Only bumped on explicit user actions
-  // (analysis re-fires with a new rectangle, or the auto-detect chip
-  // is tapped) — never as a side-effect of parent re-renders.
-  const [perspectiveResetToken] = useState<number>(0);
+  // (analysis re-fires with a new rectangle, or the "자동 감지값 복원"
+  // chip is tapped) — never as a side-effect of parent re-renders.
+  const [perspectiveResetToken, setPerspectiveResetToken] =
+    useState<number>(0);
+  // F4 (2026-08-10) — the picker's live quad streamed via its new
+  // `onChange` prop. The wizard's "다음" button snapshots this into
+  // `perspectiveCorners` when advancing to step 2. Kept separate
+  // from the committed `perspectiveCorners` so bouncing back to
+  // step 1 preserves the draft.
+  const [wizardPerspectiveDraft, setWizardPerspectiveDraft] =
+    useState<Quad | null>(null);
 
   // 2026-08-07 — Glare heatmap toggle. Non-destructive overlay: never
   // touches the pipeline output, just draws red rectangles over the
@@ -816,6 +880,43 @@ export function ImageStandardizeEditor({
     [perspectiveCorners],
   );
 
+  // F4 (2026-08-10) — step-1 auto-seed provenance for the chip strip
+  // above the picker. Follows the same priority the pipeline uses:
+  //   edge quad (resolveAutoCorners) → bbox quad → manual.
+  const perspectiveAutoSource: "edge" | "bbox" | "none" = useMemo(() => {
+    if (!analysis) return "none";
+    if (autoWarpCornersMemo) {
+      // resolveAutoCorners emits an axis-aligned bbox when it
+      // couldn't get a confident rotated edge quad. Distinguish via
+      // the raw suggestedRectangleCorners field.
+      const edge = analysis.suggestedRectangleCorners;
+      const edgeConf = analysis.suggestedRectangleConfidence ?? 0;
+      if (edge && hasValidArea(edge as Quad) && edgeConf >= 0.55) {
+        return "edge";
+      }
+      return "bbox";
+    }
+    if (analysis.suggestedCrop && quadFromRect(analysis.suggestedCrop)) {
+      return "bbox";
+    }
+    return "none";
+  }, [analysis, autoWarpCornersMemo]);
+
+  // Seed the Step-1 PerspectiveCornerPicker with (in order):
+  //   1. user's committed corners,
+  //   2. resolveAutoCorners edge/bbox quad,
+  //   3. quadFromRect(suggestedCrop) as a last-chance bbox,
+  //   4. defaultInsetQuad(0.1) so the picker isn't empty.
+  const wizardPerspectiveSeed = useMemo<Quad>(() => {
+    if (perspectiveCorners) return perspectiveCorners;
+    if (autoWarpCornersMemo) return autoWarpCornersMemo;
+    const bbox = analysis?.suggestedCrop
+      ? quadFromRect(analysis.suggestedCrop)
+      : null;
+    if (bbox) return bbox;
+    return defaultInsetQuad(0.1);
+  }, [perspectiveCorners, autoWarpCornersMemo, analysis]);
+
   // §Fix C (2026-08-10) — surface "auto detected" chips in the Basic
   // view ONLY when the pipeline actually applied that auto action on
   // the currently-rendered preview. Prevents chips ghost-lingering
@@ -904,6 +1005,7 @@ export function ImageStandardizeEditor({
         NormalizedPoint,
         NormalizedPoint,
       ] | null = (() => {
+        if (perspectiveSkipped) return null;
         if (perspectiveCorners || isScanner || !analysis) return null;
         const resolved = resolveAutoCorners({
           suggestedRectangleCorners: analysis.suggestedRectangleCorners as Quad | null,
@@ -944,10 +1046,23 @@ export function ImageStandardizeEditor({
               NormalizedPoint,
             ])
           : null;
-      const sourceCornersToSend = wantsEllipseRestore
-        ? ellipseCorners
-        : (perspectiveCorners ?? autoCorners);
-      const targetAspectOverride = wantsEllipseRestore ? 1 : undefined;
+      const sourceCornersToSend = perspectiveSkipped
+        ? null
+        : wantsEllipseRestore
+          ? ellipseCorners
+          : (perspectiveCorners ?? autoCorners);
+      // F4 advanced fold — "원본 비율 유지" overrides the estimated
+      // rectified aspect with the analyzer's source aspect so
+      // straight-on captures keep their exact WxH ratio.
+      const sourceAspect =
+        analysis && analysis.height > 0
+          ? analysis.width / analysis.height
+          : undefined;
+      const targetAspectOverride = wantsEllipseRestore
+        ? 1
+        : keepOriginalAspect && sourceAspect
+          ? sourceAspect
+          : undefined;
       // G3 (2026-08-10) — adaptive pro-look tuning. Instead of the
       // static intensity-multiplier scaling we used pre-G3, resolve
       // the tunables from analyzer signals (blurScore / glareScore)
@@ -1025,6 +1140,10 @@ export function ImageStandardizeEditor({
               wallSample: wallPick ?? "auto",
             }
           : undefined,
+        // F2 (2026-08-10) — user-facing wall-brightness chip.
+        // Engine maps the enum to the numeric matte target used
+        // by both AWB and the pro-look exposure cap.
+        wallBrightness,
       });
       // A null blob means the canvas pipeline couldn't produce output
       // (HEIC decode failed, encode failed, no canvas API, …). We MUST
@@ -1183,33 +1302,70 @@ export function ImageStandardizeEditor({
     portfolioAvailable,
     portfolioStats,
     intensity,
+    wallBrightness,
     wallPick,
     ellipseRestored,
+    perspectiveSkipped,
+    keepOriginalAspect,
   ]);
 
-  // 2026-08-09 Todo 4: auto-run a first preview as soon as analysis
-  // completes, ONLY when the user is on the Enhance tab and hasn't
-  // already got a saved enhancement or in-flight run. Guarded by a ref
-  // so re-analysis of the same file doesn't re-fire.
+  // F4 (2026-08-10) — auto-run a first preview as soon as the user
+  // lands on Step 2 (tone). Guarded by a ref so bouncing back and
+  // forth between steps doesn't re-fire the pipeline. Step 1 renders
+  // the raw source under the picker, so we deliberately do NOT run
+  // the enhancement there.
   useEffect(() => {
     if (!onEnhance) return;
     if (tab !== "enhance") return;
+    if (wizardStep !== "tone") return;
     if (!analysis) return;
     if (enhancePreview) return;
     if (enhancement) return;
     if (enhanceRunning) return;
     if (didAutoPreviewRef.current) return;
-    // Object mode needs the server-side hybrid pipeline; skip auto-run
-    // there so we don't surface the "objectHint" error unexpectedly.
     if (resolvedAutoMode === "object") return;
     didAutoPreviewRef.current = true;
     void runEnhancePreview();
   }, [
     analysis,
     tab,
+    wizardStep,
     onEnhance,
     enhancePreview,
     enhancement,
+    enhanceRunning,
+    resolvedAutoMode,
+    runEnhancePreview,
+  ]);
+
+  // F4 — debounced re-run when the user changes intensity or wall
+  // brightness inside Step 2. Only active while the user is on the
+  // tone step so slider drag on other steps doesn't re-fire.
+  const debouncedTone = useDebounced(
+    { intensity, wallBrightness },
+    250,
+  );
+  const lastToneKeyRef = useRef<string>(
+    JSON.stringify({ intensity, wallBrightness }),
+  );
+  useEffect(() => {
+    if (!onEnhance) return;
+    if (tab !== "enhance") return;
+    if (wizardStep !== "tone") return;
+    if (!analysis) return;
+    if (!didAutoPreviewRef.current) return; // wait for the initial run
+    if (enhanceRunning) return;
+    if (resolvedAutoMode === "object") return;
+    const key = JSON.stringify(debouncedTone);
+    if (key === lastToneKeyRef.current) return;
+    lastToneKeyRef.current = key;
+    void runEnhancePreview();
+  }, [
+    debouncedTone,
+    tab,
+    wizardStep,
+    onEnhance,
+    analysis,
     enhanceRunning,
     resolvedAutoMode,
     runEnhancePreview,
@@ -1226,7 +1382,8 @@ export function ImageStandardizeEditor({
     onEnhance(enhancePreview);
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
-    setAdvancedOpen(false);
+    setPerspectiveAdvancedOpen(false);
+    setToneAdvancedOpen(false);
     void recordUsageEvent({
       key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
       featureKey: "ai.image_enhance",
@@ -1406,497 +1563,743 @@ export function ImageStandardizeEditor({
             </div>
           ) : (
             <>
-              {/* §Fix C (2026-08-10) — drastic simplification. The
-                  Basic view is 3 primary widgets: run CTA, strength,
-                  and (optional) manual perspective. Auto-detect
-                  status chips sit as a subtle strip above the CTA.
-                  Everything else — WB, input type, portfolio, glare
-                  overlay, diagnostics, advisories — moved into the
-                  Advanced <details> fold. */}
-
-              {/* Preview surface (Before/After when we have a preview,
-                  raw preview otherwise). Aspect follows the source
-                  image; NEVER forces 4:5 (§Fix A). Wall-pick click
-                  handling stays on the raw preview so Advanced-fold
-                  users can still land the click after tapping
-                  "벽 지정". */}
-              {enhancePreview ? (
-                <BeforeAfterCompare
-                  beforeSrc={previewUrl ?? ""}
-                  afterSrc={enhancePreview.previewUrl}
-                  beforeAlt={t("upload.imageEnhance.beforeAlt")}
-                  afterAlt={t("upload.imageEnhance.afterAlt")}
-                  aspectRatio={imageAspect}
-                />
-              ) : (
-                previewUrl && (
-                  <div
-                    className={`relative w-full overflow-hidden rounded-lg bg-zinc-100 ${
-                      pickingWall ? "cursor-crosshair" : ""
-                    }`}
-                    style={{
-                      aspectRatio:
-                        imageAspect && Number.isFinite(imageAspect)
-                          ? `${imageAspect}`
-                          : "4 / 3",
-                    }}
-                    onClick={(e) => {
-                      if (!pickingWall) return;
-                      const el = e.currentTarget as HTMLDivElement;
-                      const rect = el.getBoundingClientRect();
-                      const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                      const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-                      setWallPick({ x: nx, y: ny });
-                      setPickingWall(false);
-                      setSaveStatus(null);
-                      void runEnhancePreview();
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={previewUrl}
-                      alt=""
-                      className="h-full w-full object-contain"
-                      draggable={false}
-                    />
-                    {wallPick && !pickingWall && (
-                      <div
-                        aria-hidden
-                        className="pointer-events-none absolute rounded-full border-2 border-emerald-500 bg-emerald-500/20"
-                        style={{
-                          left: `calc(${wallPick.x * 100}% - 8px)`,
-                          top: `calc(${wallPick.y * 100}% - 8px)`,
-                          width: 16,
-                          height: 16,
-                        }}
-                      />
-                    )}
-                    {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
-                      <>
-                        <svg
-                          className="pointer-events-none absolute inset-0 h-full w-full"
-                          viewBox="0 0 100 100"
-                          preserveAspectRatio="none"
-                          aria-hidden
-                        >
-                          {analysis.glareRegions.map((r, i) => (
-                            <rect
-                              key={i}
-                              x={r.x * 100}
-                              y={r.y * 100}
-                              width={r.w * 100}
-                              height={r.h * 100}
-                              fill="rgba(244,63,94,0.15)"
-                              stroke="rgba(244,63,94,0.7)"
-                              strokeWidth={0.5}
-                              vectorEffect="non-scaling-stroke"
-                            />
-                          ))}
-                        </svg>
-                        <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-900/70 px-2 py-1 text-[10px] text-white">
-                          {t("upload.imageEnhance.glareOverlay.reshootHint")}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                )
-              )}
-
-              {/* Auto-detect status chips — quiet strip that only shows
-                  detections the pipeline *actually applied* on the
-                  current preview. Clicking each opens the relevant
-                  adjust surface. */}
-              {analysis && (autoWarpFired || ellipseRestored || wallAutoFired) && (
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                  {autoWarpFired && (
+              {/* F4 (2026-08-10) — wizard-by-default. The Basic view
+                  is a 3-step flow (원근·크롭 → 톤·벽 색 → 확인·저장)
+                  with a persistent progress indicator. Legacy top-
+                  level widgets (run CTA / strength / perspective
+                  toggle) are absorbed into the wizard; each step's
+                  own Advanced fold hosts the fine-grained controls
+                  that used to sit in the shared Advanced surface. */}
+              {/* Progress indicator */}
+              <nav
+                aria-label={t("imageEnhance.wizard.stepIndicatorLabel")}
+                className="flex items-center gap-1.5 text-[11px]"
+              >
+                {(
+                  [
+                    { key: "perspective" as const, num: 1, label: t("imageEnhance.wizard.step1Title") },
+                    { key: "tone" as const, num: 2, label: t("imageEnhance.wizard.step2Title") },
+                    { key: "confirm" as const, num: 3, label: t("imageEnhance.wizard.step3Title") },
+                  ]
+                ).map((step, idx) => {
+                  const currentIdx =
+                    wizardStep === "perspective" ? 0 : wizardStep === "tone" ? 1 : 2;
+                  const isCurrent = wizardStep === step.key;
+                  const isPast = currentIdx > idx;
+                  const isFuture = currentIdx < idx;
+                  const clickable = !isFuture;
+                  return (
                     <button
+                      key={step.key}
                       type="button"
-                      onClick={() => setPerspectiveOpen(true)}
-                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] text-emerald-800 hover:bg-emerald-100"
+                      onClick={() => {
+                        if (!clickable) return;
+                        setWizardStep(step.key);
+                      }}
+                      disabled={!clickable}
+                      aria-current={isCurrent ? "step" : undefined}
+                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 transition ${
+                        isCurrent
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : isPast
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                            : "cursor-not-allowed border-zinc-200 bg-white text-zinc-400"
+                      }`}
                     >
-                      {t("upload.imageEnhance.chip.autoPerspective")}
+                      <span
+                        aria-hidden
+                        className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${
+                          isCurrent
+                            ? "bg-white/20 text-white"
+                            : isPast
+                              ? "bg-emerald-600 text-white"
+                              : "bg-zinc-200 text-zinc-500"
+                        }`}
+                      >
+                        {isPast ? "✓" : step.num}
+                      </span>
+                      <span>{step.label}</span>
                     </button>
+                  );
+                })}
+              </nav>
+
+              {/* ─────────────────── STEP 1 — Perspective & Crop */}
+              {wizardStep === "perspective" && (
+                <div className="space-y-3">
+                  {/* Chip strip — auto-seed provenance */}
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <span
+                      className={`rounded-full border px-2.5 py-1 ${
+                        perspectiveAutoSource === "edge"
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                          : perspectiveAutoSource === "bbox"
+                            ? "border-amber-300 bg-amber-50 text-amber-800"
+                            : "border-zinc-300 bg-zinc-50 text-zinc-700"
+                      }`}
+                    >
+                      {perspectiveAutoSource === "edge"
+                        ? t("imageEnhance.wizard.perspectiveAutoDetected")
+                        : perspectiveAutoSource === "bbox"
+                          ? t("imageEnhance.wizard.cropAutoDetected")
+                          : t("imageEnhance.wizard.perspectiveManual")}
+                    </span>
+                  </div>
+
+                  {/* Picker — always inline on this step */}
+                  {previewUrl && analysis && !perspectiveSkipped && (
+                    <PerspectiveCornerPicker
+                      imageUrl={previewUrl}
+                      imageWidth={analysis.width || 1024}
+                      imageHeight={analysis.height || 1024}
+                      initialCorners={wizardPerspectiveDraft ?? perspectiveInitialCornersMemo}
+                      autoDetectedCorners={autoDetectedCornersMemo ?? wizardPerspectiveSeed}
+                      resetToken={perspectiveResetToken}
+                      onChange={(q) => {
+                        setWizardPerspectiveDraft(q);
+                        if (quadsDiffer(q, wizardPerspectiveSeed)) {
+                          setPerspectiveUserAdjusted(true);
+                        }
+                      }}
+                      onConfirm={() => {
+                        /* wizard uses its own Next button */
+                      }}
+                      onCancel={() => {
+                        /* wizard uses its own back nav */
+                      }}
+                      hideActions
+                    />
                   )}
-                  {ellipseRestored && (
+                  {perspectiveSkipped && previewUrl && (
+                    <div
+                      className="relative w-full overflow-hidden rounded-lg bg-zinc-100"
+                      style={{
+                        aspectRatio:
+                          imageAspect && Number.isFinite(imageAspect)
+                            ? `${imageAspect}`
+                            : "4 / 3",
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={previewUrl}
+                        alt=""
+                        className="h-full w-full object-contain"
+                        draggable={false}
+                      />
+                    </div>
+                  )}
+
+                  {/* Hint */}
+                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                    {t("imageEnhance.wizard.perspectiveHint")}
+                  </p>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      {perspectiveUserAdjusted && !perspectiveSkipped && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWizardPerspectiveDraft(null);
+                            setPerspectiveUserAdjusted(false);
+                            setPerspectiveResetToken((n) => n + 1);
+                          }}
+                          className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+                        >
+                          {t("imageEnhance.wizard.resetToAuto")}
+                        </button>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
-                        setEllipseRestored(false);
-                        void runEnhancePreview();
+                        if (perspectiveSkipped) {
+                          setPerspectiveCorners(null);
+                        } else {
+                          const snapshot = wizardPerspectiveDraft ?? wizardPerspectiveSeed;
+                          if (perspectiveUserAdjusted && snapshot) {
+                            setPerspectiveCorners(snapshot);
+                          } else {
+                            setPerspectiveCorners(null);
+                          }
+                        }
+                        setWizardStep("tone");
+                        setSaveStatus(null);
+                        // Reset the auto-preview sentinel so the
+                        // enhance actually re-runs when this is a
+                        // second pass through step 1 → step 2.
+                        didAutoPreviewRef.current = false;
+                        if (enhancePreview) {
+                          if (enhancePreviewUrlRef.current) {
+                            try {
+                              URL.revokeObjectURL(enhancePreviewUrlRef.current);
+                            } catch {}
+                            enhancePreviewUrlRef.current = null;
+                          }
+                          setEnhancePreview(null);
+                        }
                       }}
-                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] text-emerald-800 hover:bg-emerald-100"
+                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800"
                     >
-                      {t("upload.imageEnhance.chip.autoEllipse")}
+                      {t("imageEnhance.wizard.nextToTone")}
                     </button>
-                  )}
-                  {wallAutoFired && (
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] text-emerald-800">
-                      {t("upload.imageEnhance.chip.autoWallWb")}
-                    </span>
-                  )}
+                  </div>
+
+                  {/* Advanced fold — step 1 */}
+                  <details
+                    open={perspectiveAdvancedOpen}
+                    onToggle={(e) =>
+                      setPerspectiveAdvancedOpen((e.target as HTMLDetailsElement).open)
+                    }
+                    className="rounded-lg border border-zinc-200 bg-white"
+                  >
+                    <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
+                      {t("imageEnhance.wizard.advancedPerspectiveTitle")}
+                    </summary>
+                    <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
+                      <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
+                        <input
+                          type="checkbox"
+                          checked={perspectiveSkipped}
+                          onChange={(e) => setPerspectiveSkipped(e.target.checked)}
+                          className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
+                        />
+                        <span>{t("imageEnhance.wizard.skipPerspective")}</span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
+                        <input
+                          type="checkbox"
+                          checked={keepOriginalAspect}
+                          onChange={(e) => setKeepOriginalAspect(e.target.checked)}
+                          className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
+                        />
+                        <span>{t("imageEnhance.wizard.keepAspect")}</span>
+                      </label>
+                    </div>
+                  </details>
                 </div>
               )}
 
-              {/* PRIMARY CTA — run / rerun */}
-              <button
-                type="button"
-                onClick={() => {
-                  setSaveStatus(null);
-                  void runEnhancePreview();
-                }}
-                disabled={enhanceRunning || !analysis}
-                className="w-full rounded-full bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {enhanceRunning
-                  ? t("upload.imageEnhance.running")
-                  : enhancePreview
-                    ? t("upload.imageEnhance.rerunCta")
-                    : t("upload.imageEnhance.autoRunCta")}
-              </button>
-              <p className="text-[10.5px] leading-relaxed text-zinc-500">
-                {t("upload.imageEnhance.autoRunHint")}
-              </p>
-
-              {/* STRENGTH selector */}
-              <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="text-zinc-600">
-                  {t("upload.imageEnhance.intensity.label")}
-                </span>
-                {(["light", "normal", "strong"] as Intensity[]).map((i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setIntensity(i)}
-                    className={`rounded-full border px-2.5 py-1 ${
-                      intensity === i
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {t(`upload.imageEnhance.intensity.${i}`)}
-                  </button>
-                ))}
-              </div>
-
-              {/* PERSPECTIVE — manual toggle. Collapsed by default;
-                  opening reveals the PerspectiveCornerPicker inline. */}
-              {resolvedAutoMode === "flat" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setPerspectiveOpen((v) => !v)}
-                    aria-pressed={perspectiveOpen}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] ${
-                      perspectiveOpen || perspectiveCorners
-                        ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {t("upload.imageEnhance.perspective.openBtn")}
-                  </button>
-                  {perspectiveOpen && previewUrl && (
-                    <PerspectiveCornerPicker
-                      imageUrl={previewUrl}
-                      imageWidth={analysis?.width || 1024}
-                      imageHeight={analysis?.height || 1024}
-                      initialCorners={perspectiveInitialCornersMemo}
-                      autoDetectedCorners={autoDetectedCornersMemo}
-                      resetToken={perspectiveResetToken}
-                      onConfirm={(q: Quad) => {
-                        setPerspectiveCorners(q);
-                        setPerspectiveOpen(false);
-                        void runEnhancePreview();
-                      }}
-                      onCancel={() => setPerspectiveOpen(false)}
+              {/* ─────────────────── STEP 2 — Tone & Wall */}
+              {wizardStep === "tone" && (
+                <div className="space-y-3">
+                  {/* Preview surface */}
+                  {enhancePreview ? (
+                    <BeforeAfterCompare
+                      beforeSrc={previewUrl ?? ""}
+                      afterSrc={enhancePreview.previewUrl}
+                      beforeAlt={t("upload.imageEnhance.beforeAlt")}
+                      afterAlt={t("upload.imageEnhance.afterAlt")}
+                      aspectRatio={imageAspect}
                     />
-                  )}
-                </>
-              )}
-
-              {/* SAVE / UNDO — only when a preview exists. */}
-              {enhancePreview && (
-                <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={handleEnhanceReject}
-                    className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
-                  >
-                    {t("upload.imageEnhance.undoCta")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEnhanceApprove}
-                    className="rounded-full bg-zinc-900 px-3 py-1 text-white hover:bg-zinc-800"
-                  >
-                    {t("upload.imageEnhance.saveCta")}
-                  </button>
-                </div>
-              )}
-
-              {/* STATUS AREA — 준비 중 / 처리 중 / 오류 */}
-              {enhanceRunning && !enhancePreview && (
-                <p className="text-[11px] text-zinc-500" aria-live="polite">
-                  {t("upload.imageEnhance.running")}
-                </p>
-              )}
-              {!analysis && !analyzeError && (
-                <p className="text-[11px] text-zinc-500" aria-live="polite">
-                  {t("upload.imageEnhance.preparing")}
-                </p>
-              )}
-              {enhanceError && (
-                <p className="text-[11px] text-amber-700" role="alert">
-                  {enhanceError}
-                </p>
-              )}
-
-              {/* ADVANCED — every other control lives here. Folded by
-                  default. See release brief 2026-08-10 §Fix C. */}
-              <details
-                open={advancedOpen}
-                onToggle={(e) =>
-                  setAdvancedOpen((e.target as HTMLDetailsElement).open)
-                }
-                className="rounded-lg border border-zinc-200 bg-white"
-              >
-                <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
-                  {t("upload.imageEnhance.advancedToggle")}
-                </summary>
-                <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
-                  {/* Reshoot advisory (moved from Basic) */}
-                  {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
-                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                      {t("upload.imageEnhance.reshootAdvisory")}
-                    </p>
-                  )}
-
-                  {/* Low-light warning (moved from Basic) */}
-                  {lowLight && (
-                    <p
-                      className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
-                      title={t("upload.imageEnhance.lowLightAdvisory")}
-                    >
-                      <span className="rounded-full bg-amber-200 px-2 py-0.5 text-amber-900">
-                        {t("upload.imageEnhance.lowLight")}
-                      </span>
-                      <span>{t("upload.imageEnhance.lowLightAdvisory")}</span>
-                    </p>
-                  )}
-
-                  {/* WB chip row */}
-                  {captureMode !== "scanner" && (
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="text-zinc-600">
-                          {t("upload.imageEnhance.wb.autoLabel")}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWallPick(null);
-                            setPickingWall(false);
-                            setSaveStatus(null);
-                            void runEnhancePreview();
-                          }}
-                          className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
-                          title={t("upload.imageEnhance.wb.pickHint")}
-                        >
-                          {t("upload.imageEnhance.wb.rePickLabel")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPickingWall((v) => {
-                              const next = !v;
-                              if (next && enhancePreview) {
-                                if (enhancePreviewUrlRef.current) {
-                                  try {
-                                    URL.revokeObjectURL(enhancePreviewUrlRef.current);
-                                  } catch {}
-                                  enhancePreviewUrlRef.current = null;
-                                }
-                                setEnhancePreview(null);
-                              }
-                              return next;
-                            });
-                          }}
-                          aria-pressed={pickingWall}
-                          className={`rounded-full border px-2.5 py-1 ${
-                            pickingWall || wallPick
-                              ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                          }`}
-                          title={t("upload.imageEnhance.wb.pickHint")}
-                        >
-                          {t("upload.imageEnhance.wb.pickLabel")}
-                        </button>
-                        {wallPick && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setWallPick(null);
-                              setPickingWall(false);
-                              void runEnhancePreview();
+                  ) : (
+                    previewUrl && (
+                      <div
+                        className={`relative w-full overflow-hidden rounded-lg bg-zinc-100 ${
+                          pickingWall ? "cursor-crosshair" : ""
+                        }`}
+                        style={{
+                          aspectRatio:
+                            imageAspect && Number.isFinite(imageAspect)
+                              ? `${imageAspect}`
+                              : "4 / 3",
+                        }}
+                        onClick={(e) => {
+                          if (!pickingWall) return;
+                          const el = e.currentTarget as HTMLDivElement;
+                          const rect = el.getBoundingClientRect();
+                          const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                          const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+                          setWallPick({ x: nx, y: ny });
+                          setPickingWall(false);
+                          setSaveStatus(null);
+                          void runEnhancePreview();
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={previewUrl}
+                          alt=""
+                          className="h-full w-full object-contain"
+                          draggable={false}
+                        />
+                        {wallPick && !pickingWall && (
+                          <div
+                            aria-hidden
+                            className="pointer-events-none absolute rounded-full border-2 border-emerald-500 bg-emerald-500/20"
+                            style={{
+                              left: `calc(${wallPick.x * 100}% - 8px)`,
+                              top: `calc(${wallPick.y * 100}% - 8px)`,
+                              width: 16,
+                              height: 16,
                             }}
-                            className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
-                          >
-                            {t("upload.imageEnhance.wb.resetLabel")}
-                          </button>
+                          />
+                        )}
+                        {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
+                          <>
+                            <svg
+                              className="pointer-events-none absolute inset-0 h-full w-full"
+                              viewBox="0 0 100 100"
+                              preserveAspectRatio="none"
+                              aria-hidden
+                            >
+                              {analysis.glareRegions.map((r, i) => (
+                                <rect
+                                  key={i}
+                                  x={r.x * 100}
+                                  y={r.y * 100}
+                                  width={r.w * 100}
+                                  height={r.h * 100}
+                                  fill="rgba(244,63,94,0.15)"
+                                  stroke="rgba(244,63,94,0.7)"
+                                  strokeWidth={0.5}
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                              ))}
+                            </svg>
+                            <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-900/70 px-2 py-1 text-[10px] text-white">
+                              {t("upload.imageEnhance.glareOverlay.reshootHint")}
+                            </p>
+                          </>
                         )}
                       </div>
-                      {pickingWall && (
-                        <p className="text-[10.5px] text-emerald-700">
-                          {t("upload.imageEnhance.wb.pickHint")}
-                        </p>
+                    )
+                  )}
+
+                  {/* Auto-detect status chips */}
+                  {analysis && (autoWarpFired || wallAutoFired || ellipseRestored) && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      {wallAutoFired ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800">
+                          {t("imageEnhance.wizard.summaryWbWall")} ✓
+                        </span>
+                      ) : (
+                        enhancePreview && (
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-zinc-700">
+                            {t("imageEnhance.wizard.summaryWbFallback")}
+                          </span>
+                        )
+                      )}
+                      {autoWarpFired && (
+                        <button
+                          type="button"
+                          onClick={() => setWizardStep("perspective")}
+                          className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
+                        >
+                          {t("upload.imageEnhance.chip.autoPerspective")}
+                        </button>
+                      )}
+                      {ellipseRestored && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEllipseRestored(false);
+                            void runEnhancePreview();
+                          }}
+                          className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
+                        >
+                          {t("upload.imageEnhance.chip.autoEllipse")}
+                        </button>
                       )}
                     </div>
                   )}
 
-                  {/* Ellipse restoration */}
-                  {analysis &&
-                    analysis.shapeHint === "circular" &&
-                    analysis.ellipse &&
-                    Math.abs(analysis.ellipse.aspect - 1) > 0.03 &&
-                    captureMode !== "scanner" && (
-                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEllipseRestored((v) => !v);
-                            setSaveStatus(null);
-                            void runEnhancePreview();
-                          }}
-                          aria-pressed={ellipseRestored}
-                          className={`rounded-full border px-2.5 py-1 ${
-                            ellipseRestored
-                              ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                          }`}
-                          title={t("upload.imageEnhance.ellipse.hint")}
-                        >
-                          {ellipseRestored
-                            ? t("upload.imageEnhance.ellipse.appliedChip")
-                            : t("upload.imageEnhance.ellipse.suggestChip")}
-                        </button>
-                      </div>
-                    )}
+                  {/* Strength selector */}
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className="text-zinc-600">
+                      {t("upload.imageEnhance.intensity.label")}
+                    </span>
+                    {(["light", "normal", "strong"] as Intensity[]).map((i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setIntensity(i)}
+                        className={`rounded-full border px-2.5 py-1 ${
+                          intensity === i
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                      >
+                        {t(`upload.imageEnhance.intensity.${i}`)}
+                      </button>
+                    ))}
+                  </div>
 
-                  {/* Input type selector */}
+                  {/* Wall brightness selector */}
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2 text-[11px]">
                       <span className="text-zinc-600">
-                        {t("upload.imageEnhance.inputType.label")}
+                        {t("imageEnhance.wallBrightness.label")}
                       </span>
-                      {(["auto", "studio", "scanner"] as InputType[]).map((m) => (
+                      {(["soft", "normal", "bright"] as WallBrightness[]).map((w) => (
                         <button
-                          key={m}
+                          key={w}
                           type="button"
-                          onClick={() => setInputType(m)}
+                          onClick={() => setWallBrightness(w)}
                           className={`rounded-full border px-2.5 py-1 ${
-                            inputType === m
+                            wallBrightness === w
                               ? "border-zinc-900 bg-zinc-900 text-white"
                               : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
                           }`}
                         >
-                          {t(`upload.imageEnhance.inputType.${m}`)}
+                          {t(`imageEnhance.wallBrightness.${w}`)}
                         </button>
                       ))}
                     </div>
                     <p className="text-[10.5px] leading-relaxed text-zinc-500">
-                      {t("upload.imageEnhance.inputType.hint")}
+                      {t("imageEnhance.wallBrightness.hint")}
                     </p>
                   </div>
 
-                  {/* Glare overlay toggle */}
-                  {analysis && analysis.glareRegions.length > 0 && (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => setGlareOverlayOn((v) => !v)}
-                        className={`rounded-full border px-2.5 py-1 text-[11px] ${
-                          glareOverlayOn
-                            ? "border-rose-500 bg-rose-50 text-rose-800"
-                            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                        }`}
-                        aria-pressed={glareOverlayOn}
-                      >
-                        {t("upload.imageEnhance.glareOverlay.toggle")}
-                      </button>
-                      <p className="text-[10.5px] leading-relaxed text-zinc-500">
-                        {t("upload.imageEnhance.controls.glare.hint")}
-                      </p>
-                    </div>
-                  )}
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setWizardStep("perspective")}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {t("imageEnhance.wizard.backToPerspective")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWizardStep("confirm")}
+                      disabled={!enhancePreview}
+                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {t("imageEnhance.wizard.nextToConfirm")}
+                    </button>
+                  </div>
 
-                  {/* Portfolio coherence checkbox */}
-                  {portfolioAvailable && (
-                    <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
-                      <input
-                        type="checkbox"
-                        checked={portfolioCoherenceOn}
-                        onChange={(e) => setPortfolioCoherenceOn(e.target.checked)}
-                        className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
-                      />
-                      <span>
-                        <span className="font-medium">
-                          {t("bulk.enhance.portfolioCoherence")}
-                        </span>
-                        <span className="ml-1 text-zinc-500">
-                          {t("upload.imageEnhance.controls.portfolio.hint")}
-                        </span>
-                      </span>
-                    </label>
-                  )}
-
-                  {/* Quality diagnosis chips — read-only */}
-                  {analysis && (
-                    <div className="flex flex-wrap gap-2 text-[11px]">
-                      <span
-                        className={`rounded-full px-2 py-0.5 ${
-                          analysis.rectangleConfidence >= 0.55
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-zinc-100 text-zinc-600"
-                        }`}
-                        title={t("upload.imageEnhance.rectangleHint")}
-                      >
-                        {t("upload.imageEnhance.rectangleConfidence")}
-                        {": "}
-                        {Math.round(analysis.rectangleConfidence * 100)}%
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 ${
-                          analysis.blurScore < 0.15
-                            ? "bg-amber-50 text-amber-700"
-                            : "bg-zinc-100 text-zinc-600"
-                        }`}
-                        title={t("upload.imageEnhance.blurHint")}
-                      >
-                        {t("upload.imageEnhance.blurScore")}
-                        {": "}
-                        {Math.round(analysis.blurScore * 100)}%
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 ${
-                          analysis.glareScore > 0.05
-                            ? "bg-amber-50 text-amber-700"
-                            : "bg-zinc-100 text-zinc-600"
-                        }`}
-                        title={t("upload.imageEnhance.glareHint")}
-                      >
-                        {t("upload.imageEnhance.glareScore")}
-                        {": "}
-                        {Math.round(analysis.glareScore * 100)}%
-                      </span>
-                    </div>
-                  )}
-
-                  {captureDeviceLabel && (
-                    <p className="text-[10px] text-zinc-500">
-                      {t("upload.imageEnhance.captureDeviceLabel")}: {captureDeviceLabel}
+                  {/* Status */}
+                  {enhanceRunning && (
+                    <p className="text-[11px] text-zinc-500" aria-live="polite">
+                      {t("upload.imageEnhance.running")}
                     </p>
                   )}
+                  {!analysis && !analyzeError && (
+                    <p className="text-[11px] text-zinc-500" aria-live="polite">
+                      {t("upload.imageEnhance.preparing")}
+                    </p>
+                  )}
+                  {enhanceError && (
+                    <p className="text-[11px] text-amber-700" role="alert">
+                      {enhanceError}
+                    </p>
+                  )}
+
+                  {/* Advanced fold — step 2 */}
+                  <details
+                    open={toneAdvancedOpen}
+                    onToggle={(e) =>
+                      setToneAdvancedOpen((e.target as HTMLDetailsElement).open)
+                    }
+                    className="rounded-lg border border-zinc-200 bg-white"
+                  >
+                    <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
+                      {t("imageEnhance.wizard.advancedToneTitle")}
+                    </summary>
+                    <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
+                      {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
+                        <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                          {t("upload.imageEnhance.reshootAdvisory")}
+                        </p>
+                      )}
+                      {lowLight && (
+                        <p
+                          className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+                          title={t("upload.imageEnhance.lowLightAdvisory")}
+                        >
+                          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-amber-900">
+                            {t("upload.imageEnhance.lowLight")}
+                          </span>
+                          <span>{t("upload.imageEnhance.lowLightAdvisory")}</span>
+                        </p>
+                      )}
+                      {/* WB pick */}
+                      {captureMode !== "scanner" && (
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="text-zinc-600">
+                              {t("upload.imageEnhance.wb.autoLabel")}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setWallPick(null);
+                                setPickingWall(false);
+                                setSaveStatus(null);
+                                void runEnhancePreview();
+                              }}
+                              className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
+                              title={t("upload.imageEnhance.wb.pickHint")}
+                            >
+                              {t("upload.imageEnhance.wb.rePickLabel")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPickingWall((v) => {
+                                  const next = !v;
+                                  if (next && enhancePreview) {
+                                    if (enhancePreviewUrlRef.current) {
+                                      try {
+                                        URL.revokeObjectURL(enhancePreviewUrlRef.current);
+                                      } catch {}
+                                      enhancePreviewUrlRef.current = null;
+                                    }
+                                    setEnhancePreview(null);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              aria-pressed={pickingWall}
+                              className={`rounded-full border px-2.5 py-1 ${
+                                pickingWall || wallPick
+                                  ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                              }`}
+                              title={t("upload.imageEnhance.wb.pickHint")}
+                            >
+                              {t("upload.imageEnhance.wb.pickLabel")}
+                            </button>
+                            {wallPick && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWallPick(null);
+                                  setPickingWall(false);
+                                  void runEnhancePreview();
+                                }}
+                                className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
+                              >
+                                {t("upload.imageEnhance.wb.resetLabel")}
+                              </button>
+                            )}
+                          </div>
+                          {pickingWall && (
+                            <p className="text-[10.5px] text-emerald-700">
+                              {t("upload.imageEnhance.wb.pickHint")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Input type */}
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="text-zinc-600">
+                            {t("upload.imageEnhance.inputType.label")}
+                          </span>
+                          {(["auto", "studio", "scanner"] as InputType[]).map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setInputType(m)}
+                              className={`rounded-full border px-2.5 py-1 ${
+                                inputType === m
+                                  ? "border-zinc-900 bg-zinc-900 text-white"
+                                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                              }`}
+                            >
+                              {t(`upload.imageEnhance.inputType.${m}`)}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10.5px] leading-relaxed text-zinc-500">
+                          {t("upload.imageEnhance.inputType.hint")}
+                        </p>
+                      </div>
+
+                      {/* Glare overlay */}
+                      {analysis && analysis.glareRegions.length > 0 && (
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => setGlareOverlayOn((v) => !v)}
+                            className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                              glareOverlayOn
+                                ? "border-rose-500 bg-rose-50 text-rose-800"
+                                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                            }`}
+                            aria-pressed={glareOverlayOn}
+                          >
+                            {t("upload.imageEnhance.glareOverlay.toggle")}
+                          </button>
+                          <p className="text-[10.5px] leading-relaxed text-zinc-500">
+                            {t("upload.imageEnhance.controls.glare.hint")}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Portfolio coherence */}
+                      {portfolioAvailable && (
+                        <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={portfolioCoherenceOn}
+                            onChange={(e) => setPortfolioCoherenceOn(e.target.checked)}
+                            className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
+                          />
+                          <span>
+                            <span className="font-medium">
+                              {t("bulk.enhance.portfolioCoherence")}
+                            </span>
+                            <span className="ml-1 text-zinc-500">
+                              {t("upload.imageEnhance.controls.portfolio.hint")}
+                            </span>
+                          </span>
+                        </label>
+                      )}
+
+                      {/* Diagnostics */}
+                      {analysis && (
+                        <div className="flex flex-wrap gap-2 text-[11px]">
+                          <span
+                            className={`rounded-full px-2 py-0.5 ${
+                              analysis.rectangleConfidence >= 0.55
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-zinc-100 text-zinc-600"
+                            }`}
+                            title={t("upload.imageEnhance.rectangleHint")}
+                          >
+                            {t("upload.imageEnhance.rectangleConfidence")}
+                            {": "}
+                            {Math.round(analysis.rectangleConfidence * 100)}%
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 ${
+                              analysis.blurScore < 0.15
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-zinc-100 text-zinc-600"
+                            }`}
+                            title={t("upload.imageEnhance.blurHint")}
+                          >
+                            {t("upload.imageEnhance.blurScore")}
+                            {": "}
+                            {Math.round(analysis.blurScore * 100)}%
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 ${
+                              analysis.glareScore > 0.05
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-zinc-100 text-zinc-600"
+                            }`}
+                            title={t("upload.imageEnhance.glareHint")}
+                          >
+                            {t("upload.imageEnhance.glareScore")}
+                            {": "}
+                            {Math.round(analysis.glareScore * 100)}%
+                          </span>
+                        </div>
+                      )}
+
+                      {captureDeviceLabel && (
+                        <p className="text-[10px] text-zinc-500">
+                          {t("upload.imageEnhance.captureDeviceLabel")}: {captureDeviceLabel}
+                        </p>
+                      )}
+                    </div>
+                  </details>
                 </div>
-              </details>
+              )}
+
+              {/* ─────────────────── STEP 3 — Review & Save */}
+              {wizardStep === "confirm" && enhancePreview && previewUrl && (
+                <div className="space-y-3">
+                  <BeforeAfterCompare
+                    beforeSrc={previewUrl}
+                    afterSrc={enhancePreview.previewUrl}
+                    beforeAlt={t("upload.imageEnhance.beforeAlt")}
+                    afterAlt={t("upload.imageEnhance.afterAlt")}
+                    aspectRatio={imageAspect}
+                    initialPercent={50}
+                  />
+                  {/* Summary card */}
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
+                    <p className="mb-1 font-medium text-zinc-900">
+                      {t("imageEnhance.wizard.summaryTitle")}
+                    </p>
+                    <ul className="space-y-0.5">
+                      <li>
+                        {t("imageEnhance.wizard.summaryPerspective")}:{" "}
+                        {perspectiveSkipped
+                          ? "—"
+                          : perspectiveCorners
+                            ? "✓"
+                            : autoWarpFired
+                              ? "✓ (auto)"
+                              : "—"}
+                      </li>
+                      <li>
+                        {t("imageEnhance.wizard.summaryWallBrightness")}:{" "}
+                        {t(`imageEnhance.wallBrightness.${wallBrightness}`)} ✓
+                      </li>
+                      <li>
+                        {t("imageEnhance.wizard.summaryIntensity")}:{" "}
+                        {t(`upload.imageEnhance.intensity.${intensity}`)} ✓
+                      </li>
+                      <li>
+                        {wallAutoFired
+                          ? `${t("imageEnhance.wizard.summaryWbWall")} ✓`
+                          : t("imageEnhance.wizard.summaryWbFallback")}
+                      </li>
+                    </ul>
+                  </div>
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setWizardStep("tone")}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+                      >
+                        {t("imageEnhance.wizard.backToTone")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Wipe the transient preview and drop the
+                          // user back to step 1 (auto-preview
+                          // re-fires on step 2 entry).
+                          if (enhancePreviewUrlRef.current) {
+                            try {
+                              URL.revokeObjectURL(enhancePreviewUrlRef.current);
+                            } catch {}
+                            enhancePreviewUrlRef.current = null;
+                          }
+                          setEnhancePreview(null);
+                          setPerspectiveCorners(null);
+                          setWizardPerspectiveDraft(null);
+                          setPerspectiveUserAdjusted(false);
+                          setPerspectiveResetToken((n) => n + 1);
+                          setIntensity("normal");
+                          setWallBrightness("normal");
+                          didAutoPreviewRef.current = false;
+                          setWizardStep("perspective");
+                        }}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+                      >
+                        {t("imageEnhance.wizard.restart")}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleEnhanceApprove}
+                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800"
+                    >
+                      {t("imageEnhance.wizard.saveCta")}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === "confirm" && !enhancePreview && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  {t("upload.imageEnhance.preparing")}
+                </div>
+              )}
             </>
           )}
         </div>

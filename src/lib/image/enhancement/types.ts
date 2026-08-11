@@ -70,6 +70,13 @@ export type ProLookRecipe = {
    */
   unsharpAmount?: number;
   highlightCompress?: number;
+  /**
+   * F2 (2026-08-10) — override the adaptive-exposure highlight cap.
+   * Derived from the user's wall-brightness chip
+   * (`WALL_BRIGHTNESS_TARGETS[brightness] + 5`, clamped to 255).
+   * Absent in legacy recipes; readers must handle absence.
+   */
+  whiteCapLuma?: number;
 };
 
 /**

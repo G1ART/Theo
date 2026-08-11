@@ -71,6 +71,22 @@ type Props = {
   onConfirm: (quad: Quad) => void;
   /** Called when the user closes the picker without confirming. */
   onCancel: () => void;
+  /**
+   * F4 (2026-08-10) — streams the picker's current quad on every
+   * mutation (drag / keyboard nudge / reset). Used by the wizard
+   * shell so the parent-level "다음" button can snapshot the
+   * picker state without going through the built-in Confirm button.
+   * Optional; omit for the legacy popover invocation.
+   */
+  onChange?: (quad: Quad) => void;
+  /**
+   * F4 (2026-08-10) — hide the picker's internal action row
+   * (Confirm / Cancel / Reset) so the wizard step can host its own
+   * navigation. `onCancel` / `onConfirm` are still called via the
+   * `onChange` stream + parent-driven advance. Reset is exposed
+   * separately through the parent's chip.
+   */
+  hideActions?: boolean;
 };
 
 const HANDLE_LABELS = ["TL", "TR", "BR", "BL"] as const;
@@ -84,6 +100,8 @@ export function PerspectiveCornerPicker({
   resetToken,
   onConfirm,
   onCancel,
+  onChange,
+  hideActions = false,
 }: Props) {
   const { t } = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -118,6 +136,14 @@ export function PerspectiveCornerPicker({
     if (dragCornerRef.current != null) return;
     setQuad(seedQuadRef.current);
   }, [resetToken, localResetTick]);
+
+  // F4 (2026-08-10) — stream quad changes to the wizard shell so a
+  // parent-level "다음" button can commit without going through the
+  // built-in Confirm control. Only fires when `onChange` is wired.
+  useEffect(() => {
+    if (typeof onChange !== "function") return;
+    onChange(quad);
+  }, [quad, onChange]);
 
   const rectBounds = useCallback(() => {
     // Prefer the actually-rendered image rect (object-contain letterbox)
@@ -372,32 +398,34 @@ export function PerspectiveCornerPicker({
           {points}
         </span>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-        <span className="mr-auto text-[11px] text-zinc-500">
-          {t("upload.imageEnhance.perspective.hint")}
-        </span>
-        <button
-          type="button"
-          onClick={handleReset}
-          className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
-        >
-          {t("upload.imageEnhance.perspective.reset")}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
-        >
-          {t("upload.imageEnhance.perspective.cancel")}
-        </button>
-        <button
-          type="button"
-          onClick={() => onConfirm(quad)}
-          className="rounded-full bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700"
-        >
-          {t("upload.imageEnhance.perspective.confirm")}
-        </button>
-      </div>
+      {!hideActions && (
+        <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+          <span className="mr-auto text-[11px] text-zinc-500">
+            {t("upload.imageEnhance.perspective.hint")}
+          </span>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+          >
+            {t("upload.imageEnhance.perspective.reset")}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+          >
+            {t("upload.imageEnhance.perspective.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(quad)}
+            className="rounded-full bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700"
+          >
+            {t("upload.imageEnhance.perspective.confirm")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,8 @@ import assert from "node:assert/strict";
     AWB_MUL_MIN,
     AWB_MUL_MAX,
     MATTE_WHITE_POINT,
+    WALL_BRIGHTNESS_TARGETS,
+    resolveWallBrightnessTarget,
     computeWallAnchoredGains,
   } = await import("../awb");
 
@@ -105,34 +107,93 @@ import assert from "node:assert/strict";
   assert.equal(MATTE_WHITE_POINT.g, 243, "matte white g");
   assert.equal(MATTE_WHITE_POINT.b, 243, "matte white b");
 
-  // ── 5. G1: computeWallAnchoredGains with a picked sample rect
-  //     computes gains that map the sampled median to MATTE_WHITE_POINT.
-  //     Uniform warm-white patch (220, 210, 200) → gains should
-  //     produce ~(243, 243, 243) after `applyAwb`.
-  {
+  // ── 5. G1 + F2 (2026-08-10): computeWallAnchoredGains lands the
+  //     sampled median on the CALLER-CHOSEN target. Legacy callers
+  //     (no `target`) keep landing on MATTE_WHITE_POINT (243). The
+  //     three F2 wall-brightness chips land on 245 / 248 / 252
+  //     within ±2 luma tolerance.
+  const patchPixels = (rgb: [number, number, number]) => {
     const w = 32;
     const h = 32;
     const data = new Uint8ClampedArray(w * h * 4);
     for (let i = 0; i < data.length; i += 4) {
-      data[i] = 220;
-      data[i + 1] = 210;
-      data[i + 2] = 200;
+      data[i] = rgb[0];
+      data[i + 1] = rgb[1];
+      data[i + 2] = rgb[2];
       data[i + 3] = 255;
     }
+    return { data, w, h };
+  };
+
+  // 5a — legacy default lands on 243.
+  {
+    const { data, w, h } = patchPixels([220, 210, 200]);
     const gains = computeWallAnchoredGains(
       { data, width: w, height: h },
       { sampleRegion: { x: 0, y: 0, w: 32, h: 32 } },
     );
-    assert.ok(gains, "gains computed");
+    assert.ok(gains, "legacy gains computed");
     if (!gains) return;
     assert.equal(gains.source, "wall-pick");
-    // Applying gains should push the median to ~243.
     const buffer = new Uint8ClampedArray([220, 210, 200, 255]);
     applyAwb(buffer, { rMul: gains.r, gMul: gains.g, bMul: gains.b });
-    assert.ok(Math.abs(buffer[0] - 243) <= 2, `R landed at ~243 (got ${buffer[0]})`);
-    assert.ok(Math.abs(buffer[1] - 243) <= 2, `G landed at ~243 (got ${buffer[1]})`);
-    assert.ok(Math.abs(buffer[2] - 243) <= 2, `B landed at ~243 (got ${buffer[2]})`);
+    assert.ok(Math.abs(buffer[0] - 243) <= 2, `default R ~ 243 (got ${buffer[0]})`);
+    assert.ok(Math.abs(buffer[1] - 243) <= 2, `default G ~ 243 (got ${buffer[1]})`);
+    assert.ok(Math.abs(buffer[2] - 243) <= 2, `default B ~ 243 (got ${buffer[2]})`);
   }
+
+  // 5b — F2 chips land on 245 / 248 / 252 (±2). Runs the same
+  //      neutral-warm patch through each of the three targets and
+  //      asserts the mapped medians land on the requested wall
+  //      brightness within the tolerance the wizard promises.
+  {
+    const chips: Array<{
+      brightness: "soft" | "normal" | "bright";
+      expected: number;
+    }> = [
+      { brightness: "soft", expected: 245 },
+      { brightness: "normal", expected: 248 },
+      { brightness: "bright", expected: 252 },
+    ];
+    for (const chip of chips) {
+      assert.equal(
+        WALL_BRIGHTNESS_TARGETS[chip.brightness],
+        chip.expected,
+        `${chip.brightness} target constant`,
+      );
+      assert.equal(
+        resolveWallBrightnessTarget(chip.brightness),
+        chip.expected,
+        `${chip.brightness} resolves`,
+      );
+      const { data, w, h } = patchPixels([220, 210, 200]);
+      const gains = computeWallAnchoredGains(
+        { data, width: w, height: h },
+        {
+          sampleRegion: { x: 0, y: 0, w: 32, h: 32 },
+          target: chip.expected,
+        },
+      );
+      assert.ok(gains, `gains for ${chip.brightness}`);
+      if (!gains) return;
+      const buffer = new Uint8ClampedArray([220, 210, 200, 255]);
+      applyAwb(buffer, { rMul: gains.r, gMul: gains.g, bMul: gains.b });
+      for (let ch = 0; ch < 3; ch += 1) {
+        assert.ok(
+          Math.abs(buffer[ch] - chip.expected) <= 2,
+          `${chip.brightness} ch${ch} landed at ~${chip.expected} (got ${buffer[ch]})`,
+        );
+      }
+    }
+  }
+
+  // 5c — `resolveWallBrightnessTarget(undefined)` falls back to 243
+  //      for legacy callers.
+  assert.equal(
+    resolveWallBrightnessTarget(undefined),
+    MATTE_WHITE_POINT.g,
+    "undefined → legacy 243",
+  );
 
   // ── 6. G1 auto-detect: a synthetic image with a bright neutral
   //     edge-touching wall + a colored subject in the middle should

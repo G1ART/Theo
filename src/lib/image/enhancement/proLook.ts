@@ -55,6 +55,15 @@ export type ProLookConfig = {
    * glary shots don't blow out. Zero disables the stage.
    */
   highlightCompress?: number;
+  /**
+   * F2 (2026-08-10) — override the maximum output luma the adaptive
+   * exposure pass will emit. The engine threads this through from
+   * the user's wall-brightness chip so a "bright" (252) or "soft"
+   * (245) matte target shifts the highlight roll-off in lockstep
+   * with the AWB target. When omitted we fall back to the historical
+   * cap of `MATTE_WHITE_POINT_LUMA + 7` (250).
+   */
+  whiteCapLuma?: number;
 };
 
 // 2026-08-09 Phase 2 defaults — see the header comment. Softer than
@@ -136,6 +145,15 @@ export function resolveProLookConfig(recipe?: ProLookRecipe): ProLookConfig {
     // default holds.
     unsharpAmount: recipe.unsharpAmount ?? PRO_LOOK_DEFAULTS.unsharpAmount,
     highlightCompress: recipe.highlightCompress ?? 0,
+    // F2 (2026-08-10) — undefined = keep legacy cap
+    // (MATTE_WHITE_POINT_LUMA + 7 = 250). Wizard callers pass
+    // `wallBrightnessTarget + 5` so a "bright" 252 chip yields a
+    // 257→255 cap (no clipping headroom), and "soft" 245 yields
+    // 250, matching the historical cap by coincidence.
+    whiteCapLuma:
+      typeof recipe.whiteCapLuma === "number" && Number.isFinite(recipe.whiteCapLuma)
+        ? recipe.whiteCapLuma
+        : undefined,
   };
 }
 
@@ -247,7 +265,11 @@ export function percentileRange(data: Uint8ClampedArray): { p5: number; p95: num
  * one we're already collecting for CLAHE-skip, so we keep the input
  * space consistent with the histogram helpers.
  */
-export function adaptiveExposure(data: Uint8ClampedArray, target: number): void {
+export function adaptiveExposure(
+  data: Uint8ClampedArray,
+  target: number,
+  capLumaOverride?: number,
+): void {
   const { p5, p95 } = percentileRange(data);
   const total = data.length / 4;
   let sum = 0;
@@ -268,12 +290,16 @@ export function adaptiveExposure(data: Uint8ClampedArray, target: number): void 
   // reflects "how much brighter do we want the midtone?".
   const gain = Math.min(1.3, Math.max(0.7, target / mid));
   // G4 (2026-08-10) — never allow the final white point to exceed
-  // 250/255 luminance. The filmic curve on its own already caps around
-  // 240 for normal inputs; this clamp is a defensive backstop so a
-  // strong-intensity multiplier or an already-hot input can never
-  // sneak a pixel above the matte reference. See MATTE_WHITE_POINT
-  // in `awb.ts` for the anchor rationale.
-  const cap = Math.min(255, MATTE_WHITE_POINT_LUMA + 7);
+  // (matte_target + 5) luminance. F2 (2026-08-10) parameterizes the
+  // matte target so a "bright" wall (252) unlocks a 255 cap while
+  // a "soft" wall (245) keeps the historical 250 cap. Legacy callers
+  // (undefined) fall back to `MATTE_WHITE_POINT_LUMA + 7` (250) for
+  // byte-identical replay of pre-F2 recipes.
+  const capBase =
+    typeof capLumaOverride === "number" && Number.isFinite(capLumaOverride)
+      ? capLumaOverride
+      : MATTE_WHITE_POINT_LUMA + 7;
+  const cap = Math.min(255, capBase);
   for (let i = 0; i < data.length; i += 4) {
     const rl = srgbToLinear(data[i]) * gain;
     const gl = srgbToLinear(data[i + 1]) * gain;
@@ -498,7 +524,7 @@ export function runProLook(
 
   // Stage 1
   const t0 = now();
-  adaptiveExposure(data, config.exposureLumaTarget);
+  adaptiveExposure(data, config.exposureLumaTarget, config.whiteCapLuma);
   timings.exposureMs = Math.max(0, Math.round(now() - t0));
 
   // Stage 3 — CLAHE (skip on already-high-contrast sources).

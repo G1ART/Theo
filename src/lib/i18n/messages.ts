@@ -882,10 +882,10 @@ export const messages = {
     "upload.imageMoveUp": "Move up",
     "upload.imageMoveDown": "Move down",
     "upload.imageRemove": "Remove image",
-    "upload.imageStandardize.edit": "Adjust look",
+    "upload.imageStandardize.edit": "Image Enhance",
     "upload.imageStandardize.hide": "Hide adjust",
     "upload.imageStandardize.appliedChip": "Adjusted",
-    "upload.imageStandardize.title": "Optional touch-ups",
+    "upload.imageStandardize.title": "Image Enhance",
     "upload.imageStandardize.idleHint":
       "The image is uploaded as-is. Use the sliders below to nudge brightness, contrast, or saturation; open the crop tool to trim on your own terms. Nothing is saved until you move something.",
     "upload.imageStandardize.appliedHint":
@@ -1084,6 +1084,43 @@ export const messages = {
     "upload.imageEnhance.ellipse.undoChip": "Undo",
     "upload.imageEnhance.ellipse.hint":
       "Round subjects tilt slightly in phone photos — this warps the ellipse back to a true circle.",
+    // ── F2 (2026-08-10) — wall brightness user control ──────────
+    "imageEnhance.wallBrightness.label": "Wall brightness",
+    "imageEnhance.wallBrightness.soft": "Soft",
+    "imageEnhance.wallBrightness.normal": "Normal",
+    "imageEnhance.wallBrightness.bright": "Bright",
+    "imageEnhance.wallBrightness.hint":
+      "The wall around the artwork is nudged toward matte white.",
+    // ── F4 (2026-08-10) — wizard ────────────────────────────────
+    "imageEnhance.wizard.step1Title": "Perspective & Crop",
+    "imageEnhance.wizard.step2Title": "Tone & Wall",
+    "imageEnhance.wizard.step3Title": "Review & Save",
+    "imageEnhance.wizard.nextToTone": "Next: Tone →",
+    "imageEnhance.wizard.nextToConfirm": "Next: Review →",
+    "imageEnhance.wizard.backToPerspective": "← Back to Perspective",
+    "imageEnhance.wizard.backToTone": "← Back to Tone",
+    "imageEnhance.wizard.restart": "Start over",
+    "imageEnhance.wizard.saveCta": "Save this",
+    "imageEnhance.wizard.perspectiveAutoDetected":
+      "Auto perspective detected · adjustable",
+    "imageEnhance.wizard.cropAutoDetected":
+      "Auto crop detected · may need adjustment",
+    "imageEnhance.wizard.perspectiveManual":
+      "Auto detection failed · set the four corners yourself",
+    "imageEnhance.wizard.perspectiveHint":
+      "Line up the four corners with the artwork and we'll straighten it in the next step.",
+    "imageEnhance.wizard.resetToAuto": "Reset to auto",
+    "imageEnhance.wizard.summaryTitle": "Applied edits",
+    "imageEnhance.wizard.stepIndicatorLabel": "Enhance wizard progress",
+    "imageEnhance.wizard.summaryPerspective": "Perspective correction",
+    "imageEnhance.wizard.summaryWallBrightness": "Wall brightness",
+    "imageEnhance.wizard.summaryIntensity": "Strength",
+    "imageEnhance.wizard.summaryWbWall": "WB: wall auto",
+    "imageEnhance.wizard.summaryWbFallback": "WB: whole frame",
+    "imageEnhance.wizard.advancedPerspectiveTitle": "Advanced · Perspective",
+    "imageEnhance.wizard.advancedToneTitle": "Advanced · Tone",
+    "imageEnhance.wizard.skipPerspective": "Skip perspective for this image",
+    "imageEnhance.wizard.keepAspect": "Keep original aspect ratio",
     "upload.viewType.wall_mounted": "Primary (front)",
     "upload.viewType.detail": "Detail",
     "upload.viewType.angle": "Alternate angle",
@@ -4332,10 +4369,10 @@ export const messages = {
     "upload.imageMoveUp": "위로 이동",
     "upload.imageMoveDown": "아래로 이동",
     "upload.imageRemove": "이미지 제거",
-    "upload.imageStandardize.edit": "느낌 조정",
+    "upload.imageStandardize.edit": "이미지 보정",
     "upload.imageStandardize.hide": "조정 접기",
     "upload.imageStandardize.appliedChip": "직접 조정됨",
-    "upload.imageStandardize.title": "선택 조정",
+    "upload.imageStandardize.title": "이미지 보정",
     "upload.imageStandardize.idleHint":
       "이미지는 원본 그대로 업로드돼요. 아래 슬라이더로 밝기·대비·채도를 살짝 손보거나, 크롭 버튼으로 원하는 영역만 남길 수 있어요. 직접 움직인 값만 저장돼요.",
     "upload.imageStandardize.appliedHint":
@@ -4534,6 +4571,43 @@ export const messages = {
     "upload.imageEnhance.ellipse.undoChip": "되돌리기",
     "upload.imageEnhance.ellipse.hint":
       "원형 작품(도자기 등)을 살짝 기울여 찍었을 때, 타원을 다시 원으로 되돌립니다.",
+    // ── F2 (2026-08-10) — 벽 밝기 사용자 조절 ────────────────────
+    "imageEnhance.wallBrightness.label": "벽 밝기",
+    "imageEnhance.wallBrightness.soft": "약",
+    "imageEnhance.wallBrightness.normal": "보통",
+    "imageEnhance.wallBrightness.bright": "강",
+    "imageEnhance.wallBrightness.hint":
+      "벽이 화이트에 가깝게 자동 보정됩니다.",
+    // ── F4 (2026-08-10) — 위저드 ────────────────────────────────
+    "imageEnhance.wizard.step1Title": "원근 · 크롭",
+    "imageEnhance.wizard.step2Title": "톤 · 벽 색",
+    "imageEnhance.wizard.step3Title": "확인 · 저장",
+    "imageEnhance.wizard.nextToTone": "다음: 톤 조정 →",
+    "imageEnhance.wizard.nextToConfirm": "다음: 확인 →",
+    "imageEnhance.wizard.backToPerspective": "← 원근 다시 잡기",
+    "imageEnhance.wizard.backToTone": "← 톤 다시 조정",
+    "imageEnhance.wizard.restart": "처음부터",
+    "imageEnhance.wizard.saveCta": "이걸로 저장",
+    "imageEnhance.wizard.perspectiveAutoDetected":
+      "자동 원근 감지 · 조정 가능",
+    "imageEnhance.wizard.cropAutoDetected":
+      "자동 크롭 감지 · 조정 필요할 수 있어요",
+    "imageEnhance.wizard.perspectiveManual":
+      "자동 감지 실패 · 4개 코너를 직접 잡아주세요",
+    "imageEnhance.wizard.perspectiveHint":
+      "작품의 네 모서리를 그림 위에 맞추면, 다음 단계에서 정면 형태로 복원돼요.",
+    "imageEnhance.wizard.resetToAuto": "자동 감지값 복원",
+    "imageEnhance.wizard.summaryTitle": "적용된 보정",
+    "imageEnhance.wizard.stepIndicatorLabel": "이미지 보정 위저드 진행 상태",
+    "imageEnhance.wizard.summaryPerspective": "원근 보정",
+    "imageEnhance.wizard.summaryWallBrightness": "벽 밝기",
+    "imageEnhance.wizard.summaryIntensity": "보정 강도",
+    "imageEnhance.wizard.summaryWbWall": "WB: 벽 자동 감지",
+    "imageEnhance.wizard.summaryWbFallback": "WB: 이미지 전체 기준",
+    "imageEnhance.wizard.advancedPerspectiveTitle": "고급 · 원근",
+    "imageEnhance.wizard.advancedToneTitle": "고급 · 톤",
+    "imageEnhance.wizard.skipPerspective": "이 이미지 원근 건너뛰기",
+    "imageEnhance.wizard.keepAspect": "원본 비율 유지",
     "upload.viewType.wall_mounted": "대표 (정면)",
     "upload.viewType.detail": "디테일",
     "upload.viewType.angle": "다른 각도",

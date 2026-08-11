@@ -2,6 +2,112 @@
 
 Last updated: 2026-08-10
 
+## 2026-08-10 — 이미지 보정 위저드 기본화 + 라벨/벽 밝기/원근 게이트 조정
+
+### 배경
+`b8981b4` (Basic 계기판 대폭 단순화) 이후 실사용 피드백:
+1) 라벨이 두 곳에서 다르고 (`느낌 조정` / `선택 조정`) 의미가 애매,
+2) `resolveAutoCorners` 컷 (0.65) 이 지나치게 보수적이라 진짜 keystoned
+   샷조차 auto-warp 가 안 걸림 (false-negative 회귀),
+3) matte white target 이 243 으로 고정돼 실사용 시 "벽이 화이트로
+   느껴지지 않는다" 는 리포트,
+4) 단일 "실행" CTA + 강도 chip 조합이 여전히 "뭘 눌러야 시작인지"
+   불투명 — step-by-step wizard 를 기본으로 원함.
+
+### 변경 요약 (F1~F4)
+
+- **F1 — 라벨 통일** (`src/lib/i18n/messages.ts`):
+  `느낌 조정` (`imageStandardize.edit`) · `선택 조정`
+  (`imageStandardize.title`) → 두 곳 모두 `이미지 보정` / `Image Enhance`.
+  단건 업로드 페이지 썸네일 버튼과 에디터 패널 타이틀이 같은 어휘를
+  공유하도록 정리.
+
+- **F2 — 벽 밝기 3-chip 사용자 조절**
+  (`src/lib/image/enhancement/awb.ts`,
+  `src/lib/image/enhancement/proLook.ts`,
+  `src/lib/image/enhancement/localFlatEngine.ts`,
+  `src/lib/image/enhancement/types.ts`,
+  `src/components/upload/ImageStandardizeEditor.tsx`):
+  신규 `WallBrightness = "soft" | "normal" | "bright"` 타입 +
+  `WALL_BRIGHTNESS_TARGETS = { soft: 245, normal: 248, bright: 252 }`
+  상수. `runFlatEnhancement({ wallBrightness })` 로 스레딩 →
+  `computeWallAnchoredGains({ target })` (매트 화이트포인트) +
+  `proLook.adaptiveExposure` 하이라이트 캡 (`min(255, target + 5)`) 이
+  모두 사용자 chip 을 따름. 위저드 기본값은 `normal` (248) — 기존 243
+  대비 소폭 상승해 벽이 실제로 whitened 되도록 조정. `MATTE_WHITE_POINT`
+  (243) 는 legacy default 로 유지 → bulk / 비-위저드 콜러는 byte-identical
+  replay. 위저드 Step 2 에 `벽 밝기 (약 · 보통 · 강)` chip UI + 힌트 문구
+  ("벽이 화이트에 가깝게 자동 보정됩니다.") 추가.
+
+- **F3 — auto-warp confidence gate 완화**
+  (`src/lib/image/enhancement/cornerPickerGeometry.ts`,
+  `src/lib/image/enhancement/__tests__/keystoneRegression.test.ts`):
+  `resolveAutoCorners` edge-corner adoption gate 를 `>= 0.65` → `>= 0.55`
+  로 완화. 나머지 두 조건 (`rectangleConfidence >= 0.55` AND
+  `!isAxisAligned(quad)`) 은 그대로. bbox 폴백도 그대로 (pre-G5 동작
+  보존). 회귀 테스트에 0.58-conf 케이스 신규 추가; 0.45 는 여전히 폴백.
+
+- **F4 — Basic 뷰를 3-스텝 위저드로 재구성**
+  (`src/components/upload/ImageStandardizeEditor.tsx`,
+  `src/components/upload/PerspectiveCornerPicker.tsx`,
+  `src/lib/i18n/messages.ts`):
+  Basic 뷰가 단일 CTA + 폴드가 아니라 명시적 3-스텝 워크플로우가 됨.
+  진행 인디케이터는 상단에 3개 chip (`원근·크롭 → 톤·벽 색 → 확인·저장`),
+  현재 스텝은 채워지고 지난 스텝은 ✓ 표시.
+  - **Step 1 원근·크롭**: `PerspectiveCornerPicker` 를 인라인으로 렌더.
+    Auto-seed = `resolveAutoCorners(analysis) ?? quadFromRect(suggestedCrop)
+    ?? defaultInsetQuad(0.1)`. Chip 은 seed 출처 표시 (edge / bbox /
+    manual). "자동 감지값 복원" 버튼은 유저가 seed 에서 벗어난 뒤에만
+    노출. 고급 폴드 = `이 단계 건너뛰기` + `원본 비율 유지`.
+  - **Step 2 톤·벽 색**: 진입 시 자동 `runEnhancePreview` (auto WB,
+    normal intensity, normal wallBrightness). `보정 강도` 3-chip +
+    `벽 밝기` 3-chip; 두 값 변경 시 250ms 디바운스 후 자동 rerun.
+    고급 폴드 = WB 벽 지정, 입력 유형, glare overlay, portfolio
+    coherence, 진단 chip, reshoot advisory, capture device label,
+    ellipse 세부.
+  - **Step 3 확인·저장**: `BeforeAfterCompare` (50/50) + 적용 요약 카드
+    (원근/벽 밝기/보정 강도/WB source) + `이걸로 저장` primary +
+    `← 톤 다시 조정` · `처음부터` secondary.
+  - 상태 머신은 순수 클라이언트 (`wizardStep` state, `wallBrightness`,
+    `wizardPerspectiveDraft`, `perspectiveSkipped`, `keepOriginalAspect`
+    모두 컴포넌트 로컬).
+  - `PerspectiveCornerPicker` 에 `onChange` + `hideActions` prop 추가 →
+    위저드 shell 이 picker 상태를 스트리밍으로 받아 자체 "다음" 버튼으로
+    커밋.
+  - Legacy `perspectiveOpen` / `advancedOpen` state 는 삭제.
+
+### 파일 변경
+- `src/lib/i18n/messages.ts` — F1 라벨 + F2/F4 위저드 · 벽 밝기 i18n 키
+  (en/ko).
+- `src/lib/image/enhancement/awb.ts` — `WallBrightness`,
+  `WALL_BRIGHTNESS_TARGETS`, `resolveWallBrightnessTarget`,
+  `computeWallAnchoredGains({ target })`.
+- `src/lib/image/enhancement/proLook.ts` — `ProLookConfig.whiteCapLuma`,
+  `adaptiveExposure(data, target, capLumaOverride?)`.
+- `src/lib/image/enhancement/localFlatEngine.ts` —
+  `RunFlatInput.wallBrightness`, 엔진이 numeric target 을 AWB + proLook
+  cap 양쪽에 스레딩.
+- `src/lib/image/enhancement/types.ts` — `ProLookRecipe.whiteCapLuma`.
+- `src/lib/image/enhancement/cornerPickerGeometry.ts` — edge gate 0.65
+  → 0.55.
+- `src/components/upload/PerspectiveCornerPicker.tsx` — `onChange`,
+  `hideActions` props.
+- `src/components/upload/ImageStandardizeEditor.tsx` — 위저드 재구성,
+  `wallBrightness` / `wizardStep` state, 자동-실행 로직 재작성.
+- `src/lib/image/enhancement/__tests__/awb.test.ts` — 벽 밝기 3-target
+  landing test 신규 (±2 tolerance).
+- `src/lib/image/enhancement/__tests__/keystoneRegression.test.ts` —
+  0.58-conf 새 케이스, 주석에 F3 게이트 값 반영.
+
+### 릴리즈 노트
+- **Supabase SQL 돌려야 할 것은 없음** — 스키마 변경 없음.
+- **환경 변수 변경 없음** — 새/변경된 env var 없음.
+- **Verified**: `npx tsc --noEmit` clean · 이미지 enhance 관련 15개
+  테스트 (awb, proLook, adaptive, cornerPickerGeometry, recipe, prepare,
+  geometry, orientation, exifScrub, exifRead, heicExifScrub,
+  portfolioCoherence, batchUniformity, glareRegions, edges, ellipse,
+  keystoneRegression) 모두 pass · `npm run build` success.
+
 ## 2026-08-10 — 이미지 보정 UX 하드픽스 + 계기판 대폭 단순화
 
 ### 배경

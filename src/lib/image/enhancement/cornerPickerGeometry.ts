@@ -194,11 +194,13 @@ export function isAxisAligned(quad: Quad): boolean {
  * warp when the user has not manually placed corners.
  *
  * Priority:
- *   1. Edge-detected corners (`suggestedRectangleCorners`) ONLY when
- *      the edge detector is strongly confident AND the analyzer's
- *      rectangle-in-frame heuristic also fires. This gates against
- *      the G2 regression where a low-confidence rotated-envelope fit
- *      pushed a bogus warp through the pipeline.
+ *   1. Edge-detected corners (`suggestedRectangleCorners`) when the
+ *      edge detector is at least moderately confident AND the
+ *      analyzer's rectangle-in-frame heuristic also fires. The gate
+ *      is deliberately permissive (edge >= 0.55) so straight-on
+ *      captures with visible frame edges get straightened, while
+ *      the `!isAxisAligned` bail-out still ensures we only warp
+ *      quads that are actually rotated / keystoned.
  *   2. Bounding-box quad from the analyzer's suggested crop when
  *      rectangle confidence is high. This is axis-aligned so
  *      `isAxisAligned` returns true and the engine skips the warp
@@ -206,6 +208,12 @@ export function isAxisAligned(quad: Quad): boolean {
  *      captures.
  *   3. Null — analyzer isn't confident enough; leave the image
  *      alone.
+ *
+ * F3 (2026-08-10): edge-corner adoption gate loosened from 0.65 to
+ * 0.55 after users reported false-negatives on legitimate keystoned
+ * shots. The `!isAxisAligned` check plus `rectConf >= 0.55` keep the
+ * safety net intact — a low-confidence rotated-envelope fit still
+ * gets rejected by the rectangle heuristic before it lands here.
  */
 export function resolveAutoCorners(analysis: {
   suggestedRectangleCorners?: Quad | null;
@@ -219,7 +227,7 @@ export function resolveAutoCorners(analysis: {
   if (
     edge &&
     hasValidArea(edge) &&
-    edgeConf >= 0.65 &&
+    edgeConf >= 0.55 &&
     rectConf >= 0.55 &&
     !isAxisAligned(edge)
   ) {

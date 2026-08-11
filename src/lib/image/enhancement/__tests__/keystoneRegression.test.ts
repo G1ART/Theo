@@ -90,10 +90,12 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
   } = await import("../homography");
   const { detectBestQuadrilateral } = await import("../edges");
 
-  // ── Guardrail 1: resolveAutoCorners never returns a low-confidence
-  //    edge quad. This is the exact regression from G2 where a
-  //    rotated-envelope fit with confidence 0.4 was pushed straight
-  //    into the warp and distorted straight-on captures.
+  // ── Guardrail 1: resolveAutoCorners never returns a very-low-
+  //    confidence edge quad. This is the exact regression from G2
+  //    where a rotated-envelope fit with confidence 0.4 was pushed
+  //    straight into the warp and distorted straight-on captures.
+  //    F3 (2026-08-10) loosens the gate to >= 0.55, but 0.45 must
+  //    still fall back to the bounding-box seed.
   {
     const lowConfEdge: [
       [number, number],
@@ -108,7 +110,7 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
     ];
     const resolved = resolveAutoCorners({
       suggestedRectangleCorners: lowConfEdge,
-      suggestedRectangleConfidence: 0.45, // < 0.65 threshold
+      suggestedRectangleConfidence: 0.45, // < 0.55 threshold
       suggestedCrop: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
       rectangleConfidence: 0.6,
     });
@@ -118,7 +120,42 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
     if (!resolved) return;
     assert.ok(
       isAxisAligned(resolved),
-      "low-confidence edge quad must NOT be surfaced — falls back to bbox",
+      "0.45 confidence edge quad must NOT be surfaced — falls back to bbox",
+    );
+  }
+
+  // ── Guardrail 1b (F3, 2026-08-10): a moderate 0.58-confidence
+  //    rotated edge quad now IS adopted. Pre-F3 (gate = 0.65) this
+  //    case returned the axis-aligned bbox and users complained
+  //    about legitimate keystoned captures not straightening.
+  {
+    const modEdge: [
+      [number, number],
+      [number, number],
+      [number, number],
+      [number, number],
+    ] = [
+      [0.13, 0.11],
+      [0.87, 0.09],
+      [0.9, 0.88],
+      [0.11, 0.9],
+    ];
+    const resolved = resolveAutoCorners({
+      suggestedRectangleCorners: modEdge,
+      suggestedRectangleConfidence: 0.58,
+      suggestedCrop: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+      rectangleConfidence: 0.62,
+    });
+    assert.ok(resolved, "0.58 confidence edge quad returned");
+    if (!resolved) return;
+    assert.deepEqual(
+      resolved,
+      modEdge,
+      "F3: moderate-confidence edge quad is adopted",
+    );
+    assert.ok(
+      !isAxisAligned(resolved),
+      "adopted quad remains recognizably rotated",
     );
   }
 
