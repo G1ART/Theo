@@ -1,6 +1,89 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-10
+Last updated: 2026-08-12
+
+## 2026-08-12 — 벌크 업로드 크리티컬 픽스 (Windows / 위저드 회귀)
+
+### 배경
+QA (Windows PC) 리포트: 일괄 업로드 페이지에서 파일 선택 후 "업로드"
+클릭 시 pending file chip 은 정상 렌더되지만 아무 것도 업로드되지
+않고 "N개 중 0개 업로드 · N개 실패" 만 뜬다. 개별 업로드 창은 정상.
+
+### 근본 원인
+1. **`enqueuePendingImageFiles`** (`src/app/upload/bulk/page.tsx:328`) 이
+ `f.type.startsWith("image/")` 로 필터링. Windows 탐색기에서 드래그된
+ 파일은 `File.type` 이 종종 빈 문자열로 넘어와 필터에서 탈락 → 파일이
+ 조용히 사라지거나, 통과한 파일이라도 downstream 에서 실패.
+2. **`uploadArtworkImage`** 의 compress-skipped 경로
+ (`src/lib/supabase/storage.ts:222`) 가 `contentType` 을 명시하지 않음.
+ `file.type === ""` 이면 Supabase storage 가 400 rejection → 100 %
+ 실패. 정상 compress 경로 (WebP 재인코딩) 는 `contentType: image/webp`
+ 를 지정하기 때문에 이 경로만 취약.
+3. **개별 업로드 페이지는 위저드 flow 로 `preparedDisplayFile` (WebP)
+ 을 항상 넘겨주므로 이 경로에 걸리지 않아** 개별은 정상, bulk 만 회귀.
+
+즉 2026-08-10 위저드 릴리즈가 알고리즘을 회귀시킨 게 아니라, 개별
+경로가 위저드 덕에 우회하고 있던 skip-path 버그가 bulk 사용자에게 그대로
+노출된 상태였다.
+
+### 변경 요약 (Fix 1~6)
+- **Fix 1 — 벌크 "ready" 계약 pure 함수화** — 신규
+ `src/lib/supabase/bulkUpload.ts` 에 `isBulkItemReady`,
+ `computeBulkUploadPayload`, `summarizeBulkResult`, `runBulkUploadLoop`,
+ `fileLooksLikeImage` 5 개 순수 함수 추출. `isBulkItemReady` 는 위저드
+ 완료 여부를 검사하지 않는다 (파일 + 필수 폼 필드 3 종만) → "미보정
+ 아이템도 원본 그대로 업로드" 계약을 코드로 표현.
+- **Fix 2 — 벌크 업로드 루프 crash-safety 문서화** — `runBulkUploadLoop`
+ 로 "한 아이템 throw → 나머지 계속 진행 → 요약 리턴" 을 회귀 테스트로
+ pin. 페이지의 기존 concurrency=4 루프 시맨틱 그대로.
+- **Fix 3 — Windows drag-drop empty MIME 대응 (enqueue)** — 페이지의
+ `enqueuePendingImageFiles` 가 `fileLooksLikeImage` 를 사용하도록 변경.
+ 확장자가 image 면 MIME 이 비어 있어도 통과.
+- **Fix 4 — storage.ts contentType fallback** — artwork + exhibition-media
+ 두 compress-skipped 경로 모두 `contentType: file.type || "application/octet-stream"`
+ 명시. 이게 실제 회귀의 핵심.
+- **Fix 5 — 벌크 startUpload loud console.error** — 실패 catch 에서 stage
+ (`createDraftArtwork` / `uploadArtworkImage` / `attachArtworkImage`) +
+ slotId + filename 을 F12 콘솔에 출력. 유령 슬롯 (`file.size === 0`)
+ 조기 스킵 로그 추가.
+- **Fix 6 — all-failed 명시 toast** — 모든 아이템이 실패했을 때
+ 새 i18n 키 `bulk.uploadAllFailed` ("업로드된 파일이 없어요 — 아래
+ 실패 목록을 확인하고 다시 시도해 주세요") 로 재시도 힌트를 명확히
+ 안내. 부분 실패는 기존 인디케이터 유지.
+
+### 회귀 테스트 (`test:bulk-upload-regression`)
+`src/lib/supabase/__tests__/bulkUpload.regression.test.ts` — 8 개 pin:
+1. 미보정 → 원본 file 통과 (`computeBulkUploadPayload`).
+2. 보정 승인 → wrapped File 이 원본 파일명 유지 (Korean filename 보존).
+3. `isBulkItemReady` 위저드 완료 여부와 무관.
+4. `isBulkItemReady` file/form 결핍 케이스 판정.
+5. `summarizeBulkResult` partial 케이스 "0 uploaded" 로 시작하지 않음.
+6. `summarizeBulkResult` all-failed 케이스 실패 개수 노출.
+7. `runBulkUploadLoop` 한 아이템 throw → 다른 두 아이템 성공.
+8. `fileLooksLikeImage` Windows 빈 MIME + image 확장자 통과.
+
+### 파일 변경
+- `src/lib/supabase/bulkUpload.ts` — 신규 (pure helpers).
+- `src/lib/supabase/__tests__/bulkUpload.regression.test.ts` — 신규.
+- `src/lib/supabase/storage.ts` — artwork + exhibition-media compress-skip
+ upload path 에 `contentType` fallback.
+- `src/app/upload/bulk/page.tsx` — `fileLooksLikeImage` 통과 필터,
+ empty-payload 조기 스킵, stage-labelled `console.error`,
+ all-failed toast (`summarizeBulkResult`).
+- `src/lib/i18n/messages.ts` — `bulk.uploadAllFailed` en/ko 신규.
+- `package.json` — `test:bulk-upload-regression` 스크립트 추가.
+- `docs/HANDOFF.md` — 본 섹션.
+
+### 릴리즈 노트
+- **Supabase SQL 돌려야 할 것은 없음** (스키마 변경 없음, 최근 artworks
+ / artwork_images 마이그레이션 모두 additive nullable).
+- **환경 변수 변경 없음**.
+- **Verified**:
+ - `npx tsc --noEmit` clean.
+ - `npm run build` success.
+ - `npm run test:bulk-upload-regression` all 8 pin pass.
+ - `npm run test:image-enhance-awb` / `-recipe` / `-prepare` /
+ `-keystone-regression` pass (bulk 영향 반경 확인).
 
 ## 2026-08-10 — /my/network 우측 rail에 Theo 커뮤니티 카드 추가 (페르소나 스택드 바)
 

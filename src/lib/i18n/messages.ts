@@ -1296,6 +1296,8 @@ export const messages = {
     "bulk.uploadProgress": "Uploading {current} of {total}...",
     "bulk.uploadDone": "Uploaded {total} drafts",
     "bulk.uploadDoneWithFailures": "Uploaded {ok} of {total} · {failed} failed",
+    "bulk.uploadAllFailed":
+      "No files uploaded — check the file list below and try again.",
     "bulk.uploadFailuresTitle": "Failed files ({n})",
     "bulk.uploadBeforeUnload": "Uploads are still in progress. Leave the page anyway?",
     "bulk.uploadError": "{message}",
@@ -4788,6 +4790,8 @@ export const messages = {
     "bulk.uploadProgress": "업로드 중 {current} / {total}...",
     "bulk.uploadDone": "{total}개 초안 업로드 완료",
     "bulk.uploadDoneWithFailures": "{total}개 중 {ok}개 업로드 완료 · {failed}개 실패",
+    "bulk.uploadAllFailed":
+      "업로드된 파일이 없어요 — 아래 실패 목록을 확인하고 다시 시도해 주세요.",
     "bulk.uploadFailuresTitle": "업로드 실패한 파일 ({n})",
     "bulk.uploadBeforeUnload": "업로드가 아직 진행 중이에요. 페이지를 떠나면 진행 중인 항목이 사라집니다. 정말 떠나시겠어요?",
     "bulk.uploadError": "{message}",

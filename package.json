@@ -63,7 +63,8 @@
     "test:image-enhance-edges": "tsx src/lib/image/enhancement/__tests__/edges.test.ts",
     "test:image-enhance-ellipse": "tsx src/lib/image/enhancement/__tests__/ellipse.test.ts",
     "test:image-enhance-adaptive": "tsx src/lib/image/enhancement/__tests__/adaptive.test.ts",
-    "test:image-enhance-keystone-regression": "tsx src/lib/image/enhancement/__tests__/keystoneRegression.test.ts"
+    "test:image-enhance-keystone-regression": "tsx src/lib/image/enhancement/__tests__/keystoneRegression.test.ts",
+    "test:bulk-upload-regression": "tsx src/lib/supabase/__tests__/bulkUpload.regression.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

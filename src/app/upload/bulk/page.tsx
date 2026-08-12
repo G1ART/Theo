@@ -86,6 +86,11 @@ import {
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleMime } from "@/lib/image/compress";
+import {
+  fileLooksLikeImage,
+  summarizeBulkResult,
+  type BulkFailure,
+} from "@/lib/supabase/bulkUpload";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -328,7 +333,12 @@ export default function BulkUploadPage() {
   const enqueuePendingImageFiles = useCallback(
     (incoming: File[]) => {
       if (incoming.length === 0) return;
-      const arr = incoming.filter((f) => f.type.startsWith("image/"));
+      // QA 2026-08-12 (Windows) — Windows 탐색기에서 드래그된 파일은
+      // `File.type` 이 종종 빈 문자열이다.  확장자가 이미지면 통과
+      // 시켜야 사용자가 "파일이 사라지는" 회귀를 겪지 않는다.  실제
+      // MIME 검증은 downstream (`compressArtworkImage` / storage) 이
+      // 다시 한 번 수행하므로 안전.
+      const arr = incoming.filter(fileLooksLikeImage);
       if (arr.length === 0) {
         setUploadError(t("bulk.pickImageTypes"));
         return;
@@ -1084,6 +1094,20 @@ export default function BulkUploadPage() {
       const title = deriveTitle(file.name);
       let artworkId: string | null = null;
       let uploadResult: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
+      // QA 2026-08-12 — payload sanity: file 이 실제로 존재하고 크기가
+      // 있어야 upload 시도.  Windows 드래그-드롭에서 사용자가 폴더를
+      // 통째로 놓으면 File.size === 0 인 유령 슬롯이 생길 수 있다.
+      if (!file || typeof file.size !== "number" || file.size <= 0) {
+        // eslint-disable-next-line no-console
+        console.error("[bulk-upload] skipping empty payload", slotId, file?.name);
+        const message = t("bulk.uploadFailedFileGeneric").replace("{name}", file?.name || t("bulk.uploadFailedUnnamedFile"));
+        failures.push({ name: file?.name || "", message });
+        setUploadFailures([...failures]);
+        setUploadError(message);
+        completed += 1;
+        setUploadCurrent(completed);
+        return;
+      }
       try {
         const { data: id, error: createErr } = await createDraftArtwork(
           { title },
@@ -1156,6 +1180,20 @@ export default function BulkUploadPage() {
         const message = formatBulkFileUploadFailure(file.name, err, t);
         // Surface the latest failure prominently AND keep a per-file log
         // so the user can fix and retry exactly the failed entries.
+        //
+        // QA 2026-08-12 (Windows) — loud console.error 로 어떤 stage
+        // 에서 튀었는지 F12 콘솔에서 즉시 파악 가능하도록.  각 stage
+        // 는 uploadResult / artworkId 존재 여부로 유추한다:
+        //   * artworkId === null  → createDraftArtwork 실패
+        //   * uploadResult === null (artworkId 있음) → uploadArtworkImage 실패
+        //   * 둘 다 있음  → attachArtworkImage 실패
+        const stage = artworkId == null
+          ? "createDraftArtwork"
+          : uploadResult == null
+            ? "uploadArtworkImage"
+            : "attachArtworkImage";
+        // eslint-disable-next-line no-console
+        console.error("[bulk-upload] item failed", { slotId, name: file.name, stage, err });
         setUploadError(message);
         failures.push({ name: file.name, message });
         setUploadFailures([...failures]);
@@ -1187,6 +1225,29 @@ export default function BulkUploadPage() {
     setUploading(false);
     if (uploadedIds.length > 0) {
       setStagedArtworkIds((prev) => [...uploadedIds, ...prev].slice(0, BULK_WEBSITE_STAGED_IDS_MAX));
+    }
+    // QA 2026-08-12 — all-failed 케이스 명시적 안내.  부분 실패는
+    // 기존 "N개 중 K개 · X개 실패" 인디케이터를 유지하되, 아무 것도
+    // 업로드되지 않았을 때는 사용자가 다음 액션을 알 수 있도록 재시도
+    // 힌트를 담은 toast 를 띄운다.  summarizeBulkResult 는 향후 부분
+    // 실패 카피를 이 UI 로 통합할 때 재사용되도록 순수 함수로 뽑아 둠.
+    if (uploadedIds.length === 0 && failures.length > 0) {
+      const bulkFailures: BulkFailure[] = failures.map((f, i) => ({
+        itemId: String(i),
+        error: f.message,
+      }));
+      const message = summarizeBulkResult(
+        { succeeded: 0, failed: bulkFailures },
+        {
+          succeededOnly: t("bulk.uploadDone").replace("{total}", "{succeeded}"),
+          failedOnly: t("bulk.uploadAllFailed"),
+          partial: t("bulk.uploadDoneWithFailures")
+            .replace("{ok}", "{succeeded}")
+            .replace("{total}", "{total}"),
+        },
+      );
+      setToast(message);
+      setTimeout(() => setToast(null), 6000);
     }
     await fetchDrafts();
   }

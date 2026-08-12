@@ -217,10 +217,17 @@ export async function uploadArtworkImage(
   if (compressed.skipped) {
     // 압축 폴백 — 원본 자체를 표시본으로 쓴다. 원본 백업 별도 저장 안 함
     // (같은 파일이므로).
+    //
+    // QA 2026-08-12 (Windows) — Windows 드래그-드롭 시 `file.type` 이
+    // 빈 문자열로 오는 케이스가 있다. contentType 을 명시하지 않으면
+    // Supabase JS 가 `""` 를 그대로 헤더에 넣어 storage 가 400 으로
+    // 튕겨낸다.  최소한 `application/octet-stream` 은 넘겨줘야 bulk
+    // 업로드가 100 % 실패하지 않는다.
     const safeName = sanitizeFilename(file.name);
     const displayPath = `${userId}/${uuid}-${safeName}`;
     const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
       upsert: false,
+      contentType: file.type || "application/octet-stream",
     });
     if (error) throw error;
     return {
@@ -526,10 +533,13 @@ export async function uploadExhibitionMedia(
 
   if (compressed.skipped) {
     // 압축 폴백 (HEIC/애니메이션 GIF/decode 실패 등) — 원본 자체를 표시본으로.
+    // QA 2026-08-12 (Windows) — Windows 드래그-드롭 empty MIME 대응.
+    // artwork storage 경로와 동일 이유로 contentType 을 반드시 명시.
     const safeName = sanitizeFilename(file.name);
     const displayPath = `exhibition-media/${exhibitionId}/${uuid}-${safeName}`;
     const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
       upsert: false,
+      contentType: file.type || "application/octet-stream",
     });
     if (error) throw error;
     return {
