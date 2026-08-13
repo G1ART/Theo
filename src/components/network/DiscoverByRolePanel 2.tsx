@@ -7,10 +7,6 @@
  * URL-only entry point: no sidebar tile, no tab in the strip. Entered
  * from the "전체 보기 →" links under each `RoleDiscoveryPanel` group.
  * Paginated with a "24 more" pager against `get_people_by_role`.
- *
- * Fresh state per `role` is handled by the parent passing `key={role}`,
- * so the component naturally remounts (no `role`-triggered setState
- * cascade inside `useEffect`).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -31,10 +27,13 @@ export function DiscoverByRolePanel({ role }: { role: RoleDiscoveryKey }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [loadMoreClicked, setLoadMoreClicked] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setRows([]);
+    setOffset(0);
+    setHasMore(false);
+    setLoading(true);
     void (async () => {
       const res = await getPeopleByRole({ role, limit: PAGE_SIZE, offset: 0 });
       if (cancelled) return;
@@ -52,7 +51,6 @@ export function DiscoverByRolePanel({ role }: { role: RoleDiscoveryKey }) {
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    setLoadMoreClicked(true);
     const res = await getPeopleByRole({
       role,
       limit: PAGE_SIZE,
@@ -100,23 +98,17 @@ export function DiscoverByRolePanel({ role }: { role: RoleDiscoveryKey }) {
           </ul>
         )}
 
-        {!loading && rows.length > 0 && (
-          hasMore ? (
-            <div className="border-t border-zinc-100 px-4 py-3 text-center">
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={loadingMore}
-                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 hover:text-zinc-900 disabled:opacity-50"
-              >
-                {loadingMore ? "…" : t("connections.discovery.loadMore")}
-              </button>
-            </div>
-          ) : loadMoreClicked ? (
-            <div className="border-t border-zinc-100 px-4 py-3 text-center text-xs text-zinc-500">
-              {t("connections.discovery.exhausted")}
-            </div>
-          ) : null
+        {hasMore && !loading && (
+          <div className="border-t border-zinc-100 px-4 py-3 text-center">
+            <button
+              type="button"
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 hover:text-zinc-900 disabled:opacity-50"
+            >
+              {loadingMore ? "…" : t("connections.discovery.loadMore")}
+            </button>
+          </div>
         )}
       </section>
     </section>

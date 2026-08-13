@@ -49,6 +49,7 @@ type Lane = {
   limit: number;
   hasMore: boolean;
   loadingMore: boolean;
+  loadMoreClicked: boolean;
 };
 
 const LANE_ORDER: LaneKey[] = ["follow_graph", "likes_based", "expand"];
@@ -99,6 +100,7 @@ function makeInitialLane(key: LaneKey, label: string): Lane {
     limit: LANE_INITIAL_LIMIT,
     hasMore: false,
     loadingMore: false,
+    loadMoreClicked: false,
   };
 }
 
@@ -155,7 +157,10 @@ export function SuggestionsGroupedPanel() {
     setLanes((prev) => {
       const lane = prev[k];
       if (lane.loadingMore || !lane.hasMore) return prev;
-      return { ...prev, [k]: { ...lane, loadingMore: true } };
+      return {
+        ...prev,
+        [k]: { ...lane, loadingMore: true, loadMoreClicked: true },
+      };
     });
     void (async () => {
       // Compute next limit off the latest snapshot so parallel clicks
@@ -211,10 +216,18 @@ export function SuggestionsGroupedPanel() {
             key={lane.key}
             className="rounded-2xl border border-zinc-200 bg-white"
           >
-            <header className="border-b border-zinc-100 px-5 py-3">
+            <header className="flex items-baseline justify-between gap-3 border-b border-zinc-100 px-5 py-3">
               <h3 className="text-sm font-semibold text-zinc-900">
                 {lane.label}
               </h3>
+              {!lane.loading && lane.rows.length > 0 && (
+                <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                  {t("connections.suggestions.countBadge").replace(
+                    "{count}",
+                    String(lane.rows.length),
+                  )}
+                </span>
+              )}
             </header>
             {lane.loading ? (
               <p className="px-5 py-6 text-sm text-zinc-500">…</p>
@@ -230,7 +243,7 @@ export function SuggestionsGroupedPanel() {
                     />
                   ))}
                 </ul>
-                {lane.hasMore && (
+                {lane.hasMore ? (
                   <div className="border-t border-zinc-100 px-4 py-3 text-center">
                     <button
                       type="button"
@@ -243,7 +256,11 @@ export function SuggestionsGroupedPanel() {
                         : t("connections.suggestions.loadMore")}
                     </button>
                   </div>
-                )}
+                ) : lane.loadMoreClicked ? (
+                  <div className="border-t border-zinc-100 px-4 py-3 text-center text-xs text-zinc-500">
+                    {t("connections.suggestions.exhausted")}
+                  </div>
+                ) : null}
               </>
             )}
           </section>

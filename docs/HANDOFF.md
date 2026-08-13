@@ -2,6 +2,37 @@
 
 Last updated: 2026-08-12
 
+## 2026-08-12 — "더 보기" 소진 피드백 + 카운트 배지
+
+### 배경
+Overview 3레인 (`친구의 친구` / `취향이 통해요` / `전시에서 마주쳐요`) 의
+"더 보기" 버튼이 클릭 후 실제로 신규 rows 를 못 가져오면 (커뮤니티가 작아
+서 lane 후보가 6~8명 뿐인 경우) 아무 피드백 없이 조용히 사라지고 있어
+사용자가 "버튼이 고장난 것" 으로 인지. 실제 서버 RPC `get_people_recs`
+는 `p_limit` 를 50까지 정상 존중하며 데이터 소진이 원인.
+
+### 변경 요약
+- **`SuggestionsGroupedPanel`**: Lane 에 `loadMoreClicked` 플래그 추가.
+  `hasMore=false` 이고 사용자가 한 번이라도 "더 보기" 를 눌렀다면 버튼
+  자리에 회색 텍스트 **"이 궤도에서는 여기까지예요"** 를 표시. 안 눌렀
+  으면 조용히 아무것도 표시하지 않음 (초기부터 소진이었던 경우 노이즈
+  회피).
+- **헤더 카운트 배지**: 각 lane 헤더 우측에 현재 표시 중인 인원수를
+  `{n}명` 으로 노출 (`text-xs tabular-nums`, `flex justify-between`).
+- **`DiscoverByRolePanel`**: 동일 패턴으로 `loadMoreClicked` 추가,
+  소진 시 **"이 역할에서는 여기까지 보셨어요"** 텍스트 대체.
+- 신규 i18n 4 keys (en/ko): `connections.suggestions.exhausted`,
+  `connections.suggestions.countBadge`, `connections.discovery.exhausted`.
+- 중복 마이그레이션 파일 `20260812000000_people_by_role 2.sql`
+  (Finder 복사 아티팩트) 삭제.
+
+### Verified
+- `npx tsc --noEmit` clean.
+- 기존 lint / test 회귀 없음 (patch 자체는 UI 상태 하나 + 렌더 분기만).
+- Supabase SQL 돌려야 할 것은 없음. 환경 변수 변경 없음.
+
+---
+
 ## 2026-08-12 — 네트워크 Overview 최적화 (레인 정밀 카피 + 역할별 찾기 + 커뮤니티 emerald 팔레트)
 
 ### 배경
