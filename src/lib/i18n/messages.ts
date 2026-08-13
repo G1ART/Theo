@@ -1,26 +1,31 @@
 export const messages = {
   en: {
     "nav.feed": "Feed",
-    "nav.artists": "Artists",
     "nav.people": "People",
     "nav.profile": "Profile",
-    "nav.me": "Me",
+    // `nav.myProfile` ("My Studio") is still used by the artwork/exhibition
+    // back-link helpers (`artworkBack`, `exhibitionBack`) that surface a
+    // "back to my studio" affordance from deep pages. It is no longer
+    // reachable from the header top bar (removed 2026-08-13 as part of
+    // the mobile/desktop cleanup — the sidebar Switch Account block owns
+    // the public-profile entry point instead).
     "nav.myProfile": "My Studio",
     "nav.upload": "Upload",
-    "nav.settings": "Settings",
     "nav.login": "Login",
-    "nav.logout": "Logout",
+    "nav.logout": "Log out",
     "nav.menu": "Menu",
+    // Announced aria-label for the tablet+ avatar dropdown trigger.
+    // Always present (never null) so screen readers can identify the
+    // control even when there are no unread notifications; the caller
+    // augments with the unread count when > 0.
+    "nav.accountMenu": "My account menu",
     "nav.notifications": "Notifications",
     "nav.messages": "Messages",
-    "nav.insights": "Insights",
     "nav.explore": "Explore",
     "nav.setting": "Setting",
     "nav.switchAccount": "Switch Account",
     // Aug-2026 redesign — new left-nav vocabulary. `workspace` /
-    // `saved` / `delegations` replace the older studio-anchored labels;
-    // legacy keys (nav.myProfile / nav.insights / nav.people) are kept
-    // above for the components still on the old shell.
+    // `saved` / `delegations` replace the older studio-anchored labels.
     "nav.workspace": "Workspace",
     "nav.saved": "Saved",
     "nav.delegations": "Delegations",
@@ -143,8 +148,6 @@ export const messages = {
     "exhibition.infoLabel": "Exhibition info",
     "exhibition.curatorLabel": "Curator",
     "exhibition.locationLabel": "Location",
-    "account.settings": "Update profile",
-    "account.logout": "Logout",
     "notifications.title": "Notifications",
     "notifications.empty": "No notifications yet.",
     "notifications.likeText": "{name} liked your work “{title}”",
@@ -154,7 +157,6 @@ export const messages = {
     "notifications.claimRejectedText": "{name} declined your claim on “{title}”",
     "notifications.priceInquiryText": "{name} asked about the price of “{title}”",
     "notifications.priceInquiryReplyText": "{name} replied to your price inquiry for “{title}”",
-    "notifications.link": "Notifications",
     "priceInquiry.ask": "Ask for price",
     "priceInquiry.sent": "Inquiry sent. The artist will reply here.",
     "priceInquiry.replyFromArtist": "Reply from artist",
@@ -439,7 +441,6 @@ export const messages = {
     "common.dismiss": "Dismiss",
     "delegation.accepted": "Invitation accepted.",
     "delegation.acceptFailed": "Could not accept. Make sure you’re logged in with the invited email.",
-    "delegation.myDelegations": "Delegations",
     "delegation.received": "Received",
     "delegation.sent": "Sent",
     "delegation.actingAs": "Managing: {name}",
@@ -1988,7 +1989,6 @@ export const messages = {
     "acting.lock.notice.title": "Account-level settings are always your own",
     "acting.lock.notice.body": "You are currently operating as {name}, but settings, security, and billing only apply to your own account. Switch back from the banner above when you want to act on the delegated account again.",
     "acting.lock.notice.fallbackName": "the delegated account",
-    "acting.switcher.heading": "Switch account",
     "acting.switcher.myAccount": "My account",
     "acting.switcher.activeChip": "active",
     "acting.switcher.actingChip": "acting as",
@@ -3542,19 +3542,16 @@ export const messages = {
   },
   ko: {
     "nav.feed": "피드",
-    "nav.artists": "아티스트",
     "nav.people": "사람",
     "nav.profile": "프로필",
-    "nav.me": "내 정보",
     "nav.myProfile": "내 스튜디오",
     "nav.upload": "업로드",
-    "nav.settings": "설정",
     "nav.login": "로그인",
     "nav.logout": "로그아웃",
     "nav.menu": "메뉴",
+    "nav.accountMenu": "내 계정 메뉴",
     "nav.notifications": "알림",
     "nav.messages": "메시지",
-    "nav.insights": "인사이트",
     "nav.explore": "둘러보기",
     "nav.setting": "설정",
     "nav.switchAccount": "계정 전환",
@@ -3671,8 +3668,6 @@ export const messages = {
     "exhibition.infoLabel": "전시 소개",
     "exhibition.curatorLabel": "큐레이터",
     "exhibition.locationLabel": "장소",
-    "account.settings": "프로필 수정",
-    "account.logout": "로그아웃",
     "notifications.title": "알림",
     "notifications.empty": "아직 알림이 없습니다.",
     "notifications.likeText": "{name}님이 “{title}” 작품을 좋아합니다",
@@ -3682,7 +3677,6 @@ export const messages = {
     "notifications.claimRejectedText": "{name}님이 “{title}”에 대한 요청을 거절했습니다",
     "notifications.priceInquiryText": "{name}님이 “{title}” 가격을 문의했습니다",
     "notifications.priceInquiryReplyText": "{name}님이 “{title}” 가격 문의에 답변했습니다",
-    "notifications.link": "알림",
     "priceInquiry.ask": "가격 문의하기",
     "priceInquiry.sent": "문의가 전달되었습니다. 작가가 여기에 답변할 예정입니다.",
     "priceInquiry.replyFromArtist": "작가 답변",
@@ -3967,7 +3961,6 @@ export const messages = {
     "common.dismiss": "닫기",
     "delegation.accepted": "초대를 수락했습니다.",
     "delegation.acceptFailed": "수락할 수 없습니다. 초대된 이메일로 로그인했는지 확인하세요.",
-    "delegation.myDelegations": "위임",
     "delegation.received": "받은 위임",
     "delegation.sent": "보낸 위임",
     "delegation.actingAs": "관리 중: {name}",
@@ -5514,7 +5507,6 @@ export const messages = {
     "acting.lock.notice.title": "계정 설정은 언제나 본인 계정 기준입니다",
     "acting.lock.notice.body": "지금 {name} 계정으로 작업 중이지만, 설정·보안·결제 항목은 본인 계정에만 적용됩니다. 위임 계정에서 다시 작업하시려면 상단 배너에서 전환해주세요.",
     "acting.lock.notice.fallbackName": "위임 계정",
-    "acting.switcher.heading": "계정 전환",
     "acting.switcher.myAccount": "내 계정",
     "acting.switcher.activeChip": "현재",
     "acting.switcher.actingChip": "위임 중",

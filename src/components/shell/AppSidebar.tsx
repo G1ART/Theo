@@ -2,23 +2,25 @@
 
 import Link from "next/link";
 import { TheoLogo } from "@/components/brand/TheoLogo";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
-import { signOut } from "@/lib/supabase/auth";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import { getUnreadCount } from "@/lib/supabase/notifications";
 import { useT } from "@/lib/i18n/useT";
-import { useActingAs } from "@/context/ActingAsContext";
-import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import {
   listMyDelegations,
   type DelegationWithDetails,
 } from "@/lib/supabase/delegations";
-import { formatDisplayName, formatUsername } from "@/lib/identity/format";
-import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { onboardingUrlWithNext } from "@/lib/identity/routing";
+import {
+  PRIMARY_NAV,
+  SECONDARY_NAV,
+  type NavItem,
+  isNavItemActive,
+} from "@/lib/shell/navConfig";
+import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
 
 /**
  * Desktop-only left navigation for the Theo AppShell (Aug-2026 redesign).
@@ -29,7 +31,7 @@ import { onboardingUrlWithNext } from "@/lib/identity/routing";
  *
  *   Explore       → /feed
  *   Messages      → /my/messages
- *   Workspace     → /my                 (backend hub: drafts / inquiries / ownership / exhibitions / provenance)
+ *   Workspace     → /my                 (backend hub)
  *   Saved         → /my/shortlists
  *   Upload        → /upload
  *
@@ -38,39 +40,22 @@ import { onboardingUrlWithNext } from "@/lib/identity/routing";
  *   Notifications → button opens NotificationsDrawer (popover)
  *   Setting       → /settings
  *   Delegations   → /my/delegations
- *   Switch Account → clickable self-row leads to /u/{username} (public profile),
- *                    followed by received account-delegations
+ *   Switch Account → self-row (routes to /u/{username}) + received
+ *                    account-delegations, with a secondary
+ *                    "View my public profile →" affordance.
  *   Log out
  *
- * Public profile entry (QA 2026-08-04): earlier drafts explored adding a
- * dedicated "My Studio" primary nav row, but the final wireframe
- * intentionally routes the public-profile entry through the Switch
- * Account block's self-row (a classic social-app avatar-to-profile
- * pattern). To improve discoverability without deviating from the
- * wireframe, the self-row now surfaces a secondary "View my public
- * profile →" affordance (`nav.viewMyPublicProfile`) below the
- * display name.
+ * Since Aug-2026 (mobile/desktop cleanup): nav items, labels, and
+ * match rules come from `@/lib/shell/navConfig`, and the Switch
+ * Account block is rendered by the shared `<AccountSwitcher>`
+ * component. Both are consumed by the mobile hamburger and tablet+
+ * avatar dropdown too, so labels/routes cannot drift.
  *
  * The active item is rendered with bold weight + a thin 2px vertical
  * accent on the left. The mobile chrome still uses the top Header +
  * hamburger, so this component is rendered only inside the desktop
  * AppShell slot (`hidden lg:flex`).
  */
-
-type NavItem = {
-  key: string;
-  href: string;
-  match: (p: string) => boolean;
-  /** Optional numeric badge (e.g. delegation pending count). */
-  badge?: number;
-  /**
-   * True when the destination is publicly browsable with no session
-   * (e.g. Explore/feed). Anonymous visitors follow these links as-is;
-   * account-gated rows instead route through the sign-up gate with the
-   * destination preserved as `next` (see `renderNavRow`).
-   */
-  pub?: boolean;
-};
 
 export function AppSidebar({
   onOpenNotifications,
@@ -81,14 +66,7 @@ export function AppSidebar({
   onOpenNotifications: () => void;
 }) {
   const { t, locale, setLocale } = useT();
-  const router = useRouter();
   const pathname = usePathname() ?? "";
-  const {
-    actingAsProfileId,
-    actingAsLabel,
-    setActingAs,
-    clearActingAs,
-  } = useActingAs();
 
   const [session, setSession] = useState<Session | null>(null);
   const [username, setUsername] = useState<string | null>(null);
@@ -96,13 +74,11 @@ export function AppSidebar({
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
   const [accounts, setAccounts] = useState<DelegationWithDetails[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [pendingDelegations, setPendingDelegations] = useState(0);
   const inflight = useRef(false);
 
   const loggedIn = !!session;
-  const isPlaceholder = isPlaceholderUsername(username);
-  const profileHref =
-    !username || isPlaceholder ? "/onboarding/identity" : `/u/${username}`;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -121,6 +97,7 @@ export function AppSidebar({
       setAvatarUrl(null);
       setUnread(0);
       setAccounts([]);
+      setAccountsLoaded(false);
       setPendingDelegations(0);
       /* eslint-enable react-hooks/set-state-in-effect */
       return;
@@ -161,6 +138,7 @@ export function AppSidebar({
           (d) => d.scope_type === "account" && d.status === "active"
         );
         setAccounts(activeAccounts);
+        setAccountsLoaded(true);
         // Pending inbound (any scope) — surfaces on the "Delegations"
         // nav row as a subtle badge. Matches the /my/delegations page
         // heuristic so the badge disappears the moment the user opens
@@ -174,72 +152,26 @@ export function AppSidebar({
       });
   }, [loggedIn]);
 
-  // Primary nav — top block. Order matches the wireframe exactly.
-  // Public profile is intentionally NOT here — see the docblock and
-  // the Switch Account self-row polish below.
-  const PRIMARY_NAV: NavItem[] = [
-    {
-      key: "nav.explore",
-      href: "/feed?tab=all&sort=latest",
-      match: (p) => p.startsWith("/feed"),
-      pub: true,
-    },
-    {
-      key: "nav.messages",
-      href: "/my/messages",
-      match: (p) => p.startsWith("/my/messages"),
-    },
-    {
-      key: "nav.workspace",
-      href: "/my",
-      // Workspace hub only — sub-pages have their own nav slots
-      // (Saved → /my/shortlists, etc.) so /my/xxx should NOT light up
-      // this entry.
-      match: (p) => p === "/my",
-    },
-    {
-      key: "nav.saved",
-      href: "/my/shortlists",
-      match: (p) => p.startsWith("/my/shortlists"),
-    },
-    {
-      key: "nav.upload",
-      href: "/upload",
-      match: (p) => p.startsWith("/upload"),
-    },
-  ];
+  const activeAccent =
+    "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:bg-zinc-900 before:content-['']";
 
-  function switchToOwn() {
-    clearActingAs();
-    router.refresh();
+  function resolveBadge(item: NavItem): number {
+    if (item.badge === "delegationsPending") return pendingDelegations;
+    if (item.badge === "unread") return unread;
+    return 0;
   }
-  function switchToPrincipal(d: DelegationWithDetails) {
-    const p = d.delegator_profile;
-    if (!p?.id) return;
-    setActingAs(p.id, formatDisplayName(p) || formatUsername(p));
-    router.push("/my");
-    router.refresh();
-  }
-  async function handleLogout() {
-    await signOut();
-    router.replace("/login");
-  }
-
-  const ownName =
-    displayName || (username ? `@${username}` : t("acting.switcher.myAccount"));
-
-  const activeAccent = "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:bg-zinc-900 before:content-['']";
 
   function renderNavRow(item: NavItem) {
-    const active = item.match(pathname);
+    const active = isNavItemActive(item, pathname);
     // Feed-first cold front door: anonymous visitors follow public rows
     // (Explore) directly, but account-gated rows route to sign-up with
     // the destination preserved as `next` so tapping never dead-ends on
     // a bare /login bounce that loses where they were headed.
     const href =
-      loggedIn || item.pub
+      loggedIn || !item.gated
         ? item.href
         : onboardingUrlWithNext({ nextPath: item.href });
+    const badgeCount = resolveBadge(item);
     return (
       <Link
         key={item.key}
@@ -250,31 +182,26 @@ export function AppSidebar({
             : "text-zinc-600 hover:text-zinc-900"
         }`}
       >
-        <span>{t(item.key)}</span>
-        {/* Guard with `!= null` because `0 && …` evaluates to `0`, which
+        <span>{t(item.labelKey)}</span>
+        {/* Guard with `> 0` because `0 && …` evaluates to `0`, which
             React would render as literal text next to the label (that's
             the "위임 0" glitch reported in the redesign QA). */}
-        {item.badge != null && item.badge > 0 && (
+        {badgeCount > 0 && (
           <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-            {item.badge > 99 ? "99+" : item.badge}
+            {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         )}
       </Link>
     );
   }
 
-  const delegationsItem: NavItem = {
-    key: "nav.delegations",
-    href: "/my/delegations",
-    match: (p) => p.startsWith("/my/delegations"),
-    badge: pendingDelegations,
-  };
-
-  const settingsItem: NavItem = {
-    key: "nav.setting",
-    href: "/settings",
-    match: (p) => p === "/settings",
-  };
+  // Secondary nav rows filtered by session — Delegations is a deep
+  // account feature, so it's hidden entirely for anonymous visitors.
+  // The Notifications row is intercepted with a button (opens the
+  // drawer for members; anonymous visitors get a gated Link).
+  const secondaryVisible = SECONDARY_NAV.filter((item) =>
+    loggedIn ? true : !item.gated
+  );
 
   return (
     <nav
@@ -296,35 +223,31 @@ export function AppSidebar({
       </div>
 
       <div className="mt-auto flex flex-col gap-1">
-        {/* Secondary nav — spacer then Notifications / Setting / Delegations.
-            Notifications opens the drawer for members; anonymous visitors
-            get a gated row that routes to sign-up (the drawer needs a
-            session to fetch anything). Delegations is a deep account
-            feature, so it is hidden entirely for anonymous visitors. */}
-        {loggedIn ? (
-          <button
-            type="button"
-            onClick={onOpenNotifications}
-            className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-left text-[15px] text-zinc-600 transition-colors hover:text-zinc-900`}
-            aria-haspopup="dialog"
-          >
-            <span>{t("nav.notifications")}</span>
-            {unread > 0 && (
-              <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-                {unread > 99 ? "99+" : unread}
-              </span>
-            )}
-          </button>
-        ) : (
-          <Link
-            href={onboardingUrlWithNext({ nextPath: "/notifications" })}
-            className="relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[15px] text-zinc-600 transition-colors hover:text-zinc-900"
-          >
-            <span>{t("nav.notifications")}</span>
-          </Link>
-        )}
-        {renderNavRow(settingsItem)}
-        {loggedIn && renderNavRow(delegationsItem)}
+        {secondaryVisible.map((item) => {
+          // Notifications: intercept the row to open the drawer for
+          // members instead of following the /notifications route.
+          // Anonymous visitors fall through to the gated Link path.
+          if (item.key === "notifications" && loggedIn) {
+            const badgeCount = resolveBadge(item);
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={onOpenNotifications}
+                className="relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-left text-[15px] text-zinc-600 transition-colors hover:text-zinc-900"
+                aria-haspopup="dialog"
+              >
+                <span>{t(item.labelKey)}</span>
+                {badgeCount > 0 && (
+                  <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
+                    {badgeCount > 99 ? "99+" : badgeCount}
+                  </span>
+                )}
+              </button>
+            );
+          }
+          return renderNavRow(item);
+        })}
 
         <div className="mt-2 flex items-center gap-3 pl-3 text-xs text-zinc-400">
           <button
@@ -345,110 +268,14 @@ export function AppSidebar({
         </div>
 
         {loggedIn ? (
-          <div className="mt-3 flex flex-col gap-2 pl-3">
-            <p className="text-sm text-zinc-500">{t("nav.switchAccount")}</p>
-            <ul className="flex flex-col gap-1.5">
-              {/* Own account — the wireframe-sanctioned public profile
-                  entry point. Clicking either the avatar or the name
-                  navigates to /u/{username}; when the user is
-                  currently acting-as a principal, the same button
-                  first returns them to their own persona (safer
-                  gesture, since jumping straight to another
-                  identity's public profile could confuse the acting-
-                  as banner). A secondary "View my public profile →"
-                  affordance sits below the name to surface the
-                  destination — otherwise the row reads as an
-                  ambient identity indicator and QA reported users
-                  never tried clicking it (2026-08-04). */}
-              <li>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (actingAsProfileId) {
-                      switchToOwn();
-                    } else {
-                      router.push(profileHref);
-                    }
-                  }}
-                  className="group flex w-full items-start gap-2 rounded-md py-1 text-left transition-colors hover:bg-zinc-50"
-                >
-                  <AvatarDisc
-                    imageUrl={avatarUrl}
-                    fallback={
-                      username && !isPlaceholder
-                        ? username.charAt(0).toUpperCase()
-                        : "?"
-                    }
-                    active={!actingAsProfileId}
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <span
-                      className={`truncate text-sm ${
-                        !actingAsProfileId
-                          ? "font-semibold text-zinc-900"
-                          : "text-zinc-500"
-                      }`}
-                    >
-                      {ownName}
-                    </span>
-                    {!actingAsProfileId && !isPlaceholder && username && (
-                      <span className="mt-0.5 truncate text-[11px] text-zinc-400 transition-colors group-hover:text-zinc-600">
-                        {t("nav.viewMyPublicProfile")}{" "}
-                        <span aria-hidden="true">→</span>
-                      </span>
-                    )}
-                  </span>
-                </button>
-              </li>
-              {accounts.map((d) => {
-                const p = d.delegator_profile;
-                const label = p
-                  ? formatDisplayName(p) || formatUsername(p)
-                  : "—";
-                const active = actingAsProfileId === p?.id;
-                return (
-                  <li key={d.id}>
-                    <button
-                      type="button"
-                      onClick={() => switchToPrincipal(d)}
-                      className="flex w-full items-center gap-2 text-left"
-                    >
-                      <AvatarDisc
-                        imageUrl={p?.avatar_url ?? null}
-                        fallback={
-                          p?.username
-                            ? p.username.charAt(0).toUpperCase()
-                            : "?"
-                        }
-                        active={active}
-                      />
-                      <span
-                        className={`truncate text-sm ${
-                          active
-                            ? "font-semibold text-zinc-900"
-                            : "text-zinc-500"
-                        }`}
-                      >
-                        {label}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {actingAsLabel && (
-              <p className="text-[11px] text-amber-700">
-                {t("delegation.banner.label").replace("{name}", actingAsLabel)}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="mt-1 self-start text-xs text-zinc-400 hover:text-zinc-700"
-            >
-              {t("nav.logout")}
-            </button>
-          </div>
+          <AccountSwitcher
+            layout="sidebar"
+            username={username}
+            displayName={displayName}
+            avatarUrl={avatarUrl}
+            accounts={accounts}
+            accountsLoaded={accountsLoaded}
+          />
         ) : (
           // Anonymous — single prominent "시작하기 / 로그인" CTA replacing
           // the whole Switch Account / Log out block. Sign-up primary
@@ -471,47 +298,5 @@ export function AppSidebar({
         )}
       </div>
     </nav>
-  );
-}
-
-/**
- * Sidebar Switch-Account avatar — small circular disc with an optional
- * yellow dot indicator (matches the wireframe's active state).
- *
- * The outer wrapper is `relative` **without** `overflow-hidden` so the
- * status dot can sit outside the circular clip. The circular crop is
- * applied only to the inner image wrapper.
- */
-function AvatarDisc({
-  imageUrl,
-  fallback,
-  active,
-}: {
-  imageUrl: string | null;
-  fallback: string;
-  active: boolean;
-}) {
-  const src = imageUrl
-    ? imageUrl.startsWith("http")
-      ? imageUrl
-      : getArtworkImageUrl(imageUrl, "avatar")
-    : null;
-  return (
-    <span className="relative inline-block h-6 w-6 shrink-0">
-      <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-[10px] font-medium text-zinc-500">
-        {src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <span>{fallback}</span>
-        )}
-      </span>
-      {active && (
-        <span
-          aria-hidden
-          className="absolute -right-0.5 -top-0.5 inline-block h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white"
-        />
-      )}
-    </span>
   );
 }

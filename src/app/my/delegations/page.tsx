@@ -266,7 +266,7 @@ export default function MyDelegationsPage() {
       <div className="mx-auto max-w-3xl px-4 py-8">
         <div data-tour="delegation-header" className="mb-2 flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1 pr-2">
-            <h1 className="mb-2 text-2xl font-semibold tracking-tight text-zinc-900">{t("delegation.myDelegations")}</h1>
+            <h1 className="mb-2 text-2xl font-semibold tracking-tight text-zinc-900">{t("nav.delegations")}</h1>
             <p className="text-sm text-zinc-600">{t("delegation.subtitle")}</p>
           </div>
           <TourHelpButton tourId={TOUR_IDS.delegation} />

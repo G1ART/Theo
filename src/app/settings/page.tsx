@@ -2003,6 +2003,16 @@ export default function SettingsPage() {
             </p>
           )}
         </div>
+
+        {/* Build stamp footer. Moved here from the Header avatar
+            dropdown (2026-08-13 mobile/desktop cleanup) — the stamp is
+            debug-adjacent metadata that belongs with account/settings,
+            not in every avatar tap. Same visual weight as before. */}
+        <div className="mt-8 flex justify-end">
+          <span className="text-[10px] uppercase tracking-wider text-zinc-400">
+            <BuildStamp />
+          </span>
+        </div>
       </main>
     </AuthGate>
   );

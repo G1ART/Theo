@@ -2,12 +2,10 @@
 
 import { TheoLogo } from "@/components/brand/TheoLogo";
 import Link from "next/link";
-import { BuildStamp } from "./BuildStamp";
 import { usePathname, useRouter } from "next/navigation";
 import { isShellRoute } from "@/lib/shell/routes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useCallback } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { signOut } from "@/lib/supabase/auth";
 import { supabase } from "@/lib/supabase/client";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import { hydrateSizeUnitPref } from "@/lib/size/preference";
@@ -16,22 +14,49 @@ import { getUnreadCount } from "@/lib/supabase/notifications";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
-import { listMyDelegations, type DelegationWithDetails } from "@/lib/supabase/delegations";
-import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import {
+  listMyDelegations,
+  type DelegationWithDetails,
+} from "@/lib/supabase/delegations";
+import { onboardingUrlWithNext } from "@/lib/identity/routing";
+import {
+  PRIMARY_NAV,
+  SECONDARY_NAV,
+  type NavItem,
+  isNavItemActive,
+} from "@/lib/shell/navConfig";
+import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
 
-// Aug-2026 redesign — mobile/top-header nav mirrors the desktop
-// AppSidebar order: Explore → Messages → Workspace → Saved → Upload.
-// Notifications and Delegations sit in the avatar dropdown / hamburger
-// menu below so the horizontal strip stays scannable on narrow widths.
-const MAIN_NAV = [
-  { href: "/feed?tab=all&sort=latest", key: "nav.explore" },
-  { href: "/my/messages", key: "nav.messages" },
-  { href: "/my", key: "nav.workspace" },
-  { href: "/my/shortlists", key: "nav.saved" },
-  { href: "/upload", key: "nav.upload" },
-] as const;
+/**
+ * Global top-bar. On desktop AppShell routes (`lg+`) the sidebar takes
+ * over so this only renders on mobile/tablet. The tablet strip
+ * (`md`–`lg-1`) mirrors the sidebar's primary rows exactly by consuming
+ * the same `PRIMARY_NAV` config (see `@/lib/shell/navConfig`).
+ *
+ * Mobile (`<md`):
+ *   - Avatar is a **direct link** to the user's public profile
+ *     (`/u/{username}` or `/onboarding/identity` if the handle is
+ *     placeholder/missing). The dropdown menu is not rendered on
+ *     mobile — the hamburger owns the full menu surface.
+ *   - Hamburger panel renders PRIMARY_NAV + SECONDARY_NAV +
+ *     AccountSwitcher (via the shared component) + locale switcher
+ *     + anonymous "Get started"/"Login" footer.
+ *   - Panel is a `role="dialog"` / `aria-modal="true"` with Escape
+ *     close, focus trap, and `aria-controls` linkage on the trigger.
+ *
+ * Tablet+ (`md+`, on non-AppShell routes and shell routes below `lg`):
+ *   - Avatar dropdown owns the secondary surface. It consumes the same
+ *     shared config + `AccountSwitcher` so it can't drift from the
+ *     sidebar. `BuildStamp` has moved out of here into the Settings
+ *     page footer.
+ */
 
 const linkClass = "text-sm text-zinc-600 hover:text-zinc-900";
+
+/** Selector for focusable elements within a container. Kept in sync
+ *  with the WCAG focus-trap conventions — no third-party dep. */
+const FOCUSABLE_SELECTOR =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
 export function Header() {
   const router = useRouter();
@@ -43,14 +68,8 @@ export function Header() {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   const isPlaceholderProfile = isPlaceholderUsername(profileUsername);
-  // `nav.myProfile` ("My Studio" / "내 스튜디오") is the public,
-  // owner-editable profile page — NOT the backend Workspace hub (`/my`).
-  // Historically this link pointed at `/my`, which made "내 스튜디오"
-  // a silent duplicate of "워크스페이스" in every menu (QA 2026-08-04)
-  // and left the public profile with zero primary entry points.
-  const myHref =
+  const mobileProfileHref =
     !profileUsername || isPlaceholderProfile
       ? "/onboarding/identity"
       : `/u/${profileUsername}`;
@@ -59,6 +78,17 @@ export function Header() {
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const avatarRef = useRef<HTMLDivElement>(null);
+  const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
+  const mobilePanelRef = useRef<HTMLDivElement>(null);
+  const mobilePanelId = useId();
+  const mobilePanelHeadingId = useId();
+
+  const {
+    actingAsLabel,
+    clearActingAs,
+    staleCleared,
+    acknowledgeStaleCleared,
+  } = useActingAs();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -74,7 +104,6 @@ export function Header() {
   useEffect(() => {
     if (!session?.user?.id) {
       setProfileUsername(null);
-      setProfileLoaded(false);
       setAvatarUrl(null);
       setUnreadCount(0);
       return;
@@ -90,19 +119,17 @@ export function Header() {
         } | null;
         setProfileUsername(p?.username ?? null);
         setAvatarUrl(p?.avatar_url ?? null);
-        setProfileLoaded(true);
         // Mirror the server-side size-unit display preference into the
         // localStorage cache so every artwork surface renders in the unit
         // the viewer picked, on any device (see @/lib/size/preference).
         hydrateSizeUnitPref(p?.profile_details?.size_unit_pref);
       });
     };
-    setProfileLoaded(false);
     loadProfile();
     // After onboarding/profile saves the username changes (placeholder →
-    // chosen handle). The root layout doesn't remount on client navigation,
-    // so without this the "내 스튜디오" link stays pinned to /onboarding/identity
-    // and the user can never reach their studio (QA loop 2026-06-29).
+    // chosen handle). The root layout doesn't remount on client
+    // navigation, so without this refresh the mobile avatar link would
+    // stay pinned to /onboarding/identity (QA loop 2026-06-29).
     window.addEventListener("profile-updated", loadProfile);
     return () => {
       cancelled = true;
@@ -110,14 +137,14 @@ export function Header() {
     };
   }, [session?.user?.id]);
 
-  function fetchUnread() {
+  const fetchUnread = useCallback(() => {
     if (!session?.user?.id) return;
     getUnreadCount().then(({ data }) => setUnreadCount(data ?? 0));
-  }
+  }, [session?.user?.id]);
 
   useEffect(() => {
     fetchUnread();
-  }, [session?.user?.id]);
+  }, [fetchUnread]);
 
   useEffect(() => {
     function onRead() {
@@ -127,12 +154,49 @@ export function Header() {
     return () => window.removeEventListener("notifications-read", onRead);
   }, []);
 
+  const [activeAccountDelegations, setActiveAccountDelegations] = useState<
+    DelegationWithDetails[]
+  >([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [pendingDelegations, setPendingDelegations] = useState(0);
+  const switcherFetchInflightRef = useRef(false);
+
+  const loggedIn = !!session;
+
+  useEffect(() => {
+    if (!loggedIn) {
+      setActiveAccountDelegations([]);
+      setAccountsLoaded(false);
+      setPendingDelegations(0);
+    }
+  }, [loggedIn]);
+
+  const loadActiveAccountDelegations = useCallback(() => {
+    if (switcherFetchInflightRef.current) return;
+    switcherFetchInflightRef.current = true;
+    void listMyDelegations()
+      .then(({ data }) => {
+        const received = data?.received ?? [];
+        const filtered = received.filter(
+          (d) => d.scope_type === "account" && d.status === "active"
+        );
+        setActiveAccountDelegations(filtered);
+        setAccountsLoaded(true);
+        setPendingDelegations(
+          received.filter((d) => d.status === "pending").length
+        );
+      })
+      .finally(() => {
+        switcherFetchInflightRef.current = false;
+      });
+  }, []);
+
   useEffect(() => {
     if (avatarOpen) {
       fetchUnread();
       if (session) loadActiveAccountDelegations();
     }
-  }, [avatarOpen, session]);
+  }, [avatarOpen, session, fetchUnread, loadActiveAccountDelegations]);
 
   // Mobile parity: when the hamburger menu opens, also lazy-load the
   // active account delegations so the mobile switcher reflects the same
@@ -141,7 +205,14 @@ export function Header() {
     if (mobileOpen && session) {
       loadActiveAccountDelegations();
     }
-  }, [mobileOpen, session]);
+  }, [mobileOpen, session, loadActiveAccountDelegations]);
+
+  // Load pending count without opening any menu, so the hamburger row
+  // shows its badge without waiting for a first tap.
+  useEffect(() => {
+    if (!loggedIn) return;
+    loadActiveAccountDelegations();
+  }, [loggedIn, loadActiveAccountDelegations]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -153,87 +224,78 @@ export function Header() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  function closeMobile() {
+  const closeMobile = useCallback(() => {
     setMobileOpen(false);
-  }
+  }, []);
 
-  async function handleLogout() {
-    setAvatarOpen(false);
-    await signOut();
-    router.replace("/login");
-  }
-
-  const loggedIn = !!session;
-  const {
-    actingAsProfileId,
-    actingAsLabel,
-    setActingAs,
-    clearActingAs,
-    staleCleared,
-    acknowledgeStaleCleared,
-  } = useActingAs();
-
-  // Account-scope active delegations the operator received. The avatar
-  // dropdown surfaces these as the "Switch account" section so the user
-  // can toggle into a principal persona without leaving the current
-  // page. We lazy-load on first dropdown open and refresh whenever the
-  // operator re-opens it, so freshly-accepted invites surface promptly.
-  const [activeAccountDelegations, setActiveAccountDelegations] = useState<
-    DelegationWithDetails[]
-  >([]);
-  const [accountsLoaded, setAccountsLoaded] = useState(false);
-  const switcherFetchInflightRef = useRef(false);
-
+  // ── Mobile hamburger a11y: Escape close + focus trap ──────────────
+  // The drawer becomes a modal dialog when open, so we (1) trap Tab
+  // within the panel, (2) close on Escape, (3) restore focus to the
+  // trigger when it closes. Simple manual implementation — no new
+  // dependencies.
   useEffect(() => {
-    if (!loggedIn) {
-      setActiveAccountDelegations([]);
-      setAccountsLoaded(false);
+    if (!mobileOpen) return;
+    const panel = mobilePanelRef.current;
+    if (!panel) return;
+
+    // Move focus into the panel on open. Use a microtask so the newly
+    // mounted DOM is settled before we query for focusables.
+    const focusTimer = window.setTimeout(() => {
+      const focusables = panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      focusables[0]?.focus();
+    }, 0);
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = Array.from(
+        panel!.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      ).filter((el) => !el.hasAttribute("aria-hidden"));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !panel!.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
-  }, [loggedIn]);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileOpen]);
 
-  function loadActiveAccountDelegations() {
-    if (switcherFetchInflightRef.current) return;
-    switcherFetchInflightRef.current = true;
-    void listMyDelegations()
-      .then(({ data }) => {
-        const received = data?.received ?? [];
-        const filtered = received.filter(
-          (d) => d.scope_type === "account" && d.status === "active"
-        );
-        setActiveAccountDelegations(filtered);
-        setAccountsLoaded(true);
-      })
-      .finally(() => {
-        switcherFetchInflightRef.current = false;
-      });
-  }
-
-  function handleSwitchToPrincipal(d: DelegationWithDetails) {
-    const profile = d.delegator_profile;
-    if (!profile?.id) return;
-    const name = formatDisplayName(profile) || formatUsername(profile);
-    setActingAs(profile.id, name);
-    setAvatarOpen(false);
-    setMobileOpen(false);
-    // router.refresh() lets layout-level caches recompute against the
-    // new acting-as state without a full reload. We avoid the previous
-    // `window.location.href` jump because the ActingAsContext provider
-    // already re-fetches on visibility/focus changes.
-    router.push("/my");
-    router.refresh();
-  }
+  // Restore focus to the trigger when the drawer closes (only if the
+  // trigger is still in the DOM — a route change would remount it).
+  const wasMobileOpenRef = useRef(false);
+  useEffect(() => {
+    if (wasMobileOpenRef.current && !mobileOpen) {
+      hamburgerButtonRef.current?.focus();
+    }
+    wasMobileOpenRef.current = mobileOpen;
+  }, [mobileOpen]);
 
   /**
-   * Safe operator return.
-   *
-   * `clearActingAs()` alone leaves the user on whatever page they were on,
-   * which may be a *principal-only* surface (e.g. the principal's
-   * exhibition edit page). After clearing, that route either renders empty
-   * or denies access — confusing. So we always route to `/my` (a safe
-   * operator workspace) before refreshing layout caches. The same handler
-   * is wired to both the avatar dropdown's "my account" row AND the
-   * global acting-as banner's "return to my account" link so the two
-   * paths cannot drift.
+   * Safe operator return, called from the acting-as banner and
+   * dropdown/hamburger "return to my account" affordances. Mirrors the
+   * AccountSwitcher's own switch-to-own semantics so the entry points
+   * cannot drift: `clearActingAs()` alone leaves the user on whatever
+   * page they were on, which may be a *principal-only* surface, so we
+   * always route to `/my` (a safe operator workspace) before refreshing
+   * layout caches.
    */
   function handleSwitchToOperator() {
     clearActingAs();
@@ -252,6 +314,64 @@ export function Header() {
     const handle = window.setTimeout(() => acknowledgeStaleCleared(), 6000);
     return () => window.clearTimeout(handle);
   }, [staleCleared, acknowledgeStaleCleared]);
+
+  function resolveBadge(item: NavItem): number {
+    if (item.badge === "delegationsPending") return pendingDelegations;
+    if (item.badge === "unread") return unreadCount;
+    return 0;
+  }
+
+  function renderTabletMainNav() {
+    return (
+      <nav className="hidden md:flex items-center gap-4">
+        {PRIMARY_NAV.map((item) => {
+          const href =
+            loggedIn || !item.gated
+              ? item.href
+              : onboardingUrlWithNext({ nextPath: item.href });
+          return (
+            <Link key={item.key} href={href} className={linkClass}>
+              {t(item.labelKey)}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
+
+  function renderMobileRow(item: NavItem) {
+    const href =
+      loggedIn || !item.gated
+        ? item.href
+        : onboardingUrlWithNext({ nextPath: item.href });
+    const badgeCount = resolveBadge(item);
+    const active = isNavItemActive(item, pathname ?? "");
+    return (
+      <Link
+        key={item.key}
+        href={href}
+        onClick={closeMobile}
+        className={`flex items-center justify-between py-2 px-1 text-sm transition-colors ${
+          active
+            ? "font-semibold text-zinc-900"
+            : "text-zinc-600 hover:text-zinc-900"
+        }`}
+      >
+        <span>{t(item.labelKey)}</span>
+        {badgeCount > 0 && (
+          <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
+            {badgeCount > 99 ? "99+" : badgeCount}
+          </span>
+        )}
+      </Link>
+    );
+  }
+
+  const accountMenuLabel = t("nav.accountMenu");
+  const avatarAriaLabel =
+    unreadCount > 0
+      ? `${accountMenuLabel} (${unreadCount > 99 ? "99+" : unreadCount})`
+      : accountMenuLabel;
 
   return (
     // QA 2026-06-26 (#1) — sticky top so the header stays in view from
@@ -318,68 +438,57 @@ export function Header() {
           shellRoute ? "flex lg:hidden" : "flex"
         }`}
       >
-      <div className="flex items-center gap-6">
-        <Link
-          href="/feed?tab=all&sort=latest"
-          aria-label="Theo"
-          className="inline-flex items-center text-zinc-900 hover:opacity-80"
-          onClick={closeMobile}
-        >
-          {/* Brand mark — official raster with session-once reveal + settle
-              animation (see TheoLogo). Header appears on every route so `priority`. */}
-          <TheoLogo className="h-9" size="sm" priority />
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link
+            href="/feed?tab=all&sort=latest"
+            aria-label="Theo"
+            className="inline-flex items-center text-zinc-900 hover:opacity-80"
+            onClick={closeMobile}
+          >
+            {/* Brand mark — official raster with session-once reveal + settle
+                animation (see TheoLogo). Header appears on every route so `priority`. */}
+            <TheoLogo className="h-9" size="sm" priority />
+          </Link>
 
-        {/* Main tabs: Feed, People, Upload (no Settings) */}
-        {ready && loggedIn && (
-          <nav className="hidden md:flex items-center gap-4">
-            {MAIN_NAV.map(({ href, key }) => (
-              <Link key={key} href={href} className={linkClass}>
-                {t(key)}
-              </Link>
-            ))}
-          </nav>
-        )}
-      </div>
+          {/* Tablet+ primary nav strip. Mirrors the sidebar's PRIMARY_NAV. */}
+          {ready && loggedIn && renderTabletMainNav()}
+        </div>
 
-      <div className="flex items-center gap-3">
-        {/* My Studio | EN/KR | Avatar */}
-        {ready && loggedIn && (
-          <>
-            <Link href={myHref} className={linkClass}>
-              {t("nav.myProfile")}
-            </Link>
-            <span className="flex gap-1 text-xs text-zinc-500">
-              <button
-                type="button"
-                onClick={() => setLocale("en")}
-                className={locale === "en" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
+        <div className="flex items-center gap-3">
+          {ready && loggedIn && (
+            <>
+              {/* Tablet+ locale switcher; mobile shows it inside the
+                  hamburger panel (added for parity with the sidebar). */}
+              <span className="hidden md:flex gap-1 text-xs text-zinc-500">
+                <button
+                  type="button"
+                  onClick={() => setLocale("en")}
+                  className={locale === "en" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
+                >
+                  EN
+                </button>
+                <span>/</span>
+                <button
+                  type="button"
+                  onClick={() => setLocale("ko")}
+                  className={locale === "ko" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
+                >
+                  KO
+                </button>
+              </span>
+
+              {/* Mobile avatar: direct link to /u/{username}. Removes the
+                  previous dropdown entirely on `<md` — the hamburger
+                  owns the full menu surface. The avatar still carries
+                  the unread badge as a visual cue. */}
+              <Link
+                href={mobileProfileHref}
+                className="md:hidden relative flex h-8 w-8 items-center justify-center rounded-full hover:opacity-90"
+                aria-label={avatarAriaLabel}
               >
-                EN
-              </button>
-              <span>/</span>
-              <button
-                type="button"
-                onClick={() => setLocale("ko")}
-                className={locale === "ko" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
-              >
-                KO
-              </button>
-            </span>
-            <div className="relative" ref={avatarRef}>
-              <button
-                type="button"
-                onClick={() => setAvatarOpen((o) => !o)}
-                className="relative flex h-8 w-8 items-center justify-center rounded-full hover:opacity-90"
-                aria-expanded={avatarOpen}
-                aria-haspopup="true"
-                aria-label={unreadCount > 0 ? t("notifications.link") + ` (${unreadCount})` : undefined}
-              >
-                {/* Inner wrapper clips the avatar into a circle. Keeping
-                    overflow-hidden OFF the button lets the unread badge
-                    overflow the avatar edge and stay fully visible. */}
                 <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
                   {avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={avatarUrl.startsWith("http") ? avatarUrl : getArtworkImageUrl(avatarUrl, "avatar")}
                       alt=""
@@ -398,327 +507,218 @@ export function Header() {
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
-              </button>
-              {avatarOpen && (
-                <div
-                  data-tour="account-switcher"
-                  role="menu"
-                  className="absolute right-0 top-full z-50 mt-1 min-w-[220px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
-                >
-                  <Link
-                    href="/notifications"
-                    className="flex items-center justify-between px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => setAvatarOpen(false)}
-                    role="menuitem"
-                  >
-                    {t("notifications.link")}
-                    {unreadCount > 0 && (
-                      <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                        {unreadCount > 99 ? "99+" : unreadCount}
-                      </span>
-                    )}
-                  </Link>
-                  <div className="my-1 border-t border-zinc-100" />
-
-                  {/* Account switcher (only rendered when there is at
-                      least one active account delegation, otherwise
-                      this strip would be visual debt for solo users). */}
-                  {(accountsLoaded && activeAccountDelegations.length > 0) ||
-                  actingAsProfileId ? (
-                    <>
-                      <div className="px-4 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                        {t("acting.switcher.heading")}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleSwitchToOperator}
-                        className="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                        role="menuitemradio"
-                        aria-checked={!actingAsProfileId}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className={`h-2 w-2 rounded-full ${
-                              !actingAsProfileId ? "bg-zinc-900" : "bg-transparent"
-                            }`}
-                          />
-                          <span className="font-medium">
-                            {profileUsername
-                              ? `@${profileUsername}`
-                              : t("acting.switcher.myAccount")}
-                          </span>
-                          {!actingAsProfileId && (
-                            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">
-                              {t("acting.switcher.activeChip")}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                      {activeAccountDelegations.map((d) => {
-                        const p = d.delegator_profile;
-                        if (!p?.id) return null;
-                        const name = formatDisplayName(p) || formatUsername(p) || p.username || p.id;
-                        const isActive = actingAsProfileId === p.id;
-                        return (
-                          <button
-                            key={d.id}
-                            type="button"
-                            onClick={() => handleSwitchToPrincipal(d)}
-                            className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                            role="menuitemradio"
-                            aria-checked={isActive}
-                          >
-                            <span className="flex items-center gap-2 truncate">
-                              <span
-                                aria-hidden="true"
-                                className={`h-2 w-2 shrink-0 rounded-full ${
-                                  isActive ? "bg-zinc-900" : "bg-transparent"
-                                }`}
-                              />
-                              <span className="truncate">
-                                {name}
-                                {p.username && (
-                                  <span className="ml-1 text-xs text-zinc-500">
-                                    @{p.username}
-                                  </span>
-                                )}
-                              </span>
-                            </span>
-                            {isActive && (
-                              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
-                                {t("acting.switcher.actingChip")}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                      <div className="my-1 border-t border-zinc-100" />
-                    </>
-                  ) : null}
-
-                  <div className="px-4 py-2 text-[10px] text-zinc-400">
-                    <BuildStamp />
-                  </div>
-                  <div className="my-1 border-t border-zinc-100" />
-                  <Link
-                    href="/settings"
-                    className="block px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => setAvatarOpen(false)}
-                    role="menuitem"
-                  >
-                    {t("account.settings")}
-                  </Link>
-                  <Link
-                    href="/my/delegations"
-                    className="block px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => setAvatarOpen(false)}
-                    role="menuitem"
-                  >
-                    {t("delegation.myDelegations")}
-                  </Link>
-                  <div className="my-1 border-t border-zinc-100" />
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                    role="menuitem"
-                  >
-                    {t("account.logout")}
-                  </button>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-        {ready && !loggedIn && (
-          <>
-            <span className="flex gap-1 text-xs text-zinc-500">
-              <button
-                type="button"
-                onClick={() => setLocale("en")}
-                className={locale === "en" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
-              >
-                EN
-              </button>
-              <span>/</span>
-              <button
-                type="button"
-                onClick={() => setLocale("ko")}
-                className={locale === "ko" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
-              >
-                KO
-              </button>
-            </span>
-            <Link
-              href="/login"
-              className="rounded px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
-            >
-              {t("nav.login")}
-            </Link>
-          </>
-        )}
-
-        {/* Mobile: hamburger */}
-        <div className="md:hidden flex items-center gap-2">
-          {ready && loggedIn && (
-            <button
-              type="button"
-              onClick={() => setMobileOpen((o) => !o)}
-              className="rounded p-2 text-zinc-600 hover:bg-zinc-100"
-              aria-expanded={mobileOpen}
-              aria-label={t("nav.menu")}
-            >
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {mobileOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Mobile menu: Feed, People, Upload, My Profile, Avatar (Settings/Logout inside avatar) */}
-      {mobileOpen && loggedIn && (
-        <div className="md:hidden absolute top-full left-0 right-0 z-50 border-b border-zinc-200 bg-white shadow-sm">
-          <nav className="flex flex-col p-4 gap-1">
-            {MAIN_NAV.map(({ href, key }) => (
-              <Link key={key} href={href} className={`${linkClass} py-2 px-1`} onClick={closeMobile}>
-                {t(key)}
               </Link>
-            ))}
-            <Link
-              href={myHref}
-              className={`${linkClass} py-2 px-1`}
-              onClick={closeMobile}
-            >
-              {t("nav.myProfile")}
-            </Link>
-            <Link
-              href="/notifications"
-              className={`${linkClass} py-2 px-1`}
-              onClick={closeMobile}
-            >
-              {t("notifications.link")}
-              {unreadCount > 0 && ` (${unreadCount > 99 ? "99+" : unreadCount})`}
-            </Link>
 
-            {/* Mobile Account Switcher (parity with desktop avatar dropdown).
-                Only renders when there is at least one active account
-                delegation, otherwise this strip would be visual debt for
-                solo users. The handlers are shared with the desktop
-                dropdown so toggle/return semantics cannot drift. */}
-            {((accountsLoaded && activeAccountDelegations.length > 0) ||
-              actingAsProfileId) && (
-              <>
-                <div className="my-2 border-t border-zinc-100" />
-                <div className="px-1 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                  {t("acting.switcher.heading")}
-                </div>
+              {/* Tablet+ avatar dropdown (md+). Shares the same
+                  AccountSwitcher + SECONDARY_NAV data as the sidebar so
+                  labels/routes can't drift. */}
+              <div className="hidden md:block relative" ref={avatarRef}>
                 <button
                   type="button"
-                  onClick={handleSwitchToOperator}
-                  className="flex w-full items-center justify-between px-1 py-2 text-left text-sm text-zinc-700"
-                  role="menuitemradio"
-                  aria-checked={!actingAsProfileId}
+                  onClick={() => setAvatarOpen((o) => !o)}
+                  className="relative flex h-8 w-8 items-center justify-center rounded-full hover:opacity-90"
+                  aria-expanded={avatarOpen}
+                  aria-haspopup="true"
+                  aria-label={avatarAriaLabel}
                 >
-                  <span className="flex items-center gap-2 truncate">
-                    <span
-                      aria-hidden="true"
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        !actingAsProfileId ? "bg-zinc-900" : "bg-transparent"
-                      }`}
-                    />
-                    <span className="truncate font-medium">
-                      {profileUsername
-                        ? `@${profileUsername}`
-                        : t("acting.switcher.myAccount")}
-                    </span>
-                    {!actingAsProfileId && (
-                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">
-                        {t("acting.switcher.activeChip")}
+                  {/* Inner wrapper clips the avatar into a circle. Keeping
+                      overflow-hidden OFF the button lets the unread badge
+                      overflow the avatar edge and stay fully visible. */}
+                  <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
+                    {avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={avatarUrl.startsWith("http") ? avatarUrl : getArtworkImageUrl(avatarUrl, "avatar")}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-sm font-medium text-zinc-600">
+                        {isPlaceholderProfile || !profileUsername
+                          ? "?"
+                          : profileUsername.charAt(0).toUpperCase()}
                       </span>
                     )}
                   </span>
+                  {unreadCount > 0 && (
+                    <span className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium leading-none text-white ring-2 ring-white">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
                 </button>
-                {activeAccountDelegations.map((d) => {
-                  const p = d.delegator_profile;
-                  if (!p?.id) return null;
-                  const name =
-                    formatDisplayName(p) ||
-                    formatUsername(p) ||
-                    p.username ||
-                    p.id;
-                  const isActive = actingAsProfileId === p.id;
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => handleSwitchToPrincipal(d)}
-                      className="flex w-full items-center justify-between gap-2 px-1 py-2 text-left text-sm text-zinc-700"
-                      role="menuitemradio"
-                      aria-checked={isActive}
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        <span
-                          aria-hidden="true"
-                          className={`h-2 w-2 shrink-0 rounded-full ${
-                            isActive ? "bg-zinc-900" : "bg-transparent"
-                          }`}
-                        />
-                        <span className="truncate">
-                          {name}
-                          {p.username && (
-                            <span className="ml-1 text-xs text-zinc-500">
-                              @{p.username}
+                {avatarOpen && (
+                  <div
+                    data-tour="account-switcher"
+                    role="menu"
+                    className="absolute right-0 top-full z-50 mt-1 min-w-[240px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
+                  >
+                    {SECONDARY_NAV.map((item) => {
+                      const badgeCount = resolveBadge(item);
+                      return (
+                        <Link
+                          key={item.key}
+                          href={item.href}
+                          className="flex items-center justify-between px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => setAvatarOpen(false)}
+                          role="menuitem"
+                        >
+                          <span>{t(item.labelKey)}</span>
+                          {badgeCount > 0 && (
+                            <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                              {badgeCount > 99 ? "99+" : badgeCount}
                             </span>
                           )}
-                        </span>
-                      </span>
-                      {isActive && (
-                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
-                          {t("acting.switcher.actingChip")}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </>
-            )}
+                        </Link>
+                      );
+                    })}
+                    <div className="my-1 border-t border-zinc-100" />
+                    <AccountSwitcher
+                      layout="dropdown"
+                      username={profileUsername}
+                      avatarUrl={avatarUrl}
+                      accounts={activeAccountDelegations}
+                      accountsLoaded={accountsLoaded}
+                      onNavigate={() => setAvatarOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {ready && !loggedIn && (
+            <>
+              <span className="hidden md:flex gap-1 text-xs text-zinc-500">
+                <button
+                  type="button"
+                  onClick={() => setLocale("en")}
+                  className={locale === "en" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
+                >
+                  EN
+                </button>
+                <span>/</span>
+                <button
+                  type="button"
+                  onClick={() => setLocale("ko")}
+                  className={locale === "ko" ? "font-medium text-zinc-800" : "hover:text-zinc-700"}
+                >
+                  KO
+                </button>
+              </span>
+              <Link
+                href="/login"
+                className="hidden md:inline-flex rounded px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
+              >
+                {t("nav.login")}
+              </Link>
+            </>
+          )}
 
-            <div className="my-2 border-t border-zinc-100" />
-            <Link
-              href="/settings"
-              className={`${linkClass} py-2 px-1`}
-              onClick={closeMobile}
-            >
-              {t("account.settings")}
-            </Link>
-            {/* Mobile parity with desktop AppSidebar secondary nav —
-                Delegations was previously only reachable from the
-                avatar dropdown on desktop, leaving mobile users with
-                no direct entry (QA 2026-08-04). */}
-            <Link
-              href="/my/delegations"
-              className={`${linkClass} py-2 px-1`}
-              onClick={closeMobile}
-            >
-              {t("delegation.myDelegations")}
-            </Link>
-            <button
-              type="button"
-              onClick={() => { closeMobile(); handleLogout(); }}
-              className="text-left py-2 px-1 text-sm text-red-600 hover:text-red-700"
-            >
-              {t("account.logout")}
-            </button>
-          </nav>
+          {/* Mobile hamburger — visible for both logged-in and anonymous
+              visitors so anonymous users get sidebar parity (primary nav
+              + locale + Get started / Login footer). */}
+          <div className="md:hidden flex items-center gap-2">
+            {ready && (
+              <button
+                ref={hamburgerButtonRef}
+                type="button"
+                onClick={() => setMobileOpen((o) => !o)}
+                className="rounded p-2 text-zinc-600 hover:bg-zinc-100"
+                aria-expanded={mobileOpen}
+                aria-controls={mobilePanelId}
+                aria-label={t("nav.menu")}
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {mobileOpen ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  )}
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
-      )}
-    </header>
+
+        {/* Mobile hamburger panel. `role="dialog"` + `aria-modal="true"`
+            + `aria-labelledby` + Escape close + focus trap live on this
+            container. Content branches by loggedIn but the a11y wrapper
+            stays the same. */}
+        {mobileOpen && (
+          <div
+            ref={mobilePanelRef}
+            id={mobilePanelId}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={mobilePanelHeadingId}
+            className="md:hidden absolute top-full left-0 right-0 z-50 border-b border-zinc-200 bg-white shadow-sm"
+          >
+            <h2 id={mobilePanelHeadingId} className="sr-only">
+              {t("nav.menu")}
+            </h2>
+            <nav className="flex flex-col p-4 gap-1">
+              {PRIMARY_NAV.map((item) => renderMobileRow(item))}
+
+              {loggedIn && (
+                <>
+                  <div className="my-2 border-t border-zinc-100" />
+                  {SECONDARY_NAV.map((item) => renderMobileRow(item))}
+                </>
+              )}
+
+              {loggedIn && (
+                <AccountSwitcher
+                  layout="hamburger"
+                  username={profileUsername}
+                  avatarUrl={avatarUrl}
+                  accounts={activeAccountDelegations}
+                  accountsLoaded={accountsLoaded}
+                  onNavigate={closeMobile}
+                />
+              )}
+
+              {/* Locale switcher — sidebar parity for mobile. Placed
+                  after the switcher (or after primary nav for anonymous)
+                  so it's the last chrome before the auth CTA. */}
+              <div className="mt-3 flex items-center gap-3 px-1 text-xs text-zinc-400">
+                <button
+                  type="button"
+                  onClick={() => setLocale("en")}
+                  className={locale === "en" ? "font-semibold text-zinc-900" : "hover:text-zinc-700"}
+                >
+                  EN
+                </button>
+                <span>/</span>
+                <button
+                  type="button"
+                  onClick={() => setLocale("ko")}
+                  className={locale.startsWith("ko") ? "font-semibold text-zinc-900" : "hover:text-zinc-700"}
+                >
+                  KO
+                </button>
+              </div>
+
+              {!loggedIn && (
+                <div className="mt-3 flex flex-col gap-2 px-1">
+                  <Link
+                    href={onboardingUrlWithNext({ nextPath: pathname || null })}
+                    onClick={closeMobile}
+                    className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+                  >
+                    {t("nav.getStarted")}
+                  </Link>
+                  <Link
+                    href="/login"
+                    onClick={closeMobile}
+                    className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                  >
+                    {t("nav.login")}
+                  </Link>
+                </div>
+              )}
+            </nav>
+          </div>
+        )}
+      </header>
     </div>
   );
 }

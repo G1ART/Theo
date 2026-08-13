@@ -2,6 +2,114 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (2) — 모바일 vs 데스크탑 메뉴 클린업 (Header/Sidebar 통합, 중복 5쌍 제거, 접근성 보강)
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 배경
+Aug-2026 리디자인 이후 `AppSidebar` (desktop `lg+`) 와 `Header` (mobile
+`<md` + tablet `md`–`lg-1`) 가 각기 다른 소스에서 nav 라벨/href/스위처
+JSX 를 유지해 왔다. 결과:
+- **모바일 로그인 상태 (`<md`)** 에서 햄버거와 아바타 드롭다운이 동일
+ 항목 (Notifications, Settings, Delegations, Log out, 계정 스위처 ~120줄)
+ 을 두 번씩 노출.
+- 같은 개념에 대해 **i18n 키 5쌍이 병렬로 존재** (예: `nav.notifications`
+ vs `notifications.link`) — 라벨이 조용히 drift 하기 시작.
+- "My Studio" 링크가 3-way 로 (사이드바 self-row, 헤더 top link, 햄버거
+ row) 다르게 노출되어 사용자 혼선.
+- 햄버거 드로어가 `role="dialog"` / focus trap / Escape 없이 열림.
+
+방향: **데스크탑 `AppSidebar` 를 canonical 로 삼아** 모바일/태블릿을
+같은 소스에 정렬시키고, 아바타 tap 은 곧장 공개 프로필로 보낸다
+(LinkedIn/IG 모바일 패턴).
+
+### 변경 요약
+- **`src/lib/shell/navConfig.ts` 신설** — `PRIMARY_NAV` + `SECONDARY_NAV`
+ 단일 소스. Header MAIN_NAV 스트립, AppSidebar 상·하단 nav, 모바일
+ 햄버거, 태블릿+ 아바타 드롭다운이 **같은 배열을 소비**. 뱃지는 심볼
+ (`"unread"`, `"delegationsPending"`) 만 선언하고 실제 카운트는 각
+ surface 의 state 로 해결. `matchExact` 슬롯을 추가해 Workspace `/my`
+ 만 exact 매칭.
+- **`src/components/shell/AccountSwitcher.tsx` 신설** — 3-layout
+ (`sidebar` / `hamburger` / `dropdown`) 을 하나의 컴포넌트에 캡슐화.
+ 이전 `AppSidebar` + `Header` 에 복붙되어 있던 ~120줄 스위처 JSX
+ (self-row + principals list + logout + acting-as banner label) 를
+ 완전 삭제. sidebar 만 AvatarDisc + "View my public profile →"
+ affordance 를 노출; hamburger/dropdown 은 radio-dot 셀렉터로 통일.
+ switchToOwn 은 세 layout 모두 `router.push("/my") + refresh()` 로
+ 통일 (원래 Header 만 갖고 있던 안전한 principal-only 이탈 처리).
+- **`Header.tsx` 대대적 슬림다운**:
+  - **모바일 아바타 (`<md`)**: 드롭다운 트리거 button → `<Link>` 로 교체.
+   `/u/{username}` (또는 placeholder 시 `/onboarding/identity`) 로 직행.
+   `<md` 드롭다운 JSX 전체 삭제 — 햄버거가 메뉴 표면을 단독 소유.
+  - **태블릿+ 아바타 드롭다운 (`md+`)**: 유지하되 내부 JSX 를 shared
+   `SECONDARY_NAV` render + `<AccountSwitcher layout="dropdown">` 로
+   교체. `BuildStamp` 제거.
+  - **Header top-bar "My Studio" 링크 제거** — 사이드바의 Switch Account
+   self-row + "View my public profile →" 패턴으로 통일.
+  - **햄버거 접근성**: `role="dialog"` + `aria-modal="true"` +
+   `aria-labelledby` (visually-hidden heading) + ☰ 버튼 `aria-controls`
+   linkage. Escape 로 닫기, Tab 을 panel 내부에 가둬 focus trap (외부
+   dep 없이 querySelectorAll + 수동 wrap), 닫힐 때 트리거로 포커스 복귀.
+  - **햄버거 콘텐츠**: `PRIMARY_NAV.map` → `SECONDARY_NAV.map` (로그인 시)
+   → `<AccountSwitcher layout="hamburger">` (로그아웃 포함) → locale
+   EN/KO → anonymous "Get started"/"Login" (미로그인 시). 익명 사용자도
+   햄버거 사용 가능 (사이드바 anonymous footer parity).
+  - 아바타 버튼 `aria-label` **상시 노출** (`nav.accountMenu` = "내 계정
+   메뉴" / "My account menu"), unread > 0 일 때 카운트 augment.
+- **`AppSidebar.tsx` 리팩터** — `PRIMARY_NAV` + `SECONDARY_NAV` 를 소비하고
+ 로컬 상수 삭제; `<AccountSwitcher layout="sidebar">` 로 스위처 블록
+ 대체. 시각 그루핑 (logo → primary → secondary → locale → switcher)
+ 은 이전과 동일.
+- **i18n 통합** (`src/lib/i18n/messages.ts`):
+  - **삭제된 header-side 5쌍** (en/ko 각 5개 = 10개):
+    `notifications.link`, `account.settings`, `account.logout`,
+    `delegation.myDelegations`, `acting.switcher.heading`.
+  - **삭제된 legacy 미사용 4개** (en/ko 각 4개 = 8개):
+    `nav.artists`, `nav.me`, `nav.settings`, `nav.insights`.
+    (`nav.feed` / `nav.people` / `nav.profile` / `nav.myProfile` 은
+    `artworkBack` · `exhibitionBack` back-link helper 에서 여전히 소비
+    중이라 유지.)
+  - **신규 1개**: `nav.accountMenu` = "My account menu" / "내 계정 메뉴"
+    (아바타 버튼 aria-label).
+  - **`nav.logout`** 문구 정상화: `"Logout"` → `"Log out"` (spec 명세).
+  - `src/app/my/delegations/page.tsx` 페이지 heading 도 `nav.delegations`
+    로 마이그레이션 (이전엔 `delegation.myDelegations`).
+- **BuildStamp 이동** — Header 아바타 드롭다운에서 제거하고, Settings
+ 페이지 하단에 `text-[10px] text-zinc-400 uppercase tracking-wider`
+ wrap 으로 푸터화. (기존 Settings 상단의 BuildStamp 는 그대로 유지.)
+- **Delegations pending 뱃지** 를 햄버거에도 노출 (사이드바 parity).
+ Header 마운트 시점에 한 번 `listMyDelegations()` 호출해 count 를 확보.
+
+### Before/after render matrix
+- **`<md` (mobile, logged-in)** — 이전: 햄버거 안에 5+ 항목 + 아바타
+ 드롭다운에 같은 항목들이 중복. 이후: 아바타 tap → `/u/{username}` 직행;
+ 햄버거만 메뉴 표면 (PRIMARY_NAV + SECONDARY_NAV + AccountSwitcher +
+ locale). 접근성 (dialog/escape/trap/aria-controls) 갖춤.
+- **`md`–`lg-1` (tablet, logged-in)** — 이전과 동일한 top-bar MAIN_NAV
+ strip + 아바타 드롭다운. 단, 두 곳 모두 `navConfig` 소비 → 라벨 drift
+ 불가. My Studio top link 삭제. BuildStamp 삭제.
+- **`lg+` (desktop, logged-in)** — AppShell 좌측 사이드바 (`hidden lg:flex`)
+ 만 노출. `navConfig` + `AccountSwitcher` 소비 이외 시각 변화 없음.
+- **anonymous** — `<md` 햄버거 노출됨 (이전엔 없음). primary rows 는
+ sign-up gate 경유, 하단에 "Get started" / "Login" CTA. `md+` 는 top-bar
+ login 링크 + EN/KO 유지.
+
+### 접근성 요약
+햄버거 드로어가 처음으로 진짜 modal-dialog 계약을 갖췄다 —
+`role="dialog"` + `aria-modal="true"` + `aria-labelledby` + Escape close +
+Tab focus trap + 닫힐 때 트리거로 포커스 복귀. ☰ 버튼은 `aria-controls`
+로 panel id 를 참조. 아바타 버튼은 `unreadCount === 0` 경계에서도
+`aria-label` 을 잃지 않는다 (기본 라벨 + 카운트 augment).
+
+### Verified
+- `npx tsc --noEmit` ✅ clean.
+- `rm -rf .next && npm run build` ✅ clean.
+- deprecated i18n key 5쌍 & legacy 4개 모두 `rg` 로 zero consumer 확인.
+- 새 파일 2개 + 수정 파일 4개 lint clean.
+
+---
+
 ## 2026-08-13 — 네트워크 Overview 두 섹션 시각 차별화 (연결 후보 세로 스택 유지 · 역할별 찾기 가로 캐러셀)
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
