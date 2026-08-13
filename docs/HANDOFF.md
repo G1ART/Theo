@@ -7,7 +7,7 @@ Last updated: 2026-08-12
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
 
 ### QA 후속 fix (같은 날 후속 커밋)
-- fix: 네트워크 Overview 검색 placeholder 간결화 (작품 스타일로 찾기 / Search by artwork style)
+- fix: 네트워크 Overview 검색 placeholder 명확화 (아티스트 이름, 아이디, 또는 작품 스타일로 찾기 / Search by artist name, username, or artwork style) — 이름·유저명 검색 가능함을 안내.
 - fix: 다중 토큰 쿼리 (예: "자개 달항아리") 매칭 개선 — 클라이언트에서 토큰별 아트웍 검색 후 프로필 ID 교집합. SQL 마이그레이션 불필요.
 
 ### 배경
