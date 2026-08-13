@@ -2,6 +2,166 @@
 
 Last updated: 2026-08-12
 
+## 2026-08-12 — 네트워크 Overview 최적화 (레인 정밀 카피 + 역할별 찾기 + 커뮤니티 emerald 팔레트)
+
+### 배경
+`/my/network` Overview 탭이 wireframe 대비 두 가지 약점을 보였다:
+1. 3개의 "알 수도 있는 사람 — X 기반" 헤더가 부모 문구를 3번 반복
+   ("알 수도 있는 사람"이 매 카드마다 나옴) → 스캔 리듬이 지루.
+2. 발견(Discovery) 축이 완전히 그래프 신호 (친구·좋아요·전시) 기반
+   이라서 온보딩 직후 페르소나 (아티스트/컬렉터/큐레이터/갤러리스트)
+   가 만나야 할 상대를 못 만남. 컬렉터 → 아티스트, 아티스트 →
+   갤러리스트/큐레이터 같은 "자연스러운 페어링" 이 UI 로 노출되지
+   않았음.
+
+### 변경 요약
+- **Change 1 — 레인 정밀 카피** (`SuggestionsGroupedPanel.tsx`).
+  - 부모 문구 반복 제거. 3개 lane 은 각각 짧은 헤더 하나로 대체:
+    - `follow_graph` → "친구의 친구" / "Friends of friends"
+    - `likes_based` → "취향이 통해요" / "Kindred taste"
+    - `expand` → "전시에서 마주쳐요" / "Crossed paths at shows"
+  - 3개 lane 위에 uppercase group heading "연결 후보" / "Suggested
+    connections" 1줄 추가 (스캔 랜드마크).
+- **Change 2 — 카드별 "왜 추천하는지" 한 줄** (`SuggestionCard`).
+  - 역할 chip 아래에 강도 우선순위 규칙으로 이유 1줄 렌더:
+    1. `mutual_follow_sources > 0` → "{n}명의 뮤추얼"
+    2. `likes_based` + `signal_count > 0` → "취향이 겹쳐요"
+    3. `expand` → "같은 전시 네트워크"
+    4. `follow_graph` → "가까운 그래프"
+    5. 그 외 → 렌더 안 함.
+  - `lane` prop 을 카드까지 흘려보내서 우선순위가 컨텍스트에 맞게 결정.
+- **Change 3 — 레인별 "더 보기"** (`SuggestionsGroupedPanel.tsx`).
+  - 초기 fetch `limit: 6` → 클릭마다 +12 (6 → 18 → 30 → 42 → 54 → 60 cap).
+  - fetch 결과가 requested limit 미만이면 버튼 숨김 (더 없음).
+  - loading 상태는 "…" 로치.
+- **Change 4 — 신규 `RoleDiscoveryPanel`** (`RoleDiscoveryPanel.tsx`).
+  - Overview 탭 `SuggestionsGroupedPanel` 바로 아래에 마운트.
+  - "역할별 찾기" 섹션에 4개 카드 (아티스트 → 컬렉터 → 큐레이터 →
+    갤러리스트), 각각 6명 + "전체 보기 →" 링크.
+  - 링크는 URL `/my/network?tab=discover&role={role}` 로 이동.
+  - 데이터는 신규 RPC `get_people_by_role` 에서 pull. 랭킹:
+    persona pairing boost (+1.0/+0.5) + mutual count·0.1 + freshness·+0.25,
+    tiebreak 은 `last_active_at desc` → `created_at desc` → `id desc`.
+  - Client wrapper: `src/lib/supabase/peopleByRole.ts` (RoleDiscoveryKey
+    타입 가드 + `getPeopleByRole` fetcher).
+- **Change 5 — Emerald mono 팔레트** (`PersonaCommunityCard.tsx`).
+  - stacked bar 색을 zinc grey → emerald ramp 로 통일:
+    아티스트 `bg-emerald-700` / 큐레이터 `bg-emerald-600` /
+    갤러리스트 `bg-emerald-500` / 컬렉터 `bg-emerald-400`.
+  - 바 높이 `h-2` → `h-2.5` 로 살짝 두께.
+  - legend dot 은 같은 팔레트를 공유 (`ROLE_COLOR` map).
+  - 헤더의 live dot 이 이미 emerald 였는데 이제 바 전체와 lock-step.
+- **Change 6 — Discovery URL surface** (`page.tsx` + `DiscoverByRolePanel.tsx`).
+  - `parseTab` 에 `"discover"` 추가. 5-tab strip 에는 노출 안 함 —
+    URL 파라미터 전용 서피스 (`?tab=discover&role=…`).
+  - `role` 파라미터 미지정/invalid → RoleDiscoveryPanel 로 fallback.
+  - 유효한 role → `DiscoverByRolePanel` 렌더 (전체 폭, limit 24 페이징,
+    "24명 더 보기" 버튼).
+  - Parent 는 `key={role}` 로 role 전환 시 자연 리마운트 (state reset).
+
+### 파일 변경
+- **신규**
+  - `supabase/migrations/20260812000000_people_by_role.sql`
+    (SECURITY DEFINER RPC, letters-only `$body$` dollar tag).
+  - `src/lib/supabase/peopleByRole.ts` — client wrapper.
+  - `src/components/network/RoleDiscoveryPanel.tsx` — 4-카드 discovery.
+  - `src/components/network/DiscoverByRolePanel.tsx` — URL-driven full-width.
+- **수정**
+  - `src/components/network/SuggestionsGroupedPanel.tsx`
+    (lane 카피 + reason line + 더 보기 pager, `SuggestionCard` export).
+  - `src/components/network/PersonaCommunityCard.tsx`
+    (emerald ROLE_COLOR + h-2.5 bar).
+  - `src/app/my/network/page.tsx`
+    (parseTab 확장, RoleDiscoveryPanel + DiscoverByRolePanel 배선,
+    discover 가드 추가).
+  - `src/lib/i18n/messages.ts`
+    (en/ko 신규: `connections.suggestions.groupHeading`,
+    `connections.suggestions.laneFromMutuals/Likes/Exhibitions` 재정의,
+    `connections.suggestions.loadMore`, `connections.suggestions.reason.*` 4종,
+    `connections.discovery.sectionHeading`, `.bestMatches`, `.browseAll`,
+    `.loadMore`, `.empty`).
+  - `docs/HANDOFF.md` — 본 섹션.
+
+### Overview 탭 top-to-bottom (변경 후, 8~10줄)
+1. `← 내 스튜디오로` back link + 우측 tour help.
+2. `<h1>` 네트워크 + 팔로워/팔로잉 카운터 (버튼 링크).
+3. 5-tab strip: 요약 · 팔로워 · 팔로잉 · 요청 · 관계.
+4. (요약일 때 guide `<p>` 비어있음 — 다른 탭에서만 표시.)
+5. `<InvitationsPanel>` — follow request / access request 유니언.
+6. Uppercase 그룹 헤더 "연결 후보" (11px, tracking wide).
+7. `<SuggestionsGroupedPanel>` — 3개 lane 카드 (친구의 친구 → 취향
+   이 통해요 → 전시에서 마주쳐요), 각 카드 하단에 이유 line + "더 보기".
+8. Uppercase 그룹 헤더 "역할별 찾기" (11px, tracking wide).
+9. `<RoleDiscoveryPanel>` — 4개 role card (아티스트 → 컬렉터 → 큐레이터
+   → 갤러리스트), 각 header 우측 "가장 어울리는 6명" 서브라벨 +
+   grid 6명 + "전체 보기 →" 링크.
+10. 우측 rail: `PersonaCommunityCard` 가 emerald ramp + h-2.5 bar 로 갱신.
+
+### `get_people_by_role` — RPC signature + ranking (간결)
+```
+public.get_people_by_role(
+  p_target_role text,               -- 'artist' | 'collector' | 'curator' | 'gallerist'
+  p_limit int default 6,            -- clamp [1, 60]
+  p_offset int default 0
+) returns setof jsonb                -- same shape as get_people_recs
+```
+- SECURITY DEFINER, `set search_path = public, pg_temp`.
+- Guest (auth.uid null) 도 호출 가능 — pairing / mutuals 는 0 으로
+  collapse, freshness + created_at 로 랭킹.
+- 필터: `is_public = true`, `is_presentable_profile`, viewer 자신 제외,
+  기존 accepted follow 제외, `people_dismissals` (snooze/block) 제외,
+  `main_role = target_role OR target_role = ANY(roles)`.
+- Ranking score = `pair_boost + mutual_sources*0.1 + fresh_boost`.
+  - `pair_boost`: PAIRING_BOOSTS CASE (아래 참조).
+  - `fresh_boost`: `last_active_at > now() - 30d` → +0.25.
+  - Tiebreak: `mutual_sources desc` → `last_active_at desc nulls last` →
+    `created_at desc` → `id desc`.
+- PAIRING_BOOSTS: collector→artist +1.0 / collector→gallerist +0.5 /
+  artist→curator +1.0 / artist→gallerist +1.0 / artist→collector +0.5 /
+  curator→artist +1.0 / curator→gallerist +0.5 / gallerist→artist +1.0 /
+  gallerist→curator +0.5 / 그 외 0.0.
+
+### 릴리즈 노트
+- **Supabase SQL 필요**: `supabase/migrations/20260812000000_people_by_role.sql`
+  를 Supabase Dashboard SQL Editor 에서 **수동 실행 필요**. 단일
+  PL/pgSQL 함수 (letters-only `$body$` dollar tag) 라 파일 전체를
+  paste-and-Run 해도 안전. `create or replace function` 이라 재실행
+  가능 (idempotent).
+- **환경 변수 변경 없음**.
+- `.env.example`, Runbook 갱신 불필요.
+
+### 검증
+- `rm -rf .next && npx tsc --noEmit` — clean.
+- `npm run build` — success (모든 route 컴파일 통과).
+- `npm run lint` — 기존 baseline (116 problems / 53 errors) 그대로,
+  본 변경으로 새로 추가된 lint issue 0.
+- `npm run test:people-reason` — pass.
+- `npm run test:persona-grammar` — pass.
+- `npm run test:visibility-copy` — pass.
+- `npm run test:sprint6-2-network-hub` — 기존 실패 (main HEAD 에서도
+  동일하게 실패) 재현. 본 변경과 무관 (asserts `/my/page.tsx` desk
+  RPC 배선, 이번 패치 touch 안 함).
+
+### Deferred / open
+- 랭킹 튜닝: pair_boost / mutual_sources 계수 (1.0 vs 0.1) 는 초기
+  안. QA 후 A/B 로 재조정 가능.
+- 관심(interest) overlap 랭킹 (테마·매체 교집합) 은 이번 스코프
+  제외 — `expand` lane 이 이미 담당하므로 role-first 카드는 페어링
+  중심 유지.
+- Editorial pick strip / SSR 된 dedicated discovery route 는 스코프
+  밖. `?tab=discover&role=…` 는 client-side URL 서피스로 시작 —
+  SEO 필요 시 별도 route 로 격상 가능.
+
+### Red flags
+- `get_people_by_role` 이 배포 전 실행 안 되면 RoleDiscoveryPanel /
+  DiscoverByRolePanel 모두 404 (RPC missing) → 빈 카드만 표시. 릴리즈
+  전 반드시 SQL 실행.
+- `SuggestionCard` 를 export 로 승격 (RoleDiscoveryPanel /
+  DiscoverByRolePanel 공유). 시그니처가 새로 `lane` prop 을 요구 —
+  기존 3-lane consumer 는 이미 lane 을 넘겨주므로 backward-compatible.
+
+---
+
 ## 2026-08-12 — 벌크 업로드 크리티컬 픽스 (Windows / 위저드 회귀)
 
 ### 배경

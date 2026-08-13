@@ -9,11 +9,16 @@ import type { PersonaCounts } from "@/lib/supabase/personaCounts";
 // Per-role palette. Kept in one place so the stacked bar segments and
 // the legend dots stay in lock-step; if a segment gets a new colour,
 // its legend swatch updates automatically.
+//
+// 2026-08-12 — Swapped from neutral zinc greys to a monochromatic
+// emerald ramp so the bar reads as a single "community" gradient
+// (living / active vibe) rather than four unrelated slabs. The live
+// dot in the header header is already emerald; the bar now matches.
 const ROLE_COLOR: Record<(typeof ROLE_OPTIONS)[number], string> = {
-  artist: "bg-zinc-900",
-  curator: "bg-zinc-700",
-  gallerist: "bg-zinc-500",
-  collector: "bg-zinc-400",
+  artist: "bg-emerald-700",
+  curator: "bg-emerald-600",
+  gallerist: "bg-emerald-500",
+  collector: "bg-emerald-400",
 };
 
 /**
@@ -54,7 +59,7 @@ export function PersonaCommunityCard() {
         <div
           role="img"
           aria-label={a11yLabel}
-          className="mb-3 flex h-2 w-full overflow-hidden rounded-full bg-zinc-100"
+          className="mb-3 flex h-2.5 w-full overflow-hidden rounded-full bg-zinc-100"
         >
           {isEmpty ? (
             <span

@@ -22,6 +22,9 @@ import { RelationshipDeskPanel } from "@/components/network/RelationshipDeskPane
 import { AccessRequestsPanel } from "@/components/network/AccessRequestsPanel";
 import { InvitationsPanel } from "@/components/network/InvitationsPanel";
 import { SuggestionsGroupedPanel } from "@/components/network/SuggestionsGroupedPanel";
+import { RoleDiscoveryPanel } from "@/components/network/RoleDiscoveryPanel";
+import { DiscoverByRolePanel } from "@/components/network/DiscoverByRolePanel";
+import { isRoleDiscoveryKey } from "@/lib/supabase/peopleByRole";
 
 // Sprint 6.2 — Network Hub upgrade.
 //
@@ -47,7 +50,13 @@ import { SuggestionsGroupedPanel } from "@/components/network/SuggestionsGrouped
 // pre-existing Studio surfaces still deep-link into individual tabs
 // (e.g. Studio Hero's "관계" pill). Keeping the tab strip URL-
 // addressable means those callers don't break during the redesign.
-type TabKey = "overview" | "followers" | "following" | "requests" | "relationships";
+type TabKey =
+  | "overview"
+  | "followers"
+  | "following"
+  | "requests"
+  | "relationships"
+  | "discover";
 type SortKey = "recent" | "alpha";
 
 function parseTab(raw: string | null): TabKey {
@@ -60,6 +69,10 @@ function parseTab(raw: string | null): TabKey {
       return "relationships";
     case "requests":
       return "requests";
+    case "discover":
+      // URL-only surface (entered via "전체 보기 →" from RoleDiscoveryPanel).
+      // Intentionally NOT a button in the 5-tab strip below.
+      return "discover";
     default:
       return "overview";
   }
@@ -363,8 +376,26 @@ export default function MyNetworkPage() {
           <div className="mb-6 space-y-4">
             <InvitationsPanel ownerProfileId={userId} />
             <SuggestionsGroupedPanel />
+            <RoleDiscoveryPanel />
           </div>
         )}
+
+        {activeTab === "discover" && (() => {
+          const raw = searchParams.get("role");
+          if (!isRoleDiscoveryKey(raw)) {
+            // Unknown / missing role — fall back to the role catalog.
+            return (
+              <div className="mb-6 space-y-4">
+                <RoleDiscoveryPanel />
+              </div>
+            );
+          }
+          return (
+            <div className="mb-6 space-y-4">
+              <DiscoverByRolePanel key={raw} role={raw} />
+            </div>
+          );
+        })()}
 
         {isFollowTab && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -410,7 +441,7 @@ export default function MyNetworkPage() {
           </div>
         )}
 
-        {activeTab !== "overview" && (
+        {activeTab !== "overview" && activeTab !== "discover" && (
         <div data-tour="network-list">
           {isFollowTab ? (
             initialLoading ? (
