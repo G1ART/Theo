@@ -2,6 +2,53 @@
 
 Last updated: 2026-08-12
 
+## 2026-08-12 — 네트워크 Overview 인물 검색 (이름/유저명 + 작품 스타일 AI 검색)
+
+### 배경
+`/my/network?tab=overview` 는 그래프 신호 (연결 후보 3레인 + 역할별 찾기 4카드)
+로만 사람을 노출하고 있어, 사용자가 이미 이름·유저명·작품 스타일 (`"자개
+달항아리"`, `"industrial ceramics"`) 로 특정 인물을 알고 있을 때 접점이 없었다.
+`/people` 페이지에는 이미 `searchPeopleWithArtwork` (이름 + artwork medium/theme
++ 언어변형 팬아웃 + Did-you-mean fallback) 엔진이 있으나 Overview 에서 재사용되지
+않았음.
+
+### 변경 요약
+- **신규 `NetworkPeopleSearch`** (`src/components/network/NetworkPeopleSearch.tsx`).
+  Overview 탭 최상단, `InvitationsPanel` 위에 마운트되는 self-contained 검색 위젯.
+  기존 `searchPeopleWithArtwork` 를 그대로 재사용 (엔진 변경 없음).
+  - 250ms debounce + 증분 request-id 로 stale-response 폐기 (첫 페이지 팬아웃 2-6
+    parallel Supabase RPC 를 돌리므로 필수 가드).
+  - 역할 필터 chip row `[전체] [아티스트] [컬렉터] [큐레이터] [갤러리]`
+    (검은 pill = active, 무채색 border = idle, 모바일 wrap).
+  - 결과 grid 는 `SuggestionsGroupedPanel::SuggestionCard` 를 `lane="role"` 로
+    재사용 → 카드 시각/팔로우 버튼 완전 동일 (검색 결과에는 `onDismiss` 미전달).
+  - 결과 없음 + `suggestion` 존재 → "혹시 '{q}' 를 찾으셨나요?" 큰 클릭
+    카드 (누르면 query 로 치환).
+  - 결과 없음 + suggestion 없음 → dashed empty state + `/people/invite` 초대
+    링크.
+  - `nextCursor` 존재 시 "24명 더 보기", cursor 소진 후 `loadMoreClicked`
+    면 "검색 결과가 여기까지예요" 문구 (기존 `SuggestionsGroupedPanel` 소진
+    UX 그대로).
+- **Overview 탭 통합** (`src/app/my/network/page.tsx`).
+  - `NetworkPeopleSearch` 를 Overview `space-y-4` 스택 최상단에 삽입.
+  - `searchActive` state 를 도입해 검색이 활성이면 `SuggestionsGroupedPanel`
+    + `RoleDiscoveryPanel` 을 숨김. `InvitationsPanel` 은 관계 관리 액션이라
+    검색 중에도 계속 노출.
+  - 다른 탭 (followers/following/requests/relationships/discover) 은 무변경.
+- **신규 i18n 12 keys (en/ko)** — `network.peopleSearch.placeholder`, `.clear`,
+  `.roleAll`, `.roleArtist`, `.roleCollector`, `.roleCurator`, `.roleGallerist`,
+  `.didYouMean`, `.noResults`, `.noResultsInvite`, `.loadMore`, `.exhausted`.
+
+### Verified
+- `npx tsc --noEmit` clean.
+- `npm run build` 통과.
+- `npm run test:people-reason` 통과 (검색·이유 텍스트 회귀 없음).
+- `npm run test:sprint6-2-network-hub` 는 `main` 에서도 실패하는 pre-existing
+  (=/my/page.tsx 의 desk RPC 검사) 이라 이번 패치와 무관.
+- Supabase SQL 돌려야 할 것은 없음. 환경 변수 변경 없음.
+
+---
+
 ## 2026-08-12 — "더 보기" 소진 피드백 + 카운트 배지
 
 ### 배경

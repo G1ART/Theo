@@ -24,6 +24,7 @@ import { InvitationsPanel } from "@/components/network/InvitationsPanel";
 import { SuggestionsGroupedPanel } from "@/components/network/SuggestionsGroupedPanel";
 import { RoleDiscoveryPanel } from "@/components/network/RoleDiscoveryPanel";
 import { DiscoverByRolePanel } from "@/components/network/DiscoverByRolePanel";
+import { NetworkPeopleSearch } from "@/components/network/NetworkPeopleSearch";
 import { isRoleDiscoveryKey } from "@/lib/supabase/peopleByRole";
 
 // Sprint 6.2 — Network Hub upgrade.
@@ -108,6 +109,12 @@ export default function MyNetworkPage() {
 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
+
+  // Overview 탭 상단 전역 인물 검색이 활성 상태인지. 활성 시 그래프-신호
+  // sections (`SuggestionsGroupedPanel` / `RoleDiscoveryPanel`) 를 숨겨
+  // 검색 결과에 집중할 수 있게 한다. `InvitationsPanel` 은 관계 관리 액션
+  // 이라 검색 중에도 계속 노출.
+  const [searchActive, setSearchActive] = useState(false);
 
   const setTab = useCallback(
     (next: TabKey) => {
@@ -374,9 +381,14 @@ export default function MyNetworkPage() {
 
         {activeTab === "overview" && (
           <div className="mb-6 space-y-4">
+            <NetworkPeopleSearch onQueryChange={setSearchActive} />
             <InvitationsPanel ownerProfileId={userId} />
-            <SuggestionsGroupedPanel />
-            <RoleDiscoveryPanel />
+            {!searchActive && (
+              <>
+                <SuggestionsGroupedPanel />
+                <RoleDiscoveryPanel />
+              </>
+            )}
           </div>
         )}
 
