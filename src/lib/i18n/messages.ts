@@ -3523,8 +3523,7 @@ export const messages = {
     "connections.tabs.detail": "Followers · Following · Requests · Relationships",
 
     // 2026-08-12 — global people search (Overview tab).
-    "network.peopleSearch.placeholder":
-      "Search by name, username, or artwork style like 'mother-of-pearl moon jar'",
+    "network.peopleSearch.placeholder": "Search by artwork style",
     "network.peopleSearch.clear": "Clear",
     "network.peopleSearch.roleAll": "All",
     "network.peopleSearch.roleArtist": "Artist",
@@ -7026,8 +7025,7 @@ export const messages = {
     "connections.tabs.detail": "팔로워 · 팔로잉 · 요청 · 관계",
 
     // 2026-08-12 — Overview 전역 인물 검색.
-    "network.peopleSearch.placeholder":
-      "이름, 유저명, 또는 '자개 달항아리' 같은 작품 스타일로 찾기",
+    "network.peopleSearch.placeholder": "작품 스타일로 찾기",
     "network.peopleSearch.clear": "지우기",
     "network.peopleSearch.roleAll": "전체",
     "network.peopleSearch.roleArtist": "아티스트",

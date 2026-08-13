@@ -212,9 +212,24 @@ export async function searchPeopleWithArtwork(
   );
   const artworkPromises = variants.map((v) => searchArtistsByArtwork({ q: v, roles, limit: 20 }));
 
-  const [nameResults, artworkResults] = await Promise.all([
+  // Multi-token artwork fanout (first-page only). Field-split data
+  // (`medium = "자개, 옻칠"`, `title = "달항아리 III"`) makes phrase
+  // ILIKE / whole-string trigram similarity underfire on 2-token compound
+  // Korean queries like "자개 달항아리". Instead, run one artwork RPC per
+  // token and intersect the resulting profile-ID sets: an artist appears
+  // if every token hits *some* row of theirs. Capped at 4 tokens to bound
+  // fanout width.
+  const rawTokens = normalized.split(/\s+/).filter((t) => t.length >= 2);
+  const fanoutTokens = rawTokens.slice(0, 4);
+  const runFanout = fanoutTokens.length >= 2;
+  const tokenPromises = runFanout
+    ? fanoutTokens.map((t) => searchArtistsByArtwork({ q: t, roles, limit: 40 }))
+    : [];
+
+  const [nameResults, artworkResults, tokenResults] = await Promise.all([
     Promise.all(namePromises),
     Promise.all(artworkPromises),
+    Promise.all(tokenPromises),
   ]);
 
   const firstError = nameResults.find((r) => r.error)?.error ?? artworkResults.find((r) => r.error)?.error;
@@ -231,6 +246,42 @@ export async function searchPeopleWithArtwork(
     for (const p of res.data ?? []) {
       const rank = (p as PeopleRec).match_rank ?? 2;
       if (!byId.has(p.id) || (byId.get(p.id)!.match_rank ?? 99) > rank) byId.set(p.id, p);
+    }
+  }
+
+  if (runFanout) {
+    const tokenErr = tokenResults.find((r) => r.error)?.error;
+    if (tokenErr) {
+      // Fail-soft: any single flaky per-token call → drop intersection
+      // entirely, keep the name + full-query artwork results intact.
+      console.warn("[searchPeopleWithArtwork] per-token fanout dropped due to error:", tokenErr);
+    } else {
+      // Build one id→row map per token, then intersect. The row from the
+      // FIRST per-token result set is the canonical PeopleRec; we only
+      // override match_rank to 2 (artwork tier).
+      const rowMaps = tokenResults.map((r) => {
+        const m = new Map<string, PeopleRec>();
+        for (const p of r.data ?? []) if (!m.has(p.id)) m.set(p.id, p);
+        return m;
+      });
+      const [firstMap, ...restMaps] = rowMaps;
+      if (firstMap) {
+        for (const [id, row] of firstMap) {
+          let inAll = true;
+          for (const otherMap of restMaps) {
+            if (!otherMap.has(id)) {
+              inAll = false;
+              break;
+            }
+          }
+          if (!inAll) continue;
+          const intersected: PeopleRec = { ...row, match_rank: 2 };
+          const rank = 2;
+          if (!byId.has(id) || (byId.get(id)!.match_rank ?? 99) > rank) {
+            byId.set(id, intersected);
+          }
+        }
+      }
     }
   }
   const merged = Array.from(byId.values())
