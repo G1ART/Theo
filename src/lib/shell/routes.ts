@@ -27,6 +27,7 @@ const SHELL_PREFIXES = [
   "/notifications",
   "/settings",
   "/upload",
+  "/theo-board",
 ] as const;
 const SHELL_EXACT = ["/feed"] as const;
 

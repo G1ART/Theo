@@ -75,6 +75,21 @@ export const messages = {
     "rail.theoBoard.more": "more",
     "rail.theoBoard.placeholder": "News board — coming soon.",
 
+    "theoBoard.title": "Theo Board",
+    "theoBoard.lead":
+      "Announcements, events, and notes from the Theo room.",
+    "theoBoard.type.announcement": "Announcement",
+    "theoBoard.type.event": "Event",
+    "theoBoard.type.feature": "Feature",
+    "theoBoard.type.community": "Community",
+    "theoBoard.type.news": "News",
+    "theoBoard.empty": "No posts yet.",
+    "theoBoard.loadMore": "Load more",
+    "theoBoard.backToBoard": "Back to board",
+    "theoBoard.filterAll": "All",
+    "theoBoard.externalLink": "Open link",
+    "theoBoard.publishedAt": "Published",
+
     // Aug-2026 redesign — Workspace hub tiles (/my).
     "workspace.hub.title": "Workspace",
     "workspace.hub.subtitle":
@@ -3597,6 +3612,20 @@ export const messages = {
     "rail.theoBoard.title": "Theo Board",
     "rail.theoBoard.more": "더 보기",
     "rail.theoBoard.placeholder": "곧 준비될 소식판입니다.",
+
+    "theoBoard.title": "Theo Board",
+    "theoBoard.lead": "Theo의 공지, 이벤트, 소식을 모은 보드입니다.",
+    "theoBoard.type.announcement": "공지",
+    "theoBoard.type.event": "이벤트",
+    "theoBoard.type.feature": "기능",
+    "theoBoard.type.community": "커뮤니티",
+    "theoBoard.type.news": "뉴스",
+    "theoBoard.empty": "아직 글이 없습니다.",
+    "theoBoard.loadMore": "더 보기",
+    "theoBoard.backToBoard": "보드로 돌아가기",
+    "theoBoard.filterAll": "전체",
+    "theoBoard.externalLink": "링크 열기",
+    "theoBoard.publishedAt": "게시",
 
     "workspace.hub.title": "Workspace",
     "workspace.hub.subtitle":

@@ -1,24 +1,86 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import {
+  displaySummary,
+  getTheoBoardRail,
+  type TheoBoardPost,
+} from "@/lib/supabase/theoBoard";
+import { relativeTime } from "@/lib/time/relative";
+import {
+  TheoBoardPlaceholderRows,
+  TheoBoardTypeChip,
+} from "@/components/theo-board/TheoBoardTypeChip";
 
-/**
- * Right-rail widget — "Theo Board" (Aug-2026 wireframe redesign).
- *
- * Wireframe renders a scrollable list of announcement rows (Type +
- * Title + upload time + short description). We keep the visual
- * scaffolding in place with 6 placeholder rows because the backing
- * data store (`theo_board_posts` or equivalent) is not yet in the
- * schema. When it lands, swap the placeholder loop for a real fetch —
- * the row layout does not need to change.
- *
- * The "more >" affordance is intentionally rendered as a non-link
- * tooltip until the destination page exists.
- */
-const PLACEHOLDER_ROWS = Array.from({ length: 6 }, (_, i) => ({ id: i }));
+function PostRow({ post, locale }: { post: TheoBoardPost; locale: "en" | "ko" }) {
+  const { t } = useT();
+  const time = post.published_at
+    ? relativeTime(post.published_at, locale)
+    : "";
+  const summary = displaySummary(post);
+  const inner = (
+    <>
+      <TheoBoardTypeChip type={post.type} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="truncate text-sm text-zinc-900">{post.title}</p>
+          {time && (
+            <span className="shrink-0 text-[11px] text-zinc-400">{time}</span>
+          )}
+        </div>
+        {summary && (
+          <p className="truncate text-xs text-zinc-500">{summary}</p>
+        )}
+      </div>
+    </>
+  );
+
+  const rowCls =
+    "flex items-start gap-3 p-3 hover:bg-zinc-50";
+
+  if (post.href) {
+    return (
+      <a
+        href={post.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={rowCls}
+        title={t("theoBoard.externalLink")}
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={`/theo-board/${post.id}`} className={rowCls}>
+      {inner}
+    </Link>
+  );
+}
 
 export function TheoBoardRail() {
-  const { t } = useT();
+  const { t, locale } = useT();
+  const [posts, setPosts] = useState<TheoBoardPost[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getTheoBoardRail(6).then(({ data, error }) => {
+      if (!alive) return;
+      if (error || data.length === 0) {
+        setPosts([]);
+        return;
+      }
+      setPosts(data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const showReal = posts !== null && posts.length > 0;
 
   return (
     <section aria-label={t("rail.theoBoard.title")}>
@@ -26,41 +88,27 @@ export function TheoBoardRail() {
         <h2 className="text-lg font-semibold text-zinc-900">
           {t("rail.theoBoard.title")}
         </h2>
-        <span
-          className="text-xs text-zinc-300"
-          title={t("rail.theoBoard.placeholder")}
-          aria-disabled="true"
+        <Link
+          href="/theo-board"
+          className="text-xs text-zinc-400 hover:text-zinc-700"
         >
           {t("rail.theoBoard.more")} ›
-        </span>
+        </Link>
       </div>
-      <ul className="rounded-lg border border-zinc-200 bg-white">
-        {PLACEHOLDER_ROWS.map((n, idx) => (
-          <li
-            key={n.id}
-            className={`flex items-start gap-3 p-3 ${
-              idx > 0 ? "border-t border-zinc-100" : ""
-            }`}
-          >
-            <span className="mt-0.5 shrink-0 rounded bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
-              {t("shell.newsType")}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="truncate text-sm text-zinc-400">
-                  {t("shell.newsItemTitle")}
-                </p>
-                <span className="shrink-0 text-[11px] text-zinc-300">
-                  {t("shell.newsItemTime")}
-                </span>
-              </div>
-              <p className="truncate text-xs text-zinc-300">
-                {t("shell.newsItemDesc")}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {showReal ? (
+        <ul className="rounded-lg border border-zinc-200 bg-white">
+          {posts.map((post, idx) => (
+            <li
+              key={post.id}
+              className={idx > 0 ? "border-t border-zinc-100" : ""}
+            >
+              <PostRow post={post} locale={locale} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <TheoBoardPlaceholderRows />
+      )}
     </section>
   );
 }

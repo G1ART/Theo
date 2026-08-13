@@ -2,6 +2,33 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (3) — 테오 보드 초기 릴리즈 (스키마 + rail 실데이터 + 리스트/상세 + CLI 발행)
+
+> **환경 변수: Vercel에 `THEO_BOARD_PUBLISH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` 추가 필요.** `.env.example` 및 Runbook 갱신됨.
+>
+> **Supabase SQL 적용 필요:** `supabase/migrations/20260814000000_theo_board.sql` — Dashboard SQL Editor에 통째로 paste 후 Run. PL/pgSQL 함수 없음, 섹션 분할 불필요.
+
+### 배경
+오른쪽 레일의 Theo Board 는 6행 placeholder 만 있었고  backing table 이
+없었다. 장기적으로는 커뮤니티 보드가 맞지만, **이번 릴리즈는 인증
+사용자 INSERT 를 열지 않는다.** 쓰기는 CLI(향후 Slack) 토큰 게이트.
+
+### 변경 요약
+- 스키마 `theo_board_posts` + `theo_board_reports` (reports 는 테이블만
+  준비, UI 미연결). 라이브 SELECT 만 anon/authenticated. 쓰기는
+  service role API.
+- Rail: `getTheoBoardRail(6)` — **SQL 적용 전: rail은 기존 placeholder
+  유지 (fail-soft).** 에러·빈 목록도 동일.
+- `/theo-board` 리스트 (타입 필터 + load more) + `/theo-board/[id]`
+  상세. 본문은 `src/lib/markdown/safeMd.tsx` (react-markdown 없음).
+- 발행 루트: `npm run publish:theo` → `POST /api/theo-board/publish`
+  (Bearer token). hide/pin 동일 토큰. Slack은 후속.
+- Community INSERT는 아직 열지 않음. `theo_board_reports` 테이블만 준비.
+- 스펙: `docs/THEO_BOARD_DESIGN.md`.
+
+### Verified
+tsc + build.
+
 ## 2026-08-13 (2) — 모바일 vs 데스크탑 메뉴 클린업 (Header/Sidebar 통합, 중복 5쌍 제거, 접근성 보강)
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
