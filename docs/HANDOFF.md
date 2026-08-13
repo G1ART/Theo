@@ -1,6 +1,80 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
+
+## 2026-08-13 — 네트워크 Overview 두 섹션 시각 차별화 (연결 후보 세로 스택 유지 · 역할별 찾기 가로 캐러셀)
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 배경
+`/my/network?tab=overview` 의 두 추천 섹션 (`SuggestionsGroupedPanel`
+"연결 후보" 3레인 + `RoleDiscoveryPanel` "역할별 찾기" 4섹션) 이
+동일한 시각 문법 (`rounded-2xl border bg-white` 카드 + `sm:grid-cols-2
+lg:grid-cols-3` 6-카드 grid) 을 공유해 정보 위계가 평평했다. 두 섹션은
+목적이 다르다: 앞은 **신호가 깊은 개인화 추천** (친구의 친구·취향·전시
+네트워크 기반, 이유 라인·dismiss·pagination 포함), 뒤는 **넓게 훑는
+역할 브라우징** (카테고리 롤별 인기·최적 매치). LinkedIn "Companies
+to follow", Instagram "Explore People", Behance category rows 는 모두
+같은 원칙을 따른다 — **signal-deep = 세로 스택, browse-wide = 가로
+캐러셀**.
+
+### 변경 요약
+- **`RoleDiscoveryPanel` 가로 캐러셀로 재설계**
+  (`src/components/network/RoleDiscoveryPanel.tsx`).
+  - 각 역할 (`artist` / `collector` / `curator` / `gallerist`) 이
+    `rounded-2xl border bg-white` 외곽 프레임을 유지하되 내부는
+    `overflow-x-auto snap-x snap-mandatory` 스크롤러 + `flex gap-3` 로
+    구성. 스크롤바는 `[scrollbar-width:none]` + WebKit hide 로 숨김.
+  - **◀▶ chevron 버튼** desktop only (`hidden md:flex`). 오른쪽 chevron
+    은 항상 노출; 스크롤이 끝에 닿으면 (`scrollLeft + clientWidth >=
+    scrollWidth - 4`) 클릭 시 `scrollTo({ left: 0 })` 로 **soft loop**
+    (aria-label 이 "다음 카드" → "처음으로 돌아가기" 로 스왑). 왼쪽
+    chevron 은 `atStart` 이면 숨김 (LinkedIn 패턴과 동일).
+  - 비-edge 클릭은 `scrollBy({ left: ±(176 + 12) * 2, behavior: "smooth" })`
+    — **한 번에 카드 2개 씩** 이동 (LinkedIn "Companies to follow" cadence).
+  - 스크롤 edge 상태는 `requestAnimationFrame` throttle 된 scroll
+    listener 로 추적 (`{ atStart, atEnd }` state).
+  - "전체 보기 →" 링크는 헤더 우측으로 이동 (이전은 카드 하단 border-t
+    영역), 헤더 하단 border-band 유지.
+  - 초기 fetch limit `6 → 8` (캐러셀은 시각적 무게 없이 더 흡수 가능).
+- **신규 `SuggestionCardCompact`** (`SuggestionsGroupedPanel.tsx` 에
+  `SuggestionCard` 옆에 병렬 export). LinkedIn "Companies to follow"
+  스타일:
+  - 176px 폭, `min-h-[220px]` flex-col, avatar 64x64 center-top,
+    이름·핸들·역할 chip 모두 center-align, "팔로우" 버튼 full-width
+    `size="sm"`.
+  - `onDismiss` 없음 (browse surface). 전체 avatar+이름 영역이
+    `Link href={/u/${username}}` 로 감싸짐.
+  - `formatRoleChips({ max: 1 })` 재사용해 기존 `SuggestionCard` 와
+    role 라벨링 일관성 유지.
+  - `SuggestionCard` 는 무변경 (dismiss·이유 라인·pagination 있는
+    signal-deep 카드 그대로).
+- **`SuggestionsGroupedPanel` lane 배경 톤다운**: 3레인 외곽 카드의
+  `bg-white` → `bg-zinc-50/40`. 아래 역할 캐러셀 (bg-white) 과의
+  contrast 로 "curated / your feed" 느낌 강화 (browse-wide 는 흰색).
+  카드 내부·pagination·dismiss·이유 라인 무변경.
+- **신규 i18n 4 keys (en/ko)** — `connections.discovery.carouselPrev`,
+  `.carouselNext`, `.carouselWrapStart`, `.carouselWrapEnd`. chevron
+  aria-label 에 사용, edge 상태에 따라 wrap variant 로 스왑.
+
+### 벤치마크
+LinkedIn "Companies to follow" · Instagram "Explore People" · Behance
+category rows — 모두 signal-deep 세로 스택 (친구 요청/개인화 피드) 과
+browse-wide 가로 캐러셀 (카테고리 롤 탐색) 을 동시에 노출하되 시각
+문법을 다르게 준다.
+
+### Verified
+- `npx tsc --noEmit` clean (사전에 `.next/types/` 의 Finder 복사
+  아티팩트 `routes.d 2.ts` / `validator 2.ts` 삭제 — 배포 산출물이라
+  git-tracked 아님).
+- `npm run build` 통과.
+- `test:sprint6-2-network-hub` 는 `main` 에서도 실패하는 pre-existing
+  이라 스킵 (이번 패치와 무관).
+- `SuggestionsGroupedPanel` / `RoleDiscoveryPanel` 을 타겟하는 별도
+  테스트 없음.
+- Supabase SQL 돌려야 할 것은 없음. 환경 변수 변경 없음.
+
+---
 
 ## 2026-08-12 — 네트워크 Overview 인물 검색 (이름/유저명 + 작품 스타일 AI 검색)
 

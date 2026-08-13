@@ -3519,6 +3519,10 @@ export const messages = {
     "connections.discovery.loadMore": "Show 24 more",
     "connections.discovery.exhausted": "You've seen everyone in this role for now",
     "connections.discovery.empty": "No matches yet.",
+    "connections.discovery.carouselPrev": "Previous cards",
+    "connections.discovery.carouselNext": "Next cards",
+    "connections.discovery.carouselWrapStart": "Back to start",
+    "connections.discovery.carouselWrapEnd": "Jump to end",
     "connections.tabs.default": "Overview",
     "connections.tabs.detail": "Followers · Following · Requests · Relationships",
 
@@ -7021,6 +7025,10 @@ export const messages = {
     "connections.discovery.loadMore": "24명 더 보기",
     "connections.discovery.exhausted": "이 역할에서는 여기까지 보셨어요",
     "connections.discovery.empty": "아직 추천 결과가 없습니다.",
+    "connections.discovery.carouselPrev": "이전 카드",
+    "connections.discovery.carouselNext": "다음 카드",
+    "connections.discovery.carouselWrapStart": "처음으로 돌아가기",
+    "connections.discovery.carouselWrapEnd": "마지막으로 이동",
     "connections.tabs.default": "요약",
     "connections.tabs.detail": "팔로워 · 팔로잉 · 요청 · 관계",
 

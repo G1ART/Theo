@@ -214,7 +214,7 @@ export function SuggestionsGroupedPanel() {
         return (
           <section
             key={lane.key}
-            className="rounded-2xl border border-zinc-200 bg-white"
+            className="rounded-2xl border border-zinc-200 bg-zinc-50/40"
           >
             <header className="flex items-baseline justify-between gap-3 border-b border-zinc-100 px-5 py-3">
               <h3 className="text-sm font-semibold text-zinc-900">
@@ -353,6 +353,77 @@ export function SuggestionCard({
         {roleLabel && <p className="truncate">{roleLabel}</p>}
         {reasonLine && <p className="truncate">{reasonLine}</p>}
       </div>
+      <div className="mt-3 [&_button]:w-full">
+        <FollowButton
+          targetProfileId={row.id}
+          initialFollowing={false}
+          size="sm"
+        />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Compact variant for the "역할별 찾기" horizontal carousel — LinkedIn
+ * "Companies to follow" style. Vertical center layout, no dismiss (browse
+ * surface). Width 176px; height driven by content but constrained by
+ * `min-h-[220px]` so the row stays visually aligned even when usernames
+ * wrap under the truncate.
+ */
+export function SuggestionCardCompact({
+  row,
+  lane,
+}: {
+  row: PeopleRec;
+  lane: LaneKey | "role";
+}) {
+  const { t } = useT();
+  void lane;
+  const name = row.display_name ?? row.username ?? "—";
+  const src = avatarSrc(row.avatar_url);
+  const roleChips = formatRoleChips(
+    {
+      main_role: row.main_role ?? null,
+      roles: (row.roles ?? []) as string[],
+    },
+    t,
+    { max: 1 },
+  );
+  const roleLabel = roleChips[0]?.label ?? null;
+
+  return (
+    <li className="flex min-h-[220px] w-[176px] shrink-0 snap-start flex-col rounded-xl border border-zinc-200 bg-white p-3">
+      <Link
+        href={row.username ? `/u/${row.username}` : "#"}
+        className="flex flex-1 flex-col items-center text-center"
+      >
+        <span className="mt-1 h-16 w-16 shrink-0 overflow-hidden rounded-full bg-zinc-100">
+          {src ? (
+            <Image
+              src={src}
+              alt=""
+              width={64}
+              height={64}
+              className="h-full w-full object-cover"
+              unoptimized
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-lg font-medium text-zinc-500">
+              {name.charAt(0).toUpperCase()}
+            </span>
+          )}
+        </span>
+        <div className="mt-2 w-full min-w-0">
+          <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
+          {row.username && (
+            <p className="truncate text-xs text-zinc-500">@{row.username}</p>
+          )}
+        </div>
+        {roleLabel && (
+          <p className="mt-2 truncate text-xs text-zinc-500">{roleLabel}</p>
+        )}
+      </Link>
       <div className="mt-3 [&_button]:w-full">
         <FollowButton
           targetProfileId={row.id}
