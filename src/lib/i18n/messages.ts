@@ -320,6 +320,7 @@ export const messages = {
     "profile.section.uploadYourWork": "Upload your work",
     "profile.section.uploadExhibition": "Add an exhibition",
     "profile.addBio": "Add a short bio",
+    "profile.tabs.reorder": "Reorder tabs",
     "profile.collectorEmpty": "No collected works to show yet.",
     "artwork.follow": "follow",
     "exhibition.photos": "Exhibition Photos",
@@ -2830,16 +2831,16 @@ export const messages = {
       "What visitors see — and where you fine-tune the order of works and exhibitions.",
     "tour.publicProfile.tabs.title": "Same tabs, public view",
     "tour.publicProfile.tabs.body":
-      "These are the tabs you set up in My Studio. You manage tab structure (add, rename, reorder, visibility) over there; here you control what appears inside each one.",
+      "These are the same tabs visitors see. Use Tab settings to add, rename, reorder, or hide a tab — without leaving this page.",
     "tour.publicProfile.reorderArtworks.title": "Reorder artworks here",
     "tour.publicProfile.reorderArtworks.body":
-      "Use Reorder to drag artworks within the active tab. Visitors will see this exact order. If a tab feels mixed, jump back to My Studio to split it into a custom tab.",
+      "Use Reorder to drag artworks within the active tab. Visitors will see this exact order. If a tab feels mixed, open Tab settings and split it into a custom tab.",
     "tour.publicProfile.exhibitions.title": "Sort & reorder exhibitions",
     "tour.publicProfile.exhibitions.body":
       "Switch between newest-first / by start date, or save a custom order with Reorder. Sort changes are local; custom order is saved to your profile.",
-    "tour.publicProfile.studioLink.title": "Tab management lives in My Studio",
+    "tour.publicProfile.studioLink.title": "Tab settings are here",
     "tour.publicProfile.studioLink.body":
-      "Adding tabs, renaming defaults, or hiding a tab from your profile happens in My Studio. Use this button anytime to jump back.",
+      "Add a tab, rename it, or hide it from visitors without leaving your public profile.",
 
     "tour.upload.title": "Upload basics",
     "tour.upload.intro": "Three paths, one for each shape of work you bring to Theo.",
@@ -4039,6 +4040,7 @@ export const messages = {
     "profile.section.uploadYourWork": "작품 업로드",
     "profile.section.uploadExhibition": "전시 올리기",
     "profile.addBio": "짧은 소개 쓰기",
+    "profile.tabs.reorder": "탭 순서",
     "profile.collectorEmpty": "표시할 소장 작품이 아직 없어요.",
     "artwork.follow": "팔로우",
     "exhibition.photos": "전시 사진",
@@ -6545,16 +6547,16 @@ export const messages = {
       "방문자에게 보이는 화면이자, 작품·전시 순서를 직접 정하는 곳이에요.",
     "tour.publicProfile.tabs.title": "내 스튜디오와 같은 탭 구성",
     "tour.publicProfile.tabs.body":
-      "여기 탭은 내 스튜디오에서 설정한 그대로예요. 탭 추가·이름 변경·순서·공개 여부는 내 스튜디오에서, 탭 안에 무엇이 보이는지는 이 페이지에서 정해요.",
+      "방문자가 보는 탭과 같아요. [탭 설정]에서 탭을 추가·이름 변경·순서·공개 여부를 이 페이지에서 바로 정할 수 있어요.",
     "tour.publicProfile.reorderArtworks.title": "작품 순서는 여기서",
     "tour.publicProfile.reorderArtworks.body":
-      "[순서 변경]을 누르면 활성 탭 안에서 작품을 드래그해 배치할 수 있어요. 방문자는 정확히 이 순서로 보게 돼요. 탭이 섞여 보이면 내 스튜디오에서 새 탭으로 분리해도 좋아요.",
+      "[순서 변경]을 누르면 활성 탭 안에서 작품을 드래그해 배치할 수 있어요. 방문자는 정확히 이 순서로 보게 돼요. 탭이 섞여 보이면 [탭 설정]에서 새 탭으로 나누면 됩니다.",
     "tour.publicProfile.exhibitions.title": "전시 정렬과 순서 변경",
     "tour.publicProfile.exhibitions.body":
       "등록순/시작일순으로 빠르게 바꾸거나, [순서 변경]으로 직접 정한 순서를 저장할 수 있어요. 단순 정렬은 잠깐 보는 용도이고, 직접 정렬은 프로필에 저장돼요.",
-    "tour.publicProfile.studioLink.title": "탭 관리는 내 스튜디오에서",
+    "tour.publicProfile.studioLink.title": "탭 설정은 여기서",
     "tour.publicProfile.studioLink.body":
-      "탭을 새로 만들거나, 이름을 바꾸거나, 공개 여부를 끄는 일은 내 스튜디오에서 해요. 이 버튼으로 언제든 바로 이동할 수 있어요.",
+      "탭을 만들거나, 이름을 바꾸거나, 방문자에게 숨기는 일을 공개 프로필에서 바로 할 수 있어요.",
 
     "tour.upload.title": "업로드 안내",
     "tour.upload.intro": "올리려는 내용에 맞춰 세 가지 경로를 준비했어요.",

@@ -46,7 +46,8 @@ import { ExhibitionSortDropdown } from "@/components/exhibitions/ExhibitionSortD
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { formatErrorMessage } from "@/lib/errors/format";
-import { Chip, EmptyState, LaneChips, PageShell, type LaneOption } from "@/components/ds";
+import { Chip, EmptyState, PageShell } from "@/components/ds";
+import { ProfileTabManager } from "@/components/profile/ProfileTabManager";
 import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
 import { ProfileCoverBand } from "@/components/profile/ProfileCoverBand";
 import { ProfileInlineCards } from "@/components/profile/ProfileInlineCards";
@@ -60,8 +61,10 @@ import {
   filterArtworksByPersona,
   type PersonaTab,
 } from "@/lib/provenance/personaTabs";
+import { persistStudioPortfolio } from "@/lib/studio/persistStudioPortfolio";
 import {
   type ActiveStudioTab,
+  assignArtworksToCustomTab,
   buildStudioStripTabs,
   filterStripForPublicView,
   parseActiveTabParam,
@@ -118,6 +121,9 @@ export function UserProfileContent({
   // Purely a UI filter — the underlying persona strip / reorder / permission
   // logic keeps its own state (`active`) and stays authoritative.
   const [roleTab, setRoleTab] = useState<"artist" | "collector">("artist");
+  const [tabAssignMode, setTabAssignMode] = useState(false);
+  const [tabAssignIds, setTabAssignIds] = useState<Set<string>>(new Set());
+  const [tabAssignSaving, setTabAssignSaving] = useState(false);
 
   // Exhibition manual order map (rebuilt only when the prop changes).
   const initialExhibitionOrderMap = useMemo(
@@ -474,6 +480,30 @@ export function UserProfileContent({
   );
 
   const isExhibitionsView = active.kind === "persona" && active.tab === "exhibitions";
+  const customTabs = portfolio.custom_tabs ?? [];
+
+  async function handleAssignToCustomTab(targetCustomId: string | null) {
+    const ids = Array.from(tabAssignIds);
+    if (ids.length === 0) return;
+    setTabAssignSaving(true);
+    const next = assignArtworksToCustomTab({
+      portfolio,
+      artworkIds: ids,
+      targetCustomId,
+    });
+    const { ok } = await persistStudioPortfolio(next);
+    setTabAssignSaving(false);
+    if (!ok) {
+      setSavedToastMsg(t("common.tryAgain"));
+      setSavedToast(true);
+      return;
+    }
+    setTabAssignIds(new Set());
+    setTabAssignMode(false);
+    setSavedToastMsg(t("common.saved"));
+    setSavedToast(true);
+    router.refresh();
+  }
 
   // Derived role-tab set. We only surface the Artist tab if the profile
   // actually claims artist-hood (main_role=artist or artist in roles[]),
@@ -782,70 +812,80 @@ export function UserProfileContent({
       )}
 
       {isOwner && (
-        <>
+        <div className="mb-3 flex items-center justify-end gap-2">
           <TourTrigger tourId={TOUR_IDS.publicProfile} />
-          <div className="mb-3 flex items-center justify-end gap-2">
-            <Link
-              href="/my"
-              data-tour="public-profile-back-to-studio"
-              className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white/70 px-2.5 py-1 text-[11px] font-medium text-zinc-600 shadow-sm hover:border-zinc-300 hover:bg-white hover:text-zinc-900"
-            >
-              <svg
-                aria-hidden
-                viewBox="0 0 16 16"
-                className="h-3 w-3"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9.5 4l-4 4 4 4" />
-              </svg>
-              {t("studio.portfolio.backToStudio")}
-            </Link>
-            <TourHelpButton tourId={TOUR_IDS.publicProfile} />
-          </div>
-        </>
+          <TourHelpButton tourId={TOUR_IDS.publicProfile} />
+        </div>
       )}
 
-      {roleTab === "artist" && stripPublic.length > 0 && (() => {
-        const activeStripKey =
-          stripPublic.find((row) =>
-            row.kind === "persona"
-              ? active.kind === "persona" && active.tab === row.personaTab
-              : active.kind === "custom" && active.id === row.customId
-          )?.key ?? stripPublic[0]?.key ?? "";
-        const stripOptions: LaneOption<string>[] = stripPublic.map((row) => ({
-          id: row.key,
-          label: `${row.label} (${row.count})`,
-        }));
-        return (
-          <LaneChips
-            variant="lane"
-            options={stripOptions}
-            active={activeStripKey}
-            onChange={(key) => {
-              const row = stripPublic.find((r) => r.key === key);
-              if (!row) return;
-              if (row.kind === "persona") {
-                setActive({ kind: "persona", tab: row.personaTab! });
-              } else {
-                setActive({ kind: "custom", id: row.customId! });
-              }
-            }}
-            className="mb-4 border-b border-zinc-200 pb-3"
-            data-tour="public-profile-tab-strip"
-          />
-        );
-      })()}
+      {roleTab === "artist" && (stripPublic.length > 0 || isOwner) && (
+        <ProfileTabManager
+          isOwner={isOwner}
+          stripPublic={stripPublic}
+          stripRows={stripRows}
+          active={active}
+          onActiveChange={setActive}
+          portfolio={portfolio}
+          defaultTabLabels={defaultTabLabels}
+          onPersisted={() => router.refresh()}
+          onToast={(msg) => {
+            setSavedToastMsg(msg);
+            setSavedToast(true);
+          }}
+        />
+      )}
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-zinc-900">{worksHeading}</h2>
+        {!isExhibitionsView && isOwner && !reorderMode && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {customTabs.length > 0 && displayedArtworks.length > 0 && (
+              tabAssignMode ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    disabled={tabAssignIds.size === 0 || tabAssignSaving}
+                    defaultValue=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      e.target.value = "";
+                      if (v === "__noop") return;
+                      void handleAssignToCustomTab(v === "" ? null : v);
+                    }}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700"
+                  >
+                    <option value="__noop">{t("studio.portfolio.moveToTabPlaceholder")}</option>
+                    <option value="">{t("studio.portfolio.clearCustomTab")}</option>
+                    {customTabs.map((ct) => (
+                      <option key={ct.id} value={ct.id}>
+                        {ct.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTabAssignMode(false);
+                      setTabAssignIds(new Set());
+                    }}
+                    className="text-xs text-zinc-500 hover:text-zinc-800"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setTabAssignMode(true)}
+                  className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
+                >
+                  {t("studio.portfolio.moveToTab")}
+                </button>
+              )
+            )}
         {!isExhibitionsView && isOwner && reorderableArtworks.length > 0 && !reorderMode && (
           <button
             type="button"
-            onClick={() => { setReorderMode(true); setSaveError(null); }}
+            onClick={() => { setReorderMode(true); setSaveError(null); setTabAssignMode(false); setTabAssignIds(new Set()); }}
             aria-label={t("profile.reorder")}
             data-tour="public-profile-reorder-button"
             className="inline-flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
@@ -865,6 +905,8 @@ export function UserProfileContent({
             </svg>
             {t("profile.reorder")}
           </button>
+        )}
+          </div>
         )}
         {!isExhibitionsView && reorderMode && isOwner && reorderableArtworks.length > 0 && (
           <div className="flex gap-2">
@@ -1105,22 +1147,46 @@ export function UserProfileContent({
               <UploadYourWorkTile label={t("profile.section.uploadYourWork")} />
             )}
           {displayedArtworks.map((artwork) => (
-            <ArtworkCard
-              key={artwork.id}
-              artwork={artwork}
-              likesCount={artwork.likes_count ?? 0}
-              isLiked={likedIds.has(artwork.id)}
-              showEdit={isOwner && !!profile?.id && canEditArtwork(artwork, profile.id)}
-              viewerId={viewerId}
-              onLikeUpdate={(id, liked, count) => {
-                setLikedIds((prev) => {
-                  const next = new Set(prev);
-                  if (liked) next.add(id);
-                  else next.delete(id);
-                  return next;
-                });
-              }}
-            />
+            <div key={artwork.id} className="relative">
+              {tabAssignMode && (
+                <div className="absolute left-2 top-2 z-10">
+                  <input
+                    type="checkbox"
+                    checked={tabAssignIds.has(artwork.id)}
+                    onChange={() => {
+                      setTabAssignIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(artwork.id)) next.delete(artwork.id);
+                        else next.add(artwork.id);
+                        return next;
+                      });
+                    }}
+                    className="h-5 w-5 rounded border-zinc-300"
+                    aria-label={t("my.bulkSelect.select")}
+                  />
+                </div>
+              )}
+              <ArtworkCard
+                artwork={artwork}
+                likesCount={artwork.likes_count ?? 0}
+                isLiked={likedIds.has(artwork.id)}
+                showEdit={
+                  !tabAssignMode &&
+                  isOwner &&
+                  !!profile?.id &&
+                  canEditArtwork(artwork, profile.id)
+                }
+                viewerId={viewerId}
+                onLikeUpdate={(id, liked, count) => {
+                  setLikedIds((prev) => {
+                    const next = new Set(prev);
+                    if (liked) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  });
+                }}
+              />
+            </div>
           ))}
         </div>
       )}

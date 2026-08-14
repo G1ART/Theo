@@ -2,6 +2,18 @@
 
 Last updated: 2026-08-14
 
+## 2026-08-14 (2) — 공개 프로필에서 탭 관리 회복
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 변경 요약
+- Workspace 개편으로 `/my` 에서 사라진 탭 관리(이름·공개·커스텀 탭·순서)를 공개 프로필 계정주 화면에 다시 연결.
+- 기존 `StudioPortfolioManageModal` + `updateMyProfileDetails(studio_portfolio)` 저장 경로를 그대로 사용. 스키마/RPC 변경 없음.
+- 「내 스튜디오에서 탭 관리」 죽은 링크 제거. 커스텀 탭이 있으면 「탭에 담기」로 작품 배정도 같은 payload 로 저장.
+
+### Verified
+- `npx tsc --noEmit`
+
 ## 2026-08-14 (1) — 공개 프로필 편집 진입을 와이어프레임에 맞춤
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

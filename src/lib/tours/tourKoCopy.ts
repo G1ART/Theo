@@ -137,8 +137,8 @@ export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
     body: "등록순/시작일순으로 빠르게 바꾸거나, [순서 변경]으로 직접 정한 순서를 저장할 수 있어요. 단순 정렬은 잠깐 보는 용도이고, 직접 정렬은 프로필에 저장돼요.",
   },
   "profile.public:studio-link": {
-    title: "탭 관리는 내 스튜디오에서",
-    body: "탭을 새로 만들거나, 이름을 바꾸거나, 공개 여부를 끄는 일은 내 스튜디오에서 해요. 이 버튼으로 언제든 바로 이동할 수 있어요.",
+    title: "탭 설정은 여기서",
+    body: "탭을 만들거나, 이름을 바꾸거나, 방문자에게 숨기는 일을 공개 프로필에서 바로 할 수 있어요.",
   },
 
   "upload.main:tabs": {
