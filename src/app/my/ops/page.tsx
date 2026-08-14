@@ -94,14 +94,19 @@ function OpsContent() {
       <Link href="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900">
         ← {t("profile.privateBackToMy")}
       </Link>
-      <h1 className="mb-4 text-xl font-semibold text-zinc-900">Ops <span className="text-sm font-normal text-zinc-400">(internal)</span></h1>
+      <h1 className="mb-4 text-xl font-semibold text-zinc-900">
+        {t("workspace.ops.title")}{" "}
+        <span className="text-sm font-normal text-zinc-400">
+          ({t("ops.hub.internal")})
+        </span>
+      </h1>
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Link
           href="/my/ops/external-artists"
           className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
         >
-          External artist merge →
+          {t("ops.hub.externalArtists")} →
         </Link>
         <Link
           href="/my/ops/board"
@@ -126,50 +131,50 @@ function OpsContent() {
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-lg border border-zinc-200 bg-white p-3 text-center">
           <p className="text-2xl font-bold text-zinc-900">{stats.total}</p>
-          <p className="text-xs text-zinc-500">Total</p>
+          <p className="text-xs text-zinc-500">{t("ops.hub.stat.total")}</p>
         </div>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
           <p className="text-2xl font-bold text-amber-700">{stats.randomUsername}</p>
-          <p className="text-xs text-zinc-500">Placeholder ID</p>
+          <p className="text-xs text-zinc-500">{t("ops.hub.stat.placeholderId")}</p>
         </div>
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-center">
           <p className="text-2xl font-bold text-red-700">{stats.noUploads}</p>
-          <p className="text-xs text-zinc-500">No uploads</p>
+          <p className="text-xs text-zinc-500">{t("ops.hub.stat.noUploads")}</p>
         </div>
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
           <p className="text-2xl font-bold text-blue-700">{stats.withDelegations}</p>
-          <p className="text-xs text-zinc-500">Delegations</p>
+          <p className="text-xs text-zinc-500">{t("ops.hub.stat.delegations")}</p>
         </div>
         <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-center">
           <p className="text-2xl font-bold text-green-700">{stats.recent7d}</p>
-          <p className="text-xs text-zinc-500">Last 7 days</p>
+          <p className="text-xs text-zinc-500">{t("ops.hub.stat.last7d")}</p>
         </div>
       </div>
 
       {rescue && (
         <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">Identity rescue</h2>
+            <h2 className="text-sm font-semibold text-zinc-800">{t("ops.hub.rescue.title")}</h2>
             <span className="text-xs text-zinc-400">v_identity_rescue_stats</span>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <p className="text-lg font-semibold text-zinc-900">{rescue.placeholder_total ?? 0}</p>
-              <p className="text-xs text-zinc-500">Still placeholder</p>
+              <p className="text-xs text-zinc-500">{t("ops.hub.rescue.stillPlaceholder")}</p>
             </div>
             <div>
               <p className="text-lg font-semibold text-zinc-900">
                 {rescue.placeholder_created_7d ?? 0} / {rescue.placeholder_created_30d ?? 0}
               </p>
-              <p className="text-xs text-zinc-500">New placeholder 7d / 30d</p>
+              <p className="text-xs text-zinc-500">{t("ops.hub.rescue.newPlaceholder")}</p>
             </div>
             <div>
               <p className="text-lg font-semibold text-zinc-900">{rescue.rescued_7d ?? 0}</p>
-              <p className="text-xs text-zinc-500">Rescued last 7d</p>
+              <p className="text-xs text-zinc-500">{t("ops.hub.rescue.rescued7d")}</p>
             </div>
             <div>
               <p className="text-lg font-semibold text-zinc-900">{rescue.rescued_30d ?? 0}</p>
-              <p className="text-xs text-zinc-500">Rescued last 30d</p>
+              <p className="text-xs text-zinc-500">{t("ops.hub.rescue.rescued30d")}</p>
             </div>
           </div>
         </section>
@@ -181,17 +186,17 @@ function OpsContent() {
           onChange={(e) => setFilter(e.target.value as typeof filter)}
           className="rounded border border-zinc-300 px-3 py-2 text-sm"
         >
-          <option value="all">All ({stats.total})</option>
-          <option value="random_username">Placeholder username ({stats.randomUsername})</option>
-          <option value="no_uploads">No uploads ({stats.noUploads})</option>
-          <option value="with_delegations">With delegations ({stats.withDelegations})</option>
-          <option value="recent_7d">Joined last 7d ({stats.recent7d})</option>
+          <option value="all">{t("ops.hub.filter.all").replace("{n}", String(stats.total))}</option>
+          <option value="random_username">{t("ops.hub.filter.placeholder").replace("{n}", String(stats.randomUsername))}</option>
+          <option value="no_uploads">{t("ops.hub.filter.noUploads").replace("{n}", String(stats.noUploads))}</option>
+          <option value="with_delegations">{t("ops.hub.filter.delegations").replace("{n}", String(stats.withDelegations))}</option>
+          <option value="recent_7d">{t("ops.hub.filter.recent").replace("{n}", String(stats.recent7d))}</option>
         </select>
         <button type="button" onClick={() => void refresh()} className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50">
           {t("common.refresh")}
         </button>
         <button type="button" onClick={handleExportCsv} disabled={filtered.length === 0} className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 disabled:opacity-50">
-          Export CSV
+          {t("ops.hub.exportCsv")}
         </button>
       </div>
 
@@ -202,14 +207,14 @@ function OpsContent() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-zinc-200 text-xs text-zinc-500">
               <tr>
-                <th className="pb-2 pr-3">Username</th>
-                <th className="pb-2 pr-3">Display name</th>
-                <th className="pb-2 pr-3">Email</th>
-                <th className="pb-2 pr-3 text-right">Works</th>
-                <th className="pb-2 pr-3 text-right">Deleg.</th>
-                <th className="pb-2 pr-3">Flags</th>
-                <th className="pb-2 pr-3">Joined</th>
-                <th className="pb-2">Actions</th>
+                <th className="pb-2 pr-3">{t("ops.hub.col.username")}</th>
+                <th className="pb-2 pr-3">{t("ops.hub.col.displayName")}</th>
+                <th className="pb-2 pr-3">{t("ops.hub.col.email")}</th>
+                <th className="pb-2 pr-3 text-right">{t("ops.hub.col.works")}</th>
+                <th className="pb-2 pr-3 text-right">{t("ops.hub.col.deleg")}</th>
+                <th className="pb-2 pr-3">{t("ops.hub.col.flags")}</th>
+                <th className="pb-2 pr-3">{t("ops.hub.col.joined")}</th>
+                <th className="pb-2">{t("ops.hub.col.actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -229,8 +234,8 @@ function OpsContent() {
                     <td className="py-2 pr-3 text-right">{r.delegation_count}</td>
                     <td className="py-2 pr-3">
                       <div className="flex flex-wrap gap-1">
-                        {r.has_random_username && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">placeholder id</span>}
-                        {r.artwork_count === 0 && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">no uploads</span>}
+                        {r.has_random_username && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{t("ops.hub.flag.placeholderId")}</span>}
+                        {r.artwork_count === 0 && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">{t("ops.hub.flag.noUploads")}</span>}
                       </div>
                     </td>
                     <td className="py-2 pr-3 text-xs text-zinc-400">{new Date(r.created_at).toLocaleDateString()}</td>
@@ -241,7 +246,7 @@ function OpsContent() {
                           onClick={() => copyToClipboard(profileUrl, `p-${r.profile_id}`)}
                           className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200"
                         >
-                          {copiedId === `p-${r.profile_id}` ? "✓" : "Profile link"}
+                          {copiedId === `p-${r.profile_id}` ? "✓" : t("ops.hub.action.profileLink")}
                         </button>
                         {r.has_random_username && (
                           <button
@@ -249,7 +254,7 @@ function OpsContent() {
                             onClick={() => copyToClipboard(identityFix, `u-${r.profile_id}`)}
                             className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-200"
                           >
-                            {copiedId === `u-${r.profile_id}` ? "✓" : "Identity fix"}
+                            {copiedId === `u-${r.profile_id}` ? "✓" : t("ops.hub.action.identityFix")}
                           </button>
                         )}
                       </div>
@@ -259,7 +264,7 @@ function OpsContent() {
               })}
             </tbody>
           </table>
-          {filtered.length === 0 && <p className="mt-4 text-center text-sm text-zinc-500">No profiles match.</p>}
+          {filtered.length === 0 && <p className="mt-4 text-center text-sm text-zinc-500">{t("ops.hub.empty")}</p>}
         </div>
       )}
     </main>

@@ -47,12 +47,7 @@ export type AdminMergeExternalArtistsResult = {
   claims_dropped?: number;
 };
 
-/**
- * Map leftover unique-constraint failures (pre-migration RPC, or a
- * collision we do not yet absorb) to a sentence the English ops page
- * can show. Other errors pass through as their PostgREST message.
- */
-export function formatAdminMergeExternalArtistsError(error: unknown): string {
+export function isAdminMergeUniqueCollision(error: unknown): boolean {
   const o = (error ?? {}) as {
     message?: unknown;
     details?: unknown;
@@ -62,15 +57,18 @@ export function formatAdminMergeExternalArtistsError(error: unknown): string {
   const details = typeof o.details === "string" ? o.details : "";
   const code = typeof o.code === "string" ? o.code : "";
   const blob = `${code} ${message} ${details}`.toLowerCase();
-  const isUnique =
+  return (
     code === "23505" ||
     blob.includes("duplicate key") ||
     blob.includes("unique constraint") ||
     blob.includes("uq_claims_project_curated_ext") ||
-    blob.includes("uq_claims_one_created_per_work");
-  if (isUnique) {
-    return "These artists already have overlapping exhibition or creator claims. The merge now drops the source claim and keeps the target’s — if you still see this, apply the latest merge SQL in the Dashboard, then retry.";
-  }
+    blob.includes("uq_claims_one_created_per_work")
+  );
+}
+
+export function formatAdminMergeExternalArtistsError(error: unknown): string {
+  const o = (error ?? {}) as { message?: unknown };
+  const message = typeof o.message === "string" ? o.message : "";
   if (message) return message;
   return String(error ?? "Merge failed.");
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { AuthGate } from "@/components/AuthGate";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
 import { FilterChip } from "@/components/ds/FilterChip";
@@ -16,6 +15,7 @@ import {
   type TheoBoardQueueStatus,
 } from "@/lib/supabase/theoBoard";
 import { TheoBoardTypeChip } from "@/components/theo-board/TheoBoardTypeChip";
+import { OpsBackLink } from "@/components/ops/OpsBackLink";
 
 const TABS: TheoBoardQueueStatus[] = ["pending", "rejected", "approved"];
 
@@ -104,12 +104,7 @@ function BoardQueueContent() {
   if (!allowed) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-8">
-        <Link
-          href="/my/ops"
-          className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-        >
-          ← {t("common.back")}
-        </Link>
+        <OpsBackLink />
         <h1 className="mb-4 text-xl font-semibold text-zinc-900">
           {t("ops.board.title")}
         </h1>
@@ -122,12 +117,7 @@ function BoardQueueContent() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
-      <Link
-        href="/my/ops"
-        className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-      >
-        ← {t("common.back")}
-      </Link>
+      <OpsBackLink />
       <h1 className="mb-1 text-xl font-semibold text-zinc-900">
         {t("ops.board.title")}
       </h1>

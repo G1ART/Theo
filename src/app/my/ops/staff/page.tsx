@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { AuthGate } from "@/components/AuthGate";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
+import { OpsBackLink } from "@/components/ops/OpsBackLink";
 import { useT } from "@/lib/i18n/useT";
 import {
   STAFF_ROLES,
@@ -133,12 +133,7 @@ function StaffContent() {
   if (!allowed) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-8">
-        <Link
-          href="/my/ops"
-          className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-        >
-          ← {t("common.back")}
-        </Link>
+        <OpsBackLink />
         <h1 className="mb-4 text-xl font-semibold text-zinc-900">
           {t("ops.staff.title")}
         </h1>
@@ -151,12 +146,7 @@ function StaffContent() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
-      <Link
-        href="/my/ops"
-        className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-      >
-        ← {t("common.back")}
-      </Link>
+      <OpsBackLink />
       <h1 className="mb-1 text-xl font-semibold text-zinc-900">
         {t("ops.staff.title")}
       </h1>

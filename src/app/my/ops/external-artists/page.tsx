@@ -1,40 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
+import { OpsBackLink } from "@/components/ops/OpsBackLink";
+import { useT } from "@/lib/i18n/useT";
 import {
   adminFetchExternalArtistBatch,
   adminMergeExternalArtists,
   adminSearchExternalArtistDuplicates,
   formatAdminMergeExternalArtistsError,
+  isAdminMergeUniqueCollision,
   isOpsUser,
   type AdminExternalArtistDetail,
   type ExternalArtistDuplicateGroup,
 } from "@/lib/provenance/adminExternalArtists";
-
-/**
- * QA 2026-07-28 Phase E — legacy external artist merge tool.
- *
- * Access model
- * ------------
- * Callers must be present in `public.platform_admins`. The RPCs raise
- * "forbidden" otherwise and this page just renders the "no access"
- * message. To grant access, run in Supabase SQL Editor:
- *
- *   insert into public.platform_admins (profile_id, note)
- *   values ('<profile-uuid>', 'ops');
- *
- * UX
- * --
- *  1. Load duplicate candidates (buckets: `noemail-name` +
- *     `mixed-email-noemail`).
- *  2. Operator expands a group → fetch member details.
- *  3. Choose one row as "target" (survivor). All others become sources
- *     that get merged into the target.
- *  4. Confirm → RPC does claims re-pointing + soft-deletes sources.
- */
 
 type GroupState = {
   loading: boolean;
@@ -42,6 +22,7 @@ type GroupState = {
 };
 
 export default function OpsExternalArtistsPage() {
+  const { t } = useT();
   const [checking, setChecking] = useState(true);
   const [allowed, setAllowed] = useState(false);
   const [groups, setGroups] = useState<ExternalArtistDuplicateGroup[]>([]);
@@ -59,7 +40,7 @@ export default function OpsExternalArtistsPage() {
       setChecking(false);
       if (ok) {
         const { data, error: err } = await adminSearchExternalArtistDuplicates();
-        if (err) setError(String((err as { message?: string })?.message ?? err));
+        if (err) setError(formatAdminMergeExternalArtistsError(err));
         else setGroups(data);
       }
     })();
@@ -70,7 +51,7 @@ export default function OpsExternalArtistsPage() {
     const { data, error: err } = await adminFetchExternalArtistBatch(ids);
     if (err) {
       setGroupState((s) => ({ ...s, [key]: { loading: false } }));
-      setError(String((err as { message?: string })?.message ?? err));
+      setError(formatAdminMergeExternalArtistsError(err));
       return;
     }
     setGroupState((s) => ({ ...s, [key]: { loading: false, members: data } }));
@@ -95,16 +76,24 @@ export default function OpsExternalArtistsPage() {
     setBusy(false);
     setPendingKey(null);
     if (err) {
-      setError(formatAdminMergeExternalArtistsError(err));
+      setError(
+        isAdminMergeUniqueCollision(err)
+          ? t("ops.merge.uniqueError")
+          : formatAdminMergeExternalArtistsError(err)
+      );
       return;
     }
     const dropped = data?.claims_dropped ?? 0;
+    const droppedNote =
+      dropped > 0
+        ? t("ops.merge.noticeDropped").replace("{n}", String(dropped))
+        : "";
     setNotice(
-      `Merged ${data?.source_count ?? sources.length} sources → target ${target.slice(0, 8)}… (${data?.claims_moved ?? 0} claims moved${
-        dropped > 0 ? `, ${dropped} overlapping claim${dropped === 1 ? "" : "s"} dropped` : ""
-      })`
+      t("ops.merge.notice")
+        .replace("{n}", String(data?.source_count ?? sources.length))
+        .replace("{id}", target.slice(0, 8))
+        .replace("{moved}", String(data?.claims_moved ?? 0)) + droppedNote
     );
-    // refresh
     const { data: refreshed } = await adminSearchExternalArtistDuplicates();
     setGroups(refreshed);
     setGroupState({});
@@ -115,7 +104,7 @@ export default function OpsExternalArtistsPage() {
     return (
       <AuthGate>
         <main className="mx-auto max-w-3xl px-4 py-8 text-sm text-zinc-500">
-          Checking permissions…
+          {t("common.loading")}
         </main>
       </AuthGate>
     );
@@ -125,18 +114,12 @@ export default function OpsExternalArtistsPage() {
     return (
       <AuthGate>
         <main className="mx-auto max-w-3xl px-4 py-8">
-          <Link
-            href="/my"
-            className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-          >
-            ← Back
-          </Link>
+          <OpsBackLink />
           <h1 className="mb-4 text-xl font-semibold text-zinc-900">
-            External artist merge (ops only)
+            {t("ops.merge.title")}
           </h1>
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-            You are not in the ops allowlist (`platform_admins`). Ask a
-            platform admin to add your profile id via SQL.
+            {t("ops.merge.noAccess")}
           </div>
         </main>
       </AuthGate>
@@ -146,32 +129,18 @@ export default function OpsExternalArtistsPage() {
   return (
     <AuthGate>
       <main className="mx-auto max-w-3xl px-4 py-8">
-        <Link
-          href="/my"
-          className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-        >
-          ← Back
-        </Link>
+        <OpsBackLink />
         <h1 className="mb-2 text-xl font-semibold text-zinc-900">
-          External artist merge (ops only)
+          {t("ops.merge.title")}
         </h1>
-        <p className="mb-6 text-sm text-zinc-500">
-          Legacy duplicate rows in <code>external_artists</code> — usually
-          created before the global email dedupe hotfix (2026-07-28) or
-          by name-only invites. Pick a survivor (target) in each group and
-          confirm to move claims/artworks onto it. Sources are
-          soft-deleted (<code>status = &apos;merged&apos;</code>). If
-          both rows already sit on the same exhibition, the source
-          exhibition claim is dropped and the target&apos;s claim is
-          kept.
-        </p>
+        <p className="mb-6 text-sm text-zinc-500">{t("ops.merge.lead")}</p>
 
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
         {notice && <p className="mb-4 text-sm text-emerald-700">{notice}</p>}
 
         {groups.length === 0 ? (
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
-            No duplicate groups found. All caught up.
+            {t("ops.merge.empty")}
           </div>
         ) : (
           <ul className="space-y-4">
@@ -190,7 +159,7 @@ export default function OpsExternalArtistsPage() {
                       <p className="truncate font-medium text-zinc-900">
                         {g.key}{" "}
                         <span className="ml-2 text-xs text-zinc-500">
-                          ({g.bucket} · {g.n} rows)
+                          ({g.bucket} · {t("ops.merge.rows").replace("{n}", String(g.n))})
                         </span>
                       </p>
                     </div>
@@ -207,14 +176,14 @@ export default function OpsExternalArtistsPage() {
                           : void expandGroup(key, g.ids)
                       }
                     >
-                      {isExpanded ? "Collapse" : "Inspect"}
+                      {isExpanded ? t("ops.merge.collapse") : t("ops.merge.inspect")}
                     </button>
                   </div>
 
                   {isExpanded && (
                     <div className="mt-3 border-t border-zinc-100 pt-3">
                       {state?.loading ? (
-                        <p className="text-sm text-zinc-500">Loading…</p>
+                        <p className="text-sm text-zinc-500">{t("common.loading")}</p>
                       ) : state?.members && state.members.length > 0 ? (
                         <>
                           <ul className="space-y-2">
@@ -258,17 +227,18 @@ export default function OpsExternalArtistsPage() {
                                       )}
                                     </span>
                                     <span className="mt-0.5 block text-zinc-500">
-                                      email:{" "}
+                                      {t("ops.merge.email")}:{" "}
                                       {m.invite_email ? (
                                         <span className="text-zinc-800">
                                           {m.invite_email}
                                         </span>
                                       ) : (
                                         <span className="italic text-amber-700">
-                                          none
+                                          {t("ops.merge.emailNone")}
                                         </span>
                                       )}{" "}
-                                      · status: {m.status ?? "—"} · created:{" "}
+                                      · {t("ops.merge.status")}: {m.status ?? "—"} ·{" "}
+                                      {t("ops.merge.created")}:{" "}
                                       {m.created_at?.slice(0, 10)}
                                     </span>
                                   </span>
@@ -283,12 +253,15 @@ export default function OpsExternalArtistsPage() {
                               onClick={() => setPendingKey(key)}
                               className="rounded-lg border border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200 disabled:opacity-50"
                             >
-                              Merge {state.members.length - 1} → target
+                              {t("ops.merge.mergeN").replace(
+                                "{n}",
+                                String(state.members.length - 1)
+                              )}
                             </button>
                           </div>
                         </>
                       ) : (
-                        <p className="text-sm text-zinc-500">No members.</p>
+                        <p className="text-sm text-zinc-500">{t("ops.merge.noMembers")}</p>
                       )}
                     </div>
                   )}
@@ -300,14 +273,19 @@ export default function OpsExternalArtistsPage() {
 
         <ConfirmActionDialog
           open={!!pendingKey}
-          title="Merge external artists?"
+          title={t("ops.merge.confirmTitle")}
           description={
             pendingKey
-              ? `Merge ${(groupState[pendingKey]?.members?.length ?? 1) - 1} source row(s) into target ${(targets[pendingKey] ?? "").slice(0, 8)}…. Sources will be soft-deleted (status='merged') and their claims/artworks re-pointed to the target. Overlapping exhibition claims are folded onto the target. This cannot be auto-undone.`
+              ? t("ops.merge.confirmDesc")
+                  .replace(
+                    "{n}",
+                    String((groupState[pendingKey]?.members?.length ?? 1) - 1)
+                  )
+                  .replace("{id}", (targets[pendingKey] ?? "").slice(0, 8))
               : undefined
           }
-          confirmLabel="Merge"
-          cancelLabel="Cancel"
+          confirmLabel={t("ops.merge.confirm")}
+          cancelLabel={t("common.cancel")}
           tone="destructive"
           busy={busy}
           onConfirm={handleConfirmMerge}

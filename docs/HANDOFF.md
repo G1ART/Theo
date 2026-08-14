@@ -2,6 +2,17 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (9) — Ops 세부 페이지는 콘솔로 복귀 + 한영 정리
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 변경 요약
+- `/my/ops/*` 세부 페이지(외부 작가 병합, 보드 큐, 사용자, 운영진) 뒤로가기는 `/my`가 아니라 `/my/ops`. 공통 `OpsBackLink` (`← 운영 콘솔` / `← Back to Ops console`).
+- 한영 혼용은 의도가 아니었음. 예전 내부 도구는 영어 고정, 이후 보드·스태프만 i18n. 허브·병합 페이지도 `useT` 로 맞춤. KO 잔여 영어(People/Staff/역할명) 번역.
+
+### Verified
+- `npx tsc --noEmit`
+
 ## 2026-08-13 (8) — External artist merge: top-level DML (WITH 에러)
 
 > **Supabase SQL:** 에이전트가 라이브 DB에 `admin_merge_external_artists_toplevel_dml` 적용함. 로컬 파일은 `supabase/migrations/20260814053935_admin_merge_external_artists_toplevel_dml.sql`. Dashboard 재실행 불필요.
