@@ -2,6 +2,19 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (8) — External artist merge: top-level DML (WITH 에러)
+
+> **Supabase SQL:** 에이전트가 라이브 DB에 `admin_merge_external_artists_toplevel_dml` 적용함. 로컬 파일은 `supabase/migrations/20260814053935_admin_merge_external_artists_toplevel_dml.sql`. Dashboard 재실행 불필요.
+>
+> **환경 변수 변경 없음**
+
+### 변경 요약
+- 직전 패치가 `v_x := (with d as (delete ...) select count from d)` 형태로 data-modifying CTE 를 식 안에 넣어 `WITH clause containing a data-modifying statement must be at the top level` 로 실패.
+- DELETE/UPDATE 를 독립 statement 로 두고 `GET DIAGNOSTICS` 로 건수를 셈. 겹치는 CURATED/CREATED 흡수 동작은 유지.
+
+### Verified
+- 라이브 `apply_migration` 성공. 함수 본문에 `GET DIAGNOSTICS` 있고 nested modifying CTE 없음.
+
 ## 2026-08-13 (7) — External artist merge: overlapping exhibition claims
 
 > **Supabase SQL 적용 필요:** `supabase/migrations/20260814052248_admin_merge_external_artists_claim_collision.sql` — Dashboard SQL Editor에 **통째로 paste 후 Run**. PL/pgSQL 함수 1개뿐이라 섹션 분할 불필요.
