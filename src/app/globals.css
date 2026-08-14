@@ -123,3 +123,19 @@ body {
   font-family: var(--font-suit), var(--font-geist-sans), system-ui, -apple-system,
     "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Segoe UI", sans-serif;
 }
+
+/* Hamburger open (and a short linger after close): the feed must not
+   receive the same tap that dismissed the menu. Artwork cards use
+   article onClick + router.push, so a ghost click after the sheet
+   unmounts would otherwise open the work. */
+html.theo-nav-blocked {
+  overflow: hidden;
+}
+html.theo-nav-blocked body * {
+  pointer-events: none;
+}
+html.theo-nav-blocked [data-mobile-nav],
+html.theo-nav-blocked [data-mobile-nav] *,
+html.theo-nav-blocked [data-mobile-scrim] {
+  pointer-events: auto;
+}

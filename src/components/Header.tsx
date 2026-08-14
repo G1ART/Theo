@@ -76,6 +76,8 @@ export function Header() {
       : `/u/${profileUsername}`;
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [pageBlocked, setPageBlocked] = useState(false);
+  const pageBlockTimerRef = useRef<number | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const avatarRef = useRef<HTMLDivElement>(null);
@@ -225,9 +227,42 @@ export function Header() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const openMobile = useCallback(() => {
+    if (pageBlockTimerRef.current != null) {
+      window.clearTimeout(pageBlockTimerRef.current);
+      pageBlockTimerRef.current = null;
+    }
+    setPageBlocked(true);
+    setMobileOpen(true);
+  }, []);
+
   const closeMobile = useCallback(() => {
     setMobileOpen(false);
+    if (pageBlockTimerRef.current != null) {
+      window.clearTimeout(pageBlockTimerRef.current);
+    }
+    // Keep the scrim + pointer-events lock through the ghost click
+    // that iOS/Chrome retarget onto the artwork under the finger.
+    pageBlockTimerRef.current = window.setTimeout(() => {
+      setPageBlocked(false);
+      pageBlockTimerRef.current = null;
+    }, 450);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pageBlockTimerRef.current != null) {
+        window.clearTimeout(pageBlockTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("theo-nav-blocked", pageBlocked);
+    return () => {
+      document.documentElement.classList.remove("theo-nav-blocked");
+    };
+  }, [pageBlocked]);
 
   // ── Mobile hamburger a11y: Escape close + focus trap ──────────────
   // The drawer becomes a modal dialog when open, so we (1) trap Tab
@@ -249,7 +284,7 @@ export function Header() {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        setMobileOpen(false);
+        closeMobile();
         return;
       }
       if (e.key !== "Tab") return;
@@ -273,54 +308,11 @@ export function Header() {
       }
     }
     document.addEventListener("keydown", handleKeyDown);
-
-    const isMenuChrome = (target: EventTarget | null) => {
-      const node = target as Node | null;
-      if (!node) return false;
-      if (panel.contains(node)) return true;
-      if (hamburgerButtonRef.current?.contains(node)) return true;
-      return false;
-    };
-
-    // Capture-phase swallow: a tap on the dimmed page must not reach
-    // artwork cards / links. Closing on pointerdown unmounts the sheet,
-    // so we also arm a short click-guard for the ghost click iOS
-    // retargets onto whatever is now under the finger.
-    const closeFromOutside = (e: Event) => {
-      if (isMenuChrome(e.target)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      setMobileOpen(false);
-      const guard = (ev: Event) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        ev.stopImmediatePropagation();
-      };
-      document.addEventListener("click", guard, true);
-      document.addEventListener("touchend", guard, true);
-      window.setTimeout(() => {
-        document.removeEventListener("click", guard, true);
-        document.removeEventListener("touchend", guard, true);
-      }, 400);
-    };
-
-    document.addEventListener("pointerdown", closeFromOutside, true);
-    document.addEventListener("touchstart", closeFromOutside, {
-      capture: true,
-      passive: false,
-    });
-
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("pointerdown", closeFromOutside, true);
-      document.removeEventListener("touchstart", closeFromOutside, true);
-      document.body.style.overflow = prevOverflow;
     };
-  }, [mobileOpen]);
+  }, [mobileOpen, closeMobile]);
 
   // Restore focus to the trigger when the drawer closes (only if the
   // trigger is still in the DOM — a route change would remount it).
@@ -406,7 +398,10 @@ export function Header() {
         scrollY > 0. Banner+header stick together. z-40 below modals;
         z-50 while the hamburger is open so the sheet sits above the
         body-level scrim. */}
-    <div className={`sticky top-0 bg-white ${mobileOpen ? "z-50" : "z-40"}`}>
+    <div
+      data-mobile-nav
+      className={`sticky top-0 bg-white ${mobileOpen ? "z-50" : "z-40"}`}
+    >
       {staleCleared && !actingAsLabel && (
         <div
           role="status"
@@ -640,7 +635,10 @@ export function Header() {
               <button
                 ref={hamburgerButtonRef}
                 type="button"
-                onClick={() => setMobileOpen((o) => !o)}
+                onClick={() => {
+                  if (mobileOpen) closeMobile();
+                  else openMobile();
+                }}
                 className={`${hitTarget} inline-flex items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
                 aria-expanded={mobileOpen}
                 aria-controls={mobilePanelId}
@@ -741,11 +739,32 @@ export function Header() {
         )}
       </header>
     </div>
-    {mobileOpen && typeof document !== "undefined"
+    {pageBlocked && typeof document !== "undefined"
       ? createPortal(
           <div
+            data-mobile-scrim
             aria-hidden
-            className="lg:hidden fixed inset-0 z-[45] bg-black/25"
+            className={`lg:hidden fixed inset-0 z-[45] ${
+              mobileOpen ? "bg-black/25" : "bg-transparent"
+            }`}
+            style={{ touchAction: "none" }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (mobileOpen) closeMobile();
+            }}
+            onPointerUp={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
           />,
           document.body,
         )
