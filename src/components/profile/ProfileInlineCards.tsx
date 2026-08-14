@@ -15,9 +15,8 @@
  *     download link (when available).
  *
  * Persona gating still happens in the parent (UserProfileContent) — the
- * artist-only rule for both surfaces is unchanged. Owner empty-state
- * CTAs point back to `/settings#statement` and `/settings#cv`, matching
- * the modal-era behavior so bookmarked deep links keep working.
+ * artist-only rule for both surfaces is unchanged. Owner edit CTAs:
+ * statement → `/settings#statement`, CV → `/my/profile/cv`.
  */
 
 import { useState, type ReactNode } from "react";
@@ -56,7 +55,7 @@ export function ProfileInlineCards({
   cvPdfPath,
   isOwner,
   ownerStatementHref = "/settings#statement",
-  ownerCvHref = "/settings#cv",
+  ownerCvHref = "/my/profile/cv",
 }: Props) {
   const { t } = useT();
 
@@ -96,6 +95,9 @@ export function ProfileInlineCards({
         empty={!hasStatement}
         placeholder={t("profile.section.statementEmpty")}
         preview={<StatementPreview text={trimmedStatement} />}
+        isOwner={isOwner}
+        editHref={ownerStatementHref}
+        editLabel={t("profile.section.edit")}
       >
         <StatementBody
           statement={trimmedStatement}
@@ -110,6 +112,9 @@ export function ProfileInlineCards({
         empty={!hasCvAny}
         placeholder={t("profile.section.cvEmpty")}
         preview={<CvPreview sections={cvSections} pdf={!!cvPdfUrl} />}
+        isOwner={isOwner}
+        editHref={ownerCvHref}
+        editLabel={t("profile.section.edit")}
       >
         <CvBody
           sections={cvSections}
@@ -131,34 +136,56 @@ function ExpandCard({
   empty,
   placeholder,
   children,
+  isOwner,
+  editHref,
+  editLabel,
 }: {
   title: string;
   preview: ReactNode;
   empty: boolean;
   placeholder: string;
   children: ReactNode;
+  isOwner: boolean;
+  editHref: string;
+  editLabel: string;
 }) {
   const { t } = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(empty && isOwner);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
-      >
-        <span className="text-sm font-semibold text-zinc-900">{title}</span>
-        <span className="flex items-center gap-2 text-xs text-zinc-500">
-          <span>
-            {open
-              ? t("profile.section.collapse")
-              : t("profile.section.expand")}
+    <div
+      className={`overflow-hidden rounded-2xl border bg-white ${
+        empty && isOwner
+          ? "border-dashed border-zinc-300"
+          : "border-zinc-200"
+      }`}
+    >
+      <div className="flex items-center gap-3 px-5 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+        >
+          <span className="text-sm font-semibold text-zinc-900">{title}</span>
+          <span className="flex items-center gap-2 text-xs text-zinc-500">
+            <span>
+              {open
+                ? t("profile.section.collapse")
+                : t("profile.section.expand")}
+            </span>
+            <Chevron open={open} />
           </span>
-          <Chevron open={open} />
-        </span>
-      </button>
+        </button>
+        {isOwner && (
+          <Link
+            href={editHref}
+            className="shrink-0 rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-500 hover:text-zinc-900"
+          >
+            {editLabel}
+          </Link>
+        )}
+      </div>
 
       {!open && (
         <div className="border-t border-zinc-100 px-5 py-4 text-sm text-zinc-600">

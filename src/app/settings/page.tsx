@@ -1416,6 +1416,26 @@ export default function SettingsPage() {
                       hint={t("settings.identity.statementHeroHint")}
                       shape="wide"
                     />
+
+                    <div
+                      id="cv"
+                      className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-zinc-900">
+                          {t("settings.identity.cvTitle")}
+                        </h3>
+                        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                          {t("settings.identity.cvHint")}
+                        </p>
+                      </div>
+                      <Link
+                        href="/my/profile/cv"
+                        className="inline-flex shrink-0 items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800"
+                      >
+                        {t("settings.identity.cvCta")}
+                      </Link>
+                    </div>
                   </>
                 )}
 

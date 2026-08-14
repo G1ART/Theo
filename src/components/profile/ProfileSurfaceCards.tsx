@@ -12,8 +12,7 @@
  *
  *   Visitor view : show only the buttons that have content.
  *   Owner view   : always show both buttons; modals carry an empty state
- *                  + CTA back to /settings when the owner hasn't filled
- *                  in the surface yet.
+ *                  + CTA to /settings#statement or /my/profile/cv.
  *
  * Persona gating happens in the parent (UserProfileContent) — both
  * surfaces stay artist-only, matching the statement gating that already
@@ -59,7 +58,7 @@ export function ProfileSurfaceCards({
   cvPdfPath,
   isOwner,
   ownerStatementHref = "/settings#statement",
-  ownerCvHref = "/settings#cv",
+  ownerCvHref = "/my/profile/cv",
 }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState<ModalKind>(null);

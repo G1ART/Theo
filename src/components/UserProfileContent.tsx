@@ -591,7 +591,7 @@ export function UserProfileContent({
           {isOwner && (
             <Link
               href="/settings"
-              className="shrink-0 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+              className="shrink-0 rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500 hover:text-zinc-900"
             >
               {t("profile.editProfile")}
             </Link>
@@ -608,6 +608,13 @@ export function UserProfileContent({
             <div className="space-y-1">
               {localizedBio ? (
                 <p className="whitespace-pre-line text-sm text-zinc-700">{localizedBio}</p>
+              ) : isOwner ? (
+                <Link
+                  href="/settings#bio"
+                  className="text-sm text-zinc-500 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-800"
+                >
+                  {t("profile.addBio")}
+                </Link>
               ) : (
                 <p className="text-sm text-zinc-400">{t("profile.noBio")}</p>
               )}
@@ -742,6 +749,8 @@ export function UserProfileContent({
             residencies={profile.residencies ?? null}
             cvPdfPath={profile.cv_pdf_path ?? null}
             isOwner={isOwner}
+            ownerStatementHref="/settings#statement"
+            ownerCvHref="/my/profile/cv"
           />
           {/*
             QA 2026-07-29 — 오너 전용 statement 컨텍스트 넛지. 현재 UI 로케
@@ -951,7 +960,19 @@ export function UserProfileContent({
       )}
       {isExhibitionsView ? (
         exhibitions.length === 0 ? (
-          <EmptyState title={t("exhibition.emptyList")} size="sm" />
+          isOwner ? (
+            <Link
+              href="/my/exhibitions/new"
+              className="flex min-h-[8.5rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-zinc-300 bg-white text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-800"
+            >
+              <span aria-hidden className="text-2xl leading-none">+</span>
+              <span className="text-sm font-medium">
+                {t("profile.section.uploadExhibition")}
+              </span>
+            </Link>
+          ) : (
+            <EmptyState title={t("exhibition.emptyList")} size="sm" />
+          )
         ) : exhibitionReorderMode && isOwner ? (
           <>
             <DndContext
@@ -1117,7 +1138,7 @@ function UploadYourWorkTile({ label }: { label: string }) {
   return (
     <Link
       href="/upload"
-      className="flex aspect-square w-full flex-col items-center justify-center gap-3 rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500 transition-colors hover:border-zinc-400 hover:bg-zinc-100 hover:text-zinc-800"
+      className="flex aspect-square w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 bg-white text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-800"
     >
       <span aria-hidden className="text-3xl leading-none">+</span>
       <span className="text-sm font-medium">{label}</span>

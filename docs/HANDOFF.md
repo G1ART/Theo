@@ -1,6 +1,18 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
+
+## 2026-08-14 (1) — 공개 프로필 편집 진입을 와이어프레임에 맞춤
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 변경 요약
+- 공개 프로필 Statement/CV 카드에 오너용 **편집** 버튼을 항상 노출. 빈 카드는 점선 박스로 열고 CTA를 바로 보여 줌.
+- CV 편집은 죽은 `/settings#cv` 가 아니라 `/my/profile/cv`. 설정 화면 작가 섹션에도 이력 카드(`id="cv"`)를 두어 Edit에서도 찾을 수 있게 함.
+- 소개가 없으면 「짧은 소개 쓰기」, 전시가 없으면 「전시 올리기」. 이력 편집 후 공개 프로필로 복귀.
+
+### Verified
+- `npx tsc --noEmit`
 
 ## 2026-08-13 (9) — Ops 세부 페이지는 콘솔로 복귀 + 한영 정리
 
