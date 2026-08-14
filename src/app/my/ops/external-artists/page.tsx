@@ -8,6 +8,7 @@ import {
   adminFetchExternalArtistBatch,
   adminMergeExternalArtists,
   adminSearchExternalArtistDuplicates,
+  formatAdminMergeExternalArtistsError,
   isOpsUser,
   type AdminExternalArtistDetail,
   type ExternalArtistDuplicateGroup,
@@ -94,11 +95,14 @@ export default function OpsExternalArtistsPage() {
     setBusy(false);
     setPendingKey(null);
     if (err) {
-      setError(String((err as { message?: string })?.message ?? err));
+      setError(formatAdminMergeExternalArtistsError(err));
       return;
     }
+    const dropped = data?.claims_dropped ?? 0;
     setNotice(
-      `Merged ${data?.source_count ?? sources.length} sources → target ${target.slice(0, 8)}… (${data?.claims_moved ?? 0} claims moved)`
+      `Merged ${data?.source_count ?? sources.length} sources → target ${target.slice(0, 8)}… (${data?.claims_moved ?? 0} claims moved${
+        dropped > 0 ? `, ${dropped} overlapping claim${dropped === 1 ? "" : "s"} dropped` : ""
+      })`
     );
     // refresh
     const { data: refreshed } = await adminSearchExternalArtistDuplicates();
@@ -156,7 +160,10 @@ export default function OpsExternalArtistsPage() {
           created before the global email dedupe hotfix (2026-07-28) or
           by name-only invites. Pick a survivor (target) in each group and
           confirm to move claims/artworks onto it. Sources are
-          soft-deleted (<code>status = &apos;merged&apos;</code>).
+          soft-deleted (<code>status = &apos;merged&apos;</code>). If
+          both rows already sit on the same exhibition, the source
+          exhibition claim is dropped and the target&apos;s claim is
+          kept.
         </p>
 
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
@@ -296,7 +303,7 @@ export default function OpsExternalArtistsPage() {
           title="Merge external artists?"
           description={
             pendingKey
-              ? `Merge ${(groupState[pendingKey]?.members?.length ?? 1) - 1} source row(s) into target ${(targets[pendingKey] ?? "").slice(0, 8)}…. Sources will be soft-deleted (status='merged') and their claims/artworks re-pointed to the target. This cannot be auto-undone.`
+              ? `Merge ${(groupState[pendingKey]?.members?.length ?? 1) - 1} source row(s) into target ${(targets[pendingKey] ?? "").slice(0, 8)}…. Sources will be soft-deleted (status='merged') and their claims/artworks re-pointed to the target. Overlapping exhibition claims are folded onto the target. This cannot be auto-undone.`
               : undefined
           }
           confirmLabel="Merge"

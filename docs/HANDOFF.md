@@ -2,6 +2,20 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (7) — External artist merge: overlapping exhibition claims
+
+> **Supabase SQL 적용 필요:** `supabase/migrations/20260814052248_admin_merge_external_artists_claim_collision.sql` — Dashboard SQL Editor에 **통째로 paste 후 Run**. PL/pgSQL 함수 1개뿐이라 섹션 분할 불필요.
+>
+> **환경 변수 변경 없음**
+
+### 변경 요약
+- `/my/ops/external-artists` 병합이 source·target 이 같은 전시에 이미 CURATED claim 을 갖고 있으면 `uq_claims_project_curated_ext` unique 위반으로 실패하던 버그 수정.
+- `admin_merge_external_artists` 가 claims 재지정 전에, target 과 겹치는 source CURATED(project-scope) / CREATED(work) claim 을 삭제하고 target 쪽을 유지. 삭제 건수는 `claims_dropped` 로 반환.
+- 성공 토스트에 dropped count 표시. unique 위반이 남으면 영어 안내 문장으로 매핑.
+
+### Verified
+- `npx tsc --noEmit`
+
 ## 2026-08-13 (6) — Workspace(/my) 운영진 전용 Ops 진입 블록
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
