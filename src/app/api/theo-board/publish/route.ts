@@ -33,6 +33,19 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+function isStatusColumnMissing(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  const code = error.code ?? "";
+  if (code === "42703" || code === "PGRST204") return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    msg.includes("status") &&
+    (msg.includes("does not exist") ||
+      msg.includes("schema cache") ||
+      msg.includes("could not find"))
+  );
+}
+
 export async function POST(req: Request) {
   const gate = requireTheoBoardPublish(req);
   if (!gate.ok) return gate.response;
@@ -83,6 +96,9 @@ export async function POST(req: Request) {
     published_at: publishedAt,
     expires_at: expiresAt,
     updated_at: now.toISOString(),
+    status: publishNow ? "approved" : "pending",
+    reviewed_at: publishNow ? now.toISOString() : null,
+    reviewed_by: null,
   };
 
   const { data, error } = await gate.supabase
@@ -92,8 +108,19 @@ export async function POST(req: Request) {
     .single();
 
   if (error || !data) {
+    const detail = error?.message ?? "unknown";
+    if (isStatusColumnMissing(error)) {
+      return NextResponse.json(
+        {
+          error: "migration_required",
+          detail:
+            "Apply supabase/migrations/20260815000000_theo_board_moderation.sql in the Dashboard SQL Editor (run by SECTION, do not paste the whole file).",
+        },
+        { status: 500 },
+      );
+    }
     return NextResponse.json(
-      { error: "insert_failed", detail: error?.message ?? "unknown" },
+      { error: "insert_failed", detail },
       { status: 500 },
     );
   }

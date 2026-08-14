@@ -2,6 +2,46 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (4) — 테오 보드 유저 제출·운영진 승인 + staff 역할
+
+> **Supabase SQL 적용 필요:** `supabase/migrations/20260815000000_theo_board_moderation.sql` — **섹션 단위로 highlight → Run** (한꺼번에 paste 금지). PL/pgSQL 함수가 여러 개라 Dashboard 토크나이저가 `;` 로 본문을 자를 수 있음.
+>
+> **환경 변수 변경 없음** (유저 세션 RPC). CLI 토큰 경로(`THEO_BOARD_PUBLISH_TOKEN` + service role)는 유지.
+>
+> **First admin:** 셀프 부트스트랩 없음. SQL로만 부여:
+>
+> ```sql
+> insert into platform_admins (profile_id, role, note)
+> values ('<uuid>', 'admin', 'founder');
+> -- 이미 행이 있으면:
+> update platform_admins set role = 'admin' where profile_id = '<uuid>';
+> ```
+
+### 배경
+보드 쓰기는 CLI 토큰만 열려 있었고, 공유 `theo_admin` 비밀번호는 쓰지
+않기로 했다. 스태프는 각자 Theo 로그인 + 기존 `platform_admins` 를
+역할 사다리로 확장한다.
+
+### 변경 요약
+- `platform_admins.role`: `moderator` < `ops` < `admin`. 기존 행은 `ops`
+  (external-artist merge / `is_ops_user()` 유지).
+- 유저 제출 타입: `event` | `community` | `news` | `promo`. Staff/CLI 는
+  `announcement` / `feature` 계속 가능.
+- 플로우: 제출 → `pending` → 운영진 승인 시 rail + `/theo-board` 라이브,
+  또는 사유와 함께 거절. 작성자는 `/theo-board/mine` 에서 철회.
+- RLS: 라이브 SELECT 에 `status='approved'` 추가. 유저 self-approve 불가.
+- RPCs: `theo_board_submit/list_mine/withdraw/list_queue/approve/reject`,
+  `is_staff_at_least`, `staff_list/grant/revoke`. 승인·거절·부여·회수·제출은
+  `ops_audit_log` 기록.
+- UI: `/theo-board/new`, `/theo-board/mine`, `/my/ops/board`,
+  `/my/ops/people` (skeleton — 설정 변경 없음), `/my/ops/staff`.
+- CLI `POST /api/theo-board/publish` 는 `status='approved'` 세팅. 컬럼
+  없으면 마이그레이션 적용을 안내하는 500.
+- Slack / 비밀번호 재설정 / 이메일 수정 없음.
+
+### Verified
+tsc + build.
+
 ## 2026-08-13 (3) — 테오 보드 초기 릴리즈 (스키마 + rail 실데이터 + 리스트/상세 + CLI 발행)
 
 > **환경 변수: Vercel에 `THEO_BOARD_PUBLISH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` 추가 필요.** `.env.example` 및 Runbook 갱신됨.

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ds/PageHeader";
 import { FilterChip } from "@/components/ds/FilterChip";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { useT } from "@/lib/i18n/useT";
+import { getSession } from "@/lib/supabase/auth";
 import { relativeTime } from "@/lib/time/relative";
 import {
   THEO_BOARD_TYPES,
@@ -79,6 +80,7 @@ export default function TheoBoardPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
 
   const load = useCallback(
     async (offset: number, append: boolean) => {
@@ -110,6 +112,16 @@ export default function TheoBoardPage() {
 
   useEffect(() => {
     let alive = true;
+    getSession().then(({ data: { session } }) => {
+      if (alive) setSignedIn(!!session);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
     setLoading(true);
     getTheoBoardPage({ offset: 0, limit: PAGE_LIMIT, type }).then(
       ({ data, error }) => {
@@ -137,6 +149,24 @@ export default function TheoBoardPage() {
         variant="plain"
         title={t("theoBoard.title")}
         lead={t("theoBoard.lead")}
+        actions={
+          signedIn ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Link
+                href="/theo-board/new"
+                className="rounded-full border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800"
+              >
+                {t("theoBoard.submitCta")}
+              </Link>
+              <Link
+                href="/theo-board/mine"
+                className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
+              >
+                {t("theoBoard.mySubmissions")}
+              </Link>
+            </div>
+          ) : null
+        }
       />
       <div className="mb-6 flex flex-wrap gap-2">
         <FilterChip active={type === null} onClick={() => setType(null)}>

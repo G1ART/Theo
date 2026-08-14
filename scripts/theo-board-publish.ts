@@ -20,7 +20,14 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { resolve } from "node:path";
 
-const TYPES = ["announcement", "event", "feature", "community", "news"] as const;
+const TYPES = [
+  "announcement",
+  "event",
+  "feature",
+  "community",
+  "news",
+  "promo",
+] as const;
 
 function loadEnvFile(path: string) {
   if (!existsSync(path)) return;

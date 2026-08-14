@@ -103,6 +103,24 @@ function OpsContent() {
         >
           External artist merge →
         </Link>
+        <Link
+          href="/my/ops/board"
+          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
+        >
+          {t("ops.hub.boardQueue")} →
+        </Link>
+        <Link
+          href="/my/ops/people"
+          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
+        >
+          {t("ops.hub.people")} →
+        </Link>
+        <Link
+          href="/my/ops/staff"
+          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
+        >
+          {t("ops.hub.staff")} →
+        </Link>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
