@@ -272,9 +272,12 @@ export function Header() {
       }
     }
     document.addEventListener("keydown", handleKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
       window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = prevOverflow;
     };
   }, [mobileOpen]);
 
@@ -415,8 +418,22 @@ export function Header() {
           </span>
         </div>
       )}
+      {/* Scrim under the hamburger sheet. Without this, a tap below the
+          panel lands on the feed/profile underneath (follow, artwork).
+          Pointer-down + preventDefault closes the menu and eats the tap. */}
+      {mobileOpen && (
+        <div
+          aria-hidden
+          className="lg:hidden fixed inset-0 z-40 bg-black/25"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeMobile();
+          }}
+        />
+      )}
       <header
-        className={`relative min-h-14 items-center justify-between border-b border-zinc-200 px-4 pt-[env(safe-area-inset-top)] ${
+        className={`relative z-50 min-h-14 items-center justify-between border-b border-zinc-200 px-4 pt-[env(safe-area-inset-top)] ${
           shellRoute ? "flex lg:hidden" : "flex"
         }`}
       >
