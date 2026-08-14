@@ -90,10 +90,7 @@ function extractSizePill(
   if (!inputHasUnit && (sizeUnit == null || sizeUnit === undefined)) return null;
   const formatted = formatSizeForLocale(size, locale, sizeUnit ?? null, pref);
   if (!formatted) return null;
-  const stripped = formatted
-    .replace(/^(?:약\s+|~)?\d+\s*[FPMSfpms]\s*·\s*/, "")
-    .trim();
-  return /\b(?:cm|in)\b/i.test(stripped) ? stripped : null;
+  return /\b(?:cm|in)\b/i.test(formatted) ? formatted : null;
 }
 
 export function ExploreArtworkCard({

@@ -54,6 +54,7 @@ import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
+import { createExternalArtist } from "@/lib/provenance/rpc";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
@@ -1310,7 +1311,11 @@ export default function BulkUploadPage() {
     if (ids.length === 0) return;
     const payload: UpdateArtworkPayload = {};
     if (field === "year") payload.year = typeof value === "number" ? value : parseInt(String(value), 10) || null;
-    else if (field === "medium") payload.medium = String(value ?? "");
+    else if (field === "medium") {
+      payload.medium = String(value ?? "");
+      if (locale === "ko") payload.medium_ko = String(value ?? "") || null;
+      else payload.medium_en = String(value ?? "") || null;
+    }
     else if (field === "ownership_status") payload.ownership_status = String(value ?? "");
     else if (field === "pricing_mode") payload.pricing_mode = value as "fixed" | "inquire";
     else if (field === "is_price_public") payload.is_price_public = Boolean(value);
@@ -1332,9 +1337,14 @@ export default function BulkUploadPage() {
     for (const id of ids) {
       const d = drafts.find((x) => x.id === id);
       const next = transformTitle(d?.title ?? null, titleBulkMode, titleBulkText, titleReplaceFrom, titleReplaceTo);
+      const titlePatch: UpdateArtworkPayload = {
+        title: next || d?.title || "Untitled",
+      };
+      if (locale === "ko") titlePatch.title_ko = next || d?.title || "Untitled";
+      else titlePatch.title_en = next || d?.title || "Untitled";
       await updateArtwork(
         id,
-        { title: next || d?.title || "Untitled" },
+        titlePatch,
         {
           actingSubjectProfileId: actingAsProfileId ?? null,
           auditAction: "bulk.artwork.update",
@@ -1516,6 +1526,24 @@ export default function BulkUploadPage() {
       let firstFailureReason: string | null = null;
 
       if (intent && needsAttribution) {
+        let resolvedExternalArtistId = useExternalArtist
+          ? preselectedExternalArtistId
+          : null;
+        if (useExternalArtist && !resolvedExternalArtistId) {
+          const { data: extId, error: extErr } = await createExternalArtist({
+            displayName: externalArtistName.trim(),
+            displayNameKo: externalArtistNameKo.trim() || null,
+            displayNameEn: externalArtistNameEn.trim() || null,
+            inviteEmail: externalArtistEmail.trim() || null,
+          });
+          if (extErr || !extId) {
+            logSupabaseError("createExternalArtist.bulkOnce", extErr);
+            setToast(formatSupabaseError(extErr, t, "artwork.errors.failedAddArtist"));
+            setTimeout(() => setToast(null), 4000);
+            return;
+          }
+          resolvedExternalArtistId = extId;
+        }
         const opts: Parameters<typeof publishArtworksWithProvenance>[1] = {
           intent,
           artistProfileId: selectedArtist?.id ?? null,
@@ -1530,11 +1558,9 @@ export default function BulkUploadPage() {
             ? externalArtistNameEn.trim() || null
             : null,
           externalArtistEmail: useExternalArtist ? externalArtistEmail.trim() || null : null,
-          // Phase 3-4 (QA 2026-07): when the operator re-selected an
-          // already-invited external artist from unified search, pass the
-          // id straight through so the server RPC skips name-dedupe and
-          // guarantees the exact same external_artists row is reused.
-          externalArtistId: useExternalArtist ? preselectedExternalArtistId : null,
+          // Resolve/create the external artist once per publish, then reuse
+          // that id on every work so we never mint one row per artwork.
+          externalArtistId: useExternalArtist ? resolvedExternalArtistId : null,
           // QA 2026-07-29 (Part A.5) — forward opt-in email consent.
           notifyOnInquiryViaEmail: useExternalArtist ? notifyOnInquiryViaEmail : undefined,
           // Drafts were created on behalf of the principal when acting-as;
@@ -1693,9 +1719,16 @@ export default function BulkUploadPage() {
 
   async function updateDraftField(id: string, field: string, value: unknown) {
     const payload: Record<string, unknown> = {};
-    if (field === "title") payload.title = String(value ?? "");
-    else if (field === "year") payload.year = typeof value === "number" ? value : (parseInt(String(value), 10) || null);
-    else if (field === "medium") payload.medium = String(value ?? "");
+    if (field === "title") {
+      payload.title = String(value ?? "");
+      if (locale === "ko") payload.title_ko = String(value ?? "") || null;
+      else payload.title_en = String(value ?? "") || null;
+    } else if (field === "year") payload.year = typeof value === "number" ? value : (parseInt(String(value), 10) || null);
+    else if (field === "medium") {
+      payload.medium = String(value ?? "");
+      if (locale === "ko") payload.medium_ko = String(value ?? "") || null;
+      else payload.medium_en = String(value ?? "") || null;
+    }
     else if (field === "size") payload.size = String(value ?? "").trim() || null;
     else if (field === "size_unit") payload.size_unit = value ? (String(value) as "cm" | "in") : null;
     else if (field === "ownership_status") payload.ownership_status = String(value ?? "");

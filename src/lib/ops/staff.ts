@@ -96,3 +96,52 @@ export async function revokeStaff(
   if (error) return { data: null, error };
   return { data: (data as Record<string, unknown> | null) ?? null, error: null };
 }
+
+/** Founder self-grant for henry@g-1.art. Fail-soft if the RPC is missing. */
+export async function claimFounder(): Promise<{
+  ok: boolean;
+  role: StaffRole | null;
+}> {
+  const { data, error } = await supabase.rpc("staff_claim_founder");
+  if (error || !data || typeof data !== "object") return { ok: false, role: null };
+  const row = data as { ok?: unknown; role?: unknown };
+  const roleRaw = typeof row.role === "string" ? row.role : "";
+  return {
+    ok: row.ok === true,
+    role: isStaffRole(roleRaw) ? roleRaw : null,
+  };
+}
+
+export type StaffLookupRow = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  email: string | null;
+};
+
+/** Admin-only people search. Fail-soft if the RPC is missing. */
+export async function lookupStaffCandidates(
+  q: string,
+  limit = 8,
+): Promise<{ data: StaffLookupRow[]; error: unknown }> {
+  const trimmed = q.trim();
+  if (!trimmed) return { data: [], error: null };
+  const { data, error } = await supabase.rpc("staff_lookup", {
+    p_q: trimmed,
+    p_limit: Math.min(20, Math.max(1, limit)),
+  });
+  if (error) return { data: [], error };
+  if (!Array.isArray(data)) return { data: [], error: null };
+  return {
+    data: data.map((r) => {
+      const row = r as Record<string, unknown>;
+      return {
+        id: String(row.id ?? ""),
+        username: (row.username as string | null) ?? null,
+        display_name: (row.display_name as string | null) ?? null,
+        email: (row.email as string | null) ?? null,
+      };
+    }),
+    error: null,
+  };
+}

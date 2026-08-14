@@ -55,12 +55,10 @@ import { Chip } from "@/components/ds";
  */
 function extractSizeBase(formatted: string | null): string | null {
   if (!formatted) return null;
-  const stripped = formatted
-    .replace(/^(?:약\s+|~)?\d+\s*[FPMSfpms]\s*·\s*/, "")
-    .trim();
-  if (!stripped) return null;
-  if (!/\b(?:cm|in)\b/i.test(stripped)) return null;
-  return stripped;
+  const trimmed = formatted.trim();
+  if (!trimmed) return null;
+  if (!/\b(?:cm|in)\b/i.test(trimmed)) return null;
+  return trimmed;
 }
 
 /**

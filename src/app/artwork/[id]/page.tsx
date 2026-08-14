@@ -783,6 +783,11 @@ function ArtworkDetailContent() {
             <h1 className="text-2xl font-semibold text-zinc-900">
               {pickLocalizedArtworkTitle(artwork, locale) || t("common.untitled")}
             </h1>
+            {artwork.title_ko?.trim() && artwork.title_en?.trim() ? (
+              <p className="mt-1 text-sm text-zinc-500">
+                {locale === "ko" ? artwork.title_en : artwork.title_ko}
+              </p>
+            ) : null}
             {isOwner && (
               <div className="mt-1">
                 <BilingualContextualNudge
@@ -863,6 +868,11 @@ function ArtworkDetailContent() {
                 .filter(Boolean)
                 .join(" · ")}
             </p>
+            {artwork.medium_ko?.trim() && artwork.medium_en?.trim() ? (
+              <p className="mt-0.5 text-sm text-zinc-400">
+                {locale === "ko" ? artwork.medium_en : artwork.medium_ko}
+              </p>
+            ) : null}
             {isOwner && (
               <div className="mt-1">
                 <BilingualContextualNudge

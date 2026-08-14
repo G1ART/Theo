@@ -30,6 +30,8 @@ import { ExhibitionReviewPanel } from "@/components/exhibition/ExhibitionReviewP
 import { CreateDelegationWizard } from "@/components/delegation/CreateDelegationWizard";
 import { ExhibitionDraftBanner } from "@/components/exhibitions/ExhibitionDraftBanner";
 import { ActingAsChip } from "@/components/ActingAsChip";
+import { createExternalArtist } from "@/lib/provenance/rpc";
+import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 
 const STATUS_OPTIONS = [
   { value: "planned", labelKey: "exhibition.statusPlanned" },
@@ -85,6 +87,10 @@ export default function EditExhibitionPage() {
   const [curatorResults, setCuratorResults] = useState<ProfileOption[]>([]);
   const [curatorSelected, setCuratorSelected] = useState<ProfileOption | null>(null);
   const [curatorSearching, setCuratorSearching] = useState(false);
+  const [inviteExternalCurator, setInviteExternalCurator] = useState(false);
+  const [externalCuratorName, setExternalCuratorName] = useState("");
+  const [externalCuratorEmail, setExternalCuratorEmail] = useState("");
+  const [existingExternalCuratorId, setExistingExternalCuratorId] = useState<string | null>(null);
   const [hostName, setHostName] = useState("");
   /** QA 2026-07-28 — 주최명 이중언어. 240004 트리거가 legacy 를 sync. */
   const [hostNameKo, setHostNameKo] = useState("");
@@ -172,11 +178,25 @@ export default function EditExhibitionPage() {
         setHostNameKo(data.host_name_ko ?? "");
         setHostNameEn(data.host_name_en ?? "");
         const effId = actingAsProfileId ?? myId;
-        if (data.curator_id === effId) {
+        if (data.external_curator_id) {
+          setCuratorMe(false);
+          setInviteExternalCurator(true);
+          setExistingExternalCuratorId(data.external_curator_id);
+          setExternalCuratorName(
+            pickLocalizedDisplayName(data.external_curator ?? {}, locale) ||
+              data.external_curator?.display_name ||
+              ""
+          );
+          setCuratorSelected(null);
+        } else if (data.curator_id === effId) {
           setCuratorMe(true);
           setCuratorSelected(null);
+          setInviteExternalCurator(false);
+          setExistingExternalCuratorId(null);
         } else {
           setCuratorMe(false);
+          setInviteExternalCurator(false);
+          setExistingExternalCuratorId(null);
           setCuratorSelected({
             id: data.curator_id,
             display_name: data.curator?.display_name ?? null,
@@ -247,7 +267,11 @@ export default function EditExhibitionPage() {
       title_en: titleEn,
     }) ?? (title.trim() || null);
     if (!id || !legacyTitle) return;
-    if (!curatorMe && !curatorSelected) {
+    if (
+      !curatorMe &&
+      !curatorSelected &&
+      !(inviteExternalCurator && (existingExternalCuratorId || externalCuratorName.trim().length >= 2))
+    ) {
       setError(t("common.pleaseSelectArtist") ?? "Please select or search for a curator.");
       return;
     }
@@ -257,7 +281,25 @@ export default function EditExhibitionPage() {
     }
     setSubmitting(true);
     setError(null);
-    const curatorId = curatorMe ? effectiveProfileId! : curatorSelected!.id;
+    let externalCuratorId: string | null = inviteExternalCurator
+      ? existingExternalCuratorId
+      : null;
+    if (!curatorMe && inviteExternalCurator && !curatorSelected && !externalCuratorId) {
+      const { data: extId, error: extErr } = await createExternalArtist({
+        displayName: externalCuratorName.trim(),
+        inviteEmail: externalCuratorEmail.trim() || null,
+      });
+      if (extErr || !extId) {
+        setSubmitting(false);
+        setError(formatSupabaseError(extErr, t, "artwork.errors.failedAddArtist"));
+        return;
+      }
+      externalCuratorId = extId;
+    }
+    const curatorId =
+      curatorMe || inviteExternalCurator
+        ? effectiveProfileId!
+        : curatorSelected!.id;
     const hostProfileId =
       hostProfileMode === "me"
         ? effectiveProfileId ?? null
@@ -281,6 +323,7 @@ export default function EditExhibitionPage() {
         end_date: endDate || null,
         status,
         curator_id: curatorId,
+        external_curator_id: externalCuratorId,
         host_name: legacyHost || hostName.trim() || null,
         host_name_ko: hostNameKo.trim() || null,
         host_name_en: hostNameEn.trim() || null,
@@ -564,6 +607,8 @@ export default function EditExhibitionPage() {
                       setCuratorSelected(null);
                       setCuratorSearch("");
                       setCuratorResults([]);
+                      setInviteExternalCurator(false);
+                      setExistingExternalCuratorId(null);
                     }}
                     className="rounded border-zinc-300"
                   />
@@ -618,6 +663,52 @@ export default function EditExhibitionPage() {
                     <p className="mt-1 text-xs text-zinc-600">
                       {t("common.selected")}: {formatDisplayName(curatorSelected)}
                     </p>
+                  )}
+                  {!curatorSelected &&
+                    curatorSearch.trim().length >= 2 &&
+                    !curatorSearching &&
+                    curatorResults.length === 0 &&
+                    !inviteExternalCurator && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInviteExternalCurator(true);
+                          setExternalCuratorName(curatorSearch.trim());
+                        }}
+                        className="mt-2 text-xs font-medium text-zinc-800 underline hover:text-zinc-600"
+                      >
+                        {t("exhibition.inviteCuratorCta")}
+                      </button>
+                    )}
+                  {inviteExternalCurator && (
+                    <div className="mt-3 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <p className="text-xs text-zinc-600">{t("exhibition.inviteCuratorHint")}</p>
+                      <input
+                        type="text"
+                        value={externalCuratorName}
+                        onChange={(e) => setExternalCuratorName(e.target.value)}
+                        placeholder={t("exhibition.inviteCuratorName")}
+                        className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="email"
+                        value={externalCuratorEmail}
+                        onChange={(e) => setExternalCuratorEmail(e.target.value)}
+                        placeholder={t("exhibition.inviteCuratorEmail")}
+                        className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInviteExternalCurator(false);
+                          setExternalCuratorEmail("");
+                          setExistingExternalCuratorId(null);
+                        }}
+                        className="text-xs text-zinc-500 underline"
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

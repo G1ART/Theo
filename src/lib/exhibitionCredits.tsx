@@ -23,6 +23,11 @@ type CreditProfile = {
 export type ExhibitionWithCredits = ExhibitionRow & {
   curator?: CreditProfile | null;
   host?: CreditProfile | null;
+  external_curator?: {
+    display_name?: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  } | null;
   /**
    * Optional count of works linked via `exhibition_works`. Populated by
    * listMyExhibitions so callers can render "임시 저장 / 예정" badges without
@@ -65,8 +70,14 @@ export function getExhibitionHostCuratorLabel(
 ): string {
   const { curator_id, host_profile_id, host_name } = exhibition;
   const samePerson =
-    curator_id != null && host_profile_id != null && curator_id === host_profile_id;
-  const curatorLabel = displayName(exhibition.curator ?? null, locale);
+    !exhibition.external_curator_id &&
+    curator_id != null &&
+    host_profile_id != null &&
+    curator_id === host_profile_id;
+  const externalCuratorName = exhibition.external_curator
+    ? pickLocalizedDisplayName(exhibition.external_curator, locale).trim()
+    : "";
+  const curatorLabel = externalCuratorName || displayName(exhibition.curator ?? null, locale);
   const hasHostProfile = host_profile_id != null && host_profile_id !== "";
   const hostLabelFromProfile = hasHostProfile
     ? displayName(exhibition.host ?? null, locale)
@@ -153,9 +164,17 @@ export function ExhibitionHostCuratorCredits({
 }): ReactElement {
   const { curator_id, host_profile_id, host_name } = exhibition;
   const samePerson =
-    curator_id != null && host_profile_id != null && curator_id === host_profile_id;
-  const curatorLabel = displayName(exhibition.curator ?? null, locale);
-  const curatorUsername = exhibition.curator?.username?.trim() || null;
+    !exhibition.external_curator_id &&
+    curator_id != null &&
+    host_profile_id != null &&
+    curator_id === host_profile_id;
+  const externalCuratorName = exhibition.external_curator
+    ? pickLocalizedDisplayName(exhibition.external_curator, locale).trim()
+    : "";
+  const curatorLabel = externalCuratorName || displayName(exhibition.curator ?? null, locale);
+  const curatorUsername = externalCuratorName
+    ? null
+    : exhibition.curator?.username?.trim() || null;
   const hasHostProfile = host_profile_id != null && host_profile_id !== "";
   const hostLabelFromProfile = hasHostProfile
     ? displayName(exhibition.host ?? null, locale)

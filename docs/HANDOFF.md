@@ -2,6 +2,27 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (5) — 운영진 인앱 부여(henry@g-1.art) + QA 업로드/사이즈/큐레이터/임포트
+
+> **SQL 적용 필요:** `supabase/migrations/20260816000000_staff_founder_and_lookup.sql` — **섹션 단위로 highlight → Run** (한꺼번에 paste 금지). `supabase/migrations/20260816000001_exhibition_external_curator.sql` 는 통째로 OK.
+>
+> **Founder seed + `staff_claim_founder`:** `henry@g-1.art` 를 admin 으로 시드하고, 마이그레이션 시점에 유저가 없어도 `/my/ops/staff` 오픈 시 해당 이메일만 self-grant.
+>
+> **Size:** KO view = 호수(있으면)+cm, EN view = inches. Preference `auto` 는 로케일. 입력 기본 단위는 KO=cm / EN=in, 토글은 숫자를 환산 (30×40 cm ↔ 11.8×15.7 in). 저장된 `artworks.size` 는 로케일만 바꿔도 다시 쓰지 않음.
+>
+> **환경 변수 변경 없음**
+
+### 변경 요약
+- `/my/ops/staff`: UUID 붙여넣기 제거. 이름/아이디/이메일 검색 → 선택 → Grant. Henry는 claim 후 admin.
+- 작품 편집: 이미 `external_artist_id` 가 있으면 새로 만들지 않고 claim 을 제자리 업데이트. 갤러리/큐레이터가 초대 수락 없이도 저장 가능.
+- 벌크: 외부 작가를 publish 당 한 번만 resolve/create 하고 그 id 를 모든 작품에 재사용. 초대 메일도 한 번.
+- 업로드/편집/벌크: `title_ko`/`title_en`(및 medium/story) 을 로케일과 무관하게 둘 다 persist. 상세는 다른 언어를 h1 아래 muted subtitle 로 표시 (피드 카드는 locale-first 유지).
+- 전시: `projects.external_curator_id` (nullable). 검색 미스 시 「초대로 추가」. `curator_id` 는 운영자 유지.
+- 웹사이트 임포트: 후보 0건이면 `no_html_images` | `all_filtered` | `fetch_blocked` | `js_shell` + Wix(g-1.art) 정직한 안내. 일반 업로드는 막지 않음.
+
+### Verified
+tsc + build + `test:size-display` + `test:size-unit-toggle`.
+
 ## 2026-08-13 (4) — 테오 보드 유저 제출·운영진 승인 + staff 역할
 
 > **Supabase SQL 적용 필요:** `supabase/migrations/20260815000000_theo_board_moderation.sql` — **섹션 단위로 highlight → Run** (한꺼번에 paste 금지). PL/pgSQL 함수가 여러 개라 Dashboard 토크나이저가 `;` 로 본문을 자를 수 있음.

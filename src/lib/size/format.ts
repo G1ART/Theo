@@ -43,17 +43,31 @@ export function resolveViewUnit(
 }
 
 /**
- * Rewrite the trailing unit of a size string so the upload form's
- * "cm / in" toggle is round-trippable with `parseSizeWithUnit`.
- *
- * Conservative & idempotent:
- *   - Hosu strings (e.g. "30F ...") are cm-anchored → left untouched.
- *   - "30 x 40 cm" → toggling to `in` yields "30 × 40 in" (declares
- *     intent; does NOT numerically convert the typed values).
- *   - Unit-less "30 x 40" gets the unit appended.
- *   - Anything that doesn't look like WxH dims is returned as-is so we
- *     never destroy free-form notes.
+ * Numerically convert a size string to `toUnit` via a cm pivot.
+ * Hosu strings stay cm-anchored (unchanged). Free-form notes are
+ * returned as-is. Used by upload / edit unit toggles.
  */
+export function convertSizeString(size: string, toUnit: SizeUnit): string {
+  const raw = size.trim();
+  if (!raw) return raw;
+  if (/^\s*\d+\s*[FPMS]\b/.test(raw)) return raw;
+  const parsed = parseSizeWithUnit(raw);
+  if (!parsed) return raw;
+  const { widthCm, heightCm } = parsed.parsed;
+  let wCm = widthCm;
+  let hCm = heightCm;
+  // Unitless numbers are treated as the unit we are leaving (the opposite
+  // of `toUnit`) so EN "30 × 40" + toggle-to-cm becomes 76.2 × 101.6 cm.
+  if (parsed.unit == null && toUnit === "cm") {
+    wCm = inToCm(widthCm);
+    hCm = inToCm(heightCm);
+  }
+  if (toUnit === "in") {
+    return `${round1(cmToIn(wCm))} × ${round1(cmToIn(hCm))} in`;
+  }
+  return `${round1(wCm)} × ${round1(hCm)} cm`;
+}
+
 export function setSizeUnitSuffix(size: string, unit: SizeUnit): string {
   const raw = size.trim();
   if (!raw) return raw;

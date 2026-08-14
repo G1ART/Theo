@@ -67,6 +67,12 @@ export type WebsiteImportMatchRow = {
   error_code?: WebsiteImportMatchErrorCode | null;
 };
 
+export type WebsiteImportEmptyReason =
+  | "no_html_images"
+  | "all_filtered"
+  | "fetch_blocked"
+  | "js_shell";
+
 export type WebsiteImportScanMeta = {
   pages_fetched: number;
   pages_queued_cap: number;
@@ -75,4 +81,6 @@ export type WebsiteImportScanMeta = {
   candidates_parsed_count?: number;
   /** Non-fatal crawl caveats for UI (e.g. near_candidate_cap). */
   warnings?: string[];
+  /** Why a successful crawl produced 0 candidates. */
+  empty_reason?: WebsiteImportEmptyReason;
 };

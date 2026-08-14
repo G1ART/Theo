@@ -233,6 +233,77 @@ function bestSrcsetUrl(srcset: string, pageUrl: string, originHostname: string):
   return null;
 }
 
+function looksLikeJsShell(html: string): boolean {
+  const imgCount = (html.match(/<img[\s>]/gi) ?? []).length;
+  const scriptCount = (html.match(/<script\b/gi) ?? []).length;
+  const wix = /wixstatic|wix-warmup|_wixCIDX|wix-thunderbolt|data-wix/i.test(html);
+  const spa = /__NEXT_DATA__|id="__next"|id="root"|data-reactroot/i.test(html);
+  const textLen = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .trim().length;
+  return imgCount === 0 && (scriptCount >= 8 || wix || spa || textLen < 200);
+}
+
+function collectStructuredImageUrls(
+  $: cheerio.CheerioAPI,
+  pageUrl: string,
+  originHostname: string,
+): string[] {
+  const urls: string[] = [];
+  const push = (raw: string | undefined) => {
+    if (!raw || raw.startsWith("data:")) return;
+    const abs = resolveUrl(pageUrl, firstUrlToken(raw));
+    if (!abs) return;
+    try {
+      assertFetchableImageUrl(abs, originHostname);
+    } catch {
+      return;
+    }
+    urls.push(abs.toString());
+  };
+
+  $(
+    'meta[property="og:image"], meta[property="og:image:url"], meta[name="og:image"], meta[name="twitter:image"]',
+  ).each((_, el) => {
+    push($(el).attr("content"));
+  });
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const raw = $(el).contents().text();
+    if (!raw.trim()) return;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      walkJsonLdImages(parsed, push);
+    } catch {
+      /* ignore malformed json-ld */
+    }
+  });
+
+  return [...new Set(urls)];
+}
+
+function walkJsonLdImages(node: unknown, push: (raw: string | undefined) => void): void {
+  if (!node) return;
+  if (Array.isArray(node)) {
+    for (const item of node) walkJsonLdImages(item, push);
+    return;
+  }
+  if (typeof node !== "object") return;
+  const obj = node as Record<string, unknown>;
+  const type = obj["@type"];
+  const types = Array.isArray(type) ? type.map(String) : type ? [String(type)] : [];
+  if (types.some((t) => /imageobject/i.test(t))) {
+    const url = obj.url ?? obj.contentUrl;
+    if (typeof url === "string") push(url);
+  }
+  const image = obj.image;
+  if (typeof image === "string") push(image);
+  else if (image) walkJsonLdImages(image, push);
+  if (obj["@graph"]) walkJsonLdImages(obj["@graph"], push);
+}
+
 function collectImgUrls(
   $: cheerio.CheerioAPI,
   el: AnyNode,
@@ -299,9 +370,16 @@ async function extractCandidatesFromPage(
   html: string,
   pageUrl: string,
   originHostname: string,
-): Promise<Omit<WebsiteImportCandidate, "id" | "dhash_hex">[]> {
+): Promise<{
+  found: Omit<WebsiteImportCandidate, "id" | "dhash_hex">[];
+  rawImageCount: number;
+  skippedCount: number;
+  jsShell: boolean;
+}> {
   const $ = cheerio.load(html);
   const found: Omit<WebsiteImportCandidate, "id" | "dhash_hex">[] = [];
+  let rawImageCount = 0;
+  let skippedCount = 0;
 
   $("img").each((_, el) => {
     const $el = $(el);
@@ -309,8 +387,12 @@ async function extractCandidatesFromPage(
     const hAttr = parseInt($el.attr("height") || "", 10);
     const alt = ($el.attr("alt") || "").trim() || null;
     const urls = collectImgUrls($, el, pageUrl, originHostname);
+    rawImageCount += 1;
     const absStr = pickDisplayUrl(urls, alt ?? "", wAttr, hAttr);
-    if (!absStr) return;
+    if (!absStr) {
+      skippedCount += 1;
+      return;
+    }
 
     const $fig = $el.closest("figure");
     const cap = $fig.find("figcaption").first().text().trim() || null;
@@ -333,7 +415,34 @@ async function extractCandidatesFromPage(
     });
   });
 
-  return found;
+  const structured = collectStructuredImageUrls($, pageUrl, originHostname);
+  for (const image_url of structured) {
+    rawImageCount += 1;
+    if (found.some((c) => c.image_url === image_url)) continue;
+    try {
+      if (shouldSkipImageUrl(new URL(image_url), "", 0, 0)) {
+        skippedCount += 1;
+        continue;
+      }
+    } catch {
+      skippedCount += 1;
+      continue;
+    }
+    found.push({
+      page_url: pageUrl,
+      image_url,
+      alt_text: null,
+      caption_blob: null,
+      parsed: parseMetadataLine(null),
+    });
+  }
+
+  return {
+    found,
+    rawImageCount,
+    skippedCount,
+    jsShell: looksLikeJsShell(html),
+  };
 }
 
 async function hashCandidateImage(
@@ -394,6 +503,10 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
   const queue: string[] = [startUrl.toString()];
   const candidatesMap = new Map<string, Omit<WebsiteImportCandidate, "id" | "dhash_hex">>();
   let pagesFetched = 0;
+  let fetchFailures = 0;
+  let rawImageCount = 0;
+  let skippedCount = 0;
+  let jsShellHits = 0;
 
   try {
     while (queue.length > 0 && pagesFetched < MAX_PAGES && seenPages.size < MAX_QUEUE) {
@@ -416,12 +529,15 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
             for (const u of prioritizeLinks(links)) {
               if (!seenPages.has(u) && queue.length + seenPages.size < MAX_QUEUE) queue.push(u);
             }
-            const cands = await extractCandidatesFromPage(html, pageUrlStr, originHostname);
-            for (const c of cands) {
+            const extracted = await extractCandidatesFromPage(html, pageUrlStr, originHostname);
+            rawImageCount += extracted.rawImageCount;
+            skippedCount += extracted.skippedCount;
+            if (extracted.jsShell) jsShellHits += 1;
+            for (const c of extracted.found) {
               if (!candidatesMap.has(c.image_url)) candidatesMap.set(c.image_url, c);
             }
           } catch {
-            /* skip page */
+            fetchFailures += 1;
           }
         }),
       );
@@ -469,6 +585,14 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
     warnings.push("near_candidate_cap");
   }
 
+  let empty_reason: WebsiteImportScanMeta["empty_reason"];
+  if (hashed.length === 0) {
+    if (pagesFetched === 0 && fetchFailures > 0) empty_reason = "fetch_blocked";
+    else if (jsShellHits > 0 && rawImageCount === 0) empty_reason = "js_shell";
+    else if (rawImageCount === 0) empty_reason = "no_html_images";
+    else empty_reason = "all_filtered";
+  }
+
   return {
     ok: true,
     candidates: hashed,
@@ -478,6 +602,7 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
       origin_hostname: originHostname,
       candidates_parsed_count: parsedCount,
       warnings: warnings.length ? warnings : undefined,
+      empty_reason,
     },
   };
 }

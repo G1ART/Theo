@@ -665,7 +665,21 @@ export function WebsiteImportPanel(props: {
               ) : null}
             </section>
           ) : scanDone && candidates.length === 0 ? (
-            <p className="text-sm text-amber-800">{t("bulk.wi.scanNoImages")}</p>
+            <div className="space-y-1 text-sm text-amber-800">
+              <p>
+                {scanMeta?.empty_reason === "fetch_blocked"
+                  ? t("bulk.wi.empty.fetch_blocked")
+                  : scanMeta?.empty_reason === "js_shell"
+                    ? t("bulk.wi.empty.js_shell")
+                    : scanMeta?.empty_reason === "all_filtered"
+                      ? t("bulk.wi.empty.all_filtered")
+                      : t("bulk.wi.empty.no_html_images")}
+              </p>
+              {(scanMeta?.origin_hostname?.includes("g-1.art") ||
+                scanMeta?.origin_hostname?.includes("wix")) && (
+                <p className="text-xs text-amber-900/90">{t("bulk.wi.empty.wixHint")}</p>
+              )}
+            </div>
           ) : null}
 
           {scanDone && candidates.length > 0 ? (

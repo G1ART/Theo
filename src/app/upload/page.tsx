@@ -45,7 +45,7 @@ import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftBu
 import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
-import { parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
+import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
@@ -1541,7 +1541,7 @@ function UploadPageContent() {
                     aria-pressed={sizeUnit === u}
                     onClick={() => {
                       setSizeUnit(u);
-                      setSize((prev) => setSizeUnitSuffix(prev, u));
+                      setSize((prev) => convertSizeString(prev, u));
                     }}
                     className={`rounded border px-3 text-xs font-medium ${
                       sizeUnit === u

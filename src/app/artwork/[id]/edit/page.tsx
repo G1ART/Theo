@@ -24,13 +24,16 @@ import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
-import { parseSizeWithUnit, setSizeUnitSuffix, type SizeUnit } from "@/lib/size/format";
+import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { ArtworkFieldVisibilityPanel } from "@/components/visibility/ArtworkFieldVisibilityPanel";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
+import { supabase } from "@/lib/supabase/client";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -81,8 +84,12 @@ function EditArtworkContent() {
 
   // Base form
   const [title, setTitle] = useState("");
+  const [titleKo, setTitleKo] = useState("");
+  const [titleEn, setTitleEn] = useState("");
   const [year, setYear] = useState("");
   const [medium, setMedium] = useState("");
+  const [mediumKo, setMediumKo] = useState("");
+  const [mediumEn, setMediumEn] = useState("");
   const [size, setSize] = useState("");
   // Explicit unit the artist declares (source of truth for size_unit).
   const [sizeUnit, setSizeUnit] = useState<SizeUnit>(locale.startsWith("ko") ? "cm" : "in");
@@ -90,6 +97,8 @@ function EditArtworkContent() {
   const [hosuType, setHosuType] = useState<"F" | "P" | "M" | "S" | "">("");
   const [hosuWarning, setHosuWarning] = useState<string | null>(null);
   const [story, setStory] = useState("");
+  const [storyKo, setStoryKo] = useState("");
+  const [storyEn, setStoryEn] = useState("");
   const [ownershipStatus, setOwnershipStatus] = useState("available");
   const [pricingMode, setPricingMode] = useState<"fixed" | "inquire">("fixed");
   const [priceCurrency, setPriceCurrency] = useState("USD");
@@ -161,8 +170,20 @@ function EditArtworkContent() {
       setArtwork(a);
       if (a) {
         setTitle(a.title ?? "");
+        setTitleKo(a.title_ko ?? "");
+        setTitleEn(a.title_en ?? "");
+        if (!a.title_ko && !a.title_en && a.title) {
+          if (locale === "ko") setTitleKo(a.title);
+          else setTitleEn(a.title);
+        }
         setYear(String(a.year ?? ""));
         setMedium(a.medium ?? "");
+        setMediumKo(a.medium_ko ?? "");
+        setMediumEn(a.medium_en ?? "");
+        if (!a.medium_ko && !a.medium_en && a.medium) {
+          if (locale === "ko") setMediumKo(a.medium);
+          else setMediumEn(a.medium);
+        }
         setSize(a.size ?? "");
         // Seed the unit selector from the stored column, else from an
         // explicit unit embedded in the size text.
@@ -175,6 +196,12 @@ function EditArtworkContent() {
           }
         }
         setStory(a.story ?? "");
+        setStoryKo(a.story_ko ?? "");
+        setStoryEn(a.story_en ?? "");
+        if (!a.story_ko && !a.story_en && a.story) {
+          if (locale === "ko") setStoryKo(a.story);
+          else setStoryEn(a.story);
+        }
         setOwnershipStatus(a.ownership_status ?? "available");
         setPricingMode((a.pricing_mode as "fixed" | "inquire") ?? "fixed");
         setPriceCurrency(a.price_input_currency ?? "USD");
@@ -241,6 +268,14 @@ function EditArtworkContent() {
       setError(t("artwork.validation.invalidYear"));
       return;
     }
+    if (!titleKo.trim() && !titleEn.trim() && !title.trim()) {
+      setError(t("artwork.field.titlePlaceholder"));
+      return;
+    }
+    if (!mediumKo.trim() && !mediumEn.trim() && !medium.trim()) {
+      setError(t("artwork.field.mediumPlaceholder"));
+      return;
+    }
     if (needsArtistLink) {
       if (useExternalArtist) {
         if (!externalArtistName.trim()) {
@@ -267,13 +302,28 @@ function EditArtworkContent() {
     let inviteSent = false;
     let inviteSendFailed = false;
     const sizeTrimmed = size.trim();
+    const legacyTitle =
+      pickLegacyForSave(titleKo || null, titleEn || null) ?? title.trim() ?? "";
+    const legacyMedium =
+      pickLegacyForSave(mediumKo || null, mediumEn || null) ??
+      medium.trim() ??
+      "";
+    const legacyStory =
+      pickLegacyForSave(storyKo || null, storyEn || null) ??
+      (story.trim() || null);
     const payload: UpdateArtworkPayload = {
-      title: title.trim() || null,
+      title: legacyTitle || title.trim() || null,
+      title_ko: titleKo.trim() || null,
+      title_en: titleEn.trim() || null,
       year: yearNum,
-      medium: medium.trim() || null,
+      medium: legacyMedium || medium.trim() || null,
+      medium_ko: mediumKo.trim() || null,
+      medium_en: mediumEn.trim() || null,
       size: sizeTrimmed || null,
       size_unit: sizeTrimmed ? sizeUnit : null,
-      story: story.trim() || null,
+      story: legacyStory || story.trim() || null,
+      story_ko: storyKo.trim() || null,
+      story_en: storyEn.trim() || null,
       ownership_status: ownershipStatus,
       pricing_mode: pricingMode,
       is_price_public: pricingMode === "fixed" ? isPricePublic : false,
@@ -335,14 +385,27 @@ function EditArtworkContent() {
       }
     } else if (useExternalArtist) {
       if (myClaim?.id) {
-        const { data: extId, error: extErr } = await createExternalArtist({
-          displayName: externalArtistName.trim(),
-          inviteEmail: externalArtistEmail.trim() || null,
-        });
-        if (extErr || !extId) {
-          setError(formatSupabaseError(extErr, t, "artwork.errors.failedAddArtist"));
-          setSaving(false);
-          return;
+        const existingExtId = myClaim.external_artist_id ?? null;
+        let extId = existingExtId;
+        if (!existingExtId) {
+          const { data: createdId, error: extErr } = await createExternalArtist({
+            displayName: externalArtistName.trim(),
+            inviteEmail: externalArtistEmail.trim() || null,
+          });
+          if (extErr || !createdId) {
+            setError(formatSupabaseError(extErr, t, "artwork.errors.failedAddArtist"));
+            setSaving(false);
+            return;
+          }
+          extId = createdId;
+        } else {
+          const name = externalArtistName.trim();
+          if (name) {
+            await supabase
+              .from("external_artists")
+              .update({ display_name: name })
+              .eq("id", existingExtId);
+          }
         }
         const { error: claimErr } = await updateClaim(myClaim.id, {
           claim_type: claimType,
@@ -354,7 +417,7 @@ function EditArtworkContent() {
           setSaving(false);
           return;
         }
-        if (externalArtistEmail?.trim()) {
+        if (!existingExtId && externalArtistEmail?.trim()) {
           const email = externalArtistEmail.trim();
           const { error: inviteErr } = await sendMagicLink(email);
           inviteSent = !inviteErr;
@@ -479,14 +542,22 @@ function EditArtworkContent() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">{t("artwork.field.title")} *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              placeholder={t("artwork.field.titlePlaceholder")}
-              className="w-full rounded border border-zinc-300 px-3 py-2"
+            <BilingualFieldPair
+              label={`${t("artwork.field.title")} *`}
+              addKoKey="bilingual.addKoTitle"
+              addEnKey="bilingual.addEnTitle"
+              placeholderKo={t("artwork.field.titlePlaceholder")}
+              placeholderEn={t("artwork.field.titlePlaceholder")}
+              valueKo={titleKo}
+              valueEn={titleEn}
+              onChangeKo={(v) => {
+                setTitleKo(v);
+                if (locale === "ko") setTitle(v);
+              }}
+              onChangeEn={(v) => {
+                setTitleEn(v);
+                if (locale !== "ko") setTitle(v);
+              }}
             />
           </div>
           <div>
@@ -503,17 +574,22 @@ function EditArtworkContent() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">{t("artwork.field.medium")} *</label>
-            {/* QA 2026-06-26 (#4) — datalist suggestions from the
-                canonical taxonomy. Free-form input is preserved. */}
-            <input
-              type="text"
-              value={medium}
-              onChange={(e) => setMedium(e.target.value)}
-              required
-              placeholder={t("artwork.field.mediumPlaceholder")}
-              list="edit-medium-suggestions"
-              className="w-full rounded border border-zinc-300 px-3 py-2"
+            <BilingualFieldPair
+              label={`${t("artwork.field.medium")} *`}
+              addKoKey="bilingual.addKoMedium"
+              addEnKey="bilingual.addEnMedium"
+              placeholderKo={t("artwork.field.mediumPlaceholder")}
+              placeholderEn={t("artwork.field.mediumPlaceholder")}
+              valueKo={mediumKo}
+              valueEn={mediumEn}
+              onChangeKo={(v) => {
+                setMediumKo(v);
+                if (locale === "ko") setMedium(v);
+              }}
+              onChangeEn={(v) => {
+                setMediumEn(v);
+                if (locale !== "ko") setMedium(v);
+              }}
             />
             <datalist id="edit-medium-suggestions">
               {TAXONOMY.mediumOptions.map((opt) => (
@@ -523,6 +599,7 @@ function EditArtworkContent() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">{t("artwork.field.size")} *</label>
+            {locale === "ko" && (
             <div className="mb-2 flex flex-wrap items-center gap-3">
               <span className="text-xs text-zinc-500">{t("artwork.size.hosu")}</span>
               <input
@@ -571,6 +648,7 @@ function EditArtworkContent() {
                 <p className="mt-1 text-xs text-amber-700">{hosuWarning}</p>
               )}
             </div>
+            )}
             <div className="flex items-stretch gap-2">
               <input
                 type="text"
@@ -593,7 +671,7 @@ function EditArtworkContent() {
                   aria-pressed={sizeUnit === u}
                   onClick={() => {
                     setSizeUnit(u);
-                    setSize((prev) => setSizeUnitSuffix(prev, u));
+                    setSize((prev) => convertSizeString(prev, u));
                   }}
                   className={`rounded border px-3 text-xs font-medium ${
                     sizeUnit === u
@@ -607,20 +685,32 @@ function EditArtworkContent() {
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">{t("artwork.field.story")}</label>
-            <textarea
-              value={story}
-              onChange={(e) => {
-                const next = e.target.value;
-                setStory(next.length > STORY_MAX_LEN ? next.slice(0, STORY_MAX_LEN) : next);
-              }}
-              placeholder={t("artwork.field.storyPlaceholder")}
+            <BilingualFieldPair
+              label={t("artwork.field.story")}
+              addKoKey="bilingual.addKoStory"
+              addEnKey="bilingual.addEnStory"
+              placeholderKo={t("artwork.field.storyPlaceholder")}
+              placeholderEn={t("artwork.field.storyPlaceholder")}
+              as="textarea"
               rows={4}
-              maxLength={STORY_MAX_LEN}
-              className="w-full rounded border border-zinc-300 px-3 py-2"
+              valueKo={storyKo}
+              valueEn={storyEn}
+              onChangeKo={(v) => {
+                const next = v.length > STORY_MAX_LEN ? v.slice(0, STORY_MAX_LEN) : v;
+                setStoryKo(next);
+                if (locale === "ko") setStory(next);
+              }}
+              onChangeEn={(v) => {
+                const next = v.length > STORY_MAX_LEN ? v.slice(0, STORY_MAX_LEN) : v;
+                setStoryEn(next);
+                if (locale !== "ko") setStory(next);
+              }}
             />
             <p className="mt-1 text-right text-xs text-zinc-500">
-              {t("artwork.story.charCount").replace("{count}", String(story.length))}
+              {t("artwork.story.charCount").replace(
+                "{count}",
+                String((locale === "ko" ? storyKo : storyEn).length)
+              )}
             </p>
           </div>
           <div>

@@ -121,8 +121,9 @@ pages show the no-access copy.
 - `/my/ops/board` — moderator+. Tabs pending / rejected / approved.
 - `/my/ops/people` — ops+. Skeleton only (lookup stays on `/my/ops`;
   settings mutation is not enabled). No password reset or email edit.
-- `/my/ops/staff` — admin. Grant (profile UUID + role + note) / revoke
-  with last-admin protection.
+- `/my/ops/staff` — admin. Search people (name / username / email) then
+  grant role + note / revoke with last-admin protection. Founder
+  `henry@g-1.art` self-grants via `staff_claim_founder`.
 
 ## Follow-ups (not this release)
 

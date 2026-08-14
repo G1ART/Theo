@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 
 (async () => {
-  const { setSizeUnitSuffix, detectSizeUnit, parseSizeWithUnit } = await import(
+  const { setSizeUnitSuffix, detectSizeUnit, parseSizeWithUnit, convertSizeString } = await import(
     "../src/lib/size/format"
   );
 
@@ -34,6 +34,13 @@ import assert from "node:assert/strict";
   const p = parseSizeWithUnit(v);
   assert.ok(p, "round-trip parse must succeed");
   assert.equal(p!.unit, "in");
+
+  assert.equal(convertSizeString("30 x 40 cm", "in"), "11.8 × 15.7 in");
+  assert.equal(convertSizeString("11.8 x 15.7 in", "cm"), "30 × 39.9 cm");
+  assert.equal(convertSizeString("30 x 40", "in"), "11.8 × 15.7 in");
+  const hosuConvert = "30F (90.9 x 72.7 cm)";
+  assert.equal(convertSizeString(hosuConvert, "in"), hosuConvert);
+  assert.equal(convertSizeString("notes about scale", "in"), "notes about scale");
 
   console.log("size-unit-toggle.test.ts: ok");
 })().catch((err) => {

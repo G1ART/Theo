@@ -7,16 +7,25 @@ import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
 import { useT } from "@/lib/i18n/useT";
 import {
   STAFF_ROLES,
+  claimFounder,
   grantStaff,
   isStaffAtLeast,
   listStaff,
+  lookupStaffCandidates,
   revokeStaff,
+  type StaffLookupRow,
   type StaffRole,
   type StaffRow,
 } from "@/lib/ops/staff";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function personLabel(row: { display_name?: string | null; username?: string | null }) {
+  const name = row.display_name?.trim();
+  const user = row.username?.trim();
+  if (name && user) return `${name} @${user}`;
+  if (name) return name;
+  if (user) return `@${user}`;
+  return "—";
+}
 
 function StaffContent() {
   const { t } = useT();
@@ -25,7 +34,10 @@ function StaffContent() {
   const [rows, setRows] = useState<StaffRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [profileId, setProfileId] = useState("");
+  const [query, setQuery] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [candidates, setCandidates] = useState<StaffLookupRow[]>([]);
+  const [selected, setSelected] = useState<StaffLookupRow | null>(null);
   const [role, setRole] = useState<StaffRole>("moderator");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,6 +56,8 @@ function StaffContent() {
 
   useEffect(() => {
     void (async () => {
+      // Founder claim is silent. Fail-soft if the RPC is not applied yet.
+      await claimFounder();
       const ok = await isStaffAtLeast("admin");
       setAllowed(ok);
       setChecking(false);
@@ -51,23 +65,45 @@ function StaffContent() {
     })();
   }, [refresh]);
 
-  async function handleGrant(e: FormEvent) {
-    e.preventDefault();
-    const id = profileId.trim();
-    if (!UUID_RE.test(id)) {
-      setError(t("ops.staff.invalidUuid"));
+  useEffect(() => {
+    if (!allowed) return;
+    const q = query.trim();
+    if (q.length < 2) {
+      setCandidates([]);
+      setLookupBusy(false);
       return;
     }
+    setLookupBusy(true);
+    const tm = setTimeout(() => {
+      void (async () => {
+        const { data, error: err } = await lookupStaffCandidates(q);
+        setLookupBusy(false);
+        if (err) {
+          setError(t("ops.staff.lookupError"));
+          setCandidates([]);
+          return;
+        }
+        setCandidates(data.filter((r) => r.id));
+      })();
+    }, 250);
+    return () => clearTimeout(tm);
+  }, [allowed, query, t]);
+
+  async function handleGrant(e: FormEvent) {
+    e.preventDefault();
+    if (!selected?.id) return;
     setBusy(true);
     setError(null);
-    const { error: err } = await grantStaff(id, role, note.trim() || null);
+    const { error: err } = await grantStaff(selected.id, role, note.trim() || null);
     setBusy(false);
     if (err) {
       setError(String((err as { message?: string })?.message ?? err));
       return;
     }
     setNotice(t("ops.staff.grantedNotice"));
-    setProfileId("");
+    setSelected(null);
+    setQuery("");
+    setCandidates([]);
     setNote("");
     await refresh();
   }
@@ -129,16 +165,6 @@ function StaffContent() {
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
       {notice && <p className="mb-4 text-sm text-emerald-700">{notice}</p>}
 
-      {rows.length === 0 && (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          <p className="font-medium">{t("ops.staff.firstAdminTitle")}</p>
-          <p className="mt-1 text-amber-900">{t("ops.staff.firstAdminHint")}</p>
-          <pre className="mt-3 overflow-x-auto rounded-lg bg-white px-3 py-2 text-[11px] text-zinc-700">
-            {`insert into platform_admins (profile_id, role, note)\nvalues ('<uuid>', 'admin', 'founder');`}
-          </pre>
-        </div>
-      )}
-
       <form
         onSubmit={(e) => void handleGrant(e)}
         className="mb-6 space-y-3 rounded-2xl border border-zinc-200 bg-white p-4"
@@ -146,16 +172,55 @@ function StaffContent() {
         <p className="text-sm font-medium text-zinc-800">{t("ops.staff.grant")}</p>
         <label className="block">
           <span className="mb-1 block text-xs text-zinc-600">
-            {t("ops.staff.profileId")}
+            {t("ops.staff.searchLabel")}
           </span>
           <input
-            type="text"
-            value={profileId}
-            onChange={(e) => setProfileId(e.target.value)}
-            placeholder="00000000-0000-0000-0000-000000000000"
-            className="w-full rounded border border-zinc-300 px-3 py-2 font-mono text-sm"
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelected(null);
+            }}
+            placeholder={t("ops.staff.searchPlaceholder")}
+            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+            autoComplete="off"
           />
         </label>
+        {lookupBusy && (
+          <p className="text-xs text-zinc-500">{t("common.loading")}</p>
+        )}
+        {!selected && candidates.length > 0 && (
+          <ul className="max-h-48 overflow-auto rounded border border-zinc-200 bg-white text-sm">
+            {candidates.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelected(p);
+                    setQuery("");
+                    setCandidates([]);
+                  }}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-zinc-50"
+                >
+                  <span className="font-medium text-zinc-800">
+                    {personLabel(p)}
+                  </span>
+                  {p.email && (
+                    <span className="ml-2 truncate text-[11px] text-zinc-400">
+                      {p.email}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {selected && (
+          <p className="text-sm text-zinc-700">
+            {t("ops.staff.selectedPerson")}:{" "}
+            <span className="font-medium">{personLabel(selected)}</span>
+          </p>
+        )}
         <label className="block">
           <span className="mb-1 block text-xs text-zinc-600">
             {t("ops.staff.role")}
@@ -185,7 +250,7 @@ function StaffContent() {
         </label>
         <button
           type="submit"
-          disabled={busy || !profileId.trim()}
+          disabled={busy || !selected}
           className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
         >
           {t("ops.staff.grant")}
@@ -212,9 +277,6 @@ function StaffContent() {
                   {r.username && (
                     <p className="text-[11px] text-zinc-400">@{r.username}</p>
                   )}
-                  <p className="font-mono text-[10px] text-zinc-400">
-                    {r.profile_id}
-                  </p>
                 </td>
                 <td className="px-3 py-2 text-zinc-700">
                   {t(`ops.staff.role.${r.role}`)}

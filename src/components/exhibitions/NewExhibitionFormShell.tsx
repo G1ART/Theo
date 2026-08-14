@@ -21,6 +21,7 @@ import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageHeader } from "@/components/ds/PageHeader";
+import { createExternalArtist } from "@/lib/provenance/rpc";
 
 const STATUS_OPTIONS = [
   { value: "planned", labelKey: "exhibition.statusPlanned" },
@@ -103,6 +104,9 @@ export function NewExhibitionFormShell({
   const [curatorResults, setCuratorResults] = useState<ProfileOption[]>([]);
   const [curatorSelected, setCuratorSelected] = useState<ProfileOption | null>(null);
   const [curatorSearching, setCuratorSearching] = useState(false);
+  const [inviteExternalCurator, setInviteExternalCurator] = useState(false);
+  const [externalCuratorName, setExternalCuratorName] = useState("");
+  const [externalCuratorEmail, setExternalCuratorEmail] = useState("");
   /**
    * QA 2026-07-28 — 주최명 KO/EN 이중언어 (240002 컬럼). 정의된 profile 을
    * 링크하는 경우엔 legacy hostName 필드로 텍스트를 남기지 않아도 되지만,
@@ -204,7 +208,11 @@ export function NewExhibitionFormShell({
       title_en: titleEn,
     });
     if (!legacyTitle) return;
-    if (!curatorMe && !curatorSelected) {
+    if (
+      !curatorMe &&
+      !curatorSelected &&
+      !(inviteExternalCurator && externalCuratorName.trim().length >= 2)
+    ) {
       setError(t("common.pleaseSelectArtist") ?? "Please select or search for a curator.");
       return;
     }
@@ -214,7 +222,22 @@ export function NewExhibitionFormShell({
     }
     setSubmitting(true);
     setError(null);
-    const curatorId = curatorMe ? effectiveProfileId! : curatorSelected!.id;
+    let externalCuratorId: string | null = null;
+    if (!curatorMe && inviteExternalCurator && !curatorSelected) {
+      const { data: extId, error: extErr } = await createExternalArtist({
+        displayName: externalCuratorName.trim(),
+        inviteEmail: externalCuratorEmail.trim() || null,
+      });
+      if (extErr || !extId) {
+        setSubmitting(false);
+        setError(formatSupabaseError(extErr, t, "artwork.errors.failedAddArtist"));
+        return;
+      }
+      externalCuratorId = extId;
+    }
+    const curatorId = curatorMe || inviteExternalCurator
+      ? effectiveProfileId!
+      : curatorSelected!.id;
     const hostProfileId =
       hostProfileMode === "me"
         ? effectiveProfileId ?? null
@@ -235,6 +258,7 @@ export function NewExhibitionFormShell({
       end_date: endDate || null,
       status,
       curator_id: curatorId,
+      external_curator_id: externalCuratorId,
       host_name: legacyHost || hostName.trim() || null,
       host_name_ko: hostNameKo.trim() || null,
       host_name_en: hostNameEn.trim() || null,
@@ -461,6 +485,7 @@ export function NewExhibitionFormShell({
                   setCuratorSelected(null);
                   setCuratorSearch("");
                   setCuratorResults([]);
+                  setInviteExternalCurator(false);
                 }}
                 className="rounded border-zinc-300"
               />
@@ -515,6 +540,51 @@ export function NewExhibitionFormShell({
                 <p className="mt-1 text-xs text-zinc-600">
                   {t("common.selected")}: {formatDisplayName(curatorSelected)}
                 </p>
+              )}
+              {!curatorSelected &&
+                curatorSearch.trim().length >= 2 &&
+                !curatorSearching &&
+                curatorResults.length === 0 &&
+                !inviteExternalCurator && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInviteExternalCurator(true);
+                      setExternalCuratorName(curatorSearch.trim());
+                    }}
+                    className="mt-2 text-xs font-medium text-zinc-800 underline hover:text-zinc-600"
+                  >
+                    {t("exhibition.inviteCuratorCta")}
+                  </button>
+                )}
+              {inviteExternalCurator && (
+                <div className="mt-3 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                  <p className="text-xs text-zinc-600">{t("exhibition.inviteCuratorHint")}</p>
+                  <input
+                    type="text"
+                    value={externalCuratorName}
+                    onChange={(e) => setExternalCuratorName(e.target.value)}
+                    placeholder={t("exhibition.inviteCuratorName")}
+                    className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="email"
+                    value={externalCuratorEmail}
+                    onChange={(e) => setExternalCuratorEmail(e.target.value)}
+                    placeholder={t("exhibition.inviteCuratorEmail")}
+                    className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInviteExternalCurator(false);
+                      setExternalCuratorEmail("");
+                    }}
+                    className="text-xs text-zinc-500 underline"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
               )}
             </div>
           )}

@@ -216,7 +216,11 @@ export function pickLegacyDisplayNameForSave(input: {
 /** Generic "KO wins" legacy resolver — matches the trigger semantics.
  *  Prefer the named helpers above for grep-ability; use this only when
  *  you're wiring a save path for a field that doesn't have its own
- *  named helper (e.g. one-off admin scripts). */
+ *  named helper (e.g. one-off admin scripts).
+ *
+ *  This only fills the *legacy* column. Never use it to null the
+ *  opposite language slot — persist title_ko/title_en (and medium/story)
+ *  from state independently of the current UI locale. */
 export function pickLegacyForSave(
   ko: string | null | undefined,
   en: string | null | undefined,

@@ -173,6 +173,11 @@ export const messages = {
     "ops.staff.grant": "Grant",
     "ops.staff.revoke": "Revoke",
     "ops.staff.profileId": "Profile UUID",
+    "ops.staff.searchLabel": "Search people",
+    "ops.staff.searchPlaceholder": "Name, username, or email",
+    "ops.staff.selectedPerson": "Selected",
+    "ops.staff.lookupError":
+      "People search is unavailable. Apply the staff lookup SQL, then retry.",
     "ops.staff.role": "Role",
     "ops.staff.role.moderator": "Moderator",
     "ops.staff.role.ops": "Ops",
@@ -455,6 +460,11 @@ export const messages = {
     "exhibition.hostVenue": "Host / venue (gallery, space)",
     "exhibition.hostVenueMe": "Me",
     "exhibition.searchCurator": "Search by name or @username",
+    "exhibition.inviteCuratorCta": "Invite instead",
+    "exhibition.inviteCuratorHint":
+      "Invite a curator who is not on Theo yet. You stay the operator; their name is shown as curator credit.",
+    "exhibition.inviteCuratorName": "Curator name",
+    "exhibition.inviteCuratorEmail": "Email (for invite)",
     "exhibition.searchHost": "Search by name or @username",
     "exhibition.exhibitedAndCuratedBy": "Exhibited & Curated by {name}",
     "exhibition.exhibitedBy": "Exhibited by {name}",
@@ -1484,6 +1494,16 @@ export const messages = {
     "bulk.wi.scanDetailsHide": "Hide technical details",
     "bulk.wi.scanNoImages":
       "Scan finished but no suitable images were found. Check the URL or try a page with larger artwork photos.",
+    "bulk.wi.empty.no_html_images":
+      "No artwork images were found in the page HTML. Try a specific work page URL, or upload photos manually.",
+    "bulk.wi.empty.all_filtered":
+      "Images were found but none passed size or layout filters. Try a page with larger artwork photos, or upload manually.",
+    "bulk.wi.empty.fetch_blocked":
+      "The site could not be fetched (blocked, timeout, or private). Upload photos manually instead.",
+    "bulk.wi.empty.js_shell":
+      "This page looks like a JavaScript shell with no crawlable images. Try a specific work page URL, or upload manually.",
+    "bulk.wi.empty.wixHint":
+      "Wix sites such as g-1.art often hide the gallery behind JavaScript. A single work page URL may work; we cannot scrape the full Wix gallery.",
     "bulk.wi.reviewSummary": "Strong {high} · review {review} · no match {none}.",
     "bulk.wi.selectAllHigh": "Select all strong matches",
     "bulk.wi.groupHigh": "Strong matches",
@@ -3022,6 +3042,7 @@ export const messages = {
     "artwork.errors.failedSave": "Failed to save the artwork.",
     "artwork.errors.failedAddProvenance": "Failed to add provenance.",
     "artwork.errors.failedAddArtist": "Failed to add artist.",
+    "artwork.errors.failedUpdateArtistCredit": "Could not update the artist credit.",
     "artwork.errors.failedUpdateProvenance": "Failed to update provenance.",
 
     // ─── Sprint 5 — Relationship Access Layer ───
@@ -3807,6 +3828,11 @@ export const messages = {
     "ops.staff.grant": "부여",
     "ops.staff.revoke": "회수",
     "ops.staff.profileId": "프로필 UUID",
+    "ops.staff.searchLabel": "사람 검색",
+    "ops.staff.searchPlaceholder": "이름, 아이디, 또는 이메일",
+    "ops.staff.selectedPerson": "선택한 사람",
+    "ops.staff.lookupError":
+      "사람 검색을 쓸 수 없습니다. staff lookup SQL을 적용한 뒤 다시 시도하세요.",
     "ops.staff.role": "역할",
     "ops.staff.role.moderator": "Moderator",
     "ops.staff.role.ops": "Ops",
@@ -4086,6 +4112,11 @@ export const messages = {
     "exhibition.hostVenue": "호스트(갤러리·장소)",
     "exhibition.hostVenueMe": "나",
     "exhibition.searchCurator": "이름 또는 @아이디 검색",
+    "exhibition.inviteCuratorCta": "초대로 추가",
+    "exhibition.inviteCuratorHint":
+      "아직 Theo에 없는 큐레이터를 초대합니다. 운영자는 본인으로 유지되고, 크레딧에는 초대된 이름이 표시됩니다.",
+    "exhibition.inviteCuratorName": "큐레이터 이름",
+    "exhibition.inviteCuratorEmail": "이메일 (초대용)",
     "exhibition.searchHost": "이름 또는 @아이디 검색",
     "exhibition.exhibitedAndCuratedBy": "전시·기획 {name}",
     "exhibition.exhibitedBy": "전시 {name}",
@@ -5113,6 +5144,16 @@ export const messages = {
     "bulk.wi.scanDetailsHide": "기술 정보 숨기기",
     "bulk.wi.scanNoImages":
       "스캔은 끝났지만 적합한 이미지가 없었습니다. 주소를 확인하거나 작품 사진이 큰 페이지를 시도해 보세요.",
+    "bulk.wi.empty.no_html_images":
+      "페이지 HTML에서 작품 이미지를 찾지 못했어요. 개별 작품 페이지 주소를 넣거나 직접 업로드해 주세요.",
+    "bulk.wi.empty.all_filtered":
+      "이미지는 있었지만 크기·레이아웃 필터를 통과한 것이 없어요. 더 큰 작품 사진이 있는 페이지를 쓰거나 직접 업로드해 주세요.",
+    "bulk.wi.empty.fetch_blocked":
+      "사이트를 가져오지 못했어요 (차단, 타임아웃, 비공개). 사진은 직접 업로드해 주세요.",
+    "bulk.wi.empty.js_shell":
+      "이 페이지는 이미지가 HTML에 없는 자바스크립트 셸로 보여요. 개별 작품 페이지 주소를 넣거나 직접 업로드해 주세요.",
+    "bulk.wi.empty.wixHint":
+      "g-1.art 같은 Wix 사이트는 갤러리가 자바스크립트 뒤에 있는 경우가 많아요. 개별 작품 페이지는 될 수 있지만, Wix 갤러리 전체를 긁지는 않습니다.",
     "bulk.wi.reviewSummary": "강한 일치 {high} · 검토 {review} · 없음 {none}.",
     "bulk.wi.selectAllHigh": "강한 일치 전부 선택",
     "bulk.wi.groupHigh": "강한 일치",
@@ -6643,6 +6684,7 @@ export const messages = {
     "artwork.errors.failedSave": "작품 저장에 실패했어요.",
     "artwork.errors.failedAddProvenance": "프로비넌스 추가에 실패했어요.",
     "artwork.errors.failedAddArtist": "작가 추가에 실패했어요.",
+    "artwork.errors.failedUpdateArtistCredit": "작가 크레딧을 업데이트하지 못했어요.",
     "artwork.errors.failedUpdateProvenance":
       "프로비넌스 업데이트에 실패했어요.",
 
