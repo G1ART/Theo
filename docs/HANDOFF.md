@@ -10,6 +10,7 @@ Last updated: 2026-08-14
 - 공개 프로필 Statement/CV 카드에 오너용 **편집** 버튼을 항상 노출. 빈 카드는 점선 박스로 열고 CTA를 바로 보여 줌.
 - CV 편집은 죽은 `/settings#cv` 가 아니라 `/my/profile/cv`. 설정 화면 작가 섹션에도 이력 카드(`id="cv"`)를 두어 Edit에서도 찾을 수 있게 함.
 - 소개가 없으면 「짧은 소개 쓰기」, 전시가 없으면 「전시 올리기」. 이력 편집 후 공개 프로필로 복귀.
+- `/my/profile/*` 에 AppShell 을 씌워 CV 편집이 사이드바 없는 별도 페이지처럼 보이지 않게 함.
 
 ### Verified
 - `npx tsc --noEmit`
