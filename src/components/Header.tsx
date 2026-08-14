@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { isShellRoute } from "@/lib/shell/routes";
 import { useEffect, useId, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { getMyProfile } from "@/lib/supabase/profiles";
@@ -272,11 +273,51 @@ export function Header() {
       }
     }
     document.addEventListener("keydown", handleKeyDown);
+
+    const isMenuChrome = (target: EventTarget | null) => {
+      const node = target as Node | null;
+      if (!node) return false;
+      if (panel.contains(node)) return true;
+      if (hamburgerButtonRef.current?.contains(node)) return true;
+      return false;
+    };
+
+    // Capture-phase swallow: a tap on the dimmed page must not reach
+    // artwork cards / links. Closing on pointerdown unmounts the sheet,
+    // so we also arm a short click-guard for the ghost click iOS
+    // retargets onto whatever is now under the finger.
+    const closeFromOutside = (e: Event) => {
+      if (isMenuChrome(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      setMobileOpen(false);
+      const guard = (ev: Event) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+      };
+      document.addEventListener("click", guard, true);
+      document.addEventListener("touchend", guard, true);
+      window.setTimeout(() => {
+        document.removeEventListener("click", guard, true);
+        document.removeEventListener("touchend", guard, true);
+      }, 400);
+    };
+
+    document.addEventListener("pointerdown", closeFromOutside, true);
+    document.addEventListener("touchstart", closeFromOutside, {
+      capture: true,
+      passive: false,
+    });
+
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", closeFromOutside, true);
+      document.removeEventListener("touchstart", closeFromOutside, true);
       document.body.style.overflow = prevOverflow;
     };
   }, [mobileOpen]);
@@ -359,16 +400,13 @@ export function Header() {
       : accountMenuLabel;
 
   return (
-    // QA 2026-06-26 (#1) — sticky top so the header stays in view from
-    // the very first paint, even on pages where the user lands with
-    // scrollY > 0 (deep-link / SSR-scrolled-to-section). The whole
-    // banner+header stack sticks together so the staleCleared and
-    // acting-as banners never become detached "floating" notices above
-    // the bar. `z-40` keeps us below modals/drawers (z-50+), so an
-    // open dialog still covers the bar without the user needing to
-    // dismiss us first. The opaque `bg-white` prevents page content
-    // from bleeding through the bar while it scrolls underneath.
-    <div className="sticky top-0 z-40 bg-white">
+    <>
+    {/* QA 2026-06-26 (#1) — sticky top so the header stays in view from
+        the very first paint, even on pages where the user lands with
+        scrollY > 0. Banner+header stick together. z-40 below modals;
+        z-50 while the hamburger is open so the sheet sits above the
+        body-level scrim. */}
+    <div className={`sticky top-0 bg-white ${mobileOpen ? "z-50" : "z-40"}`}>
       {staleCleared && !actingAsLabel && (
         <div
           role="status"
@@ -418,22 +456,8 @@ export function Header() {
           </span>
         </div>
       )}
-      {/* Scrim under the hamburger sheet. Without this, a tap below the
-          panel lands on the feed/profile underneath (follow, artwork).
-          Pointer-down + preventDefault closes the menu and eats the tap. */}
-      {mobileOpen && (
-        <div
-          aria-hidden
-          className="lg:hidden fixed inset-0 z-40 bg-black/25"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            closeMobile();
-          }}
-        />
-      )}
       <header
-        className={`relative z-50 min-h-14 items-center justify-between border-b border-zinc-200 px-4 pt-[env(safe-area-inset-top)] ${
+        className={`relative min-h-14 items-center justify-between border-b border-zinc-200 px-4 pt-[env(safe-area-inset-top)] ${
           shellRoute ? "flex lg:hidden" : "flex"
         }`}
       >
@@ -717,5 +741,15 @@ export function Header() {
         )}
       </header>
     </div>
+    {mobileOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            aria-hidden
+            className="lg:hidden fixed inset-0 z-[45] bg-black/25"
+          />,
+          document.body,
+        )
+      : null}
+    </>
   );
 }
