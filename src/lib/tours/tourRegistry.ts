@@ -33,96 +33,51 @@ export type TourId = (typeof TOUR_IDS)[keyof typeof TOUR_IDS];
 export const TOURS: Record<TourId, TourDefinition> = {
   [TOUR_IDS.studio]: {
     id: TOUR_IDS.studio,
-    // v10: surface the Sprint 6.2 Network Hub pill on the hero action
-    // row so returning users learn that the former /my/relationships
-    // and /my/access-requests pages now live as tabs inside
-    // /my/network. The dot on the pill is a calm presence signal —
-    // never a numeric count — and the tour explains exactly that.
-    version: 10,
+    // v11: rewrite as Workspace hub tour. Keep id `studio.main` so
+    // existing completion records stay valid. Anchors live on `/my`
+    // (workspace-hub / workspace-tiles). Tab management belongs on
+    // the public profile tour. AI helpers stay unmounted.
+    version: 11,
     titleKey: "tour.studio.title",
     introKey: "tour.studio.intro",
-    requiredAnchors: ["studio-hero", "studio-operating-grid"],
+    requiredAnchors: ["workspace-hub", "workspace-tiles"],
     steps: [
       {
         id: "hero",
-        target: "studio-hero",
+        target: "workspace-hub",
         titleKey: "tour.studio.hero.title",
         bodyKey: "tour.studio.hero.body",
         placement: "bottom",
       },
       {
-        id: "network",
-        target: "studio-network",
-        titleKey: "tour.studio.network.title",
-        bodyKey: "tour.studio.network.body",
-        placement: "bottom",
-      },
-      {
-        id: "visibility",
-        target: "studio-visibility-hub",
-        titleKey: "tour.studio.visibility.title",
-        bodyKey: "tour.studio.visibility.body",
-        placement: "bottom",
-      },
-      {
-        id: "next-steps",
-        target: "studio-next-steps",
-        titleKey: "tour.studio.nextSteps.title",
-        bodyKey: "tour.studio.nextSteps.body",
-        placement: "left",
-      },
-      {
         id: "grid",
-        target: "studio-operating-grid",
+        target: "workspace-tiles",
         titleKey: "tour.studio.grid.title",
         bodyKey: "tour.studio.grid.body",
         placement: "top",
       },
       {
-        id: "workshop",
-        target: "studio-card-workshop",
-        titleKey: "tour.studio.workshop.title",
-        bodyKey: "tour.studio.workshop.body",
-        placement: "right",
-      },
-      {
-        id: "boards",
-        target: "studio-card-boards",
-        titleKey: "tour.studio.boards.title",
-        bodyKey: "tour.studio.boards.body",
-        placement: "right",
-      },
-      {
-        id: "exhibitions",
-        target: "studio-card-exhibitions",
-        titleKey: "tour.studio.exhibitions.title",
-        bodyKey: "tour.studio.exhibitions.body",
-        placement: "right",
-      },
-      {
-        id: "public-works",
-        target: "studio-portfolio-tab-strip",
-        titleKey: "tour.studio.publicWorks.title",
-        bodyKey: "tour.studio.publicWorks.body",
+        id: "public-profile",
+        target: "workspace-public-profile",
+        titleKey: "tour.studio.publicProfile.title",
+        bodyKey: "tour.studio.publicProfile.body",
         placement: "bottom",
       },
       {
-        id: "portfolio-tabs",
-        target: "studio-portfolio-tab-strip",
-        titleKey: "tour.studio.portfolioTabs.title",
-        bodyKey: "tour.studio.portfolioTabs.body",
+        id: "visibility",
+        target: "workspace-visibility",
+        titleKey: "tour.studio.visibility.title",
+        bodyKey: "tour.studio.visibility.body",
         placement: "bottom",
       },
-      // v8: surface AI helpers explicitly so users learn that nothing
-      // auto-publishes/edits and the cards are review-first companions.
-      // Anchor only renders for non-acting-as principals; framework will
-      // silently skip it when the section is not mounted.
+      // Staff-only ops block. Framework skips the step when the
+      // operator is not staff and the anchor is missing.
       {
-        id: "ai-helpers",
-        target: "studio-ai-helpers",
-        titleKey: "tour.studio.aiHelpers.title",
-        bodyKey: "tour.studio.aiHelpers.body",
-        placement: "top",
+        id: "ops",
+        target: "workspace-ops",
+        titleKey: "tour.studio.ops.title",
+        bodyKey: "tour.studio.ops.body",
+        placement: "bottom",
       },
     ],
   },
@@ -430,7 +385,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
 
   [TOUR_IDS.publicProfile]: {
     id: TOUR_IDS.publicProfile,
-    version: 1,
+    version: 2,
     titleKey: "tour.publicProfile.title",
     introKey: "tour.publicProfile.intro",
     requiredAnchors: ["public-profile-tab-strip"],
@@ -458,7 +413,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       },
       {
         id: "studio-link",
-        target: "public-profile-back-to-studio",
+        target: "public-profile-tab-settings",
         titleKey: "tour.publicProfile.studioLink.title",
         bodyKey: "tour.publicProfile.studioLink.body",
         placement: "bottom",
@@ -468,14 +423,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
 
   [TOUR_IDS.network]: {
     id: TOUR_IDS.network,
-    // v3: surface the Sprint 6.2 hub upgrade — Relationships and
-    // Access requests are now tabs inside /my/network alongside the
-    // legacy Followers / Following tabs.
+    // v3: Relationships and Access requests are tabs inside
+    // /my/network (not Studio Hero pills or standalone pages).
     // v4: tab order rebalanced to followers → following → requests →
-    // relationships so the narrative reads inbound-then-history. The
-    // tour step order was swapped (requests first, relationships
-    // second) so returning users see the new flow at least once.
-    version: 4,
+    // relationships.
+    // v5: activity-dot copy no longer describes a Studio Hero pill;
+    // it explains the Network tabs themselves.
+    version: 5,
     titleKey: "tour.network.title",
     introKey: "tour.network.intro",
     requiredAnchors: ["network-tabs"],
@@ -527,12 +481,11 @@ export const TOURS: Record<TourId, TourDefinition> = {
         bodyKey: "tour.network.relationships.body",
         placement: "top",
       },
-      // Sprint 6.2 — explain the dot badge on the studio header pill
-      // that brings users here. Anchors on `studio-network` which is
-      // only rendered on /my; framework skips the step on /my/network.
+      // Former /my/relationships and /my/access-requests pages are
+      // Network tabs. This step points at the tab strip on /my/network.
       {
         id: "activity-dot",
-        target: "studio-network",
+        target: "network-tabs",
         titleKey: "tour.network.activityDot.title",
         bodyKey: "tour.network.activityDot.body",
         placement: "bottom",

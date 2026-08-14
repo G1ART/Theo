@@ -196,8 +196,16 @@ export default function MyOrphanInvitesPage() {
         <h1 className="mb-2 text-xl font-semibold text-zinc-900">
           {t("orphanInvites.title")}
         </h1>
-        <p className="mb-6 text-sm text-zinc-500">
+        <p className="mb-4 text-sm text-zinc-500">
           {t("orphanInvites.subtitle")}
+        </p>
+        <p className="mb-6 text-sm">
+          <Link
+            href="/my/artists"
+            className="font-medium text-zinc-800 underline-offset-2 hover:underline"
+          >
+            {t("orphanInvites.artistsLink")} →
+          </Link>
         </p>
 
         <form

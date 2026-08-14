@@ -26,9 +26,16 @@ import { useT } from "@/lib/i18n/useT";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import type { CvEntry } from "@/lib/supabase/profiles";
 import { getProfileCvPdfUrl } from "@/lib/supabase/storage";
+import {
+  StatementLangToggle,
+  useStatementDisplay,
+} from "@/components/profile/StatementLangToggle";
 
 type Props = {
-  statement: string | null | undefined;
+  statementKo?: string | null;
+  statementEn?: string | null;
+  statementLegacy?: string | null;
+  statement?: string | null | undefined;
   heroImagePath: string | null | undefined;
   education: CvEntry[] | null | undefined;
   exhibitionsCv: CvEntry[] | null | undefined;
@@ -49,6 +56,9 @@ function resolveHero(path: string): string {
 }
 
 export function ProfileSurfaceCards({
+  statementKo,
+  statementEn,
+  statementLegacy,
   statement,
   heroImagePath,
   education,
@@ -62,9 +72,14 @@ export function ProfileSurfaceCards({
 }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState<ModalKind>(null);
+  const { pair, lang, setLang, active } = useStatementDisplay({
+    statementKo,
+    statementEn,
+    statementLegacy: statementLegacy ?? statement,
+  });
 
-  const trimmedStatement = (statement ?? "").trim();
-  const hasStatement = trimmedStatement.length > 0;
+  const trimmedStatement = active;
+  const hasStatement = pair.hasAny;
 
   const cvSections = useMemo(
     () => [
@@ -130,6 +145,14 @@ export function ProfileSurfaceCards({
           heroImagePath={heroImagePath ?? null}
           isOwner={isOwner}
           ownerEditHref={ownerStatementHref}
+          langToggle={
+            <StatementLangToggle
+              hasKo={!!pair.ko}
+              hasEn={!!pair.en}
+              value={lang}
+              onChange={setLang}
+            />
+          }
         />
       </SurfaceModal>
 
@@ -325,9 +348,10 @@ type StatementBodyProps = {
   heroImagePath: string | null;
   isOwner: boolean;
   ownerEditHref: string;
+  langToggle?: ReactNode;
 };
 
-function StatementBody({ statement, heroImagePath, isOwner, ownerEditHref }: StatementBodyProps) {
+function StatementBody({ statement, heroImagePath, isOwner, ownerEditHref, langToggle }: StatementBodyProps) {
   const { t } = useT();
   const hasStatement = statement.length > 0;
 
@@ -349,6 +373,7 @@ function StatementBody({ statement, heroImagePath, isOwner, ownerEditHref }: Sta
 
   return (
     <div>
+      {langToggle}
       {heroImagePath && (
         <div className="relative mb-5 aspect-[16/9] w-full overflow-hidden rounded-2xl bg-zinc-100">
           <Image

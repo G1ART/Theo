@@ -26,7 +26,10 @@ import { OrphanInvitesBanner } from "@/components/onboarding/OrphanInvitesBanner
 import { DelegationBriefPanel } from "@/components/delegation/DelegationBriefPanel";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
+import { chipButton } from "@/components/ds/buttonStyles";
 import { AppShell } from "@/components/shell/AppShell";
+import { TourTrigger, TourHelpButton } from "@/components/tour";
+import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import {
   WorkspaceOperationGrid,
   type WorkspaceTile,
@@ -287,15 +290,42 @@ function WorkspaceContent() {
 
   return (
     <PageShell variant="studio">
-      <PageHeader
-        variant="plain"
-        title={t("workspace.hub.title")}
-        lead={t("workspace.hub.subtitle")}
-      />
+      <TourTrigger tourId={TOUR_IDS.studio} />
+      <div data-tour="workspace-hub">
+        <PageHeader
+          variant="plain"
+          title={t("workspace.hub.title")}
+          lead={t("workspace.hub.subtitle")}
+          actions={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {profile?.username && (
+                <Link
+                  href={`/u/${profile.username}`}
+                  data-tour="workspace-public-profile"
+                  className={chipButton}
+                >
+                  {t("workspace.cta.publicProfile")}
+                </Link>
+              )}
+              <TourHelpButton tourId={TOUR_IDS.studio} />
+            </div>
+          }
+        />
+        <p className="mb-6">
+          <Link
+            href="/my/visibility"
+            data-tour="workspace-visibility"
+            className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline"
+          >
+            {t("workspace.cta.visibility")}
+          </Link>
+        </p>
+      </div>
 
       {isStaff && (
         <Link
           href="/my/ops"
+          data-tour="workspace-ops"
           className="mb-6 flex items-center justify-between gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-white hover:bg-zinc-800"
         >
           <div className="min-w-0">

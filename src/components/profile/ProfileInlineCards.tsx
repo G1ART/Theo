@@ -26,9 +26,17 @@ import { useT } from "@/lib/i18n/useT";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import type { CvEntry } from "@/lib/supabase/profiles";
 import { getProfileCvPdfUrl } from "@/lib/supabase/storage";
+import {
+  StatementLangToggle,
+  useStatementDisplay,
+} from "@/components/profile/StatementLangToggle";
 
 type Props = {
-  statement: string | null | undefined;
+  statementKo?: string | null;
+  statementEn?: string | null;
+  statementLegacy?: string | null;
+  /** @deprecated locale-picked single string — prefer KO/EN slots */
+  statement?: string | null | undefined;
   heroImagePath: string | null | undefined;
   education: CvEntry[] | null | undefined;
   exhibitionsCv: CvEntry[] | null | undefined;
@@ -46,6 +54,9 @@ function resolveHero(path: string): string {
 }
 
 export function ProfileInlineCards({
+  statementKo,
+  statementEn,
+  statementLegacy,
   statement,
   heroImagePath,
   education,
@@ -58,9 +69,13 @@ export function ProfileInlineCards({
   ownerCvHref = "/my/profile/cv",
 }: Props) {
   const { t } = useT();
-
-  const trimmedStatement = (statement ?? "").trim();
-  const hasStatement = trimmedStatement.length > 0;
+  const { pair, lang, setLang, active } = useStatementDisplay({
+    statementKo,
+    statementEn,
+    statementLegacy: statementLegacy ?? statement,
+  });
+  const trimmedStatement = active;
+  const hasStatement = pair.hasAny;
 
   const cvSections: CvSectionData[] = [
     {
@@ -94,7 +109,17 @@ export function ProfileInlineCards({
         title={t("profile.section.statement")}
         empty={!hasStatement}
         placeholder={t("profile.section.statementEmpty")}
-        preview={<StatementPreview text={trimmedStatement} />}
+        preview={
+          <div>
+            <StatementLangToggle
+              hasKo={!!pair.ko}
+              hasEn={!!pair.en}
+              value={lang}
+              onChange={setLang}
+            />
+            <StatementPreview text={trimmedStatement} />
+          </div>
+        }
         isOwner={isOwner}
         editHref={ownerStatementHref}
         editLabel={t("profile.section.edit")}
@@ -104,6 +129,14 @@ export function ProfileInlineCards({
           heroImagePath={heroImagePath ?? null}
           isOwner={isOwner}
           ownerEditHref={ownerStatementHref}
+          langToggle={
+            <StatementLangToggle
+              hasKo={!!pair.ko}
+              hasEn={!!pair.en}
+              value={lang}
+              onChange={setLang}
+            />
+          }
         />
       </ExpandCard>
 
@@ -274,11 +307,13 @@ function StatementBody({
   heroImagePath,
   isOwner,
   ownerEditHref,
+  langToggle,
 }: {
   statement: string;
   heroImagePath: string | null;
   isOwner: boolean;
   ownerEditHref: string;
+  langToggle?: ReactNode;
 }) {
   const { t } = useT();
   if (!statement) {
@@ -300,6 +335,7 @@ function StatementBody({
   }
   return (
     <div>
+      {langToggle}
       {heroImagePath && (
         <div className="relative mb-4 aspect-[16/9] w-full overflow-hidden rounded-xl bg-zinc-100">
           <Image

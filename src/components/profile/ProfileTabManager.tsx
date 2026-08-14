@@ -190,16 +190,16 @@ export function ProfileTabManager({
                       setStripDraft(stripRows);
                       setReorderMode(true);
                     }}
-                    className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-500 hover:text-zinc-900"
+                    className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
                   >
                     {t("profile.tabs.reorder")}
                   </button>
                 )}
                 <button
                   type="button"
-                  data-tour="public-profile-back-to-studio"
+                  data-tour="public-profile-tab-settings"
                   onClick={() => setManageOpen(true)}
-                  className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-500 hover:text-zinc-900"
+                  className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
                 >
                   {t("studio.portfolio.manageTabs")}
                 </button>

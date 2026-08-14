@@ -189,7 +189,7 @@ function VisibilityPageInner() {
               type="button"
               onClick={handleSavePreset}
               disabled={!dirty || savingPreset}
-              className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
               {t("visibility.preset.save")}
             </button>
@@ -255,7 +255,7 @@ function VisibilityPageInner() {
             <button
               type="button"
               onClick={() => setAdvancedOpen((v) => !v)}
-              className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
+              className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
             >
               {advancedOpen
                 ? t("visibility.advanced.expanded")

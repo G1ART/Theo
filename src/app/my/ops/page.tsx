@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
+import { chipButton } from "@/components/ds/buttonStyles";
 import { supabase } from "@/lib/supabase/client";
 import { useT } from "@/lib/i18n/useT";
 import { generateCsv, downloadCsv } from "@/lib/csv/parse";
@@ -102,28 +103,16 @@ function OpsContent() {
       </h1>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <Link
-          href="/my/ops/external-artists"
-          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
-        >
+        <Link href="/my/ops/external-artists" className={chipButton}>
           {t("ops.hub.externalArtists")} →
         </Link>
-        <Link
-          href="/my/ops/board"
-          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
-        >
+        <Link href="/my/ops/board" className={chipButton}>
           {t("ops.hub.boardQueue")} →
         </Link>
-        <Link
-          href="/my/ops/people"
-          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
-        >
+        <Link href="/my/ops/people" className={chipButton}>
           {t("ops.hub.people")} →
         </Link>
-        <Link
-          href="/my/ops/staff"
-          className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500"
-        >
+        <Link href="/my/ops/staff" className={chipButton}>
           {t("ops.hub.staff")} →
         </Link>
       </div>
@@ -192,10 +181,15 @@ function OpsContent() {
           <option value="with_delegations">{t("ops.hub.filter.delegations").replace("{n}", String(stats.withDelegations))}</option>
           <option value="recent_7d">{t("ops.hub.filter.recent").replace("{n}", String(stats.recent7d))}</option>
         </select>
-        <button type="button" onClick={() => void refresh()} className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50">
+        <button type="button" onClick={() => void refresh()} className={chipButton}>
           {t("common.refresh")}
         </button>
-        <button type="button" onClick={handleExportCsv} disabled={filtered.length === 0} className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 disabled:opacity-50">
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          disabled={filtered.length === 0}
+          className={`${chipButton} disabled:opacity-50`}
+        >
           {t("ops.hub.exportCsv")}
         </button>
       </div>

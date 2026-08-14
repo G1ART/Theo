@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
+import { PageHeader } from "@/components/ds/PageHeader";
+import { PageShell } from "@/components/ds/PageShell";
+import { chipButton } from "@/components/ds/buttonStyles";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
 import {
@@ -96,21 +99,20 @@ export default function MyArtistsPage() {
 
   return (
     <AuthGate>
-      <main className="mx-auto max-w-2xl px-4 py-8">
-        <Link href="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900">
+      <PageShell variant="narrow">
+        <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
           ← {t("myArtists.back")}
         </Link>
-        <h1 className="mb-2 text-xl font-semibold text-zinc-900">{t("myArtists.title")}</h1>
-        <p className="mb-4 text-sm text-zinc-500">{t("myArtists.subtitle")}</p>
-        <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-          <span className="mr-2">{t("orphanInvites.title")}</span>
-          <Link
-            href="/my/orphan-invites"
-            className="font-semibold text-zinc-800 underline-offset-2 hover:underline"
-          >
-            {t("orphanInvites.banner.cta")} →
-          </Link>
-        </div>
+        <PageHeader
+          variant="plain"
+          title={t("myArtists.title")}
+          lead={t("myArtists.subtitle")}
+          actions={
+            <Link href="/my/orphan-invites" className={chipButton}>
+              {t("orphanInvites.banner.cta")}
+            </Link>
+          }
+        />
 
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
         {notice && <p className="mb-4 text-sm text-emerald-700">{notice}</p>}
@@ -217,7 +219,7 @@ export default function MyArtistsPage() {
           onConfirm={handleConfirmLink}
           onCancel={() => (linking ? null : setPending(null))}
         />
-      </main>
+      </PageShell>
     </AuthGate>
   );
 }

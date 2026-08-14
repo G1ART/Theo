@@ -21,7 +21,7 @@ export const TOUR_KO_CHROME = {
 
 /** Tour id → small eyebrow label in the popover */
 export const TOUR_KO_HEADER: Record<string, string> = {
-  "studio.main": "스튜디오 안내",
+  "studio.main": "워크스페이스 안내",
   "upload.main": "업로드 안내",
   "exhibition.create": "전시 게시물 안내",
   "exhibition.detail": "전시 게시물 관리",
@@ -36,16 +36,24 @@ export const TOUR_KO_HEADER: Record<string, string> = {
 /** `${tourId}:${stepId}` → title + body */
 export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
   "studio.main:hero": {
-    title: "내 스튜디오에 오신 걸 환영해요",
-    body: "Theo에서 만들고, 담고, 공유하는 모든 것이 시작되는 공간이에요.",
-  },
-  "studio.main:next-steps": {
-    title: "다음으로 해보면 좋은 일",
-    body: "지금 스튜디오에 도움이 될 만한 일을 간단히 모아두는 곳이에요. 프로필·작품·문의를 바로 열 수 있어요.",
+    title: "여기가 워크스페이스예요",
+    body: "운영을 위한 홈이에요. 작업이 필요할 때 타일을 열고, 공개 정체성은 공개 프로필에서 바로 고칩니다.",
   },
   "studio.main:grid": {
-    title: "운영 타일",
-    body: "작업실·보드·전시처럼 스튜디오 운영에 필요한 여덟 개 모듈을 한 자리에 모아두었어요.",
+    title: "워크스페이스 타일",
+    body: "초안·문의·소유·전시·출처 — 다섯 개의 출발점이에요. 두 번째 공개 프로필이 아니에요.",
+  },
+  "studio.main:public-profile": {
+    title: "공개 프로필",
+    body: "이 칩을 누르면 방문자가 보는 페이지가 열려요. 작가의 말·이력·탭은 거기서 고치고, 설정은 계정·신원용이에요.",
+  },
+  "studio.main:visibility": {
+    title: "누가 무엇을 볼 수 있나요",
+    body: "항목별 공개 범위는 별도 페이지에서 정해요. 프리셋을 고르거나 가격·availability·설명을 더 세밀하게 조정할 수 있어요.",
+  },
+  "studio.main:ops": {
+    title: "운영 콘솔",
+    body: "운영진만 보여요. 보드 승인·스태프 권한·내부 도구이고, 다섯 개 워크스페이스 타일과는 떨어져 있어요.",
   },
   "studio.main:workshop": {
     title: "작업실",
@@ -125,12 +133,12 @@ export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
   },
 
   "profile.public:tabs": {
-    title: "내 스튜디오와 같은 탭 구성",
-    body: "여기 탭은 내 스튜디오에서 설정한 그대로예요. 탭 추가·이름 변경·순서·공개 여부는 내 스튜디오에서, 탭 안에 무엇이 어떤 순서로 보이는지는 이 페이지에서 정해요.",
+    title: "탭은 이 페이지에서",
+    body: "방문자가 보는 탭과 같아요. 탭 추가·이름 변경·순서·공개 여부는 이 공개 프로필의 [탭 설정]에서 정해요.",
   },
   "profile.public:reorder-artworks": {
     title: "작품 순서는 여기서",
-    body: "[순서 변경]을 누르면 활성 탭 안에서 작품을 드래그해 배치할 수 있어요. 방문자는 정확히 이 순서로 보게 돼요. 탭이 섞여 보이면 내 스튜디오에서 새 탭으로 분리해도 좋아요.",
+    body: "[순서 변경]을 누르면 활성 탭 안에서 작품을 드래그해 배치할 수 있어요. 방문자는 정확히 이 순서로 보게 돼요. 탭이 섞여 보이면 [탭 설정]에서 새 탭으로 나누면 됩니다.",
   },
   "profile.public:exhibitions": {
     title: "전시 정렬과 순서 변경",
@@ -235,7 +243,11 @@ export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
   },
   "network.main:list": {
     title: "내 관계 그래프",
-    body: "각 줄이 살아있는 연결이에요. 맞팔하거나 스튜디오를 보거나 짧은 메시지로 인사를 건네보세요.",
+    body: "각 줄이 살아있는 연결이에요. 맞팔하거나 프로필을 보거나 짧은 메시지로 인사를 건네보세요.",
+  },
+  "network.main:activity-dot": {
+    title: "요청과 관계는 탭이에요",
+    body: "접근 요청과 관계는 예전엔 따로 떨어진 페이지였어요. 지금은 팔로워·팔로잉 옆 탭으로, 사람 그래프를 한곳에서 다뤄요.",
   },
 };
 

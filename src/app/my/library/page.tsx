@@ -2,12 +2,18 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { ArtworkCard } from "@/components/ArtworkCard";
+import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
 import { EmptyState } from "@/components/ds/EmptyState";
+import { PageHeader } from "@/components/ds/PageHeader";
+import { PageShell } from "@/components/ds/PageShell";
+import { chipButton } from "@/components/ds/buttonStyles";
 import { useT } from "@/lib/i18n/useT";
 import { getSession } from "@/lib/supabase/auth";
 import {
+  deleteArtworksBatch,
   type ArtworkCursor,
   type ArtworkWithLikes,
   type MyLibrarySort,
@@ -19,14 +25,22 @@ import { ownershipStatusLabel } from "@/lib/artworks/labels";
 
 const OWNERSHIP_VALUES = ["available", "owned", "sold", "not_for_sale"] as const;
 
+function parseVisibilityParam(raw: string | null): "all" | "public" | "draft" {
+  if (raw === "public" || raw === "draft") return raw;
+  return "all";
+}
+
 export default function MyLibraryPage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
   const { actingAsProfileId } = useActingAs();
   const [items, setItems] = useState<ArtworkWithLikes[]>([]);
   const [nextCursor, setNextCursor] = useState<ArtworkCursor | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [visibility, setVisibility] = useState<"all" | "public" | "draft">("all");
+  const [visibility, setVisibility] = useState<"all" | "public" | "draft">(() =>
+    parseVisibilityParam(searchParams.get("visibility"))
+  );
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [sort, setSort] = useState<MyLibrarySort>("created_at");
@@ -36,6 +50,11 @@ export default function MyLibraryPage() {
   const [dateTo, setDateTo] = useState("");
   const [createdByMe, setCreatedByMe] = useState(false);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     const tmr = setTimeout(() => setSearchDebounced(search.trim()), 300);
@@ -61,9 +80,6 @@ export default function MyLibraryPage() {
         dateFrom: dateFrom || null,
         dateTo: dateTo ? `${dateTo}T23:59:59.999Z` : null,
         createdBy: createdByMe && myUserId ? myUserId : null,
-        // Acting-as: filter to the principal's artworks instead of the
-        // operator's. RLS already permits the read for active delegate
-        // writers; this just aligns the UI with the principal scope.
         forProfileId: actingAsProfileId ?? null,
       });
       if (error) {
@@ -99,50 +115,104 @@ export default function MyLibraryPage() {
   );
 
   useEffect(() => {
-    const t = requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       void loadPage(null, false);
     });
-    return () => cancelAnimationFrame(t);
+    return () => cancelAnimationFrame(frame);
   }, [loadPage]);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function selectAll() {
+    if (selectedIds.size >= items.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(items.map((a) => a.id)));
+  }
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+  async function handleBulkDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    setShowDeleteConfirm(false);
+    const { okIds, failed } = await deleteArtworksBatch(ids);
+    setDeleting(false);
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    await loadPage(null, false);
+    if (failed.length === 0)
+      setToast(t("my.bulkDeleteSuccess").replace("{n}", String(okIds.length)));
+    else if (okIds.length > 0)
+      setToast(
+        t("my.bulkDeletePartial")
+          .replace("{ok}", String(okIds.length))
+          .replace("{fail}", String(failed.length))
+      );
+    else setToast(t("my.bulkDeleteFailed"));
+  }
 
   return (
     <AuthGate>
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <PageShell variant="library">
         <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
           ← {t("library.back")}
         </Link>
-        <div className="mb-1 flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-zinc-900">{t("library.title")}</h1>
-          <div className="flex gap-2">
-            <Link href="/my/library/import" className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">
-              Import CSV
-            </Link>
-            <button
-              type="button"
-              onClick={() => {
-                const headers = ["title", "year", "medium", "size", "size_unit", "ownership_status", "pricing_mode", "visibility"];
-                const rows = items.map((a) => [
-                  a.title ?? "",
-                  String(a.year ?? ""),
-                  a.medium ?? "",
-                  a.size ?? "",
-                  String((a as Record<string, unknown>).size_unit ?? ""),
-                  a.ownership_status ?? "",
-                  a.pricing_mode ?? "",
-                  a.visibility ?? "",
-                ]);
-                downloadCsv("library_export.csv", generateCsv(headers, rows));
-              }}
-              disabled={items.length === 0}
-              className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-            >
-              Export CSV
-            </button>
-          </div>
-        </div>
-        <p className="mb-6 text-sm text-zinc-600">{t("library.hint")}</p>
+        <PageHeader
+          variant="plain"
+          title={t("library.title")}
+          lead={t("library.hint")}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Link href="/my/library/import" className={chipButton}>
+                {t("library.importCsv")}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  const headers = [
+                    "title",
+                    "year",
+                    "medium",
+                    "size",
+                    "size_unit",
+                    "ownership_status",
+                    "pricing_mode",
+                    "visibility",
+                  ];
+                  const rows = items.map((a) => [
+                    a.title ?? "",
+                    String(a.year ?? ""),
+                    a.medium ?? "",
+                    a.size ?? "",
+                    String((a as Record<string, unknown>).size_unit ?? ""),
+                    a.ownership_status ?? "",
+                    a.pricing_mode ?? "",
+                    a.visibility ?? "",
+                  ]);
+                  downloadCsv("library_export.csv", generateCsv(headers, rows));
+                }}
+                disabled={items.length === 0}
+                className={`${chipButton} disabled:opacity-50`}
+              >
+                {t("library.exportCsv")}
+              </button>
+            </div>
+          }
+        />
 
-        <div className="mb-6 flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+        {toast && (
+          <p className="mb-4 text-sm text-zinc-600" role="status">
+            {toast}
+          </p>
+        )}
+
+        <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
           <div className="flex flex-wrap gap-3">
             <input
               type="search"
@@ -223,6 +293,50 @@ export default function MyLibraryPage() {
           </div>
         </div>
 
+        {items.length > 0 && !loading && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {!selectMode ? (
+              <button
+                type="button"
+                onClick={() => setSelectMode(true)}
+                aria-label={t("my.bulkSelect.select")}
+                className={chipButton}
+              >
+                {t("my.bulkSelect.select")}
+              </button>
+            ) : (
+              <>
+                <button type="button" onClick={selectAll} className={chipButton}>
+                  {selectedIds.size >= items.length
+                    ? t("my.bulkSelect.clear")
+                    : t("my.bulkSelect.selectAll")}
+                </button>
+                <button type="button" onClick={clearSelection} className={chipButton}>
+                  {t("my.bulkSelect.clear")}
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedIds.size === 0 || deleting}
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className={`${chipButton} border-red-400 text-red-700 hover:border-red-600 disabled:opacity-50`}
+                >
+                  {t("my.bulkSelect.deleteSelected")} ({selectedIds.size})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectMode(false);
+                    setSelectedIds(new Set());
+                  }}
+                  className={chipButton}
+                >
+                  {t("common.cancel")}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {loading ? (
           <p className="text-zinc-500">{t("common.loading")}</p>
         ) : items.length === 0 ? (
@@ -234,13 +348,25 @@ export default function MyLibraryPage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {items.map((a) => (
-              <ArtworkCard
-                key={a.id}
-                artwork={a}
-                likesCount={a.likes_count ?? 0}
-                showEdit
-                viewerId={myUserId}
-              />
+              <div key={a.id} className="relative">
+                {selectMode && (
+                  <div className="absolute left-2 top-2 z-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(a.id)}
+                      onChange={() => toggleSelect(a.id)}
+                      className="h-5 w-5 rounded border-zinc-300"
+                      aria-label={t("my.bulkSelect.select")}
+                    />
+                  </div>
+                )}
+                <ArtworkCard
+                  artwork={a}
+                  likesCount={a.likes_count ?? 0}
+                  showEdit={!selectMode}
+                  viewerId={myUserId}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -251,13 +377,28 @@ export default function MyLibraryPage() {
               type="button"
               disabled={loadingMore}
               onClick={() => void loadPage(nextCursor, true)}
-              className="rounded border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              className={`${chipButton} disabled:opacity-50`}
             >
               {loadingMore ? t("common.loading") : t("library.loadMore")}
             </button>
           </div>
         )}
-      </main>
+
+        <ConfirmActionDialog
+          open={showDeleteConfirm}
+          title={t("my.bulkSelect.deleteSelected")}
+          description={t("my.bulkSelect.confirmMessage").replace(
+            "{n}",
+            String(selectedIds.size)
+          )}
+          confirmLabel={t("common.delete")}
+          cancelLabel={t("common.cancel")}
+          tone="destructive"
+          busy={deleting}
+          onConfirm={() => void handleBulkDelete()}
+          onCancel={() => (deleting ? undefined : setShowDeleteConfirm(false))}
+        />
+      </PageShell>
     </AuthGate>
   );
 }

@@ -38,6 +38,10 @@ import { ProfileMediaUploader } from "@/components/profile/ProfileMediaUploader"
 import { StatementDraftAssist } from "@/components/profile/StatementDraftAssist";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
+import { PageShell } from "@/components/ds/PageShell";
+import { PageHeader } from "@/components/ds/PageHeader";
+import { FloorPanel } from "@/components/ds/FloorPanel";
+import { chipButton, chipButtonPrimary } from "@/components/ds/buttonStyles";
 import { updateMyProfileBasePatch } from "@/lib/supabase/profiles";
 import { isArtistRole } from "@/lib/identity/roles";
 import { useActingAs } from "@/context/ActingAsContext";
@@ -485,9 +489,11 @@ export default function SettingsPage() {
           main_role: (p as Profile)?.main_role ?? "",
           roles: (p as Profile)?.roles ?? [],
           is_public: (p as Profile)?.is_public ?? true,
-          education: (p as Profile)?.education ?? [],
+          // education is owned by /my/profile/cv — omit from settings baseline
+          // so a settings save cannot wipe or race the CV editor.
         };
         const normalizedInitialBase = normalizeProfileBase(baseForNorm) as unknown as Record<string, unknown>;
+        delete normalizedInitialBase.education;
         // QA P0.5-A: artist_statement 도 메인 폼 diff 의 baseline 에 포함시켜
         // textarea 값이 onBlur 없이 곧장 [저장] 으로 이어져도 변경분이
         // 정확히 detect 되도록 한다. QA 2026-07-28: bilingual statement 도
@@ -848,30 +854,6 @@ export default function SettingsPage() {
     }
   }, [statement, statementKo, statementEn, persistIdentityField]);
 
-  function addEducation() {
-    setEducation((prev) => [...prev, { school: "", program: "", year: "", type: null }]);
-  }
-  function removeEducation(i: number) {
-    // Allow removing the last entry too. We collapse to a single empty
-    // placeholder row so the form keeps a usable input — but the empty
-    // row is normalized to nothing on save (and the patch path now
-    // forwards `education: []` to the RPC instead of dropping it, so
-    // the DB actually clears the column instead of silently restoring
-    // the previous value).
-    setEducation((prev) => {
-      const next = prev.filter((_, idx) => idx !== i);
-      if (next.length === 0) {
-        return [{ school: "", program: "", year: "", type: null }];
-      }
-      return next;
-    });
-  }
-  function updateEducation(i: number, field: keyof EducationEntry, value: string | null) {
-    setEducation((prev) =>
-      prev.map((e, idx) => (idx === i ? { ...e, [field]: value } : e))
-    );
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (isSavingRef.current) return;
@@ -936,7 +918,7 @@ export default function SettingsPage() {
       main_role: mainRole,
       roles: finalRoles,
       is_public: isPublic,
-      education,
+      // education omitted — CV editor (/my/profile/cv) is the only writer.
     });
 
     const normalizedDetails: NormalizedDetailsPayload = normalizeProfileDetails({
@@ -973,6 +955,7 @@ export default function SettingsPage() {
       artist_statement_ko: statementKoForPatch,
       artist_statement_en: statementEnForPatch,
     } as Record<string, unknown>;
+    delete baseSnap.education;
     const detailsSnap = { ...normalizedDetails } as Record<string, unknown>;
     let basePatch = makePatch(initialBaseRef.current, baseSnap) as Record<string, unknown>;
     if (normalizedUsername !== initialUsernameRef.current) {
@@ -1006,6 +989,7 @@ export default function SettingsPage() {
     const computedScore = confidence === "high" && score !== null ? score : null;
 
     basePatch = omitUndefined(basePatch);
+    delete basePatch.education;
 
     if (Object.keys(basePatch).length === 0 && Object.keys(detailsPatch).length === 0) {
       // 폼 필드 변경분은 없지만 헤더/아바타 등 미디어가 자동 저장된 적이 있다면
@@ -1063,7 +1047,7 @@ export default function SettingsPage() {
           main_role: ref.main_role ?? null,
           roles: ref.roles ?? [],
           is_public: ref.is_public ?? true,
-          education: ref.education ?? null,
+          // education omitted — CV editor is the only writer.
           // QA P0.5-A: statement 도 baseline 에 포함 (재편집 시 diff 정확성).
           artist_statement: ref.artist_statement ?? null,
           artist_statement_ko: ref.artist_statement_ko ?? null,
@@ -1127,15 +1111,18 @@ export default function SettingsPage() {
 
   return (
     <AuthGate>
-      <main className="mx-auto max-w-xl px-4 py-8">
+      <PageShell variant="narrow">
         <TourTrigger tourId={TOUR_IDS.profileIdentity} />
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <h1 className="min-w-0 flex-1 pr-2 text-xl font-semibold">{t("settings.title")}</h1>
-          <div className="flex items-center gap-2">
-            <TourHelpButton tourId={TOUR_IDS.profileIdentity} />
-            <BuildStamp />
-          </div>
-        </div>
+        <PageHeader
+          variant="plain"
+          title={t("settings.title")}
+          actions={
+            <div className="flex items-center gap-2">
+              <TourHelpButton tourId={TOUR_IDS.profileIdentity} />
+              <BuildStamp />
+            </div>
+          }
+        />
 
         {/* Acting-as operator-lock notice. The page intentionally edits
             the operator's own profile/security regardless of the active
@@ -1168,6 +1155,7 @@ export default function SettingsPage() {
           <p className="text-zinc-600">{t("common.loading")}</p>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
+            <FloorPanel padding="sm">
             <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
               <p className="mb-2 text-sm font-medium text-zinc-700">
                 {t("profile.completeness")}:{" "}
@@ -1451,6 +1439,7 @@ export default function SettingsPage() {
                 )}
               </section>
             )}
+            </FloorPanel>
 
             {/* QA P0.5-E (row 31): /settings 의 프라이버시 토글이 한 줄짜리
                 체크박스로만 노출되어 있어, 한 번 비공개로 전환한 사용자가
@@ -1458,7 +1447,8 @@ export default function SettingsPage() {
                 섹션 형태(제목 + 설명 + 명시적 라벨)로 끌어올려서, 어느 페이지
                 (온보딩 / 설정) 에서나 같은 결정을 다시 내릴 수 있다는 점을
                 선명하게 한다. */}
-            <section className="space-y-3 border-t border-zinc-200 pt-6">
+            <FloorPanel padding="sm">
+            <section className="space-y-3">
               <div>
                 <h2 className="text-sm font-medium text-zinc-900">
                   {t("settings.visibility.title")}
@@ -1506,7 +1496,9 @@ export default function SettingsPage() {
                 </span>
               </Link>
             </section>
+            </FloorPanel>
 
+            <FloorPanel padding="sm">
             <div>
               <label htmlFor="username" className="mb-1 block text-sm font-medium">
                 {t("settings.username")}
@@ -1737,11 +1729,11 @@ export default function SettingsPage() {
                         setTimeout(() => profileDetailsRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
                       }
                     }}
-                    className={`inline-block rounded border px-4 py-2 text-sm font-medium transition-colors ${
+                    className={
                       hasDetailsContent
-                        ? "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                        : "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
-                    }`}
+                        ? chipButton
+                        : chipButtonPrimary
+                    }
                   >
                     {hasDetailsContent ? t("settings.editProfileDetails") : t("settings.addProfileDetails")}
                   </button>
@@ -1841,28 +1833,6 @@ export default function SettingsPage() {
                           <label className="mb-1 block text-sm font-medium">{t("settings.styles")} ({t("profileDetails.optional")})</label>
                           <TaxonomyChipSelect options={TAXONOMY.styleOptions} value={styles} onChange={setStyles} max={TAXONOMY_LIMITS.styles} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.styles)))} />
                         </div>
-                        <div>
-                          <div className="mb-2 flex items-center justify-between">
-                            <label className="text-sm font-medium">{t("settings.education")} ({t("profileDetails.optional")})</label>
-                            <button type="button" onClick={addEducation} className="text-sm text-zinc-600 hover:text-zinc-900">{t("settings.addEducation")}</button>
-                          </div>
-                          <div className="space-y-3">
-                            {education.map((e, i) => (
-                              <div key={i} className="flex flex-wrap items-end gap-2 rounded border border-zinc-200 p-3">
-                                <input type="text" value={e.school ?? ""} onChange={(ev) => updateEducation(i, "school", ev.target.value || null)} placeholder={t("settings.school")} className="min-w-[100px] flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm" />
-                                <input type="text" value={e.program ?? ""} onChange={(ev) => updateEducation(i, "program", ev.target.value || null)} placeholder={t("settings.program")} className="min-w-[80px] flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm" />
-                                <input type="text" value={typeof e.year === "number" ? String(e.year) : (e.year ?? "")} onChange={(ev) => updateEducation(i, "year", ev.target.value || null)} placeholder={t("settings.year")} className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm" />
-                                <select value={e.type ?? ""} onChange={(ev) => updateEducation(i, "type", ev.target.value || null)} className="rounded border border-zinc-300 px-2 py-1.5 text-sm">
-                                  <option value="">Type</option>
-                                  {TAXONOMY.educationTypeOptions.map((o) => (
-                                    <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                                  ))}
-                                </select>
-                                <button type="button" onClick={() => removeEducation(i)} className="text-zinc-500 hover:text-zinc-800">{t("settings.remove")}</button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
                       </div>
                     </section>
                   )}
@@ -1939,10 +1909,12 @@ export default function SettingsPage() {
               <p className="text-sm text-green-600">{t("settings.saveSuccess")}</p>
             )}
 
+            </FloorPanel>
+
             <button
               type="submit"
               disabled={saving}
-              className="rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center gap-2"
+              className={`${chipButtonPrimary} disabled:opacity-50`}
             >
               {saving && (
                 <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden />
@@ -1996,7 +1968,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <div className="mt-12 border-t border-zinc-200 pt-8">
+        <FloorPanel padding="sm" className="mt-8">
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -2004,13 +1976,13 @@ export default function SettingsPage() {
                 await signOut();
                 router.replace("/login");
               }}
-              className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+              className={chipButton}
             >
               {t("nav.logout")}
             </button>
             <Link
               href="/set-password"
-              className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+              className={chipButton}
             >
               {hasPassword === false
                 ? t("settings.setPassword")
@@ -2022,7 +1994,7 @@ export default function SettingsPage() {
               {t("settings.setPasswordHint")}
             </p>
           )}
-        </div>
+        </FloorPanel>
 
         {/* Build stamp footer. Moved here from the Header avatar
             dropdown (2026-08-13 mobile/desktop cleanup) — the stamp is
@@ -2033,7 +2005,7 @@ export default function SettingsPage() {
             <BuildStamp />
           </span>
         </div>
-      </main>
+      </PageShell>
     </AuthGate>
   );
 }

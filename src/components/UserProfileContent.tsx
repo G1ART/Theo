@@ -18,7 +18,6 @@ import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useT } from "@/lib/i18n/useT";
 import {
   pickLocalizedBio,
-  pickLocalizedStatement,
   pickLocalizedTitle,
 } from "@/lib/i18n/pickLocalized";
 import { getSession } from "@/lib/supabase/auth";
@@ -621,7 +620,7 @@ export function UserProfileContent({
           {isOwner && (
             <Link
               href="/settings"
-              className="shrink-0 rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-500 hover:text-zinc-900"
+              className="inline-flex shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
             >
               {t("profile.editProfile")}
             </Link>
@@ -771,7 +770,9 @@ export function UserProfileContent({
         ) : (
         <>
           <ProfileInlineCards
-            statement={pickLocalizedStatement(profile, locale) || null}
+            statementKo={profile.artist_statement_ko ?? null}
+            statementEn={profile.artist_statement_en ?? null}
+            statementLegacy={profile.artist_statement ?? null}
             heroImagePath={profile.artist_statement_hero_image_url ?? null}
             education={profile.education ?? null}
             exhibitionsCv={profile.exhibitions_cv ?? null}

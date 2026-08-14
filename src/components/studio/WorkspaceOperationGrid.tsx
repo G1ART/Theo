@@ -44,6 +44,7 @@ export function WorkspaceOperationGrid({ tiles }: Props) {
   return (
     <section
       aria-label={t("workspace.hub.title")}
+      data-tour="workspace-tiles"
       className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
     >
       {tiles.map((tile) => (

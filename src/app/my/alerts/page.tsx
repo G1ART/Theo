@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
+import { PageHeader } from "@/components/ds/PageHeader";
+import { PageShell } from "@/components/ds/PageShell";
+import { chipButton, chipButtonPrimary } from "@/components/ds/buttonStyles";
 import { useT } from "@/lib/i18n/useT";
 import {
   getAlertPreferences,
@@ -72,20 +75,32 @@ function AlertsContent() {
   }, []);
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
-      <Link href="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900">
+    <PageShell variant="narrow">
+      <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
         ← {t("profile.privateBackToMy")}
       </Link>
-      <h1 className="mb-6 text-xl font-semibold text-zinc-900">Alerts</h1>
+      <PageHeader
+        variant="plain"
+        title={t("alerts.title")}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href="/settings" className={chipButton}>
+              {t("alerts.jumpSettings")}
+            </Link>
+            <Link href="/notifications" className={chipButton}>
+              {t("alerts.jumpNotifications")}
+            </Link>
+          </div>
+        }
+      />
 
       {loading ? (
         <p className="text-zinc-500">{t("common.loading")}</p>
       ) : (
-        <div className="space-y-8">
-          {/* New work alerts */}
-          <section className="rounded-lg border border-zinc-200 bg-white p-4">
-            <h2 className="mb-2 font-medium text-zinc-800">New work notifications</h2>
-            <p className="mb-3 text-sm text-zinc-600">Get notified when followed artists upload new works.</p>
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <h2 className="mb-2 font-medium text-zinc-800">{t("alerts.newWork.title")}</h2>
+            <p className="mb-3 text-sm text-zinc-600">{t("alerts.newWork.hint")}</p>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -94,74 +109,74 @@ function AlertsContent() {
                 disabled={saving}
                 className="h-4 w-4 rounded border-zinc-300"
               />
-              Enable new work alerts
+              {t("alerts.newWork.enable")}
             </label>
           </section>
 
-          {/* Digest preference */}
-          <section className="rounded-lg border border-zinc-200 bg-white p-4">
-            <h2 className="mb-2 font-medium text-zinc-800">Digest</h2>
-            <p className="mb-3 text-sm text-zinc-500">Choose how often you want a summary. Email delivery coming soon.</p>
-            <div className="flex gap-3">
+          <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <h2 className="mb-2 font-medium text-zinc-800">{t("alerts.digest.title")}</h2>
+            <p className="mb-3 text-sm text-zinc-500">{t("alerts.digest.hint")}</p>
+            <div className="flex flex-wrap gap-2">
               {(["off", "daily", "weekly"] as const).map((freq) => (
                 <button
                   key={freq}
                   type="button"
                   disabled={saving}
                   onClick={() => void handleDigest(freq)}
-                  className={`rounded border px-3 py-1.5 text-sm ${
+                  className={
                     (prefs?.digest_frequency ?? "off") === freq
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                  } disabled:opacity-50`}
+                      ? chipButtonPrimary
+                      : chipButton
+                  }
                 >
-                  {freq === "off" ? "Off" : freq.charAt(0).toUpperCase() + freq.slice(1)}
+                  {t(`alerts.digest.${freq}`)}
                 </button>
               ))}
             </div>
           </section>
 
-          {/* Saved interests */}
-          <section className="rounded-lg border border-zinc-200 bg-white p-4">
-            <h2 className="mb-2 font-medium text-zinc-800">Saved interests</h2>
-            <p className="mb-3 text-sm text-zinc-600">Track specific artists, mediums, price bands, or exhibitions.</p>
+          <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <h2 className="mb-2 font-medium text-zinc-800">{t("alerts.interests.title")}</h2>
+            <p className="mb-3 text-sm text-zinc-600">{t("alerts.interests.hint")}</p>
 
-            <div className="mb-4 flex gap-2">
+            <div className="mb-4 flex flex-wrap gap-2">
               <select
                 value={newType}
                 onChange={(e) => setNewType(e.target.value as SavedInterest["interest_type"])}
                 className="rounded border border-zinc-300 px-3 py-2 text-sm"
               >
-                <option value="artist">Artist</option>
-                <option value="medium">Medium</option>
-                <option value="price_band">Price Band</option>
-                <option value="exhibition">Exhibition</option>
+                <option value="artist">{t("alerts.interests.type.artist")}</option>
+                <option value="medium">{t("alerts.interests.type.medium")}</option>
+                <option value="price_band">{t("alerts.interests.type.price_band")}</option>
+                <option value="exhibition">{t("alerts.interests.type.exhibition")}</option>
               </select>
               <input
                 type="text"
                 value={newValue}
                 onChange={(e) => setNewValue(e.target.value)}
-                placeholder="e.g. Oil on canvas"
-                className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm"
+                placeholder={t("alerts.interests.placeholder")}
+                className="min-w-[160px] flex-1 rounded border border-zinc-300 px-3 py-2 text-sm"
               />
               <button
                 type="button"
                 disabled={!newValue.trim()}
                 onClick={() => void handleAddInterest()}
-                className="rounded bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
+                className={`${chipButtonPrimary} disabled:opacity-50`}
               >
-                Add
+                {t("alerts.interests.add")}
               </button>
             </div>
 
             {interests.length === 0 ? (
-              <p className="text-sm text-zinc-500">No saved interests yet.</p>
+              <p className="text-sm text-zinc-500">{t("alerts.interests.empty")}</p>
             ) : (
               <ul className="space-y-2">
                 {interests.map((i) => (
-                  <li key={i.id} className="flex items-center justify-between rounded bg-zinc-50 px-3 py-2 text-sm">
+                  <li key={i.id} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2 text-sm">
                     <span>
-                      <span className="font-medium text-zinc-600">{i.interest_type}:</span>{" "}
+                      <span className="font-medium text-zinc-600">
+                        {t(`alerts.interests.type.${i.interest_type}`)}:
+                      </span>{" "}
                       <span className="text-zinc-800">{i.interest_value}</span>
                     </span>
                     <button
@@ -169,7 +184,7 @@ function AlertsContent() {
                       onClick={() => void handleRemoveInterest(i.id)}
                       className="text-xs text-red-500 hover:text-red-700"
                     >
-                      Remove
+                      {t("alerts.interests.remove")}
                     </button>
                   </li>
                 ))}
@@ -177,11 +192,10 @@ function AlertsContent() {
             )}
           </section>
 
-          {/* Queued activity (subtle) */}
           {digestEvents.length > 0 && (
-            <details className="rounded-lg border border-zinc-100 bg-zinc-50 p-4">
+            <details className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
               <summary className="cursor-pointer text-sm text-zinc-500">
-                {digestEvents.length} queued event{digestEvents.length !== 1 ? "s" : ""}
+                {t("alerts.queued").replace("{n}", String(digestEvents.length))}
               </summary>
               <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
                 {digestEvents.map((ev) => (
@@ -195,7 +209,7 @@ function AlertsContent() {
           )}
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }
 
