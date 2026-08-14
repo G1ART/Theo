@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import {
@@ -30,6 +31,7 @@ import {
   WorkspaceOperationGrid,
   type WorkspaceTile,
 } from "@/components/studio/WorkspaceOperationGrid";
+import { claimFounder, isStaffAtLeast } from "@/lib/ops/staff";
 
 // TODO 2026-08 (Phase B redesign): the original studio surface still
 // exports StudioHero / StudioPortfolioPanel / StudioMaterialsPanel /
@@ -69,6 +71,7 @@ function WorkspaceContent() {
   const [exhibitions, setExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [externalArtistsCount, setExternalArtistsCount] = useState<number | null>(null);
   const [draftExhibitionsCount, setDraftExhibitionsCount] = useState<number | null>(null);
+  const [isStaff, setIsStaff] = useState(false);
 
   const fetchData = useCallback(async () => {
     const effectiveProfileId = actingAsProfileId ?? null;
@@ -122,6 +125,20 @@ function WorkspaceContent() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // Founder email can self-grant here so Henry sees the block
+      // without first visiting /my/ops/staff.
+      await claimFounder();
+      const ok = await isStaffAtLeast("moderator");
+      if (!cancelled) setIsStaff(ok);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function onFocus() {
@@ -275,6 +292,26 @@ function WorkspaceContent() {
         title={t("workspace.hub.title")}
         lead={t("workspace.hub.subtitle")}
       />
+
+      {isStaff && (
+        <Link
+          href="/my/ops"
+          className="mb-6 flex items-center justify-between gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-white hover:bg-zinc-800"
+        >
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-400">
+              {t("workspace.ops.kicker")}
+            </p>
+            <p className="mt-1 text-sm font-semibold">{t("workspace.ops.title")}</p>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              {t("workspace.ops.subtitle")}
+            </p>
+          </div>
+          <span className="shrink-0 text-xs font-medium text-zinc-300">
+            {t("workspace.ops.open")} →
+          </span>
+        </Link>
+      )}
 
       <WorkspaceOperationGrid tiles={tiles} />
 

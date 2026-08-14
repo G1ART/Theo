@@ -208,6 +208,11 @@ export const messages = {
     "workspace.tile.provenance.title": "Provenance",
     "workspace.tile.provenance.subtitle":
       "Manage external artist invitations and links.",
+    "workspace.ops.kicker": "Staff only",
+    "workspace.ops.title": "Ops console",
+    "workspace.ops.subtitle":
+      "Board queue, staff roles, and internal tools.",
+    "workspace.ops.open": "Open",
 
     "rail.people.heading": "Who's here now",
     "rail.people.inviteHeading": "Grow the room",
@@ -3860,6 +3865,10 @@ export const messages = {
     "workspace.tile.myExhibitions.subtitle": "내가 기획·전시한 프로젝트.",
     "workspace.tile.provenance.title": "Provenance",
     "workspace.tile.provenance.subtitle": "외부 작가 초대와 연결을 관리.",
+    "workspace.ops.kicker": "운영진 전용",
+    "workspace.ops.title": "운영 콘솔",
+    "workspace.ops.subtitle": "보드 승인, 운영진 권한, 내부 도구.",
+    "workspace.ops.open": "열기",
 
     "rail.people.heading": "지금 함께하는 사람들",
     "rail.people.inviteHeading": "함께할 사람 초대",

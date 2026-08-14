@@ -2,6 +2,15 @@
 
 Last updated: 2026-08-13
 
+## 2026-08-13 (6) — Workspace(/my) 운영진 전용 Ops 진입 블록
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+>
+> `/my` 상단에 운영진(moderator+)만 보이는 검정 진입 블록. 클릭 시 `/my/ops`. 일반 5타일과 분리. Henry는 이 페이지 진입 시 `staff_claim_founder`도 호출되어 staff 페이지를 안 거쳐도 블록이 뜸.
+
+### Verified
+- 로컬 편집. 기존 staff SQL (`20260816000000`) 이 이미 적용되어 있어야 블록이 보임.
+
 ## 2026-08-13 (5) — 운영진 인앱 부여(henry@g-1.art) + QA 업로드/사이즈/큐레이터/임포트
 
 > **SQL 적용 필요:** `supabase/migrations/20260816000000_staff_founder_and_lookup.sql` — **섹션 단위로 highlight → Run** (한꺼번에 paste 금지). `supabase/migrations/20260816000001_exhibition_external_curator.sql` 는 통째로 OK.
