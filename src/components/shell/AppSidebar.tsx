@@ -48,8 +48,8 @@ import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
  * Since Aug-2026 (mobile/desktop cleanup): nav items, labels, and
  * match rules come from `@/lib/shell/navConfig`, and the Switch
  * Account block is rendered by the shared `<AccountSwitcher>`
- * component. Both are consumed by the mobile hamburger and tablet+
- * avatar dropdown too, so labels/routes cannot drift.
+ * component. Both are consumed by the hamburger (below `lg`) and the
+ * `lg+` avatar dropdown too, so labels/routes cannot drift.
  *
  * The active item is rendered with bold weight + a thin 2px vertical
  * accent on the left. The mobile chrome still uses the top Header +

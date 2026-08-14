@@ -106,6 +106,7 @@ function ChipInput({
   placeholder: string;
   max?: number;
 }) {
+  const { t } = useT();
   const [input, setInput] = useState("");
   const addChip = useCallback(() => {
     const v = input.trim();
@@ -139,7 +140,7 @@ function ChipInput({
             type="button"
             onClick={() => removeChip(i)}
             className="text-zinc-500 hover:text-zinc-800"
-            aria-label="Remove"
+            aria-label={t("common.remove")}
           >
             ×
           </button>
@@ -232,7 +233,7 @@ function TaxonomyChipSelect({
               className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-sm"
             >
               {v}
-              <button type="button" onClick={() => removeOther(i)} className="text-zinc-500 hover:text-zinc-800" aria-label="Remove">×</button>
+              <button type="button" onClick={() => removeOther(i)} className="text-zinc-500 hover:text-zinc-800" aria-label={t("common.remove")}>×</button>
             </span>
           ))}
         </div>
@@ -570,7 +571,7 @@ export default function SettingsPage() {
     try {
       uid = await requireSessionUid(supabase);
     } catch {
-      setError("Session expired. Please log in again.");
+      setError(t("errors.sessionExpired"));
       router.push("/login");
       return;
     }
@@ -634,7 +635,7 @@ export default function SettingsPage() {
         normalizedPayload: detailsPatch as Record<string, unknown>,
         durationMs: 0,
       });
-      setError(`Save failed: ${res.code ?? ""} ${res.message}`);
+      setError(formatSupabaseError(res, t, "errors.failedSaveSettings"));
       setWarning(isDev ? "Retry failed" : t("settings.savePartialWarning"));
       isSavingRef.current = false;
       setSaving(false);
@@ -868,7 +869,7 @@ export default function SettingsPage() {
     try {
       uid = await requireSessionUid(supabase);
     } catch {
-      setError("Session expired. Please log in again.");
+      setError(t("errors.sessionExpired"));
       router.push("/login");
       return;
     }
@@ -1023,7 +1024,7 @@ export default function SettingsPage() {
         normalizedPayload: { base: basePatch, details: detailsPatch },
         durationMs: 0,
       });
-      setError(`Save failed: ${res.code ?? ""} ${res.message}`);
+      setError(formatSupabaseError(res, t, "errors.failedSaveSettings"));
       isSavingRef.current = false;
       setSaving(false);
       return;
@@ -1117,9 +1118,13 @@ export default function SettingsPage() {
           variant="plain"
           title={t("settings.title")}
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {username && (
+                <Link href={`/u/${username}`} className={chipButton}>
+                  {t("settings.cta.publicProfileTabs")}
+                </Link>
+              )}
               <TourHelpButton tourId={TOUR_IDS.profileIdentity} />
-              <BuildStamp />
             </div>
           }
         />
@@ -1419,7 +1424,7 @@ export default function SettingsPage() {
                       </div>
                       <Link
                         href="/my/profile/cv"
-                        className="inline-flex shrink-0 items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800"
+                        className={`${chipButtonPrimary} shrink-0`}
                       >
                         {t("settings.identity.cvCta")}
                       </Link>
@@ -1489,6 +1494,22 @@ export default function SettingsPage() {
                   </span>
                   <span className="mt-1 text-xs text-zinc-500">
                     {t("visibility.page.subtitle")}
+                  </span>
+                </span>
+                <span aria-hidden className="text-zinc-400">
+                  →
+                </span>
+              </Link>
+              <Link
+                href="/my/alerts"
+                className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-3 text-sm hover:bg-zinc-50"
+              >
+                <span className="flex flex-col">
+                  <span className="font-medium text-zinc-900">
+                    {t("settings.jump.alerts")}
+                  </span>
+                  <span className="mt-1 text-xs text-zinc-500">
+                    {t("settings.jump.alertsHint")}
                   </span>
                 </span>
                 <span aria-hidden className="text-zinc-400">
@@ -1672,7 +1693,7 @@ export default function SettingsPage() {
                 onChange={(e) => setMainRole(e.target.value)}
                 className="w-full rounded border border-zinc-300 px-3 py-2"
               >
-                <option value="">Select</option>
+                <option value="">{t("common.selectOption")}</option>
                 {MAIN_ROLES.map((r) => (
                   <option key={r} value={r}>
                     {r.charAt(0).toUpperCase() + r.slice(1)}
@@ -1760,7 +1781,7 @@ export default function SettingsPage() {
                           onChange={(e) => setCareerStage(e.target.value)}
                           className="w-full rounded border border-zinc-300 px-3 py-2"
                         >
-                          <option value="">Select</option>
+                          <option value="">{t("common.selectOption")}</option>
                           {TAXONOMY.careerStageOptions.map((o) => (
                             <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                           ))}
@@ -1773,13 +1794,13 @@ export default function SettingsPage() {
                           onChange={(e) => setAgeBand(e.target.value)}
                           className="w-full rounded border border-zinc-300 px-3 py-2"
                         >
-                          <option value="">Select</option>
+                          <option value="">{t("common.selectOption")}</option>
                           {TAXONOMY.ageBandOptions.map((o) => (
                             <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                           ))}
                         </select>
                       </div>
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <div className="col-span-1">
                           <label className="mb-1 block text-sm font-medium">{t("settings.city")}</label>
                           <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder={t("settings.placeholderCity")} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm" />
@@ -1787,7 +1808,7 @@ export default function SettingsPage() {
                         <div>
                           <label className="mb-1 block text-sm font-medium">{t("settings.region")}</label>
                           <select value={region} onChange={(e) => setRegion(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm">
-                            <option value="">Select</option>
+                            <option value="">{t("common.selectOption")}</option>
                             {TAXONOMY.regionOptions.map((o) => (
                               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                             ))}
@@ -1867,7 +1888,7 @@ export default function SettingsPage() {
                         <div>
                           <label className="mb-1 block text-sm font-medium">{t("settings.labelAffiliation")} ({t("profileDetails.optional")})</label>
                           <select value={affiliation} onChange={(e) => setAffiliation(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2">
-                            <option value="">Select</option>
+                            <option value="">{t("common.selectOption")}</option>
                             {TAXONOMY.affiliationOptions.map((o) => (
                               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                             ))}

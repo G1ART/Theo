@@ -247,7 +247,35 @@ function StaffContent() {
         </button>
       </form>
 
-      <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+      <div className="space-y-3 md:hidden">
+        {rows.map((r) => (
+          <article
+            key={r.profile_id}
+            className="rounded-2xl border border-zinc-200 bg-white p-4"
+          >
+            <p className="font-medium text-zinc-800">
+              {r.display_name || r.username || "—"}
+            </p>
+            {r.username && (
+              <p className="text-[11px] text-zinc-400">@{r.username}</p>
+            )}
+            <p className="mt-2 text-sm text-zinc-700">
+              {t(`ops.staff.role.${r.role}`)}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">{r.note ?? "—"}</p>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setRevokeId(r.profile_id)}
+                className="inline-flex items-center justify-center rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800 hover:bg-red-100"
+              >
+                {t("ops.staff.revoke")}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto rounded-2xl border border-zinc-200 bg-white md:block">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-zinc-200 text-xs text-zinc-500">
             <tr>
@@ -278,7 +306,7 @@ function StaffContent() {
                   <button
                     type="button"
                     onClick={() => setRevokeId(r.profile_id)}
-                    className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
+                    className="inline-flex items-center justify-center rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800 hover:bg-red-100"
                   >
                     {t("ops.staff.revoke")}
                   </button>

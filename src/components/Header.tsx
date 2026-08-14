@@ -26,32 +26,32 @@ import {
   isNavItemActive,
 } from "@/lib/shell/navConfig";
 import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
+import { hitTarget } from "@/components/ds/buttonStyles";
 
 /**
  * Global top-bar. On desktop AppShell routes (`lg+`) the sidebar takes
- * over so this only renders on mobile/tablet. The tablet strip
- * (`md`–`lg-1`) mirrors the sidebar's primary rows exactly by consuming
- * the same `PRIMARY_NAV` config (see `@/lib/shell/navConfig`).
+ * over so this only renders below `lg`. Phone and tablet share one
+ * chrome language: hamburger + (when logged in) a direct avatar link
+ * to the public profile. There is no tablet horizontal nav strip —
+ * sidebar at `lg+` plus hamburger below `lg` is enough.
  *
- * Mobile (`<md`):
+ * Below `lg`:
  *   - Avatar is a **direct link** to the user's public profile
  *     (`/u/{username}` or `/onboarding/identity` if the handle is
- *     placeholder/missing). The dropdown menu is not rendered on
- *     mobile — the hamburger owns the full menu surface.
+ *     placeholder/missing). The dropdown menu is not rendered —
+ *     the hamburger owns the full menu surface.
  *   - Hamburger panel renders PRIMARY_NAV + SECONDARY_NAV +
  *     AccountSwitcher (via the shared component) + locale switcher
  *     + anonymous "Get started"/"Login" footer.
  *   - Panel is a `role="dialog"` / `aria-modal="true"` with Escape
  *     close, focus trap, and `aria-controls` linkage on the trigger.
  *
- * Tablet+ (`md+`, on non-AppShell routes and shell routes below `lg`):
+ * `lg+` on non-AppShell routes:
  *   - Avatar dropdown owns the secondary surface. It consumes the same
  *     shared config + `AccountSwitcher` so it can't drift from the
  *     sidebar. `BuildStamp` has moved out of here into the Settings
  *     page footer.
  */
-
-const linkClass = "text-sm text-zinc-600 hover:text-zinc-900";
 
 /** Selector for focusable elements within a container. Kept in sync
  *  with the WCAG focus-trap conventions — no third-party dep. */
@@ -321,24 +321,6 @@ export function Header() {
     return 0;
   }
 
-  function renderTabletMainNav() {
-    return (
-      <nav className="hidden md:flex items-center gap-4">
-        {PRIMARY_NAV.map((item) => {
-          const href =
-            loggedIn || !item.gated
-              ? item.href
-              : onboardingUrlWithNext({ nextPath: item.href });
-          return (
-            <Link key={item.key} href={href} className={linkClass}>
-              {t(item.labelKey)}
-            </Link>
-          );
-        })}
-      </nav>
-    );
-  }
-
   function renderMobileRow(item: NavItem) {
     const href =
       loggedIn || !item.gated
@@ -405,18 +387,18 @@ export function Header() {
           role="status"
           aria-live="polite"
           data-tour="acting-as-banner"
-          className="flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900 sm:text-sm"
+          className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900 sm:text-sm"
         >
-          <span className="inline-flex items-center gap-1.5 truncate">
+          <span className="inline-flex min-w-0 items-center gap-1.5">
             <span
               aria-hidden="true"
               className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 sm:inline-block"
             />
-            <span className="truncate">
+            <span className="min-w-0">
               {t("delegation.banner.label").replace("{name}", actingAsLabel)}
             </span>
           </span>
-          <span className="ml-auto flex shrink-0 items-center gap-3">
+          <span className="ml-auto flex flex-wrap items-center gap-3">
             <Link
               href="/my/delegations"
               className="font-medium hover:underline"
@@ -434,7 +416,7 @@ export function Header() {
         </div>
       )}
       <header
-        className={`relative h-14 items-center justify-between border-b border-zinc-200 px-4 ${
+        className={`relative min-h-14 items-center justify-between border-b border-zinc-200 px-4 pt-[env(safe-area-inset-top)] ${
           shellRoute ? "flex lg:hidden" : "flex"
         }`}
       >
@@ -449,17 +431,14 @@ export function Header() {
                 animation (see TheoLogo). Header appears on every route so `priority`. */}
             <TheoLogo className="h-9" size="sm" priority />
           </Link>
-
-          {/* Tablet+ primary nav strip. Mirrors the sidebar's PRIMARY_NAV. */}
-          {ready && loggedIn && renderTabletMainNav()}
         </div>
 
         <div className="flex items-center gap-3">
           {ready && loggedIn && (
             <>
-              {/* Tablet+ locale switcher; mobile shows it inside the
-                  hamburger panel (added for parity with the sidebar). */}
-              <span className="hidden md:flex gap-1 text-xs text-zinc-500">
+              {/* Desktop-only locale switcher on non-shell routes.
+                  Below `lg` the hamburger already owns locale. */}
+              <span className="hidden lg:flex gap-1 text-xs text-zinc-500">
                 <button
                   type="button"
                   onClick={() => setLocale("en")}
@@ -477,16 +456,15 @@ export function Header() {
                 </button>
               </span>
 
-              {/* Mobile avatar: direct link to /u/{username}. Removes the
-                  previous dropdown entirely on `<md` — the hamburger
-                  owns the full menu surface. The avatar still carries
-                  the unread badge as a visual cue. */}
+              {/* Below-lg avatar: direct link to /u/{username}. The
+                  hamburger owns the full menu surface. The avatar still
+                  carries the unread badge as a visual cue. */}
               <Link
                 href={mobileProfileHref}
-                className="md:hidden relative flex h-8 w-8 items-center justify-center rounded-full hover:opacity-90"
+                className={`lg:hidden relative flex ${hitTarget} items-center justify-center rounded-full hover:opacity-90`}
                 aria-label={avatarAriaLabel}
               >
-                <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
+                <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
                   {avatarUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -509,14 +487,14 @@ export function Header() {
                 )}
               </Link>
 
-              {/* Tablet+ avatar dropdown (md+). Shares the same
-                  AccountSwitcher + SECONDARY_NAV data as the sidebar so
-                  labels/routes can't drift. */}
-              <div className="hidden md:block relative" ref={avatarRef}>
+              {/* Desktop avatar dropdown (`lg+`, non-shell routes).
+                  Shares the same AccountSwitcher + SECONDARY_NAV data
+                  as the sidebar so labels/routes can't drift. */}
+              <div className="hidden lg:block relative" ref={avatarRef}>
                 <button
                   type="button"
                   onClick={() => setAvatarOpen((o) => !o)}
-                  className="relative flex h-8 w-8 items-center justify-center rounded-full hover:opacity-90"
+                  className={`relative flex ${hitTarget} items-center justify-center rounded-full hover:opacity-90`}
                   aria-expanded={avatarOpen}
                   aria-haspopup="true"
                   aria-label={avatarAriaLabel}
@@ -524,7 +502,7 @@ export function Header() {
                   {/* Inner wrapper clips the avatar into a circle. Keeping
                       overflow-hidden OFF the button lets the unread badge
                       overflow the avatar edge and stay fully visible. */}
-                  <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
+                  <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
                     {avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -587,7 +565,7 @@ export function Header() {
           )}
           {ready && !loggedIn && (
             <>
-              <span className="hidden md:flex gap-1 text-xs text-zinc-500">
+              <span className="hidden lg:flex gap-1 text-xs text-zinc-500">
                 <button
                   type="button"
                   onClick={() => setLocale("en")}
@@ -606,23 +584,23 @@ export function Header() {
               </span>
               <Link
                 href="/login"
-                className="hidden md:inline-flex rounded px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
+                className="hidden lg:inline-flex rounded px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
               >
                 {t("nav.login")}
               </Link>
             </>
           )}
 
-          {/* Mobile hamburger — visible for both logged-in and anonymous
-              visitors so anonymous users get sidebar parity (primary nav
-              + locale + Get started / Login footer). */}
-          <div className="md:hidden flex items-center gap-2">
+          {/* Hamburger — phone and tablet (`<lg`). Visible for both
+              logged-in and anonymous visitors so anonymous users get
+              sidebar parity (primary nav + locale + Get started / Login). */}
+          <div className="lg:hidden flex items-center gap-2">
             {ready && (
               <button
                 ref={hamburgerButtonRef}
                 type="button"
                 onClick={() => setMobileOpen((o) => !o)}
-                className="rounded p-2 text-zinc-600 hover:bg-zinc-100"
+                className={`${hitTarget} inline-flex items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
                 aria-expanded={mobileOpen}
                 aria-controls={mobilePanelId}
                 aria-label={t("nav.menu")}
@@ -650,7 +628,7 @@ export function Header() {
             role="dialog"
             aria-modal="true"
             aria-labelledby={mobilePanelHeadingId}
-            className="md:hidden absolute top-full left-0 right-0 z-50 border-b border-zinc-200 bg-white shadow-sm"
+            className="lg:hidden absolute top-full left-0 right-0 z-50 border-b border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-sm"
           >
             <h2 id={mobilePanelHeadingId} className="sr-only">
               {t("nav.menu")}
@@ -666,14 +644,16 @@ export function Header() {
               )}
 
               {loggedIn && (
-                <AccountSwitcher
-                  layout="hamburger"
-                  username={profileUsername}
-                  avatarUrl={avatarUrl}
-                  accounts={activeAccountDelegations}
-                  accountsLoaded={accountsLoaded}
-                  onNavigate={closeMobile}
-                />
+                <div data-tour="account-switcher">
+                  <AccountSwitcher
+                    layout="hamburger"
+                    username={profileUsername}
+                    avatarUrl={avatarUrl}
+                    accounts={activeAccountDelegations}
+                    accountsLoaded={accountsLoaded}
+                    onNavigate={closeMobile}
+                  />
+                </div>
               )}
 
               {/* Locale switcher — sidebar parity for mobile. Placed

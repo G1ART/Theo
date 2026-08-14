@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { chipButton, chipButtonPrimary } from "@/components/ds/buttonStyles";
 import { useT } from "@/lib/i18n/useT";
 import type { PersonaTab } from "@/lib/provenance/personaTabs";
 import {
@@ -198,7 +199,7 @@ export function StudioPortfolioManageModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            className={chipButton}
           >
             {t("common.cancel")}
           </button>
@@ -206,7 +207,7 @@ export function StudioPortfolioManageModal({
             type="button"
             disabled={saving}
             onClick={() => void handleSave()}
-            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+            className={`${chipButtonPrimary} disabled:opacity-50`}
           >
             {saving ? t("common.loading") : t("common.save")}
           </button>

@@ -294,47 +294,51 @@ export default function MyLibraryPage() {
         </div>
 
         {items.length > 0 && !loading && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          <>
             {!selectMode ? (
-              <button
-                type="button"
-                onClick={() => setSelectMode(true)}
-                aria-label={t("my.bulkSelect.select")}
-                className={chipButton}
-              >
-                {t("my.bulkSelect.select")}
-              </button>
-            ) : (
-              <>
-                <button type="button" onClick={selectAll} className={chipButton}>
-                  {selectedIds.size >= items.length
-                    ? t("my.bulkSelect.clear")
-                    : t("my.bulkSelect.selectAll")}
-                </button>
-                <button type="button" onClick={clearSelection} className={chipButton}>
-                  {t("my.bulkSelect.clear")}
-                </button>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={selectedIds.size === 0 || deleting}
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className={`${chipButton} border-red-400 text-red-700 hover:border-red-600 disabled:opacity-50`}
-                >
-                  {t("my.bulkSelect.deleteSelected")} ({selectedIds.size})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectMode(false);
-                    setSelectedIds(new Set());
-                  }}
+                  onClick={() => setSelectMode(true)}
+                  aria-label={t("my.bulkSelect.select")}
                   className={chipButton}
                 >
-                  {t("common.cancel")}
+                  {t("my.bulkSelect.select")}
                 </button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4 hidden flex-wrap items-center gap-2 md:flex">
+                  <button type="button" onClick={selectAll} className={chipButton}>
+                    {selectedIds.size >= items.length
+                      ? t("my.bulkSelect.clear")
+                      : t("my.bulkSelect.selectAll")}
+                  </button>
+                  <button type="button" onClick={clearSelection} className={chipButton}>
+                    {t("my.bulkSelect.clear")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedIds.size === 0 || deleting}
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className={`${chipButton} border-red-400 text-red-700 hover:border-red-600 disabled:opacity-50`}
+                  >
+                    {t("my.bulkSelect.deleteSelected")} ({selectedIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectMode(false);
+                      setSelectedIds(new Set());
+                    }}
+                    className={chipButton}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
               </>
             )}
-          </div>
+          </>
         )}
 
         {loading ? (
@@ -350,7 +354,7 @@ export default function MyLibraryPage() {
             {items.map((a) => (
               <div key={a.id} className="relative">
                 {selectMode && (
-                  <div className="absolute left-2 top-2 z-10">
+                  <label className="absolute left-1 top-1 z-10 flex p-2">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(a.id)}
@@ -358,7 +362,7 @@ export default function MyLibraryPage() {
                       className="h-5 w-5 rounded border-zinc-300"
                       aria-label={t("my.bulkSelect.select")}
                     />
-                  </div>
+                  </label>
                 )}
                 <ArtworkCard
                   artwork={a}
@@ -380,6 +384,34 @@ export default function MyLibraryPage() {
               className={`${chipButton} disabled:opacity-50`}
             >
               {loadingMore ? t("common.loading") : t("library.loadMore")}
+            </button>
+          </div>
+        )}
+
+        {items.length > 0 && !loading && selectMode && (
+          <div className="sticky bottom-0 z-20 -mx-4 mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur md:hidden pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6">
+            <button type="button" onClick={selectAll} className={chipButton}>
+              {selectedIds.size >= items.length
+                ? t("my.bulkSelect.clear")
+                : t("my.bulkSelect.selectAll")}
+            </button>
+            <button
+              type="button"
+              disabled={selectedIds.size === 0 || deleting}
+              onClick={() => setShowDeleteConfirm(true)}
+              className={`${chipButton} border-red-400 text-red-700 hover:border-red-600 disabled:opacity-50`}
+            >
+              {t("my.bulkSelect.deleteSelected")} ({selectedIds.size})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectMode(false);
+                setSelectedIds(new Set());
+              }}
+              className={chipButton}
+            >
+              {t("common.cancel")}
             </button>
           </div>
         )}

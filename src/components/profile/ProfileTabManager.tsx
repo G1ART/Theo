@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LaneChips, type LaneOption } from "@/components/ds";
+import { hitTarget } from "@/components/ds/buttonStyles";
 import { StudioPortfolioManageModal } from "@/components/studio/StudioPortfolioManageModal";
 import { useT } from "@/lib/i18n/useT";
 import { persistStudioPortfolio } from "@/lib/studio/persistStudioPortfolio";
@@ -85,11 +86,12 @@ export function ProfileTabManager({
 
   return (
     <div className="mb-4 border-b border-zinc-200 pb-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {isOwner && reorderMode ? (
           <>
+            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
             {list.map((row, idx) => (
-              <span key={row.key} className="flex items-center gap-0.5">
+              <span key={row.key} className="flex shrink-0 items-center gap-0.5">
                 <button
                   type="button"
                   disabled={idx === 0}
@@ -99,7 +101,7 @@ export function ProfileTabManager({
                     [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
                     setStripDraft(next);
                   }}
-                  className="rounded border border-zinc-300 p-0.5 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
+                  className={`${hitTarget} inline-flex items-center justify-center rounded border border-zinc-300 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40`}
                   aria-label={t("my.moveTabUp")}
                 >
                   ↑
@@ -113,7 +115,7 @@ export function ProfileTabManager({
                     [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
                     setStripDraft(next);
                   }}
-                  className="rounded border border-zinc-300 p-0.5 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
+                  className={`${hitTarget} inline-flex items-center justify-center rounded border border-zinc-300 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40`}
                   aria-label={t("my.moveTabDown")}
                 >
                   ↓
@@ -129,6 +131,8 @@ export function ProfileTabManager({
                 </span>
               </span>
             ))}
+            </div>
+            <div className="flex w-full justify-end gap-2 sm:ml-auto sm:w-auto">
             <button
               type="button"
               disabled={saving}
@@ -160,10 +164,12 @@ export function ProfileTabManager({
             >
               {t("common.cancel")}
             </button>
+            </div>
           </>
         ) : (
           <>
             {stripPublic.length > 0 && (
+              <div className="min-w-0 overflow-x-auto">
               <LaneChips
                 variant="lane"
                 options={stripOptions}
@@ -177,12 +183,13 @@ export function ProfileTabManager({
                     onActiveChange({ kind: "custom", id: row.customId! });
                   }
                 }}
-                className="min-w-0 flex-1 border-0 pb-0"
+                className="min-w-0 flex-nowrap whitespace-nowrap border-0 pb-0 [flex-wrap:nowrap]"
                 data-tour="public-profile-tab-strip"
               />
+              </div>
             )}
             {isOwner && (
-              <div className="ml-auto flex shrink-0 items-center gap-2">
+              <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:ml-auto sm:w-auto">
                 {stripRows.length > 1 && (
                   <button
                     type="button"

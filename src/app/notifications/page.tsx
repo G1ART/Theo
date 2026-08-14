@@ -13,6 +13,7 @@ import {
 import { useT } from "@/lib/i18n/useT";
 import { backToLabel } from "@/lib/i18n/back";
 import { EmptyState } from "@/components/ds/EmptyState";
+import { chipButton } from "@/components/ds/buttonStyles";
 import { useFeatureAccess } from "@/hooks/useFeatureAccess";
 import {
   acceptFollowRequest,
@@ -199,16 +200,21 @@ function NotificationsContent() {
       </Link>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-zinc-900">{t("notifications.title")}</h1>
-        {list.length > 0 && (
-          <button
-            type="button"
-            disabled={markingAll}
-            onClick={() => void handleMarkAll()}
-            className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-          >
-            {markingAll ? t("common.loading") : t("notifications.markAllRead")}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/my/alerts" className={chipButton}>
+            {t("notifications.alertSettings")}
+          </Link>
+          {list.length > 0 && (
+            <button
+              type="button"
+              disabled={markingAll}
+              onClick={() => void handleMarkAll()}
+              className={chipButton}
+            >
+              {markingAll ? t("common.loading") : t("notifications.markAllRead")}
+            </button>
+          )}
+        </div>
       </div>
       {list.length === 0 ? (
         <EmptyState title={t("notifications.empty")} size="sm" />

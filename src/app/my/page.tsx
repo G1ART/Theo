@@ -311,13 +311,19 @@ function WorkspaceContent() {
             </div>
           }
         />
-        <p className="mb-6">
+        <p className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1">
           <Link
             href="/my/visibility"
             data-tour="workspace-visibility"
             className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline"
           >
             {t("workspace.cta.visibility")}
+          </Link>
+          <Link
+            href="/my/network"
+            className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline"
+          >
+            {t("workspace.cta.network")}
           </Link>
         </p>
       </div>

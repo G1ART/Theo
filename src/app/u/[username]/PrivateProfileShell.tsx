@@ -20,7 +20,7 @@
  *
  *   2. VISITOR (Phase 1 upgrade)
  *      Until this PR, visitors saw a flat "비공개입니다" sentence with a
- *      single "내 스튜디오로 돌아가기" link — effectively a dead end. With
+ *      single "사람 탐색으로" link — effectively a dead end. With
  *      Private Account v2 we expose the meta card (avatar / display name
  *      / main role / bio) and a Follow / Requested button that drives the
  *      `request_follow_or_follow` RPC. The principal can then approve or
@@ -349,7 +349,7 @@ function VisitorPrivateCard({
             here — IntroMessageAssist owns that trigger so visitors see
             exactly one entry point with the same ✦ icon and copy as
             on the /people tab.
-          - Trailing     → "내 스튜디오로 돌아가기" link, right-aligned.
+          - Trailing     → "사람 탐색으로" / People link, right-aligned.
 
           IntroMessageAssist is only mounted while status === "none":
           once a follow request is in flight (pending) or accepted, the
@@ -408,7 +408,7 @@ function VisitorPrivateCard({
             href="/people"
             className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-800"
           >
-            {t("profile.privateBackToMy")}
+            {t("profile.privateBackToPeople")}
           </Link>
         </div>
       </div>

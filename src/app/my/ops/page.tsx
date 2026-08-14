@@ -142,10 +142,7 @@ function OpsContent() {
 
       {rescue && (
         <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">{t("ops.hub.rescue.title")}</h2>
-            <span className="text-xs text-zinc-400">v_identity_rescue_stats</span>
-          </div>
+          <h2 className="mb-2 text-sm font-semibold text-zinc-800">{t("ops.hub.rescue.title")}</h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <p className="text-lg font-semibold text-zinc-900">{rescue.placeholder_total ?? 0}</p>
@@ -197,69 +194,116 @@ function OpsContent() {
       {loading ? (
         <p className="text-zinc-500">{t("common.loading")}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-zinc-200 text-xs text-zinc-500">
-              <tr>
-                <th className="pb-2 pr-3">{t("ops.hub.col.username")}</th>
-                <th className="pb-2 pr-3">{t("ops.hub.col.displayName")}</th>
-                <th className="pb-2 pr-3">{t("ops.hub.col.email")}</th>
-                <th className="pb-2 pr-3 text-right">{t("ops.hub.col.works")}</th>
-                <th className="pb-2 pr-3 text-right">{t("ops.hub.col.deleg")}</th>
-                <th className="pb-2 pr-3">{t("ops.hub.col.flags")}</th>
-                <th className="pb-2 pr-3">{t("ops.hub.col.joined")}</th>
-                <th className="pb-2">{t("ops.hub.col.actions")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {filtered.map((r) => {
-                const profileUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/u/${r.username ?? ""}`;
-                const identityFix = `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding/identity`;
-                return (
-                  <tr key={r.profile_id} className="hover:bg-zinc-50">
-                    <td className="py-2 pr-3">
-                      <Link href={`/u/${r.username ?? ""}`} className="font-medium text-zinc-800 hover:underline">
-                        {r.username ?? "—"}
-                      </Link>
-                    </td>
-                    <td className="py-2 pr-3 text-zinc-600">{r.display_name ?? "—"}</td>
-                    <td className="py-2 pr-3 text-zinc-500 text-xs">{r.email ?? "—"}</td>
-                    <td className="py-2 pr-3 text-right">{r.artwork_count}</td>
-                    <td className="py-2 pr-3 text-right">{r.delegation_count}</td>
-                    <td className="py-2 pr-3">
-                      <div className="flex flex-wrap gap-1">
-                        {r.has_random_username && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{t("ops.hub.flag.placeholderId")}</span>}
-                        {r.artwork_count === 0 && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">{t("ops.hub.flag.noUploads")}</span>}
-                      </div>
-                    </td>
-                    <td className="py-2 pr-3 text-xs text-zinc-400">{new Date(r.created_at).toLocaleDateString()}</td>
-                    <td className="py-2">
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(profileUrl, `p-${r.profile_id}`)}
-                          className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200"
-                        >
-                          {copiedId === `p-${r.profile_id}` ? "✓" : t("ops.hub.action.profileLink")}
-                        </button>
-                        {r.has_random_username && (
+        <>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => {
+              const profileUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/u/${r.username ?? ""}`;
+              const identityFix = `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding/identity`;
+              return (
+                <article
+                  key={r.profile_id}
+                  className="rounded-2xl border border-zinc-200 bg-white p-4"
+                >
+                  <Link href={`/u/${r.username ?? ""}`} className="font-medium text-zinc-800 hover:underline">
+                    {r.username ?? "—"}
+                  </Link>
+                  <p className="mt-1 text-sm text-zinc-600">{r.display_name ?? "—"}</p>
+                  <p className="text-xs text-zinc-500">{r.email ?? "—"}</p>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {t("ops.hub.col.works")}: {r.artwork_count} · {t("ops.hub.col.deleg")}: {r.delegation_count}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {r.has_random_username && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{t("ops.hub.flag.placeholderId")}</span>}
+                    {r.artwork_count === 0 && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">{t("ops.hub.flag.noUploads")}</span>}
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-400">{new Date(r.created_at).toLocaleDateString()}</p>
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(profileUrl, `p-${r.profile_id}`)}
+                      className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200"
+                    >
+                      {copiedId === `p-${r.profile_id}` ? "✓" : t("ops.hub.action.profileLink")}
+                    </button>
+                    {r.has_random_username && (
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(identityFix, `u-${r.profile_id}`)}
+                        className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-200"
+                      >
+                        {copiedId === `u-${r.profile_id}` ? "✓" : t("ops.hub.action.identityFix")}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+            {filtered.length === 0 && <p className="text-center text-sm text-zinc-500">{t("ops.hub.empty")}</p>}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-zinc-200 text-xs text-zinc-500">
+                <tr>
+                  <th className="pb-2 pr-3">{t("ops.hub.col.username")}</th>
+                  <th className="pb-2 pr-3">{t("ops.hub.col.displayName")}</th>
+                  <th className="pb-2 pr-3">{t("ops.hub.col.email")}</th>
+                  <th className="pb-2 pr-3 text-right">{t("ops.hub.col.works")}</th>
+                  <th className="pb-2 pr-3 text-right">{t("ops.hub.col.deleg")}</th>
+                  <th className="pb-2 pr-3">{t("ops.hub.col.flags")}</th>
+                  <th className="pb-2 pr-3">{t("ops.hub.col.joined")}</th>
+                  <th className="pb-2">{t("ops.hub.col.actions")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {filtered.map((r) => {
+                  const profileUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/u/${r.username ?? ""}`;
+                  const identityFix = `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding/identity`;
+                  return (
+                    <tr key={r.profile_id} className="hover:bg-zinc-50">
+                      <td className="py-2 pr-3">
+                        <Link href={`/u/${r.username ?? ""}`} className="font-medium text-zinc-800 hover:underline">
+                          {r.username ?? "—"}
+                        </Link>
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-600">{r.display_name ?? "—"}</td>
+                      <td className="py-2 pr-3 text-zinc-500 text-xs">{r.email ?? "—"}</td>
+                      <td className="py-2 pr-3 text-right">{r.artwork_count}</td>
+                      <td className="py-2 pr-3 text-right">{r.delegation_count}</td>
+                      <td className="py-2 pr-3">
+                        <div className="flex flex-wrap gap-1">
+                          {r.has_random_username && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{t("ops.hub.flag.placeholderId")}</span>}
+                          {r.artwork_count === 0 && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">{t("ops.hub.flag.noUploads")}</span>}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-zinc-400">{new Date(r.created_at).toLocaleDateString()}</td>
+                      <td className="py-2">
+                        <div className="flex flex-wrap gap-1">
                           <button
                             type="button"
-                            onClick={() => copyToClipboard(identityFix, `u-${r.profile_id}`)}
-                            className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-200"
+                            onClick={() => copyToClipboard(profileUrl, `p-${r.profile_id}`)}
+                            className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200"
                           >
-                            {copiedId === `u-${r.profile_id}` ? "✓" : t("ops.hub.action.identityFix")}
+                            {copiedId === `p-${r.profile_id}` ? "✓" : t("ops.hub.action.profileLink")}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {filtered.length === 0 && <p className="mt-4 text-center text-sm text-zinc-500">{t("ops.hub.empty")}</p>}
-        </div>
+                          {r.has_random_username && (
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(identityFix, `u-${r.profile_id}`)}
+                              className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-200"
+                            >
+                              {copiedId === `u-${r.profile_id}` ? "✓" : t("ops.hub.action.identityFix")}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filtered.length === 0 && <p className="mt-4 text-center text-sm text-zinc-500">{t("ops.hub.empty")}</p>}
+          </div>
+        </>
       )}
     </main>
   );

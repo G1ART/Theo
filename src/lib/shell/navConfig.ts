@@ -3,9 +3,8 @@
  *
  * Consumed by:
  *  - `AppSidebar` (desktop `lg+` fixed rail)
- *  - `Header` MAIN_NAV strip (tablet `md`–`lg-1` horizontal)
- *  - `Header` mobile hamburger panel (`<md`)
- *  - `Header` avatar dropdown secondary section (`md+`)
+ *  - `Header` hamburger panel (everything below `lg` — phone and tablet)
+ *  - `Header` avatar dropdown secondary section (`lg+` on non-shell routes)
  *
  * The desktop `AppSidebar` is canonical — the labels, hrefs, and match
  * patterns here MUST mirror what the sidebar already renders on `lg+`
@@ -86,6 +85,13 @@ export const SECONDARY_NAV: NavItem[] = [
     labelKey: "nav.notifications",
     matchPatterns: ["/notifications"],
     badge: "unread",
+  },
+  {
+    key: "network",
+    href: "/my/network",
+    labelKey: "nav.network",
+    matchPatterns: ["/my/network"],
+    gated: true,
   },
   {
     key: "settings",

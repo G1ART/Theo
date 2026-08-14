@@ -7,3 +7,6 @@ export const chipButton =
 
 export const chipButtonPrimary =
   "inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800";
+
+/** Minimum 44px touch target for icon/avatar/hamburger controls. */
+export const hitTarget = "min-h-11 min-w-11";

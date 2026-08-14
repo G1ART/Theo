@@ -77,7 +77,7 @@ export function PageHeader({
           )}
         </>
       ) : (
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h1
               id={titleId}
@@ -91,7 +91,11 @@ export function PageHeader({
               </p>
             )}
           </div>
-          {actions && <div className="shrink-0 pt-1">{actions}</div>}
+          {actions && (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:pt-1">
+              {actions}
+            </div>
+          )}
         </div>
       )}
     </header>

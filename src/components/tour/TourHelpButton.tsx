@@ -8,6 +8,7 @@
  * visually oriented users both have a clear entry point.
  */
 
+import { hitTarget } from "@/components/ds/buttonStyles";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { useT } from "@/lib/i18n/useT";
 import { TOUR_KO_CHROME, TOUR_POPOVER_FONT_FAMILY } from "@/lib/tours/tourKoCopy";
@@ -33,8 +34,8 @@ export function TourHelpButton({ tourId, labelKey = "tour.reopen", variant = "su
 
   const baseClass =
     variant === "ghost"
-      ? "inline-flex max-w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium text-zinc-500 hover:text-zinc-900"
-      : "inline-flex max-w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-zinc-200 bg-white/70 px-2.5 py-1 text-[11px] font-medium text-zinc-600 shadow-sm hover:border-zinc-300 hover:bg-white hover:text-zinc-900";
+      ? `inline-flex max-w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium text-zinc-500 hover:text-zinc-900 ${hitTarget}`
+      : `inline-flex max-w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-zinc-200 bg-white/70 px-3.5 py-2 text-[11px] font-medium text-zinc-600 shadow-sm hover:border-zinc-300 hover:bg-white hover:text-zinc-900 ${hitTarget}`;
 
   return (
     <button

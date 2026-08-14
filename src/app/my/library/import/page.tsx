@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
+import { PageHeader } from "@/components/ds/PageHeader";
+import { PageShell } from "@/components/ds/PageShell";
+import { chipButton, chipButtonPrimary } from "@/components/ds/buttonStyles";
 import { useT } from "@/lib/i18n/useT";
 import { parseCsv, validateCsvRows, type CsvValidationError } from "@/lib/csv/parse";
 import { createDraftArtwork, updateArtwork } from "@/lib/supabase/artworks";
@@ -108,7 +111,7 @@ function ImportContent() {
     for (const row of rows) {
       if (skipDuplicates && row.duplicate) {
         row.status = "skipped";
-        row.error = "Duplicate — skipped";
+        row.error = t("library.import.err.duplicate");
         done++;
         setProgress(done);
         continue;
@@ -116,10 +119,10 @@ function ImportContent() {
 
       const titleCol = mapping["title"];
       const title = titleCol ? row.fields[titleCol]?.trim() : "";
-      if (!title) { row.status = "error"; row.error = "No title"; done++; setProgress(done); continue; }
+      if (!title) { row.status = "error"; row.error = t("library.import.err.noTitle"); done++; setProgress(done); continue; }
 
       const { data: artworkId, error } = await createDraftArtwork({ title });
-      if (error || !artworkId) { row.status = "error"; row.error = "Create failed"; done++; setProgress(done); continue; }
+      if (error || !artworkId) { row.status = "error"; row.error = t("library.import.err.createFailed"); done++; setProgress(done); continue; }
 
       const updates: Record<string, unknown> = {};
       const mapField = (field: string) => {
@@ -144,35 +147,39 @@ function ImportContent() {
     }
     setRows([...rows]);
     setStep("done");
-  }, [rows, mapping, skipDuplicates]);
+  }, [rows, mapping, skipDuplicates, t]);
 
   const dupCount = rows.filter((r) => r.duplicate).length;
   const successCount = rows.filter((r) => r.status === "success").length;
   const errCount = rows.filter((r) => r.status === "error").length;
   const skipCount = rows.filter((r) => r.status === "skipped").length;
 
+  const fieldLabel = (col: string) => t(`library.import.field.${col}`);
+
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
-      <Link href="/my/library" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900">← Library</Link>
-      <h1 className="mb-6 text-xl font-semibold text-zinc-900">Import artworks</h1>
+    <PageShell variant="library">
+      <Link href="/my/library" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
+        ← {t("library.title")}
+      </Link>
+      <PageHeader variant="plain" title={t("library.import.title")} />
 
       {step === "paste" && (
         <div className="space-y-4">
           <p className="text-sm text-zinc-600">
-            Paste CSV data below. Only <strong>title</strong> is required — everything else is optional and can be edited later.
+            {t("library.import.pasteHint")}
           </p>
           <button
             type="button"
             onClick={() => {
               const tmpl = generateCsv(
                 SUPPORTED_COLUMNS,
-                [SUPPORTED_COLUMNS.map((c) => REQUIRED_COLUMNS.includes(c) ? "(required)" : "(optional)")]
+                [SUPPORTED_COLUMNS.map((c) => REQUIRED_COLUMNS.includes(c) ? t("library.import.templateRequired") : t("library.import.templateOptional"))]
               );
               downloadCsv("import_template.csv", tmpl);
             }}
             className="text-sm text-zinc-500 underline hover:text-zinc-700"
           >
-            Download template CSV
+            {t("library.import.downloadTemplate")}
           </button>
           <textarea
             value={csvText}
@@ -181,21 +188,30 @@ function ImportContent() {
             className="w-full rounded border border-zinc-300 px-3 py-2 font-mono text-sm"
             placeholder="title,year,medium&#10;Untitled,2024,Oil on canvas"
           />
-          <button type="button" disabled={!csvText.trim()} onClick={handleParse} className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">Next</button>
+          <button
+            type="button"
+            disabled={!csvText.trim()}
+            onClick={handleParse}
+            className={`${chipButtonPrimary} disabled:opacity-50`}
+          >
+            {t("common.next")}
+          </button>
         </div>
       )}
 
       {step === "map" && (
         <div className="space-y-4">
-          <p className="text-sm text-zinc-600">Match your columns to artwork fields. {rows.length} rows found.</p>
+          <p className="text-sm text-zinc-600">
+            {t("library.import.mapHint").replace("{n}", String(rows.length))}
+          </p>
           <div className="grid gap-2 sm:grid-cols-2">
             {SUPPORTED_COLUMNS.map((col) => (
               <div key={col} className="flex items-center gap-2">
                 <label className="w-32 text-sm text-zinc-700">
-                  {col.replace(/_/g, " ")}{REQUIRED_COLUMNS.includes(col) ? <span className="text-red-500"> *</span> : ""}
+                  {fieldLabel(col)}{REQUIRED_COLUMNS.includes(col) ? <span className="text-red-500"> *</span> : ""}
                 </label>
                 <select value={mapping[col] ?? ""} onChange={(e) => setMapping((prev) => ({ ...prev, [col]: e.target.value }))} className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm">
-                  <option value="">— skip —</option>
+                  <option value="">{t("library.import.skipColumn")}</option>
                   {headers.map((h) => <option key={h} value={h}>{h}</option>)}
                 </select>
               </div>
@@ -204,9 +220,9 @@ function ImportContent() {
           {validationErrors.filter((e) => e.row === 0).map((e, i) => (
             <p key={i} className="text-sm text-red-600">{e.message}</p>
           ))}
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void handleValidate()} className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800">{t("library.import.validateAndPreview")}</button>
-            <button type="button" onClick={() => setStep("paste")} className="rounded border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-50">{t("common.back")}</button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void handleValidate()} className={chipButtonPrimary}>{t("library.import.validateAndPreview")}</button>
+            <button type="button" onClick={() => setStep("paste")} className={chipButton}>{t("common.back")}</button>
           </div>
         </div>
       )}
@@ -214,26 +230,26 @@ function ImportContent() {
       {step === "preview" && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-4 text-sm">
-            <span className="text-zinc-700">{rows.length} rows</span>
+            <span className="text-zinc-700">{t("library.import.rowsCount").replace("{n}", String(rows.length))}</span>
             {dupCount > 0 && (
-              <span className="text-amber-700">{dupCount} possible duplicates</span>
+              <span className="text-amber-700">{t("library.import.possibleDuplicates").replace("{n}", String(dupCount))}</span>
             )}
             {dupCount > 0 && (
               <label className="flex items-center gap-1.5 text-sm">
                 <input type="checkbox" checked={skipDuplicates} onChange={(e) => setSkipDuplicates(e.target.checked)} className="h-3.5 w-3.5 rounded border-zinc-300" />
-                Skip duplicates
+                {t("library.import.skipDuplicates")}
               </label>
             )}
           </div>
-          <div className="max-h-72 overflow-auto rounded border border-zinc-200">
+          <div className="max-h-72 overflow-x-auto overflow-y-auto rounded border border-zinc-200">
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 bg-zinc-50 text-xs text-zinc-500">
                 <tr>
                   <th className="px-3 py-2">#</th>
                   {SUPPORTED_COLUMNS.filter((c) => mapping[c]).map((c) => (
-                    <th key={c} className="px-3 py-2">{c}</th>
+                    <th key={c} className="px-3 py-2">{fieldLabel(c)}</th>
                   ))}
-                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">{t("library.import.status")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -243,25 +259,33 @@ function ImportContent() {
                     {SUPPORTED_COLUMNS.filter((c) => mapping[c]).map((c) => (
                       <td key={c} className="max-w-[150px] truncate px-3 py-1.5 text-zinc-700">{r.fields[mapping[c]] ?? ""}</td>
                     ))}
-                    <td className="px-3 py-1.5">{r.duplicate ? <span className="text-xs text-amber-700">dup?</span> : "—"}</td>
+                    <td className="px-3 py-1.5">{r.duplicate ? <span className="text-xs text-amber-700">{t("library.import.dup")}</span> : "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {rows.length > 100 && <p className="text-xs text-zinc-400">Showing first 100 of {rows.length}</p>}
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void handleImport()} className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800">
-              Import {skipDuplicates ? rows.length - dupCount : rows.length} rows
+          {rows.length > 100 && (
+            <p className="text-xs text-zinc-400">
+              {t("library.import.showingFirst").replace("{n}", String(rows.length))}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void handleImport()} className={chipButtonPrimary}>
+              {t("library.import.importRows").replace("{n}", String(skipDuplicates ? rows.length - dupCount : rows.length))}
             </button>
-            <button type="button" onClick={() => setStep("map")} className="rounded border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-50">{t("common.back")}</button>
+            <button type="button" onClick={() => setStep("map")} className={chipButton}>{t("common.back")}</button>
           </div>
         </div>
       )}
 
       {step === "importing" && (
         <div className="space-y-3">
-          <p className="text-sm text-zinc-600">Importing... {progress} / {rows.length}</p>
+          <p className="text-sm text-zinc-600">
+            {t("library.import.importing")
+              .replace("{done}", String(progress))
+              .replace("{total}", String(rows.length))}
+          </p>
           <div className="h-2 w-full rounded-full bg-zinc-200">
             <div className="h-2 rounded-full bg-zinc-800 transition-all" style={{ width: `${(progress / Math.max(rows.length, 1)) * 100}%` }} />
           </div>
@@ -271,24 +295,28 @@ function ImportContent() {
       {step === "done" && (
         <div className="space-y-3">
           <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-            <p className="text-sm font-medium text-green-800">Done!</p>
+            <p className="text-sm font-medium text-green-800">{t("library.import.done")}</p>
             <p className="mt-1 text-sm text-green-700">
-              {successCount} artwork{successCount !== 1 ? "s" : ""} added as drafts.
-              {skipCount > 0 ? ` ${skipCount} skipped (duplicates).` : ""}
-              {errCount > 0 ? ` ${errCount} had issues — see below.` : ""}
+              {t("library.import.addedDrafts").replace("{n}", String(successCount))}
+              {skipCount > 0 ? ` ${t("library.import.skipped").replace("{n}", String(skipCount))}` : ""}
+              {errCount > 0 ? ` ${t("library.import.hadIssues").replace("{n}", String(errCount))}` : ""}
             </p>
           </div>
           {errCount > 0 && (
             <ul className="max-h-32 space-y-1 overflow-y-auto">
               {rows.filter((r) => r.status === "error").map((r) => (
-                <li key={r.idx} className="text-sm text-red-600">Row {r.idx}: {r.error}</li>
+                <li key={r.idx} className="text-sm text-red-600">
+                  {t("library.import.rowError").replace("{n}", String(r.idx)).replace("{error}", r.error ?? "")}
+                </li>
               ))}
             </ul>
           )}
-          <Link href="/my/library" className="inline-block rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800">Go to Library</Link>
+          <Link href="/my/library" className={chipButtonPrimary}>
+            {t("library.import.goToLibrary")}
+          </Link>
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }
 
