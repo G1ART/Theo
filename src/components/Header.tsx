@@ -27,6 +27,10 @@ import {
   isNavItemActive,
 } from "@/lib/shell/navConfig";
 import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
+import {
+  HamburgerContextPeek,
+  useFollowInviteCount,
+} from "@/components/shell/HamburgerContextPeek";
 import { hitTarget } from "@/components/ds/buttonStyles";
 
 /**
@@ -165,6 +169,7 @@ export function Header() {
   const switcherFetchInflightRef = useRef(false);
 
   const loggedIn = !!session;
+  const inviteCount = useFollowInviteCount(loggedIn);
 
   useEffect(() => {
     if (!loggedIn) {
@@ -384,6 +389,10 @@ export function Header() {
       </Link>
     );
   }
+
+  const hamburgerSecondary = SECONDARY_NAV.filter(
+    (item) => item.key !== "network" && item.key !== "board",
+  );
 
   const accountMenuLabel = t("nav.accountMenu");
   const avatarAriaLabel =
@@ -639,11 +648,21 @@ export function Header() {
                   if (mobileOpen) closeMobile();
                   else openMobile();
                 }}
-                className={`${hitTarget} inline-flex items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
+                className={`${hitTarget} relative inline-flex items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
                 aria-expanded={mobileOpen}
                 aria-controls={mobilePanelId}
-                aria-label={t("nav.menu")}
+                aria-label={
+                  inviteCount > 0
+                    ? `${t("nav.menu")} (${inviteCount})`
+                    : t("nav.menu")
+                }
               >
+                {inviteCount > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-zinc-900"
+                  />
+                )}
                 <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   {mobileOpen ? (
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -675,12 +694,14 @@ export function Header() {
             <nav className="flex flex-col p-4 gap-1">
               {PRIMARY_NAV.map((item) => renderMobileRow(item))}
 
-              {loggedIn && (
-                <>
-                  <div className="my-2 border-t border-zinc-100" />
-                  {SECONDARY_NAV.map((item) => renderMobileRow(item))}
-                </>
-              )}
+              <div className="my-2 border-t border-zinc-100" />
+              <HamburgerContextPeek
+                loggedIn={loggedIn}
+                onNavigate={closeMobile}
+              />
+
+              {loggedIn &&
+                hamburgerSecondary.map((item) => renderMobileRow(item))}
 
               {loggedIn && (
                 <div data-tour="account-switcher">

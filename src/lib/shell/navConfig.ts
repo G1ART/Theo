@@ -94,6 +94,12 @@ export const SECONDARY_NAV: NavItem[] = [
     gated: true,
   },
   {
+    key: "board",
+    href: "/theo-board",
+    labelKey: "nav.theoBoard",
+    matchPatterns: ["/theo-board"],
+  },
+  {
     key: "settings",
     href: "/settings",
     labelKey: "nav.setting",

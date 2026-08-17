@@ -38,6 +38,8 @@ import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
  *   ─ (spacer) ─
  *
  *   Notifications → button opens NotificationsDrawer (popover)
+ *   Network       → /my/network
+ *   Board         → /theo-board
  *   Setting       → /settings
  *   Delegations   → /my/delegations
  *   Switch Account → self-row (routes to /u/{username}) + received
