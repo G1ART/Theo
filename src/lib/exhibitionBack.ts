@@ -45,6 +45,12 @@ export function getExhibitionBack(): { path: string; labelKey: string } {
     if (path.startsWith("/my/exhibitions")) return { path, labelKey: "exhibition.myExhibitions" };
     if (path.startsWith("/people")) return { path, labelKey: "nav.people" };
     if (path.startsWith("/room/")) return { path, labelKey: "common.back" };
+    if (path.startsWith("/artwork/")) return { path, labelKey: "artwork.backLabel" };
+    if (path.startsWith("/notifications")) return { path, labelKey: "nav.notifications" };
+    if (path.startsWith("/my")) return { path, labelKey: "nav.workspace" };
+    if (path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/e/")) {
+      return { path, labelKey: "common.back" };
+    }
     return fallback;
   } catch {
     return fallback;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
+import { setArtworkBack } from "@/lib/artworkBack";
 import { AuthGate } from "@/components/AuthGate";
 import { BoardPitchPackPanel } from "@/components/board/BoardPitchPackPanel";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
@@ -325,7 +326,7 @@ function ShortlistDetailContent() {
           {items.map((item) => (
             <div key={item.id} className="group relative rounded-lg border border-zinc-200 bg-white p-2">
               {item.artwork_id && item.artwork ? (
-                <Link href={`/artwork/${item.artwork_id}`}>
+                <Link href={`/artwork/${item.artwork_id}`} onClick={() => setArtworkBack()}>
                   <div className="aspect-square overflow-hidden rounded bg-zinc-100">
                     {item.artwork.image_path ? (
                       <img

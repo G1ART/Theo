@@ -7,6 +7,7 @@ import Image from "next/image";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { pickLocalizedTitle, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
+import { setArtworkBack } from "@/lib/artworkBack";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import {
   deleteExhibitionMedia,
@@ -880,6 +881,7 @@ export default function ExhibitionDetailPage() {
                             >
                               <Link
                                 href={`/artwork/${art.id}`}
+                                onClick={() => setArtworkBack()}
                                 className="block aspect-square overflow-hidden rounded border border-zinc-100 bg-zinc-100"
                               >
                                 {img ? (

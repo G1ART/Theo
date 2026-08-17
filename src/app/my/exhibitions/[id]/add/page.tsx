@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { backToLabel } from "@/lib/i18n/back";
+import { setArtworkBack } from "@/lib/artworkBack";
 import {
   addWorkToExhibition,
   listWorksInExhibition,
@@ -1490,7 +1491,7 @@ export default function AddWorkToExhibitionPage() {
                       key={art.id}
                       className="overflow-hidden rounded-lg border border-zinc-200 bg-white"
                     >
-                      <Link href={`/artwork/${art.id}`} className="block">
+                      <Link href={`/artwork/${art.id}`} onClick={() => setArtworkBack()} className="block">
                         {img ? (
                           <div className="relative aspect-[4/3] bg-zinc-100">
                             <Image

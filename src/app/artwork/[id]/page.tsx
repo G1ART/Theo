@@ -148,6 +148,10 @@ function ArtworkDetailContent() {
   const [exhibitionsForWork, setExhibitionsForWork] = useState<ExhibitionWithCredits[]>([]);
   const [delegatedProjectIds, setDelegatedProjectIds] = useState<Set<string>>(new Set());
   const [shortlistOpen, setShortlistOpen] = useState(false);
+  const [back, setBack] = useState<{ path: string; labelKey: string }>({
+    path: "/feed?tab=all&sort=latest",
+    labelKey: "nav.feed",
+  });
   // Sprint 5 — viewer-side relationship/visibility state. The page calls
   // resolve_visibility_for_viewer for each first-class field after the
   // artwork loads; client never assembles `requiredAudience` itself.
@@ -305,6 +309,10 @@ function ArtworkDetailContent() {
   useEffect(() => {
     if (!id) return;
     listExhibitionsForWork(id).then(({ data }) => setExhibitionsForWork(data ?? []));
+  }, [id]);
+
+  useEffect(() => {
+    setBack(getArtworkBack());
   }, [id]);
 
   // Sprint 3 §4.3 — when the user arrives via `?fromRoom=token`, resolve
@@ -749,7 +757,7 @@ function ArtworkDetailContent() {
   const username = profileUsername ?? "";
   const isExternalArtist = isExternalArtistArtwork(artwork);
 
-  const { path: backPath, labelKey: backLabelKey } = getArtworkBack();
+  const { path: backPath, labelKey: backLabelKey } = back;
   const sizeDisplay =
     artwork.size != null
       ? formatSizeForLocale(artwork.size, locale, artwork.size_unit ?? undefined, sizePref)
