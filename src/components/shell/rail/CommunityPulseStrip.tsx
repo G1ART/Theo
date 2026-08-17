@@ -26,6 +26,14 @@ const ROLE_COLOR: Record<(typeof ROLE_OPTIONS)[number], string> = {
  * The trailing divider is owned here (not by the caller) so the empty
  * state can return a clean `null` without leaving a stray bordered gap
  * at the top of the card.
+ *
+ * 2026-08-17 honesty pass: we intentionally do NOT show a summed total.
+ * `count_personas` counts multi-persona members once per role (see
+ * `personaCounts.ts`), so `artist + curator + gallerist + collector`
+ * would overstate unique members. Per-persona counts are individually
+ * accurate, so we surface them directly and let the bar visualise
+ * composition. A future unique-member RPC could add a real headline
+ * number.
  */
 export function CommunityPulseStrip() {
   const { t } = useT();
@@ -58,11 +66,8 @@ export function CommunityPulseStrip() {
               </span>
               {t("rail.community.title")}
             </span>
-            <span className="text-xs font-semibold tabular-nums text-zinc-900">
-              {t("rail.community.active").replace(
-                "{count}",
-                total.toLocaleString(),
-              )}
+            <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+              {t("network.persona.live")}
             </span>
           </div>
 
@@ -84,7 +89,22 @@ export function CommunityPulseStrip() {
             })}
           </div>
 
-          <div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] text-zinc-500 group-hover:text-zinc-900">
+          <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
+            {ROLE_OPTIONS.map((role) => (
+              <li key={role} className="inline-flex items-center gap-1">
+                <span
+                  aria-hidden
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${ROLE_COLOR[role]}`}
+                />
+                <span>{t(`people.role.${role}`)}</span>
+                <span className="font-semibold tabular-nums text-zinc-700">
+                  {counts[role].toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-2 flex items-center justify-end gap-1 text-[11px] text-zinc-500 group-hover:text-zinc-900">
             {t("rail.community.cta")}
             <span aria-hidden>→</span>
           </div>

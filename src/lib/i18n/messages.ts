@@ -76,10 +76,10 @@ export const messages = {
     "rail.myConnection.searchPlaceholder": "Search people",
     "rail.myConnection.invitationsEmpty": "No pending invitations.",
     "rail.myConnection.suggestionsEmpty": "No suggestions yet.",
-    // Community pulse strip — top of the My Connection card ({count} is
-    // interpolated manually via .replace, not by t()).
+    // Community pulse strip — top of the My Connection card. Per-persona
+    // counts are shown individually (never summed) because
+    // count_personas() counts multi-persona members once per role.
     "rail.community.title": "Community",
-    "rail.community.active": "{count} active",
     "rail.community.cta": "Meet them in Network",
     "rail.theoBoard.title": "Theo Board",
     "rail.theoBoard.more": "more",
@@ -3905,10 +3905,10 @@ export const messages = {
     "rail.myConnection.searchPlaceholder": "사람 검색",
     "rail.myConnection.invitationsEmpty": "대기 중인 초대가 없습니다.",
     "rail.myConnection.suggestionsEmpty": "아직 추천이 없습니다.",
-    // 커뮤니티 펄스 스트립 — 내 커넥션 카드 상단 ({count}는 t()가 아니라
-    // .replace 로 직접 치환).
+    // 커뮤니티 펄스 스트립 — 내 커넥션 카드 상단. 페르소나별 수치를
+    // 개별로 표시(합산 금지). count_personas() 는 다중 페르소나 회원을
+    // 역할마다 한 번씩 카운트하므로 합치면 unique 회원수를 과장한다.
     "rail.community.title": "커뮤니티",
-    "rail.community.active": "{count}명 활동 중",
     "rail.community.cta": "네트워크에서 만나보기",
     "rail.theoBoard.title": "Theo Board",
     "rail.theoBoard.more": "더 보기",
