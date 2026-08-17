@@ -2,6 +2,21 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (6) — 피드 우측 레일에 라이브 커뮤니티 펄스
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 변경 요약
+- **내 커넥션** 카드 상단에 라이브 커뮤니티 펄스 스트립을 추가. 라이브 점 + "커뮤니티" + "{N}명 활동 중" + 얇은 에메랄드 스택바 + "네트워크에서 만나보기 →" 3행. 스트립 전체가 `/my/network`로 링크.
+- 네트워크 페이지의 `PersonaCommunityCard`가 쓰는 **같은 라이브 스트림**(`usePersonaCounts` — profiles 실시간 구독 + 60초 폴링 + 포커스 리페치)을 재사용 → 피드에서도 실시간으로 틱팅.
+- 로딩 중 skeleton, `ready && total===0`이면 `null` (빈 상태에서 rail 미노출, 잔여 divider 없음).
+- 신규: `src/components/shell/rail/CommunityPulseStrip.tsx`. i18n 키 3개 추가(EN/KO): `rail.community.title` / `rail.community.active` / `rail.community.cta`.
+
+### Verified
+- `npx tsc --noEmit`
+- `npx eslint` on 3 changed files
+- 직전 회귀 검증(전체 tsc + 이미지 인핸스 17/17 + `npm run build` 80 라우트) PASS 상태에서 이번 변경은 순수 프론트 UI + i18n 추가만.
+
 ## 2026-08-17 (5) — 돌아가기 링크 사이트 점검
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

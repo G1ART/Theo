@@ -76,6 +76,11 @@ export const messages = {
     "rail.myConnection.searchPlaceholder": "Search people",
     "rail.myConnection.invitationsEmpty": "No pending invitations.",
     "rail.myConnection.suggestionsEmpty": "No suggestions yet.",
+    // Community pulse strip — top of the My Connection card ({count} is
+    // interpolated manually via .replace, not by t()).
+    "rail.community.title": "Community",
+    "rail.community.active": "{count} active",
+    "rail.community.cta": "Meet them in Network",
     "rail.theoBoard.title": "Theo Board",
     "rail.theoBoard.more": "more",
     "rail.theoBoard.placeholder": "News board — coming soon.",
@@ -3900,6 +3905,11 @@ export const messages = {
     "rail.myConnection.searchPlaceholder": "사람 검색",
     "rail.myConnection.invitationsEmpty": "대기 중인 초대가 없습니다.",
     "rail.myConnection.suggestionsEmpty": "아직 추천이 없습니다.",
+    // 커뮤니티 펄스 스트립 — 내 커넥션 카드 상단 ({count}는 t()가 아니라
+    // .replace 로 직접 치환).
+    "rail.community.title": "커뮤니티",
+    "rail.community.active": "{count}명 활동 중",
+    "rail.community.cta": "네트워크에서 만나보기",
     "rail.theoBoard.title": "Theo Board",
     "rail.theoBoard.more": "더 보기",
     "rail.theoBoard.placeholder": "곧 준비될 소식판입니다.",

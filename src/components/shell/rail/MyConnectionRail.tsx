@@ -19,6 +19,7 @@ import { getPeopleRecommendations } from "@/lib/supabase/recommendations";
 import type { PeopleRec } from "@/lib/supabase/peopleRecs";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import { CommunityPulseStrip } from "./CommunityPulseStrip";
 
 /**
  * Right-rail widget — "My Connection" (Aug-2026 wireframe redesign).
@@ -147,6 +148,10 @@ export function MyConnectionRail() {
         </div>
 
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
+          {/* Live community pulse — owns its own trailing divider, and
+              renders null on empty so no stray gap appears. */}
+          <CommunityPulseStrip />
+
           {/* Invitations */}
           <div>
             <p className="text-xs font-medium text-zinc-500">
