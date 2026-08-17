@@ -1,12 +1,10 @@
 "use client";
 
 /**
- * Host/venue picker for exhibition create + edit.
+ * Prior 주최-name picker for exhibition create + edit.
  *
- * Feed credits prefer a linked host profile when present, otherwise the
- * typed host_name snapshot. Offering "my account" and previously used
- * names keeps those two sources from drifting (The GREEN vs The Green
- * Gallery).
+ * Feed credits stay on host (who), not venue (where). This dropdown
+ * only offers host names already used on earlier exhibitions.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -31,7 +29,7 @@ export function HostVenueSuggest({ forProfileId, onPick }: Props) {
   useEffect(() => {
     let cancelled = false;
     listMyHostVenueSuggestions({ forProfileId }).then(({ data }) => {
-      if (!cancelled) setItems(data);
+      if (!cancelled) setItems(data.filter((item) => item.kind === "prior"));
     });
     return () => {
       cancelled = true;

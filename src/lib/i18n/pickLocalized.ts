@@ -84,6 +84,12 @@ type HostNameRow = {
   host_name_en?: string | null;
 };
 
+type VenueNameRow = {
+  venue_name?: string | null;
+  venue_name_ko?: string | null;
+  venue_name_en?: string | null;
+};
+
 function firstNonEmpty(...vals: Array<string | null | undefined>): string {
   for (const v of vals) {
     if (typeof v === "string" && v.trim().length > 0) return v;
@@ -176,6 +182,16 @@ export function pickLocalizedHostName(
     return firstNonEmpty(row.host_name_ko, row.host_name_en, row.host_name);
   }
   return firstNonEmpty(row.host_name_en, row.host_name_ko, row.host_name);
+}
+
+export function pickLocalizedVenueName(
+  row: VenueNameRow,
+  locale: Locale,
+): string {
+  if (locale === "ko") {
+    return firstNonEmpty(row.venue_name_ko, row.venue_name_en, row.venue_name);
+  }
+  return firstNonEmpty(row.venue_name_en, row.venue_name_ko, row.venue_name);
 }
 
 // ─────────────────────────────────────────────────────────────────────

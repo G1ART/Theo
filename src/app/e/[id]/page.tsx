@@ -9,7 +9,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { backToLabel } from "@/lib/i18n/back";
 import { getExhibitionBack } from "@/lib/exhibitionBack";
 import { ExhibitionHostCuratorCredits } from "@/lib/exhibitionCredits";
-import { pickLocalizedTitle, pickLocalizedPreface } from "@/lib/i18n/pickLocalized";
+import { pickLocalizedTitle, pickLocalizedPreface, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
 import {
   ensureDefaultExhibitionMediaBuckets,
   getExhibitionById,
@@ -281,12 +281,22 @@ export default function PublicExhibitionPage() {
                 {(exhibition.start_date || exhibition.end_date) && (
                   <div className="flex gap-2">
                     <dt className="w-20 shrink-0 text-zinc-400">
-                      {t("exhibition.locationLabel")}
+                      {t("exhibition.datesLabel")}
                     </dt>
                     <dd className="min-w-0">
                       {exhibition.start_date && exhibition.end_date
                         ? `${exhibition.start_date} – ${exhibition.end_date}`
                         : exhibition.start_date ?? ""}
+                    </dd>
+                  </div>
+                )}
+                {pickLocalizedVenueName(exhibition, locale) && (
+                  <div className="flex gap-2">
+                    <dt className="w-20 shrink-0 text-zinc-400">
+                      {t("exhibition.locationLabel")}
+                    </dt>
+                    <dd className="min-w-0">
+                      {pickLocalizedVenueName(exhibition, locale)}
                     </dd>
                   </div>
                 )}

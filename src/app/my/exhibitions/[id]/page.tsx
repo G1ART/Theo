@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
-import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
+import { pickLocalizedTitle, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import {
   deleteExhibitionMedia,
@@ -582,6 +582,9 @@ export default function ExhibitionDetailPage() {
                 {exhibition.start_date && exhibition.end_date
                   ? `${exhibition.start_date} – ${exhibition.end_date}`
                   : exhibition.start_date ?? ""}
+                {pickLocalizedVenueName(exhibition, locale)
+                  ? ` · ${pickLocalizedVenueName(exhibition, locale)}`
+                  : ""}
                 {" · "}
                 {getExhibitionHostCuratorLabel(exhibition, t)}
                 {" · "}

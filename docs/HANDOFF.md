@@ -2,6 +2,21 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (3) — 전시 주최와 장소를 나눔
+
+> Supabase SQL 적용함: `supabase/migrations/20260817120000_exhibition_venue_name.sql` (원격 apply_migration `exhibition_venue_name`) · 환경 변수 변경 없음
+
+### 변경 요약
+- 전시 만들기·수정에서 **주최**(누가 여는지)와 **장소**(건물·공간, 선택)를 나눔. 주최와 같으면 장소는 비움.
+- 주최는 기존 `host_name` / `host_name_ko` / `host_name_en` / `host_profile_id`. 피드 크레딧은 주최만.
+- 장소는 `projects.venue_name` / `venue_name_ko` / `venue_name_en` (nullable). 옛 host_name 은 주최로 두고 백필하지 않음.
+- 공개 전시 페이지에서 날짜 라벨을 **기간**으로 고침. 장소 행은 값이 있을 때만 보임.
+- 240004 bilingual sync 트리거는 건드리지 않음. 장소도 host 와 같이 `pickLegacyForSave` 로 저장.
+
+### Verified
+- `npx tsc --noEmit`
+- 원격 `public.projects` 에 venue 컬럼 확인
+
 ## 2026-08-17 (2) — 전시 작성 시 주최 이름 추천
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

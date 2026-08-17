@@ -43,6 +43,13 @@ export type ExhibitionRow = {
    *  `pickLocalizedHostName` from `@/lib/i18n/pickLocalized`. */
   host_name_ko?: string | null;
   host_name_en?: string | null;
+  /**
+   * Optional building/space name, only when different from host.
+   * Distinct from host_name (who). Use `pickLocalizedVenueName`.
+   */
+  venue_name?: string | null;
+  venue_name_ko?: string | null;
+  venue_name_en?: string | null;
   host_profile_id: string | null;
   cover_image_paths: string[] | null;
   created_at: string | null;
@@ -53,7 +60,7 @@ const SELECT_WITH_CREDITS =
   // QA 2026-07-28 — additive bilingual columns for host_name and the
   // joined curator/host profile display_name. The 240004 trigger keeps
   // the legacy `host_name` / `display_name` in sync (KO wins).
-  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, external_curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username), external_curator:external_artists!external_curator_id(display_name, display_name_ko, display_name_en)";
+  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, external_curator_id, host_name, host_name_ko, host_name_en, venue_name, venue_name_ko, venue_name_en, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username), external_curator:external_artists!external_curator_id(display_name, display_name_ko, display_name_en)";
 
 export type ExhibitionWorkRow = {
   id: string;
@@ -214,6 +221,9 @@ export async function createExhibition(args: {
   /** QA 2026-07-28 bilingual host label. 240004 trigger keeps legacy in sync. */
   host_name_ko?: string | null;
   host_name_en?: string | null;
+  venue_name?: string | null;
+  venue_name_ko?: string | null;
+  venue_name_en?: string | null;
   host_profile_id?: string | null;
   external_curator_id?: string | null;
   forProfileId?: string;
@@ -240,6 +250,9 @@ export async function createExhibition(args: {
       host_name: args.host_name?.trim() || null,
       host_name_ko: args.host_name_ko?.trim() || null,
       host_name_en: args.host_name_en?.trim() || null,
+      venue_name: args.venue_name?.trim() || null,
+      venue_name_ko: args.venue_name_ko?.trim() || null,
+      venue_name_en: args.venue_name_en?.trim() || null,
       host_profile_id: args.host_profile_id ?? null,
       external_curator_id: args.external_curator_id ?? null,
       cover_image_paths: [],
@@ -273,7 +286,7 @@ export async function createExhibition(args: {
 /** Update exhibition (title, dates, status, curator, host). */
 export async function updateExhibition(
   id: string,
-  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "external_curator_id" | "host_name" | "host_name_ko" | "host_name_en" | "host_profile_id" | "cover_image_paths">>,
+  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "external_curator_id" | "host_name" | "host_name_ko" | "host_name_en" | "venue_name" | "venue_name_ko" | "venue_name_en" | "host_profile_id" | "cover_image_paths">>,
   options?: {
     /** Principal profile id when operator is acting-as. Audit-only. */
     actingSubjectProfileId?: string | null;
@@ -299,6 +312,9 @@ export async function updateExhibition(
   // QA 2026-07-28 bilingual host — trigger keeps legacy `host_name` in sync.
   if (patch.host_name_ko !== undefined) payload.host_name_ko = patch.host_name_ko?.trim() || null;
   if (patch.host_name_en !== undefined) payload.host_name_en = patch.host_name_en?.trim() || null;
+  if (patch.venue_name !== undefined) payload.venue_name = patch.venue_name?.trim() || null;
+  if (patch.venue_name_ko !== undefined) payload.venue_name_ko = patch.venue_name_ko?.trim() || null;
+  if (patch.venue_name_en !== undefined) payload.venue_name_en = patch.venue_name_en?.trim() || null;
   if (patch.host_profile_id !== undefined) payload.host_profile_id = patch.host_profile_id;
   if (patch.cover_image_paths !== undefined) payload.cover_image_paths = patch.cover_image_paths ?? [];
 
@@ -1166,7 +1182,7 @@ function normHostLabel(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Distinct host/venue names the operator (or principal) already used. */
+/** Distinct host names the operator (or principal) already used. */
 export async function listMyHostVenueSuggestions(options?: {
   forProfileId?: string | null;
 }): Promise<{ data: HostVenueSuggestion[]; error: unknown }> {
