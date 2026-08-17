@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
-import { backToLabel } from "@/lib/i18n/back";
+import { setArtworkBack } from "@/lib/artworkBack";
 import {
   listPriceInquiriesForInquirer,
   type PriceInquiryRow,
@@ -41,7 +41,7 @@ function SentInquiryStatus({ row }: { row: PriceInquiryRow }) {
 }
 
 function SentInquiriesContent() {
-  const { t, locale } = useT();
+  const { t } = useT();
   const [list, setList] = useState<PriceInquiryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -60,10 +60,10 @@ function SentInquiriesContent() {
   return (
     <PageShell>
       <Link
-        href="/feed?tab=all&sort=latest"
+        href="/my"
         className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
       >
-        ← {backToLabel(t("nav.feed"), locale)}
+        ← {t("profile.privateBackToMy")}
       </Link>
       <PageHeader
         title={t("inquiriesSent.title")}
@@ -93,6 +93,7 @@ function SentInquiriesContent() {
               <li key={row.id}>
                 <Link
                   href={`/artwork/${row.artwork_id}`}
+                  onClick={() => setArtworkBack()}
                   className="flex items-center justify-between gap-3 px-4 py-4 hover:bg-zinc-50"
                 >
                   <div className="min-w-0">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
+import { setArtworkBack } from "@/lib/artworkBack";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { logRoomAction } from "@/lib/supabase/shortlists";
@@ -121,6 +122,7 @@ export default function RoomPage() {
       // Set the room source breadcrumb FIRST (synchronously) so that the
       // artwork page, which can mount before any of these promises resolve,
       // already has the resolved room id available via peekRoomSource().
+      setArtworkBack();
       setRoomSource({ room_id: meta.id, artwork_id: artworkId });
       void logRoomAction(meta.id, "opened");
       logBetaEventSync("room_opened_artwork", {
@@ -144,6 +146,7 @@ export default function RoomPage() {
   );
   const handleAskAboutSelected = useCallback(() => {
     if (!firstArtworkId) return;
+    setArtworkBack();
     logBetaEventSync("private_room_selected_work_inquiry_clicked", {
       surface: "room",
       subject_type: "artwork",

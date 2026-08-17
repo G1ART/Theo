@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
+import { setArtworkBack } from "@/lib/artworkBack";
 import { LaneChips, type LaneOption } from "@/components/ds/LaneChips";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { FloorPanel } from "@/components/ds/FloorPanel";
@@ -556,6 +557,7 @@ function CardBody({
               >
                 <Link
                   href={`/artwork/${i.artwork_id}`}
+                  onClick={() => setArtworkBack()}
                   className="truncate hover:underline"
                 >
                   {i.subject_title ?? t("relationships.inquiry.untitled")}
@@ -672,12 +674,13 @@ function SuggestedNextAction({ card }: { card: RelationshipCard }) {
       <Link
         href={`/artwork/${openInquiry.artwork_id}`}
         className="block rounded-xl bg-zinc-900 px-4 py-3 text-center text-sm font-medium text-white hover:bg-zinc-800"
-        onClick={() =>
+        onClick={() => {
+          setArtworkBack();
           logBetaEventSync("relationship_next_action_clicked", {
             surface: "relationship_card",
             action_kind: "reply_to_inquiry",
-          })
-        }
+          });
+        }}
       >
         {t("relationships.suggested.replyInquiry")}
       </Link>

@@ -11,7 +11,7 @@ import {
   type NotificationRow,
 } from "@/lib/supabase/notifications";
 import { useT } from "@/lib/i18n/useT";
-import { backToLabel } from "@/lib/i18n/back";
+import { stampBackFromHref } from "@/lib/artworkBack";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { chipButton } from "@/components/ds/buttonStyles";
 import { useFeatureAccess } from "@/hooks/useFeatureAccess";
@@ -129,7 +129,7 @@ function FollowRequestActions({
 }
 
 function NotificationsContent() {
-  const { t, locale } = useT();
+  const { t } = useT();
   const [list, setList] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
@@ -192,12 +192,6 @@ function NotificationsContent() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
-      <Link
-        href="/feed?tab=all&sort=latest"
-        className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-      >
-        ← {backToLabel(t("nav.feed"), locale)}
-      </Link>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-zinc-900">{t("notifications.title")}</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -270,6 +264,7 @@ function NotificationsContent() {
                     href={href}
                     className="block hover:bg-zinc-50"
                     onClick={() => {
+                      stampBackFromHref(href);
                       void markNotificationRead(row.id);
                       window.dispatchEvent(new CustomEvent("notifications-read"));
                     }}

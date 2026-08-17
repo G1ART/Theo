@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
+import { setArtworkBack } from "@/lib/artworkBack";
 import {
   listPriceInquiriesForArtist,
   listPriceInquiryMessages,
@@ -399,7 +400,10 @@ export default function MyInquiriesPage() {
                     <Link
                       href={`/artwork/${row.artwork_id}`}
                       className="text-xs text-zinc-500 hover:text-zinc-800"
-                      onClick={() => void markPriceInquiryRead(row.id)}
+                      onClick={() => {
+                        setArtworkBack();
+                        void markPriceInquiryRead(row.id);
+                      }}
                     >
                       {t("priceInquiry.viewArtwork")}
                     </Link>

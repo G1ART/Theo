@@ -15,6 +15,7 @@ import {
   notificationLabel,
   notificationLink,
 } from "./notificationLink";
+import { stampBackFromHref } from "@/lib/artworkBack";
 
 /**
  * Sidebar-side notifications popover (Aug-2026 redesign).
@@ -219,6 +220,7 @@ export function NotificationsDrawer({
                     <Link
                       href={href}
                       onClick={() => {
+                        stampBackFromHref(href);
                         void markNotificationRead(row.id);
                         onClose();
                       }}

@@ -16,6 +16,7 @@ import type { ClaimType } from "@/lib/provenance/types";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import { setArtworkBack } from "@/lib/artworkBack";
 
 export default function MyClaimsPage() {
   const { t } = useT();
@@ -108,6 +109,7 @@ export default function MyClaimsPage() {
                 {row.work_id && (
                   <Link
                     href={`/artwork/${row.work_id}`}
+                    onClick={() => setArtworkBack()}
                     className="mb-3 block text-sm text-zinc-600 underline hover:text-zinc-900"
                   >
                     {t("artwork.viewArtwork")} →

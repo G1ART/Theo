@@ -5,6 +5,8 @@
 // artwork page reads it to return the visitor to that exact URL —
 // preserving the feed tab, exhibition id, scroll target, etc.
 
+import { setExhibitionBack } from "./exhibitionBack";
+
 const KEY = "ab_artwork_back";
 
 /**
@@ -61,6 +63,12 @@ function labelKeyForArtworkBack(path: string): string {
   if (path.startsWith("/explore")) return "nav.explore";
   if (path.startsWith("/my")) return "nav.workspace";
   return "common.back";
+}
+
+/** Stamp the matching back target before a Link to /artwork or /e/. */
+export function stampBackFromHref(href: string): void {
+  if (href.startsWith("/artwork/")) setArtworkBack();
+  else if (href.startsWith("/e/")) setExhibitionBack();
 }
 
 export function getArtworkBack(): { path: string; labelKey: string } {

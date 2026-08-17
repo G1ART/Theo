@@ -546,11 +546,7 @@ export default function ExhibitionDetailPage() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <Link href="/my/exhibitions" className="text-sm text-zinc-600 hover:text-zinc-900">
-              ← {t("profile.privateBackToMy")}
-            </Link>
-            <span className="text-zinc-400">|</span>
-            <Link href="/my/exhibitions" className="text-sm text-zinc-600 hover:text-zinc-900">
-              {t("exhibition.myExhibitions")}
+              ← {t("exhibition.myExhibitions")}
             </Link>
           </div>
           <TourHelpButton tourId={TOUR_IDS.exhibitionDetail} />
