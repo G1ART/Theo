@@ -9,7 +9,8 @@ import { pickLegacyTitleForSave, pickLegacyForSave } from "@/lib/i18n/pickLocali
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
-import { createExhibition } from "@/lib/supabase/exhibitions";
+import { createExhibition, type HostVenueSuggestion } from "@/lib/supabase/exhibitions";
+import { HostVenueSuggest } from "@/components/exhibitions/HostVenueSuggest";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { getMyProfile } from "@/lib/supabase/me";
@@ -117,7 +118,7 @@ export function NewExhibitionFormShell({
   const [hostName, setHostName] = useState("");
   const [hostNameKo, setHostNameKo] = useState("");
   const [hostNameEn, setHostNameEn] = useState("");
-  const [hostProfileMode, setHostProfileMode] = useState<"text" | "me" | "search">("text");
+  const [hostProfileMode, setHostProfileMode] = useState<"text" | "me" | "search">("me");
   const [hostSearch, setHostSearch] = useState("");
   const [hostResults, setHostResults] = useState<ProfileOption[]>([]);
   const [hostSelected, setHostSelected] = useState<ProfileOption | null>(null);
@@ -596,6 +597,36 @@ export function NewExhibitionFormShell({
             BilingualFieldPair 사용. legacy `hostName` 은 KO 우선으로 자동
             계산; 240004 트리거가 서버 측에서도 sync.
           */}
+          <HostVenueSuggest
+            forProfileId={effectiveProfileId}
+            onPick={(s: HostVenueSuggestion) => {
+              const linkedMe = s.kind === "me" || s.host_profile_id === effectiveProfileId;
+              if (linkedMe) {
+                setHostProfileMode("me");
+                setHostSelected(null);
+                setHostSearch("");
+                setHostResults([]);
+              } else if (s.host_profile_id) {
+                setHostProfileMode("search");
+                setHostSelected({
+                  id: s.host_profile_id,
+                  username: null,
+                  display_name: s.label,
+                });
+                setHostSearch("");
+                setHostResults([]);
+              } else {
+                setHostProfileMode("text");
+                setHostSelected(null);
+                setHostSearch("");
+                setHostResults([]);
+              }
+              const next = s.host_name ?? s.label;
+              setHostName(next);
+              setHostNameKo(s.host_name_ko ?? "");
+              setHostNameEn(s.host_name_en ?? next);
+            }}
+          />
           <BilingualFieldPair
             label={t("exhibition.hostVenue")}
             hint={t("exhibition.hostName")}

@@ -1151,3 +1151,91 @@ export async function listExhibitionsForWork(workId: string): Promise<{
   if (error) return { data: [], error };
   return { data: (data ?? []) as ExhibitionWithCredits[], error: null };
 }
+
+export type HostVenueSuggestion = {
+  key: string;
+  kind: "me" | "prior";
+  label: string;
+  host_name: string | null;
+  host_name_ko: string | null;
+  host_name_en: string | null;
+  host_profile_id: string | null;
+};
+
+function normHostLabel(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Distinct host/venue names the operator (or principal) already used. */
+export async function listMyHostVenueSuggestions(options?: {
+  forProfileId?: string | null;
+}): Promise<{ data: HostVenueSuggestion[]; error: unknown }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user.id) return { data: [], error: null };
+
+  const ownerId = options?.forProfileId ?? session.user.id;
+  const [{ data: exhibitions, error }, ownerRes] = await Promise.all([
+    listMyExhibitions({ forProfileId: options?.forProfileId }),
+    supabase
+      .from("profiles")
+      .select("id, display_name, display_name_ko, display_name_en, username")
+      .eq("id", ownerId)
+      .maybeSingle(),
+  ]);
+  if (error) return { data: [], error };
+
+  const owner = ownerRes.data as {
+    id: string;
+    display_name: string | null;
+    display_name_ko: string | null;
+    display_name_en: string | null;
+    username: string | null;
+  } | null;
+  const meLabel =
+    owner?.display_name?.trim() ||
+    owner?.display_name_en?.trim() ||
+    owner?.display_name_ko?.trim() ||
+    owner?.username?.trim() ||
+    "";
+  const meNorm = meLabel ? normHostLabel(meLabel) : "";
+
+  const out: HostVenueSuggestion[] = [];
+  if (owner && meLabel) {
+    out.push({
+      key: `me:${owner.id}`,
+      kind: "me",
+      label: meLabel,
+      host_name: meLabel,
+      host_name_ko: owner.display_name_ko?.trim() || null,
+      host_name_en: owner.display_name_en?.trim() || meLabel,
+      host_profile_id: owner.id,
+    });
+  }
+
+  const seen = new Set<string>(meNorm ? [meNorm] : []);
+  for (const row of exhibitions ?? []) {
+    const label =
+      row.host_name?.trim() ||
+      row.host_name_en?.trim() ||
+      row.host_name_ko?.trim() ||
+      row.host?.display_name?.trim() ||
+      "";
+    if (!label) continue;
+    const n = normHostLabel(label);
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push({
+      key: `prior:${n}`,
+      kind: "prior",
+      label,
+      host_name: row.host_name?.trim() || label,
+      host_name_ko: row.host_name_ko?.trim() || null,
+      host_name_en: row.host_name_en?.trim() || null,
+      host_profile_id: row.host_profile_id,
+    });
+  }
+
+  return { data: out, error: null };
+}

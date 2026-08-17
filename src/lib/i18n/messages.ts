@@ -588,6 +588,11 @@ export const messages = {
     "exhibition.curatorMe": "Me",
     "exhibition.hostVenue": "Host / venue (gallery, space)",
     "exhibition.hostVenueMe": "Me",
+    "exhibition.hostSuggest.hint":
+      "This name appears on the feed. Pick a name you already used so posts stay consistent.",
+    "exhibition.hostSuggest.placeholder": "Choose a previous host name",
+    "exhibition.hostSuggest.me": "My account — feed follows this name if you rename it",
+    "exhibition.hostSuggest.prior": "Used on an earlier exhibition",
     "exhibition.searchCurator": "Search by name or @username",
     "exhibition.inviteCuratorCta": "Invite instead",
     "exhibition.inviteCuratorHint":
@@ -4389,6 +4394,11 @@ export const messages = {
     "exhibition.curatorMe": "나",
     "exhibition.hostVenue": "호스트(갤러리·장소)",
     "exhibition.hostVenueMe": "나",
+    "exhibition.hostSuggest.hint":
+      "피드에 보이는 이름이에요. 예전에 쓴 이름을 고르면 게시물이 같아 보여요.",
+    "exhibition.hostSuggest.placeholder": "예전에 쓴 주최 이름 고르기",
+    "exhibition.hostSuggest.me": "내 계정 — 이름을 바꿔도 피드가 따라가요",
+    "exhibition.hostSuggest.prior": "이전 전시에 쓴 이름",
     "exhibition.searchCurator": "이름 또는 @아이디 검색",
     "exhibition.inviteCuratorCta": "초대로 추가",
     "exhibition.inviteCuratorHint":

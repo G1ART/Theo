@@ -16,7 +16,9 @@ import {
   getExhibitionById,
   updateExhibition,
   type ExhibitionRow,
+  type HostVenueSuggestion,
 } from "@/lib/supabase/exhibitions";
+import { HostVenueSuggest } from "@/components/exhibitions/HostVenueSuggest";
 import type { ExhibitionWithCredits } from "@/lib/exhibitionCredits";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
@@ -719,6 +721,36 @@ export default function EditExhibitionPage() {
                 {t("exhibition.hostVenue")}
               </label>
               <p className="mb-2 text-xs text-zinc-500">{t("exhibition.hostName")}</p>
+              <HostVenueSuggest
+                forProfileId={effectiveProfileId}
+                onPick={(s: HostVenueSuggestion) => {
+                  const linkedMe = s.kind === "me" || s.host_profile_id === effectiveProfileId;
+                  if (linkedMe) {
+                    setHostProfileMode("me");
+                    setHostSelected(null);
+                    setHostSearch("");
+                    setHostResults([]);
+                  } else if (s.host_profile_id) {
+                    setHostProfileMode("search");
+                    setHostSelected({
+                      id: s.host_profile_id,
+                      username: null,
+                      display_name: s.label,
+                    });
+                    setHostSearch("");
+                    setHostResults([]);
+                  } else {
+                    setHostProfileMode("text");
+                    setHostSelected(null);
+                    setHostSearch("");
+                    setHostResults([]);
+                  }
+                  const next = s.host_name ?? s.label;
+                  setHostName(next);
+                  setHostNameKo(s.host_name_ko ?? "");
+                  setHostNameEn(s.host_name_en ?? next);
+                }}
+              />
               <BilingualFieldPair
                 label={null}
                 addKoKey="bilingual.addKoHost"
