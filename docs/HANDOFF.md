@@ -2,6 +2,38 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (14) — 이중언어(KO/EN) RPC 반환 columns patch
+
+> Supabase SQL 적용함: MCP `apply_migration` 으로 7개 마이그레이션을 순서대로 원격에 apply (모두 additive). 로컬 파일: `supabase/migrations/2026081803000{0..9}_bilingual_rpc_*.sql` (6개) + `20260818090000_search_people_with_external_maincast_fix.sql`. · 환경 변수 변경 없음
+
+### 배경
+- 직전 (13) client audit 는 표시부를 `pickLocalized*` 로 통일했지만, **RPC 가 `_ko`/`_en` 컬럼을 반환하지 않으면 pickLocalized 는 뽑을 값이 없다**. 이번 patch 로 감사가 flag 한 14개 RPC 를 additive 로 확장.
+
+### RPC 별 diff
+| Migration | RPC | drop+recreate? | 이전 → 이후 |
+| --- | --- | --- | --- |
+| `20260818030000_bilingual_rpc_delegations.sql` | `list_my_delegations` / `get_delegation_by_token(uuid)` / `get_delegation_detail(uuid)` | 아니오 (`returns jsonb`) | `delegator/delegate.display_name_ko/en` + `project.title_ko/en` 키 추가 |
+| `20260818040000_bilingual_rpc_relationship_desk.sql` | `get_relationship_desk_for_owner` / `get_relationship_card_for_owner` | 아니오 | Desk row: `profile.display_name_ko/en`. Card: `display_name_ko/en` + `bio_ko/en` |
+| `20260818050000_bilingual_rpc_external_artists.sql` | `list_my_external_artists(uuid)` / `search_people_with_external` / `search_orphan_external_artists_for_me` | **`list_my_external_artists` 만 drop + recreate** (return TABLE 시그니처 확장; `pg_depend` 로 dependent 없음 확인 후 cascade 불필요) | `+display_name_ko/en`, external CTE 도 KO/EN, orphan 은 `inviter_display_name_ko/en` |
+| `20260818060000_bilingual_rpc_people_search.sql` | `get_people_recs` / `search_people` / `get_trending_people` | 아니오 (`setof jsonb`) | payload + `mutual_avatars` 에 `display_name_ko/en` + `bio_ko/en` |
+| `20260818070000_bilingual_rpc_private_profile.sql` | `lookup_profile_by_username(text)` | 아니오 | public + private 브랜치 둘 다 `display_name_ko/en` + `bio_ko/en` |
+| `20260818080000_bilingual_rpc_access_requests.sql` (워커 추가 발견) | `list_access_requests_for_owner_v2(uuid,text,int)` | 아니오 | `requester` sub-object 에 `display_name_ko/en` |
+| `20260818090000_search_people_with_external_maincast_fix.sql` (부수 발견 버그픽스) | `search_people_with_external` | 아니오 | `p.main_role::text as main_role` — enum vs text UNION mismatch (원본 `20260727000000` 부터 잠재하던 결함) 해결. `20260818050000` 로컬 파일도 동일 fix 반영 (replay 일관성) |
+
+### Client TS 확장
+- `src/lib/provenance/externalArtists.ts` — `OrphanExternalArtistCandidate` 에 `inviter_display_name_ko/en` 필드 + row mapping 추가. 나머지 타입(`MyExternalArtist`, `SearchPeopleWithExternalResult`, `AccessRequestRowEnriched.requester`, `PeopleRec`, `RelationshipDeskRow`, `RelationshipCard`, `Profile`, `PrivateProfileCard`, `DelegationParticipant`, `DelegationProjectInfo`)은 (13) audit 에서 이미 KO/EN 슬롯 기대하도록 확장돼 있어 추가 수정 불필요.
+
+### 스킵한 RPC
+- `is_staff_at_least(text)` — boolean 반환. display_name 없음.
+- `staff_lookup` / `staff_claim_founder` 등 admin ops — 이미 `coalesce(display_name, display_name_ko, display_name_en)` fallback 사용 중이고 `/my/ops/staff` 는 audit 상 "3 슬롯 debugging surface 로 의도된" 관리자 surface.
+
+### Verified
+- MCP `apply_migration` : 7건 모두 `{ success: true }`.
+- `execute_sql` spot-check : `lookup_profile_by_username('g1art_founder')` 에 `display_name_ko='김현민'`/`display_name_en='Henry Kim'`/`bio_ko/en` 정상 노출; `lookup_profile_by_username('gwwpkm2')` private 브랜치 동일; `search_people`, `get_trending_people`, `search_people_with_external`, `get_delegation_by_token`, `list_my_external_artists` 모두 KO/EN 슬롯 정상. `pg_get_functiondef ilike '%display_name_ko%'` = true (일괄 확인) — 패치된 13개 RPC 전부.
+- `get_advisors(type='security')`: 총 lints 364 → 364, ERROR 1 (pre-existing `security_definer_view` on `public.public_profile_lookup`) 그대로. 새 regression / 새 WARN 없음. security posture (`security definer`, `stable`, `search_path`, grants) 원본 유지.
+- `npx tsc --noEmit` — exit 0.
+- `npx eslint src/lib/provenance/externalArtists.ts` — exit 0.
+
 ## 2026-08-17 (13) — 이중언어(KO/EN) 표시 전수감사 픽스
 
 > Supabase SQL 돌려야 할 것은 없음 (client-side only; RPC 후속은 별도 patch — 아래 flag 참조) · 환경 변수 변경 없음

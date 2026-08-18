@@ -105,6 +105,11 @@ export type OrphanExternalArtistCandidate = {
   display_name_en: string | null;
   invited_by: string | null;
   inviter_display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated when the RPC surfaces the
+   *  KO/EN slots. Consumers should route through
+   *  `pickLocalizedDisplayName({ display_name: inviter_display_name, ... }, locale)`. */
+  inviter_display_name_ko: string | null;
+  inviter_display_name_en: string | null;
   inviter_username: string | null;
   invited_at: string;
   works_count: number;
@@ -145,6 +150,10 @@ export async function searchOrphanExternalArtistsForMe(
       invited_by: (r.invited_by as string | null) ?? null,
       inviter_display_name:
         (r.inviter_display_name as string | null) ?? null,
+      inviter_display_name_ko:
+        (r.inviter_display_name_ko as string | null) ?? null,
+      inviter_display_name_en:
+        (r.inviter_display_name_en as string | null) ?? null,
       inviter_username: (r.inviter_username as string | null) ?? null,
       invited_at: String(r.invited_at ?? ""),
       works_count: Number(r.works_count ?? 0),
