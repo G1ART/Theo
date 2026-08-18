@@ -38,10 +38,15 @@ const ROLE_COLOR: Record<(typeof ROLE_OPTIONS)[number], string> = {
  * 2026-08-17 minimal pass: earlier version stacked live-dot + LIVE
  * caption + colored bar + 4 colored legend dots + textual CTA row —
  * five green-tone layers competing for attention, and the legend
- * wrapped on narrow rails. Reduced to: single live dot + bar +
- * 4-column grid legend (neutral text, no dots — bar is the sole color
- * layer) + tiny hover chevron. CTA text moved to aria-label so the
- * link is still discoverable to assistive tech.
+ * wrapped on narrow rails. Reduced to: bar + 4-column grid legend +
+ * tiny hover chevron. CTA text moved to aria-label so the link is
+ * still discoverable to assistive tech.
+ *
+ * 2026-08-17 legend link-back: dropped the header live-dot (visual
+ * decoration only — bar composition already implies liveness) and
+ * restored small color-dot swatches BEFORE each persona label so the
+ * bar segments and legend rows are visually paired. Text stays
+ * neutral zinc; the dots ARE the legend key.
  */
 export function CommunityPulseStrip() {
   const { t } = useT();
@@ -68,11 +73,7 @@ export function CommunityPulseStrip() {
           className="group block rounded-md px-2 py-1.5 hover:bg-zinc-50"
         >
           <div className="flex items-center justify-between">
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-700">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              </span>
+            <span className="text-xs font-medium text-zinc-700">
               {t("rail.community.title")}
             </span>
             <span
@@ -104,10 +105,16 @@ export function CommunityPulseStrip() {
           <ul className="mt-2 grid grid-cols-4 gap-x-1 text-center">
             {ROLE_OPTIONS.map((role) => (
               <li key={role} className="min-w-0">
-                <div className="truncate text-[10px] leading-none text-zinc-500">
-                  {t(`people.role.${role}`)}
+                <div className="flex items-center justify-center gap-1 text-[10px] leading-none text-zinc-500">
+                  <span
+                    aria-hidden
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${ROLE_COLOR[role]}`}
+                  />
+                  <span className="min-w-0 truncate">
+                    {t(`people.role.${role}`)}
+                  </span>
                 </div>
-                <div className="mt-0.5 text-xs font-semibold tabular-nums text-zinc-800">
+                <div className="mt-1 text-xs font-semibold tabular-nums text-zinc-800">
                   {counts[role].toLocaleString()}
                 </div>
               </li>
