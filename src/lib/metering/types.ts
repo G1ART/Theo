@@ -53,6 +53,9 @@ export type UsageEventKey =
   | "import.website_scanned"
   | "import.website_matched"
   | "import.website_applied"
+  // Display / Hang Simulation (P1, 2026-08-18)
+  | "simulation.space.created"
+  | "simulation.render.exported"
   // Delegation / acting-as
   | "delegation.acting_as_entered"
   | "delegation.acting_as_exited"

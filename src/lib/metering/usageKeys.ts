@@ -69,6 +69,14 @@ export const USAGE_KEYS = {
   IMPORT_WEBSITE_SCANNED: "import.website_scanned",
   IMPORT_WEBSITE_MATCHED: "import.website_matched",
   IMPORT_WEBSITE_APPLIED: "import.website_applied",
+  // Display / Hang Simulation (P1, 2026-08-18)
+  //
+  // Emitted when a user creates a new hanging space (`simulation.2d`
+  // lifetime quota) and when the simulation renderer produces an export
+  // artifact (2D or 3D). Both keys are consumed by the entitlement
+  // resolver via `PLAN_QUOTA_MATRIX["simulation.2d"|"simulation.3d"]`.
+  SIMULATION_SPACE_CREATED: "simulation.space.created",
+  SIMULATION_RENDER_EXPORTED: "simulation.render.exported",
   // Delegation
   DELEGATION_ACTING_AS_ENTERED: "delegation.acting_as_entered",
   DELEGATION_ACTING_AS_EXITED: "delegation.acting_as_exited",

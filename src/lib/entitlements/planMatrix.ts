@@ -92,6 +92,15 @@ export const PLAN_FEATURE_MATRIX: Record<FeatureKey, PlanKey[]> = {
   "delegation.project": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
   "delegation.permission_presets": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
   "delegation.activity_log": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
+
+  // Display / Hang Simulation (P1, 2026-08-18). 2D room-photo hang view is
+  // open to every plan with a lifetime space-creation ceiling. Share link +
+  // image export are gated by the sub-key `simulation.2d.export` (Free is
+  // intentionally excluded — must upgrade to share/export). 3D parametric
+  // view is reserved for hybrid_pro + gallery_workspace.
+  "simulation.2d": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
+  "simulation.2d.export": ["artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
+  "simulation.3d": ["hybrid_pro", "gallery_workspace"],
 };
 
 export type QuotaRule = {
@@ -182,6 +191,45 @@ export const PLAN_QUOTA_MATRIX: Partial<
     discovery_pro: { limit: 100, windowDays: 30, countEventKeys: ["connection.message_sent"] },
     hybrid_pro: { limit: 300, windowDays: 30, countEventKeys: ["connection.message_sent"] },
     gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["connection.message_sent"] },
+  },
+  /**
+   * Display / Hang Simulation (P1, 2026-08-18) — LIFETIME space-creation
+   * ceiling. Counts `simulation.space.created` events (windowDays=0). Free
+   * tier gets 2 spaces to try the flow; pro tiers scale up; workspace has
+   * no ceiling. Share/export is intentionally split off onto the sub-key
+   * `simulation.2d.export` below so the (feature, plan) PK still holds one
+   * QuotaRule per entry (mirrors the `delegation.*` sub-key pattern).
+   */
+  "simulation.2d": {
+    free: { limit: 2, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    artist_pro: { limit: 5, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    discovery_pro: { limit: 5, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    hybrid_pro: { limit: 20, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    gallery_workspace: { limit: null, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+  },
+  /**
+   * Display / Hang Simulation (P1, 2026-08-18) — MONTHLY share/export
+   * ceiling for the 2D room-photo renderer. Counts
+   * `simulation.render.exported` events (both share-link generation and
+   * downloadable image export). Free is intentionally omitted from
+   * `PLAN_FEATURE_MATRIX["simulation.2d.export"]` so the entitlement
+   * resolver blocks the action before this quota is even consulted.
+   */
+  "simulation.2d.export": {
+    artist_pro: { limit: 5, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    discovery_pro: { limit: 20, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    hybrid_pro: { limit: 50, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+  },
+  /**
+   * Display / Hang Simulation (P1, 2026-08-18) — MONTHLY render/export
+   * ceiling for the 3D parametric renderer. Counts
+   * `simulation.render.exported` events; only the two plans that
+   * unlock `simulation.3d` are enumerated.
+   */
+  "simulation.3d": {
+    hybrid_pro: { limit: 30, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
   },
 };
 

@@ -2,6 +2,37 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (8) — 전시 시뮬레이션 P1 파운데이션 (Chunk A)
+
+> Supabase SQL 적용함: MCP `apply_migration` 으로 `spaces_schema` / `artwork_dimensionality` / `simulation_feature_keys` 세 개를 순서대로 원격에 적용. 로컬 파일: `supabase/migrations/20260818000000_spaces_schema.sql`, `20260818010000_artwork_dimensionality.sql`, `20260818020000_simulation_feature_keys.sql`. · 환경 변수 변경 없음
+
+### 변경 요약 (Chunk A — DB 파운데이션 + 엔타이틀먼트 seed)
+- **`spaces` / `space_surfaces` / `space_placements`** 세 테이블 신설. Placement 는 처음부터 3D 지원(`x/y/z_cm`, `rot_{x,y,z}_deg`, `width/height/depth_cm`, `z_order`) → P1 2D 렌더러는 이 중 일부만 프로젝션해서 쓰고, P2 3D 렌더러는 같은 row 를 그대로 소비 = 스키마 재작성 없이 확장.
+- `spaces.share_token` 기본값 `gen_random_uuid()` — Chunk C 의 `/space/[token]` 공개 뷰의 opaque 링크.
+- `spaces.source_shortlist_id` — 큐레이터·컬렉터가 보드에서 새 공간을 시딩할 수 있게. 보드가 지워지면 `set null` (공간은 남음).
+- RLS 는 shortlists 패턴을 그대로 답습: 부모(`spaces`)는 `owner_id = auth.uid()` flat, 자식은 `is_space_owner(space_id)` 라는 `SECURITY DEFINER` 헬퍼로 재귀 방지 (`20260422140000_shortlists_rls_recursion_fix` 와 동일 원리).
+- **artwork 차원 컬럼**: `artworks.work_form` (enum `flat_2d|relief|sculpture_3d|installation|time_based`, default `flat_2d`, NOT NULL) + `width_cm`/`height_cm`/`depth_cm` (nullable numeric) + `dims_confirmed_at` (nullable). 기존 자유텍스트 `size`/`size_unit` 은 그대로 유지, 소비자는 점진 마이그.
+- **엔타이틀먼트 seed** (편차 1 해소 반영):
+ - `simulation.2d` — 라이프타임 공간 생성 상한 (free=2, artist_pro=5, discovery_pro=5, hybrid_pro=20, gallery_workspace=∞), 이벤트 `simulation.space.created`.
+ - `simulation.2d.export` (**신규 서브키**) — 월간 공유·내보내기 상한 (artist_pro=5, discovery_pro=20, hybrid_pro=50, gallery_workspace=∞). Free 는 feature allowlist 에서 제외 → 리졸버가 quota 이전에 차단. 이벤트 `simulation.render.exported`.
+ - `simulation.3d` — 월간 렌더/내보내기 상한 (hybrid_pro=30, gallery_workspace=∞), 이벤트 `simulation.render.exported`.
+ - 워커가 리포트한 편차 1 (`(plan_key, feature_key)` PK 가 한 쌍당 하나의 QuotaRule 만 허용 → 두 번째 2D 룰을 넣을 자리 없음)은 `delegation.*` 서브키 패턴을 따라 **`simulation.2d.export` 서브키로 쪼개** 해소. 리졸버·매트릭스 shape 은 그대로.
+- **메터링 키 신설**: `USAGE_KEYS.SIMULATION_SPACE_CREATED = "simulation.space.created"` · `USAGE_KEYS.SIMULATION_RENDER_EXPORTED = "simulation.render.exported"`. `UsageEventKey` union 확장.
+
+### Deviation 노트 (수용)
+- 워커가 `is_space_owner` 를 spec 대로 `anon/authenticated/service_role` 전부에 `grant execute` 함. 기존 `is_workspace_owner`/`is_workspace_member`/`is_shortlist_owner` 는 관례상 `authenticated` 만 grant. Supabase 어드바이저 WARN 2건(`anon_security_definer_function_executable` + `authenticated_security_definer_function_executable`) — 그러나 기존 workspace 헬퍼도 `revoke all from public` + `grant to authenticated` 만 해도 동일한 WARN 이 나옴 (Supabase 린터가 SECURITY DEFINER 함수 자체를 관례적으로 경고). `anon` 이 호출해도 `auth.uid()` null → 항상 false. 실질 위험 0, 수용.
+- **ERROR 0건.** RLS 3개 모두 정상 활성화. 원격 `list_tables` / `execute_sql` 로 스키마·seed 값 크로스 체크 완료.
+
+### Verified
+- `npx tsc --noEmit` clean
+- `npx eslint` on 4 edited TS files clean
+- 원격에서 `spaces`/`space_surfaces`/`space_placements` 존재 + RLS on, 3개 seed 세트(feature_matrix 11 rows · quota_matrix 12 rows) 값 스팟체크, `artworks.work_form` enum + 3개 numeric 컬럼 확인
+- `get_advisors(type=security)` 는 신규 객체 관련 ERROR 0, WARN 2 (수용).
+
+### 다음 (Chunk B/C)
+- Chunk B: `src/lib/simulation/` scene 모델·homography lib(재사용)·`persistScene` — 지금 워커 발주.
+- Chunk C: `/my/simulation/[id]` 워크스페이스 편집기 + `/space/[token]` 공개 뷰 + 업로드 dims 캡처 후속.
+
 ## 2026-08-17 (7) — 커뮤니티 스트립 과장 수치 핫픽스
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

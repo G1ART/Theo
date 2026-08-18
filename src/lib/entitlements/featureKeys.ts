@@ -89,6 +89,16 @@ export const FEATURE_KEYS = [
   "delegation.project",
   "delegation.permission_presets",
   "delegation.activity_log",
+
+  // Display / Hang Simulation (P1, 2026-08-18) — 2D room-photo
+  // hang view is beta-open to every plan with a lifetime space
+  // ceiling. `simulation.2d.export` is a sub-key that gates share
+  // link + image export separately (Free excluded → upgrade to
+  // share/export). 3D parametric view is reserved for hybrid_pro
+  // + gallery_workspace. Quotas live in `PLAN_QUOTA_MATRIX` below.
+  "simulation.2d",
+  "simulation.2d.export",
+  "simulation.3d",
 ] as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
