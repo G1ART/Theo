@@ -159,10 +159,20 @@ export function MatchmakerCard({ me, myArtworkTitles }: Props) {
       {peers.length > 0 && (
         <ul className="flex flex-col gap-2">
           {peers.map((p) => {
-            const identity = formatIdentityPair({
-              display_name: p.display_name,
-              username: p.username,
-            });
+            const identity = formatIdentityPair(
+              {
+                display_name: p.display_name,
+                display_name_ko:
+                  (p as { display_name_ko?: string | null }).display_name_ko ??
+                  null,
+                display_name_en:
+                  (p as { display_name_en?: string | null }).display_name_en ??
+                  null,
+                username: p.username,
+              },
+              t,
+              locale,
+            );
             const rationale = rationaleMap[p.id];
             const rationaleText =
               rationale?.rationale || t("ai.matchmaker.rationaleFallback");

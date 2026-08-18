@@ -12,6 +12,11 @@ import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { BetaFeedbackPrompt } from "@/components/beta";
 import { useT } from "@/lib/i18n/useT";
+import {
+  pickLocalizedArtworkTitle,
+  pickLocalizedTitle,
+} from "@/lib/i18n/pickLocalized";
+import { formatDisplayName } from "@/lib/identity/format";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import {
@@ -32,7 +37,7 @@ import {
 import { RoomVisibilityPill } from "@/components/visibility/RoomVisibilityPill";
 
 function ShortlistDetailContent() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const params = useParams();
   const pathname = usePathname();
   const id = typeof params.id === "string" ? params.id : "";
@@ -44,7 +49,15 @@ function ShortlistDetailContent() {
   const [titleDraft, setTitleDraft] = useState("");
   const [descDraft, setDescDraft] = useState("");
   const [collabSearch, setCollabSearch] = useState("");
-  const [collabResults, setCollabResults] = useState<{ id: string; username: string | null; display_name: string | null }[]>([]);
+  const [collabResults, setCollabResults] = useState<
+    {
+      id: string;
+      username: string | null;
+      display_name: string | null;
+      display_name_ko?: string | null;
+      display_name_en?: string | null;
+    }[]
+  >([]);
   const [collabRole, setCollabRole] = useState<"viewer" | "editor">("viewer");
   const [showCollabPanel, setShowCollabPanel] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -288,7 +301,11 @@ function ShortlistDetailContent() {
               <ul className="mb-3 space-y-1">
                 {collabResults.map((p) => (
                   <li key={p.id} className="flex items-center justify-between rounded bg-zinc-50 px-3 py-1.5 text-sm">
-                    <span>{p.display_name ?? p.username ?? p.id.slice(0, 8)}</span>
+                    <span>
+                      {formatDisplayName(p, t, locale) ||
+                        p.username ||
+                        p.id.slice(0, 8)}
+                    </span>
                     <button type="button" onClick={() => void handleAddCollaborator(p.id)} className="text-xs font-medium text-zinc-700 hover:text-zinc-900">{t("boards.collab.add")}</button>
                   </li>
                 ))}
@@ -301,7 +318,11 @@ function ShortlistDetailContent() {
                 {collaborators.map((c) => (
                   <li key={c.id} className="flex items-center justify-between rounded px-3 py-1.5 text-sm hover:bg-zinc-50">
                     <span>
-                      {c.profile?.display_name ?? c.profile?.username ?? c.profile_id.slice(0, 8)}
+                      {(c.profile
+                        ? formatDisplayName(c.profile, t, locale)
+                        : null) ||
+                        c.profile?.username ||
+                        c.profile_id.slice(0, 8)}
                       <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-500">
                         {c.role === "editor" ? t("boards.collab.role.editor") : t("boards.collab.role.viewer")}
                       </span>
@@ -323,7 +344,16 @@ function ShortlistDetailContent() {
         </div>
       ) : (
         <div data-tour="board-detail-items" className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          {items.map((item) => (
+          {items.map((item) => {
+            const artworkTitle = item.artwork
+              ? pickLocalizedArtworkTitle(item.artwork, locale) ||
+                item.artwork.title
+              : null;
+            const exhibitionTitle = item.exhibition
+              ? pickLocalizedTitle(item.exhibition, locale) ||
+                item.exhibition.title
+              : null;
+            return (
             <div key={item.id} className="group relative rounded-lg border border-zinc-200 bg-white p-2">
               {item.artwork_id && item.artwork ? (
                 <Link href={`/artwork/${item.artwork_id}`} onClick={() => setArtworkBack()}>
@@ -331,29 +361,30 @@ function ShortlistDetailContent() {
                     {item.artwork.image_path ? (
                       <img
                         src={getArtworkImageUrl(item.artwork.image_path, "thumb")}
-                        alt={item.artwork.title ?? ""}
+                        alt={artworkTitle ?? ""}
                         className="h-full w-full object-cover"
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
-                        {item.artwork.title ?? "—"}
+                        {artworkTitle ?? "—"}
                       </div>
                     )}
                   </div>
-                  <p className="mt-1 truncate text-sm font-medium text-zinc-800">{item.artwork.title ?? "Untitled"}</p>
+                  <p className="mt-1 truncate text-sm font-medium text-zinc-800">{artworkTitle ?? "Untitled"}</p>
                 </Link>
               ) : item.exhibition_id && item.exhibition ? (
                 <Link
                   href={`/e/${item.exhibition_id}`}
                   onClick={() => setExhibitionBack()}
                 >
-                  <p className="text-sm font-medium text-zinc-800">{item.exhibition.title ?? "Exhibition"}</p>
+                  <p className="text-sm font-medium text-zinc-800">{exhibitionTitle ?? "Exhibition"}</p>
                 </Link>
               ) : null}
               {item.note && <p className="mt-0.5 text-xs text-zinc-500">{item.note}</p>}
               <button type="button" onClick={() => setPendingRemoveItemId(item.id)} className="absolute right-1 top-1 hidden rounded bg-white/80 px-1.5 py-0.5 text-xs text-red-500 hover:bg-red-50 group-hover:block">×</button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <ConfirmActionDialog

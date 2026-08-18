@@ -16,9 +16,14 @@ import type { ClaimType } from "@/lib/provenance/types";
 import { claimTypeToLabel, claimTypeToByPhrase } from "@/lib/provenance/rpc";
 import { useT } from "@/lib/i18n/useT";
 import {
+  formatDisplayName,
   formatUsername,
   hasPublicLinkableUsername,
 } from "@/lib/identity/format";
+import {
+  pickLocalizedArtworkTitle,
+  pickLocalizedMedium,
+} from "@/lib/i18n/pickLocalized";
 import { ownershipStatusLabel } from "@/lib/artworks/labels";
 import { LikeButton } from "./LikeButton";
 import { ArtworkProvenanceBlock } from "./ArtworkProvenanceBlock";
@@ -40,14 +45,17 @@ type Props = {
 
 export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUpdate, showDelete = false, onDelete, showEdit = false, disableNavigation = false, dragHandle, viewerId = null }: Props) {
   const router = useRouter();
-  const { t } = useT();
+  const { t, locale } = useT();
   const images = artwork.artwork_images ?? [];
   const sortedImages = [...images].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
   );
   const firstImage = sortedImages[0];
   const imageUrl = firstImage ? getArtworkImageUrl(firstImage.storage_path, "thumb") : null;
-  const { label: artistLabel, profileUsername } = getArtworkArtistLabel(artwork);
+  const { label: artistLabel, profileUsername } = getArtworkArtistLabel(
+    artwork,
+    locale,
+  );
   const usernameHandle = formatUsername({ username: profileUsername });
   const usernameLinkable = hasPublicLinkableUsername({ username: profileUsername });
   const username = usernameLinkable ? (profileUsername ?? "") : "";
@@ -56,8 +64,13 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
   const listerHandle = listerProf ? formatUsername(listerProf) : "";
   const listerLinkable = listerProf ? hasPublicLinkableUsername(listerProf) : false;
   const listerLabel = listerProf
-    ? (listerProf.display_name?.trim() || (listerHandle ? listerHandle : null))
+    ? (formatDisplayName(listerProf, t, locale) ||
+        (listerHandle ? listerHandle : null))
     : null;
+  const localizedArtworkTitle =
+    pickLocalizedArtworkTitle(artwork, locale) || artwork.title;
+  const localizedMedium =
+    pickLocalizedMedium(artwork, locale) || artwork.medium;
   const claimLabel = primaryClaim
     ? claimTypeToLabel(primaryClaim.claim_type as ClaimType)
     : "Work";
@@ -96,7 +109,7 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
           {imageUrl ? (
             <CroppedArtworkImage
               src={imageUrl}
-              alt={artwork.title ?? "Artwork"}
+              alt={localizedArtworkTitle ?? "Artwork"}
               sizes="(max-width: 768px) 100vw, 400px"
               loading="lazy"
               adjust={readDisplayAdjust(firstImage?.display_adjust)}
@@ -109,10 +122,10 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
       </div>
       <div className="p-4">
           <h3 className="font-semibold text-zinc-900">
-            {artwork.title ?? "Untitled"}
+            {localizedArtworkTitle ?? "Untitled"}
           </h3>
           <p className="text-sm text-zinc-600">
-            {[artwork.year, artwork.medium].filter(Boolean).join(" · ")}
+            {[artwork.year, localizedMedium].filter(Boolean).join(" · ")}
           </p>
           {(() => {
             const label = ownershipStatusLabel(artwork.ownership_status, t);

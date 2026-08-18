@@ -61,7 +61,11 @@ import { ActingAsChip } from "@/components/ActingAsChip";
 import { useT } from "@/lib/i18n/useT";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
-import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
+import {
+  pickLegacyForSave,
+  pickLocalizedDisplayName,
+  pickLocalizedTitle,
+} from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import {
   addWorkToExhibition,
@@ -102,7 +106,13 @@ const INTENT_KEYS = [
   { value: "CURATED" as const, labelKey: "upload.claimCurated" },
 ] as const;
 
-type ArtistOption = { id: string; username: string | null; display_name: string | null };
+type ArtistOption = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
 
 const OWNERSHIP_OPTIONS = [
   { value: "available", labelKey: "upload.ownershipAvailable" },
@@ -2036,6 +2046,8 @@ export default function BulkUploadPage() {
                                 id: a.id,
                                 username: a.username,
                                 display_name: a.display_name,
+                                display_name_ko: a.display_name_ko ?? null,
+                                display_name_en: a.display_name_en ?? null,
                               });
                               setArtistResults([]);
                               setArtistSearch("");
@@ -2047,10 +2059,16 @@ export default function BulkUploadPage() {
                             }}
                             className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
                           >
-                            {formatDisplayName({
-                              display_name: a.display_name,
-                              username: a.username,
-                            })}
+                            {formatDisplayName(
+                              {
+                                display_name: a.display_name,
+                                display_name_ko: a.display_name_ko ?? null,
+                                display_name_en: a.display_name_en ?? null,
+                                username: a.username,
+                              },
+                              t,
+                              locale,
+                            )}
                             {a.username && (
                               <span className="ml-2 text-zinc-500">
                                 {formatUsername({
@@ -2088,7 +2106,9 @@ export default function BulkUploadPage() {
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate font-medium text-zinc-900">
-                                  {a.display_name?.trim() || "—"}
+                                  {pickLocalizedDisplayName(a, locale) ||
+                                    a.display_name?.trim() ||
+                                    "—"}
                                 </p>
                                 <p className="mt-0.5 text-[11px] text-zinc-500">
                                   {t("upload.externalReselect.badgePendingWorks")
@@ -2201,7 +2221,7 @@ export default function BulkUploadPage() {
             artistName={
               useExternalArtist
                 ? externalArtistName.trim()
-                : formatDisplayName(selectedArtist)
+                : formatDisplayName(selectedArtist, t, locale)
             }
             isExternal={useExternalArtist}
             externalEmail={useExternalArtist ? externalArtistEmail : null}
@@ -2735,7 +2755,7 @@ export default function BulkUploadPage() {
                   <option value="">{t("bulk.exhibitionSelectorPlaceholder")}</option>
                   {myExhibitions.map((ex) => (
                     <option key={ex.id} value={ex.id}>
-                      {ex.title}
+                      {pickLocalizedTitle(ex, locale) || ex.title}
                     </option>
                   ))}
                 </select>

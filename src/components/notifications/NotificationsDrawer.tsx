@@ -40,7 +40,7 @@ export function NotificationsDrawer({
   open: boolean;
   onClose: () => void;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [rows, setRows] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -163,7 +163,7 @@ export function NotificationsDrawer({
             <ul className="flex flex-col">
               {rows.map((row) => {
                 const href = notificationLink(row, entitlements, viewerId);
-                const label = notificationLabel(row, t, entitlements);
+                const label = notificationLabel(row, t, entitlements, locale);
                 const unread = row.read_at == null;
                 const item = (
                   <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-zinc-50">

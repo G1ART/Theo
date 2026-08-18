@@ -34,8 +34,19 @@ export type NotificationRow = {
   payload: Record<string, unknown>;
   read_at: string | null;
   created_at: string;
-  actor?: { username: string | null; display_name: string | null } | null;
-  artwork?: { id: string; title: string | null; artist_id: string | null } | null;
+  actor?: {
+    username: string | null;
+    display_name: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  } | null;
+  artwork?: {
+    id: string;
+    title: string | null;
+    title_ko?: string | null;
+    title_en?: string | null;
+    artist_id: string | null;
+  } | null;
 };
 
 const NOTIFICATION_SELECT = `
@@ -48,9 +59,24 @@ const NOTIFICATION_SELECT = `
   payload,
   read_at,
   created_at,
-  profiles!actor_id(username, display_name),
-  artworks!artwork_id(id, title, artist_id)
+  profiles!actor_id(username, display_name, display_name_ko, display_name_en),
+  artworks!artwork_id(id, title, title_ko, title_en, artist_id)
 `;
+
+type NotificationActorRow = {
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
+
+type NotificationArtworkRow = {
+  id: string;
+  title: string | null;
+  title_ko?: string | null;
+  title_en?: string | null;
+  artist_id: string | null;
+};
 
 function normalizeNotification(
   row: Record<string, unknown>
@@ -58,16 +84,16 @@ function normalizeNotification(
   const profiles = row.profiles;
   const actor =
     Array.isArray(profiles) && profiles.length > 0
-      ? (profiles[0] as { username: string | null; display_name: string | null })
+      ? (profiles[0] as NotificationActorRow)
       : profiles && typeof profiles === "object" && !Array.isArray(profiles)
-        ? (profiles as { username: string | null; display_name: string | null })
+        ? (profiles as NotificationActorRow)
         : null;
   const artworks = row.artworks;
   const artwork =
     Array.isArray(artworks) && artworks.length > 0
-      ? (artworks[0] as { id: string; title: string | null; artist_id: string | null })
+      ? (artworks[0] as NotificationArtworkRow)
       : artworks && typeof artworks === "object" && !Array.isArray(artworks)
-        ? (artworks as { id: string; title: string | null; artist_id: string | null })
+        ? (artworks as NotificationArtworkRow)
         : null;
   return {
     id: row.id as string,

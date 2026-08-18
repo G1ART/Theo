@@ -66,7 +66,13 @@ const PRICE_CURRENCIES = [
 // the textarea (see artwork.story.charCount).
 const STORY_MAX_LEN = 2000;
 
-type ArtistOption = { id: string; username: string | null; display_name: string | null };
+type ArtistOption = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
 
 function EditArtworkContent() {
   const params = useParams();
@@ -148,6 +154,8 @@ function EditArtworkContent() {
         id: p.id,
         username: p.username,
         display_name: p.display_name,
+        display_name_ko: p.display_name_ko ?? null,
+        display_name_en: p.display_name_en ?? null,
       }))
     );
     setSearching(false);
@@ -241,6 +249,12 @@ function EditArtworkContent() {
         id: artwork.artist_id,
         username: artwork.profiles.username ?? null,
         display_name: artwork.profiles.display_name ?? null,
+        display_name_ko:
+          (artwork.profiles as { display_name_ko?: string | null })
+            .display_name_ko ?? null,
+        display_name_en:
+          (artwork.profiles as { display_name_en?: string | null })
+            .display_name_en ?? null,
       });
     }
   }, [artwork, effectiveIds]);
@@ -907,7 +921,7 @@ function EditArtworkContent() {
                                 selectedArtist?.id === a.id ? "bg-zinc-100 font-medium" : ""
                               }`}
                             >
-                              {formatDisplayName(a)}
+                              {formatDisplayName(a, t, locale)}
                               {a.username && (
                                 <span className="ml-2 text-zinc-500">{formatUsername(a)}</span>
                               )}
@@ -920,7 +934,7 @@ function EditArtworkContent() {
                       <p className="mt-2 text-sm text-zinc-600">
                         {t("artwork.field.artistSelected").replace(
                           "{name}",
-                          formatDisplayName(selectedArtist)
+                          formatDisplayName(selectedArtist, t, locale)
                         )}
                       </p>
                     )}

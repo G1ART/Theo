@@ -19,6 +19,7 @@ import {
   lookupPublicProfileByUsername,
   type ProfilePublic,
 } from "@/lib/supabase/profiles";
+import { formatDisplayName } from "@/lib/identity/format";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,6 +43,8 @@ type PeerProfile = {
   id: string;
   username: string | null;
   display_name: string | null;
+  display_name_ko: string | null;
+  display_name_en: string | null;
   avatar_url: string | null;
 };
 
@@ -86,6 +89,12 @@ export default function MessageThreadPage() {
           id: data.id,
           username: data.username ?? null,
           display_name: data.display_name ?? null,
+          display_name_ko:
+            (data as { display_name_ko?: string | null }).display_name_ko ??
+            null,
+          display_name_en:
+            (data as { display_name_en?: string | null }).display_name_en ??
+            null,
           avatar_url: data.avatar_url ?? null,
         });
         return;
@@ -102,7 +111,14 @@ export default function MessageThreadPage() {
         // shares a thread (message surface was authored by either side).
         // The thread load below resolves actual ids so we can proceed
         // with partial peer metadata.
-        setPeer({ id: "", username: rawPeer, display_name: null, avatar_url: null });
+        setPeer({
+          id: "",
+          username: rawPeer,
+          display_name: null,
+          display_name_ko: null,
+          display_name_en: null,
+          avatar_url: null,
+        });
         return;
       }
       if (!source) {
@@ -113,6 +129,8 @@ export default function MessageThreadPage() {
         id: source.id,
         username: source.username ?? null,
         display_name: source.display_name ?? null,
+        display_name_ko: source.display_name_ko ?? null,
+        display_name_en: source.display_name_en ?? null,
         avatar_url: source.avatar_url ?? null,
       });
     })();
@@ -196,8 +214,10 @@ export default function MessageThreadPage() {
 
   const peerName = useMemo(() => {
     if (!peer) return t("connection.inbox.unknownUser");
+    const localized = formatDisplayName(peer, t, locale);
+    if (localized) return localized;
     return peer.display_name ?? peer.username ?? t("connection.inbox.unknownUser");
-  }, [peer, t]);
+  }, [peer, t, locale]);
 
   const peerAvatarSrc = peer?.avatar_url
     ? peer.avatar_url.startsWith("http")

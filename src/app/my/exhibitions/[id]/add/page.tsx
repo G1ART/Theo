@@ -35,6 +35,7 @@ import {
   removeExhibitionParticipant,
 } from "@/lib/supabase/exhibitionParticipants";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { listShortlistItems } from "@/lib/supabase/shortlists";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { CreateDelegationWizard } from "@/components/delegation/CreateDelegationWizard";
@@ -48,6 +49,8 @@ type Participant = {
   id: string;
   username: string | null;
   display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   /**
    * `claimId` is the id of the project-scope CURATED claim that pins
    * this profile to the exhibition. Non-null once the addition has
@@ -489,6 +492,8 @@ export default function AddWorkToExhibitionPage() {
         id: p.id,
         username: p.username,
         display_name: p.display_name,
+        display_name_ko: p.display_name_ko ?? null,
+        display_name_en: p.display_name_en ?? null,
         claimId: null,
       };
       let alreadyPresent = false;
@@ -724,6 +729,8 @@ export default function AddWorkToExhibitionPage() {
           id: p.id,
           username: p.username,
           display_name: p.display_name,
+          display_name_ko: p.display_name_ko ?? null,
+          display_name_en: p.display_name_en ?? null,
           claimId: null,
         }));
         setArtistResults(list);
@@ -750,16 +757,49 @@ export default function AddWorkToExhibitionPage() {
       if (!matchesParticipant) return false;
 
       if (!q) return true;
-      const title = (art.title ?? "").toLowerCase();
-      const medium = (art.medium ?? "").toLowerCase();
-      const story = (art.story ?? "").toLowerCase();
-      const keywords = Array.isArray((art as any).keywords)
-        ? ((art as any).keywords as string[]).join(" ").toLowerCase()
+      // QA 2026-08-17 bilingual — search across every language slot so
+      // typing in EN while a KO-only field exists still surfaces the
+      // matching artwork (and vice versa).
+      const bilingual = art as ArtworkWithLikes & {
+        title_ko?: string | null;
+        title_en?: string | null;
+        medium_ko?: string | null;
+        medium_en?: string | null;
+        story_ko?: string | null;
+        story_en?: string | null;
+      };
+      const titles = [
+        bilingual.title,
+        bilingual.title_ko,
+        bilingual.title_en,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const mediums = [
+        bilingual.medium,
+        bilingual.medium_ko,
+        bilingual.medium_en,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const stories = [
+        bilingual.story,
+        bilingual.story_ko,
+        bilingual.story_en,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const rawKeywords = (art as { keywords?: unknown }).keywords;
+      const keywords = Array.isArray(rawKeywords)
+        ? (rawKeywords as string[]).join(" ").toLowerCase()
         : "";
       return (
-        title.includes(q) ||
-        medium.includes(q) ||
-        story.includes(q) ||
+        titles.includes(q) ||
+        mediums.includes(q) ||
+        stories.includes(q) ||
         keywords.includes(q)
       );
     });
@@ -938,6 +978,8 @@ export default function AddWorkToExhibitionPage() {
                                   id: p.id,
                                   username: p.username,
                                   display_name: p.display_name,
+                                  display_name_ko: p.display_name_ko ?? null,
+                                  display_name_en: p.display_name_en ?? null,
                                   claimId: null,
                                 });
                               }
@@ -947,7 +989,7 @@ export default function AddWorkToExhibitionPage() {
                             }`}
                           >
                             <span className="truncate">
-                              {formatDisplayName(p)}
+                              {formatDisplayName(p, t, locale)}
                               {p.username && (
                                 <span className="ml-1 text-xs text-zinc-500">{formatUsername(p)}</span>
                               )}
@@ -980,7 +1022,7 @@ export default function AddWorkToExhibitionPage() {
                           : t("exhibition.participants.removeCta")
                       }
                     >
-                      <span>{formatDisplayName(p)}</span>
+                      <span>{formatDisplayName(p, t, locale)}</span>
                       {p.claimId == null && (
                         <span className="text-[10px] text-zinc-400">
                           {t("exhibition.participants.savingInline")}
@@ -1268,7 +1310,7 @@ export default function AddWorkToExhibitionPage() {
                     });
                     if (p.username) bulkQs.set("artistUsername", p.username);
                     if (p.display_name) bulkQs.set("artistName", p.display_name);
-                    const label = formatDisplayName(p);
+                    const label = formatDisplayName(p, t, locale);
                     return (
                       <li key={bucketKey} className="rounded-xl border-2 border-zinc-200 bg-white p-4">
                         <p className="mb-3 font-medium text-zinc-900">{label}</p>
@@ -1496,7 +1538,7 @@ export default function AddWorkToExhibitionPage() {
                           <div className="relative aspect-[4/3] bg-zinc-100">
                             <Image
                               src={getArtworkImageUrl(img, "thumb")}
-                              alt={art.title ?? ""}
+                              alt={pickLocalizedArtworkTitle(art, locale) || art.title || ""}
                               fill
                               className="object-cover"
                               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
@@ -1509,7 +1551,7 @@ export default function AddWorkToExhibitionPage() {
                         )}
                         <div className="p-3">
                           <p className="font-medium text-zinc-900">
-                            {art.title ?? t("common.untitled")}
+                            {pickLocalizedArtworkTitle(art, locale) || art.title || t("common.untitled")}
                           </p>
                           <p className="text-xs text-zinc-500">{art.year ?? ""}</p>
                         </div>

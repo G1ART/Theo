@@ -13,6 +13,8 @@
  */
 import type { NotificationRow } from "@/lib/supabase/notifications";
 import { formatDisplayName } from "@/lib/identity/format";
+import type { Locale } from "@/lib/i18n/locale";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 
 export type NotificationEntitlements = {
   canSeeBoardSaver: boolean;
@@ -22,10 +24,14 @@ export type NotificationEntitlements = {
 export function notificationLabel(
   row: NotificationRow,
   t: (k: string) => string,
-  entitlements: NotificationEntitlements
+  entitlements: NotificationEntitlements,
+  locale?: Locale,
 ): string {
-  const name = formatDisplayName(row.actor);
-  const title = row.artwork?.title || "Untitled";
+  const name = formatDisplayName(row.actor, t, locale);
+  const title =
+    (row.artwork
+      ? pickLocalizedArtworkTitle(row.artwork, locale ?? "en")
+      : "") || row.artwork?.title || "Untitled";
   switch (row.type) {
     case "like":
       return t("notifications.likeText").replace("{name}", name).replace("{title}", title);

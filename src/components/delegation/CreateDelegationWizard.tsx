@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import {
   ACCOUNT_PRESETS,
   PROJECT_PRESETS,
@@ -75,7 +77,7 @@ function presetSummaryKey(p: DelegationPreset): string {
 
 export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
   const { open, onClose, onCreated, initialScope, initialProjectId, initialProjectTitle, initialPreset, titleOverride } = props;
-  const { t } = useT();
+  const { t, locale } = useT();
 
   const [step, setStep] = useState<StepId>(initialScope ? (initialScope === "project" && !initialProjectId ? 1.5 : 2) : 1);
   const [scope, setScope] = useState<WizardScope>(initialScope ?? "account");
@@ -134,10 +136,14 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
     if (!open) return;
     getSession().then(({ data: { session } }) => setMyId(session?.user?.id ?? null));
     getMyProfile().then(({ data }) => {
-      const name = data?.display_name?.trim() || data?.username || null;
+      if (!data) {
+        setMyDisplayName(null);
+        return;
+      }
+      const name = formatDisplayName(data, t, locale) || data.username || null;
       setMyDisplayName(name);
     });
-  }, [open]);
+  }, [open, t, locale]);
 
   useEffect(() => {
     if (!open) return;
@@ -507,7 +513,7 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
                           type="button"
                           onClick={() => {
                             setProjectId(ex.id);
-                            setProjectTitle(ex.title);
+                            setProjectTitle(pickLocalizedTitle(ex, locale) || ex.title);
                           }}
                           className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
                             active
@@ -515,7 +521,9 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
                               : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
                           }`}
                         >
-                          <span className="truncate font-medium">{ex.title}</span>
+                          <span className="truncate font-medium">
+                            {pickLocalizedTitle(ex, locale) || ex.title}
+                          </span>
                           {ex.start_date && (
                             <span className={`ml-3 shrink-0 text-xs ${active ? "text-zinc-300" : "text-zinc-500"}`}>
                               {new Date(ex.start_date).getFullYear()}
@@ -557,7 +565,9 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
                       <Avatar profile={person.profile} />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-zinc-900">
-                          {person.profile.display_name?.trim() || person.profile.username || "—"}
+                          {formatDisplayName(person.profile, t, locale) ||
+                            person.profile.username ||
+                            "—"}
                         </p>
                         {person.profile.username && (
                           <p className="text-xs text-zinc-500">@{person.profile.username}</p>
@@ -595,7 +605,9 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
                             >
                               <Avatar profile={p} />
                               <span className="min-w-0 flex-1 truncate">
-                                {p.display_name?.trim() || p.username || p.id.slice(0, 8)}
+                                {formatDisplayName(p, t, locale) ||
+                                  p.username ||
+                                  p.id.slice(0, 8)}
                               </span>
                               {p.username && (
                                 <span className="shrink-0 text-xs text-zinc-400">@{p.username}</span>
@@ -681,7 +693,9 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
                   <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">{t("delegation.wizard.step4Person")}</dt>
                   <dd className="mt-1 text-zinc-800">
                     {person?.kind === "user"
-                      ? person.profile.display_name?.trim() || person.profile.username || "—"
+                      ? formatDisplayName(person.profile, t, locale) ||
+                        person.profile.username ||
+                        "—"
                       : person?.kind === "email"
                       ? person.email
                       : "—"}

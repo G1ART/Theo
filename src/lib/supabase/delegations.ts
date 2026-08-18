@@ -49,12 +49,22 @@ export type DelegationParticipant = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated when the delegation RPC
+   *  surfaces the KO/EN slots. Consumers should route through
+   *  `formatDisplayName(profile, t, locale)`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url?: string | null;
 };
 
 export type DelegationProjectInfo = {
   id: string;
   title: string;
+  /** QA 2026-08-17 bilingual — populated when the delegation RPC
+   *  surfaces the KO/EN slots. Consumers should route through
+   *  `pickLocalizedTitle(project, locale)`. */
+  title_ko?: string | null;
+  title_en?: string | null;
 };
 
 export type DelegationWithDetails = DelegationRow & {
@@ -81,8 +91,24 @@ export type GetDelegationByTokenResult = {
    * presets existed will report null here.
    */
   preset?: DelegationPreset | null;
-  delegator?: { id: string; username: string | null; display_name: string | null };
-  project?: { id: string; title: string } | null;
+  delegator?: {
+    id: string;
+    username: string | null;
+    display_name: string | null;
+    /** QA 2026-08-17 bilingual — populated when the delegation RPC
+     *  surfaces the KO/EN slots. Consumers should route through
+     *  `formatDisplayName(delegator, t, locale)`. */
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  };
+  project?: {
+    id: string;
+    title: string;
+    /** QA 2026-08-17 bilingual — populated when the delegation RPC
+     *  surfaces the KO/EN slots. */
+    title_ko?: string | null;
+    title_en?: string | null;
+  } | null;
 };
 
 export type DelegationActivityEvent = {

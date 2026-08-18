@@ -29,7 +29,11 @@ import { signOut } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
-import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import {
+  formatDisplayName,
+  formatUsername,
+  type IdentityInput,
+} from "@/lib/identity/format";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import type { DelegationWithDetails } from "@/lib/supabase/delegations";
 
@@ -98,7 +102,7 @@ export function AccountSwitcher({
   accountsLoaded,
   onNavigate,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const router = useRouter();
   const {
     actingAsProfileId,
@@ -126,7 +130,10 @@ export function AccountSwitcher({
   function switchToPrincipal(d: DelegationWithDetails) {
     const p = d.delegator_profile;
     if (!p?.id) return;
-    setActingAs(p.id, formatDisplayName(p) || formatUsername(p));
+    setActingAs(
+      p.id,
+      formatDisplayName(p as IdentityInput, t, locale) || formatUsername(p),
+    );
     onNavigate?.();
     router.push("/my");
     router.refresh();
@@ -195,7 +202,8 @@ export function AccountSwitcher({
           {accounts.map((d) => {
             const p = d.delegator_profile;
             const label = p
-              ? formatDisplayName(p) || formatUsername(p)
+              ? formatDisplayName(p as IdentityInput, t, locale) ||
+                formatUsername(p)
               : "—";
             const active = actingAsProfileId === p?.id;
             return (
@@ -283,7 +291,7 @@ export function AccountSwitcher({
               const p = d.delegator_profile;
               if (!p?.id) return null;
               const name =
-                formatDisplayName(p) ||
+                formatDisplayName(p as IdentityInput, t, locale) ||
                 formatUsername(p) ||
                 p.username ||
                 p.id;
@@ -374,7 +382,10 @@ export function AccountSwitcher({
             const p = d.delegator_profile;
             if (!p?.id) return null;
             const name =
-              formatDisplayName(p) || formatUsername(p) || p.username || p.id;
+              formatDisplayName(p as IdentityInput, t, locale) ||
+              formatUsername(p) ||
+              p.username ||
+              p.id;
             const isActive = actingAsProfileId === p.id;
             return (
               <button

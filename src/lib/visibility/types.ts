@@ -303,6 +303,11 @@ export type RelationshipActivityType =
 export type RelationshipDeskRow = {
   profile_id: string;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated when the desk RPC surfaces
+   *  the KO/EN slots. Consumers should route through
+   *  `formatDisplayName(row, t, locale)`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   username: string | null;
   avatar_url: string | null;
   role_label: string | null;
@@ -383,8 +388,15 @@ export type RelationshipCard = {
     id: string;
     username: string | null;
     display_name: string | null;
+    /** QA 2026-08-17 bilingual — populated when the card RPC surfaces
+     *  the KO/EN slots. Consumers should route through
+     *  `formatDisplayName(card.profile, t, locale)`. */
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
     avatar_url: string | null;
     bio: string | null;
+    bio_ko?: string | null;
+    bio_en?: string | null;
     main_role: string | null;
     roles: string[] | null;
   };

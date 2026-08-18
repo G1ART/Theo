@@ -5,6 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
+import type { Locale } from "@/lib/i18n/locale";
 import { useActingAs } from "@/context/ActingAsContext";
 import {
   acceptDelegationById,
@@ -79,10 +82,17 @@ function dateLabel(d: DelegationWithDetails, t: (k: string) => string): string |
   return null;
 }
 
-function scopeText(d: DelegationWithDetails, t: (k: string) => string): string {
+function scopeText(
+  d: DelegationWithDetails,
+  t: (k: string) => string,
+  locale: Locale,
+): string {
   if (d.scope_type === "project") {
-    if (d.project?.title) {
-      return t("delegation.scopeExhibitionPrefix").replace("{title}", d.project.title);
+    const title = d.project
+      ? pickLocalizedTitle(d.project, locale) || d.project.title
+      : null;
+    if (title) {
+      return t("delegation.scopeExhibitionPrefix").replace("{title}", title);
     }
     return t("delegation.scopeProject");
   }
@@ -98,7 +108,7 @@ function statusToneClasses(status: string): string {
 }
 
 export default function MyDelegationsPage() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { setActingAs } = useActingAs();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -213,7 +223,8 @@ export default function MyDelegationsPage() {
       return;
     }
     const label =
-      d.delegator_profile?.display_name?.trim() ||
+      (d.delegator_profile &&
+        formatDisplayName(d.delegator_profile, t, locale)) ||
       (d.delegator_profile?.username ? `@${d.delegator_profile.username}` : null) ||
       "Account";
     if (dest.activateActingAs) {
@@ -350,6 +361,7 @@ export default function MyDelegationsPage() {
                       <ReceivedCard
                         d={d}
                         t={t}
+                        locale={locale}
                         onAccept={() => handleAccept(d)}
                         onDecline={() => handleDecline(d)}
                         onManage={() => handleManage(d)}
@@ -376,6 +388,7 @@ export default function MyDelegationsPage() {
                       <SentCard
                         d={d}
                         t={t}
+                        locale={locale}
                         onView={() => openDetail(d, true)}
                       />
                     </li>
@@ -418,6 +431,7 @@ export default function MyDelegationsPage() {
                           <SentCard
                             d={d}
                             t={t}
+                            locale={locale}
                             onView={() => openDetail(d, true)}
                           />
                         </li>
@@ -474,10 +488,11 @@ export default function MyDelegationsPage() {
 }
 
 function ReceivedCard({
-  d, t, onAccept, onDecline, onManage, onView, accepting, declining,
+  d, t, locale, onAccept, onDecline, onManage, onView, accepting, declining,
 }: {
   d: DelegationWithDetails;
   t: (k: string) => string;
+  locale: Locale;
   onAccept: () => void;
   onDecline: () => void;
   onManage: () => void;
@@ -485,7 +500,11 @@ function ReceivedCard({
   accepting: boolean;
   declining: boolean;
 }) {
-  const name = d.delegator_profile?.display_name?.trim() || d.delegator_profile?.username || "—";
+  const name =
+    (d.delegator_profile &&
+      formatDisplayName(d.delegator_profile, t, locale)) ||
+    d.delegator_profile?.username ||
+    "—";
   const handle = d.delegator_profile?.username ? `@${d.delegator_profile.username}` : null;
   const presetKey = presetTitleKey(d.preset);
   return (
@@ -507,7 +526,7 @@ function ReceivedCard({
                 : "delegation.tabClosed")}
             </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-600">{scopeText(d, t)}</p>
+          <p className="mt-1 text-xs text-zinc-600">{scopeText(d, t, locale)}</p>
           {presetKey && (
             <p className="mt-0.5 text-xs text-zinc-500">{t(presetKey)}</p>
           )}
@@ -560,14 +579,16 @@ function ReceivedCard({
 }
 
 function SentCard({
-  d, t, onView,
+  d, t, locale, onView,
 }: {
   d: DelegationWithDetails;
   t: (k: string) => string;
+  locale: Locale;
   onView: () => void;
 }) {
   const to =
-    d.delegate_profile?.display_name?.trim() ||
+    (d.delegate_profile &&
+      formatDisplayName(d.delegate_profile, t, locale)) ||
     (d.delegate_profile?.username ? `@${d.delegate_profile.username}` : null) ||
     d.delegate_email;
   const presetKey = presetTitleKey(d.preset);
@@ -590,7 +611,7 @@ function SentCard({
             {statusLabel}
           </span>
         </div>
-        <p className="mt-1 text-xs text-zinc-600">{scopeText(d, t)}</p>
+        <p className="mt-1 text-xs text-zinc-600">{scopeText(d, t, locale)}</p>
         {presetKey && (
           <p className="mt-0.5 text-xs text-zinc-500">{t(presetKey)}</p>
         )}

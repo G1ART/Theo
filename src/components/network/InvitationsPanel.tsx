@@ -23,6 +23,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { formatDisplayName } from "@/lib/identity/format";
+import { pickLocalizedBio } from "@/lib/i18n/pickLocalized";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import {
   acceptFollowRequest,
@@ -62,7 +64,7 @@ function avatarUrl(v: string | null | undefined): string | null {
 }
 
 export function InvitationsPanel({ ownerProfileId }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [followRows, setFollowRows] = useState<
     Array<{
       follower_id: string;
@@ -194,8 +196,12 @@ export function InvitationsPanel({ ownerProfileId }: Props) {
             const busy = pendingId === item.key;
             if (item.kind === "follow_request") {
               const p = item.profile;
-              const name = p?.display_name ?? p?.username ?? "—";
+              const name =
+                (p ? formatDisplayName(p, t, locale) : null) ||
+                p?.username ||
+                "—";
               const src = avatarUrl(p?.avatar_url);
+              const bio = p ? pickLocalizedBio(p, locale) || p.bio : null;
               return (
                 <li
                   key={item.key}
@@ -215,7 +221,7 @@ export function InvitationsPanel({ ownerProfileId }: Props) {
                     </div>
                     <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500">
                       {t("connections.invitations.followRequest")}
-                      {p?.bio ? ` · ${p.bio}` : ""}
+                      {bio ? ` · ${bio}` : ""}
                     </p>
                   </div>
                   <ActionPair
@@ -230,7 +236,10 @@ export function InvitationsPanel({ ownerProfileId }: Props) {
             }
             const r = item.row;
             const p = r.requester;
-            const name = p?.display_name ?? p?.username ?? "—";
+            const name =
+              (p ? formatDisplayName(p, t, locale) : null) ||
+              p?.username ||
+              "—";
             const src = avatarUrl(p?.avatar_url ?? null);
             return (
               <li key={item.key} className="flex items-center gap-4 px-5 py-3">

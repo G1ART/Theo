@@ -19,6 +19,7 @@ import { VisibilityAudiencePill } from "./VisibilityAudiencePill";
 import { RequestModeSelect } from "./RequestModeSelect";
 import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 
 type Props = {
@@ -217,8 +218,12 @@ function ArtworkRow({
   savingKey: RowKey | null;
   errorKey: RowKey | null;
 }) {
-  const { t } = useT();
-  const title = artwork.title?.trim() || t("room.untitledArtwork");
+  const { t, locale } = useT();
+  const localizedTitle =
+    pickLocalizedArtworkTitle(artwork, locale).trim() ||
+    artwork.title?.trim() ||
+    "";
+  const title = localizedTitle || t("room.untitledArtwork");
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4">
       <div className="flex items-center justify-between gap-3">

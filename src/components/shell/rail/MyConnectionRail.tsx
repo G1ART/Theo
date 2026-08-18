@@ -42,7 +42,7 @@ import { CommunityPulseStrip } from "./CommunityPulseStrip";
  * per-page rail coupling we deliberately removed.
  */
 export function MyConnectionRail() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const router = useRouter();
   const [q, setQ] = useState("");
 
@@ -173,6 +173,8 @@ export function MyConnectionRail() {
                     onDecline={() => void handleDecline(row)}
                     acceptLabel={t("rail.myConnection.accept")}
                     declineLabel={t("rail.myConnection.decline")}
+                    locale={locale}
+                    t={t}
                   />
                 ))
               )}
@@ -196,7 +198,7 @@ export function MyConnectionRail() {
             ) : (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {suggestions.map((p) => (
-                  <SuggestionCard key={p.id} person={p} />
+                  <SuggestionCard key={p.id} person={p} locale={locale} t={t} />
                 ))}
               </div>
             )}
@@ -213,15 +215,19 @@ function InvitationRow({
   onDecline,
   acceptLabel,
   declineLabel,
+  locale,
+  t,
 }: {
   row: NotificationRow;
   onAccept: () => void;
   onDecline: () => void;
   acceptLabel: string;
   declineLabel: string;
+  locale: "ko" | "en";
+  t: (k: string) => string;
 }) {
   const actor = row.actor;
-  const name = formatDisplayName(actor) || formatUsername(actor);
+  const name = formatDisplayName(actor, t, locale) || formatUsername(actor);
   const handle = actor?.username ? `@${actor.username}` : "";
   return (
     <li className="flex items-center gap-2">
@@ -256,9 +262,17 @@ function InvitationRow({
   );
 }
 
-function SuggestionCard({ person }: { person: PeopleRec }) {
+function SuggestionCard({
+  person,
+  locale,
+  t,
+}: {
+  person: PeopleRec;
+  locale: "ko" | "en";
+  t: (k: string) => string;
+}) {
   const href = person.username ? `/u/${person.username}` : "#";
-  const name = formatDisplayName(person) || formatUsername(person);
+  const name = formatDisplayName(person, t, locale) || formatUsername(person);
   const handle = person.username ? `@${person.username}` : "";
   const role = person.main_role ?? null;
   const avatar = person.avatar_url

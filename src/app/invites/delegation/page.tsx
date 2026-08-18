@@ -4,6 +4,8 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { getSession } from "@/lib/supabase/auth";
 import {
   PRESET_PERMISSIONS,
@@ -194,12 +196,14 @@ function InvitesDelegationInner() {
   }
 
   const delegatorName =
-    info.delegator?.display_name?.trim() ||
+    (info.delegator && formatDisplayName(info.delegator, t, locale)) ||
     (info.delegator?.username ? `@${info.delegator.username}` : null) ||
     "Someone";
   const scope = scopeLabel(info.scope_type ?? "project", t);
   const projectTitle =
-    info.scope_type === "project" && info.project?.title ? info.project.title : null;
+    info.scope_type === "project" && info.project
+      ? pickLocalizedTitle(info.project, locale) || info.project.title || null
+      : null;
 
   if (!hasSession) {
     const nextTarget = `/invites/delegation?token=${token}`;

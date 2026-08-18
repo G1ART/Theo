@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
-import { pickLocalizedTitle, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
+import { pickLocalizedArtworkTitle, pickLocalizedTitle, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import {
@@ -583,7 +583,7 @@ export default function ExhibitionDetailPage() {
                   ? ` · ${pickLocalizedVenueName(exhibition, locale)}`
                   : ""}
                 {" · "}
-                {getExhibitionHostCuratorLabel(exhibition, t)}
+                {getExhibitionHostCuratorLabel(exhibition, t, locale)}
                 {" · "}
                 {t(STATUS_LABELS[exhibition.status] ?? "exhibition.statusPlanned")}
               </p>
@@ -883,7 +883,7 @@ export default function ExhibitionDetailPage() {
                                 {img ? (
                                   <Image
                                     src={getArtworkImageUrl(img, "thumb")}
-                                    alt={art.title ?? ""}
+                                    alt={pickLocalizedArtworkTitle(art, locale) || art.title || ""}
                                     width={120}
                                     height={120}
                                     className="h-full w-full object-cover"
@@ -893,7 +893,9 @@ export default function ExhibitionDetailPage() {
                                   <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">{t("common.noImage")}</div>
                                 )}
                               </Link>
-                              <div className="mt-1 truncate text-xs text-zinc-600">{art.title ?? t("common.untitled")}</div>
+                              <div className="mt-1 truncate text-xs text-zinc-600">
+                                {pickLocalizedArtworkTitle(art, locale) || art.title || t("common.untitled")}
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveWork(art.id)}

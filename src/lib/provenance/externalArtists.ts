@@ -3,6 +3,11 @@ import { supabase } from "@/lib/supabase/client";
 export type MyExternalArtist = {
   id: string;
   display_name: string;
+  /** QA 2026-08-17 bilingual — populated when the RPC surfaces the
+   *  KO/EN slots. Consumers should route through
+   *  `pickLocalizedDisplayName(row, locale)`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   invite_email: string | null;
   has_email: boolean;
   work_count: number;
@@ -24,6 +29,8 @@ export async function listMyExternalArtists(
   const rows = (data ?? []) as Array<{
     id: string;
     display_name: string;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
     invite_email: string | null;
     has_email: boolean;
     work_count: number | string;
@@ -33,6 +40,8 @@ export async function listMyExternalArtists(
     data: rows.map((r) => ({
       id: r.id,
       display_name: r.display_name,
+      display_name_ko: r.display_name_ko ?? null,
+      display_name_en: r.display_name_en ?? null,
       invite_email: r.invite_email,
       has_email: !!r.has_email,
       work_count: Number(r.work_count ?? 0),

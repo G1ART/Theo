@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 import {
   claimOrphanExternalArtistAsSelf,
   searchOrphanExternalArtistsForMe,
@@ -58,7 +59,7 @@ import { logSupabaseError } from "@/lib/supabase/errors";
 const AUTOSCAN_SNOOZE_DAYS = 30;
 
 export function OrphanInvitesBanner() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [candidates, setCandidates] = useState<
     OrphanExternalArtistCandidate[] | null
   >(null);
@@ -172,7 +173,19 @@ export function OrphanInvitesBanner() {
           open={confirmOpen}
           title={t("orphanInvites.confirmTitle")}
           description={t("orphanInvites.confirmBody")
-            .replace("{artist}", topMatch.display_name ?? "")
+            .replace(
+              "{artist}",
+              pickLocalizedDisplayName(
+                {
+                  display_name: topMatch.display_name,
+                  display_name_ko: topMatch.display_name_ko,
+                  display_name_en: topMatch.display_name_en,
+                },
+                locale,
+              ) ||
+                topMatch.display_name ||
+                "",
+            )
             .replace(
               "{inviter}",
               topMatch.inviter_display_name ?? t("orphanInvites.invitedByUnknown")

@@ -32,7 +32,7 @@ export function ExploreExhibitionCard({ exhibition, locked = false }: Props) {
   const cover = (exhibition.cover_image_paths ?? [])[0] ?? null;
   const imageUrl = cover ? getArtworkImageUrl(cover, "medium") : null;
   const year = pickYear(exhibition);
-  const curatorLine = getExhibitionHostCuratorLabel(exhibition, t);
+  const curatorLine = getExhibitionHostCuratorLabel(exhibition, t, locale);
   // Phase 4: prefer the locale-appropriate title, gracefully falling back
   // to whichever language was filled and finally to the legacy `title`.
   const displayTitle = pickLocalizedTitle(exhibition, locale) || exhibition.title || "";

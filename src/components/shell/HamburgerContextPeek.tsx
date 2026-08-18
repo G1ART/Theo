@@ -52,7 +52,7 @@ type Props = {
 };
 
 export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [invite, setInvite] = useState<NotificationRow | null>(null);
   const [inviteCount, setInviteCount] = useState(0);
   const [boardPost, setBoardPost] = useState<TheoBoardPost | null>(null);
@@ -87,7 +87,7 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
 
   const actor = invite?.actor;
   const inviteName =
-    formatDisplayName(actor) || formatUsername(actor) || "";
+    formatDisplayName(actor, t, locale) || formatUsername(actor) || "";
   const networkHint = invite
     ? t("nav.peek.networkInvite").replace("{name}", inviteName)
     : t("nav.peek.networkIdle");

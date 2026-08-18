@@ -42,7 +42,7 @@ import { useT } from "@/lib/i18n/useT";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
 import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
-import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
+import { pickLegacyForSave, pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
 import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
@@ -85,7 +85,13 @@ const PRICE_CURRENCIES = [
   { value: "KRW", label: "KRW" },
 ] as const;
 
-type ArtistOption = { id: string; username: string | null; display_name: string | null };
+type ArtistOption = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
 
 function UploadPageContent() {
   const router = useRouter();
@@ -937,7 +943,13 @@ function UploadPageContent() {
                   <ul className="rounded border border-zinc-200 bg-white">
                     {artistResults.map((a) => {
                       if (a.kind === "profile") {
-                        const opt: ArtistOption = { id: a.id, username: a.username, display_name: a.display_name };
+                        const opt: ArtistOption = {
+                          id: a.id,
+                          username: a.username,
+                          display_name: a.display_name,
+                          display_name_ko: a.display_name_ko ?? null,
+                          display_name_en: a.display_name_en ?? null,
+                        };
                         return (
                           <li key={`p-${a.id}`}>
                             <button
@@ -963,7 +975,7 @@ function UploadPageContent() {
                                 selectedArtist?.id === a.id ? "bg-zinc-100 font-medium" : ""
                               }`}
                             >
-                              {formatDisplayName(opt)}
+                              {formatDisplayName(opt, t, locale)}
                               {a.username && (
                                 <span className="ml-2 text-zinc-500">{formatUsername(opt)}</span>
                               )}
@@ -1004,7 +1016,9 @@ function UploadPageContent() {
                             className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <span>{a.display_name}</span>
+                              <span>
+                                {pickLocalizedDisplayName(a, locale) || a.display_name}
+                              </span>
                               <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
                                 {t("upload.externalReselect.badgePendingWorks").replace("{n}", String(a.works_count))}
                               </span>
@@ -1030,7 +1044,7 @@ function UploadPageContent() {
                 )}
                 {selectedArtist && (
                   <p className="text-sm text-zinc-600">
-                    {t("upload.selectedArtist")}: {formatDisplayName(selectedArtist)}
+                    {t("upload.selectedArtist")}: {formatDisplayName(selectedArtist, t, locale)}
                   </p>
                 )}
               </>
@@ -1080,7 +1094,7 @@ function UploadPageContent() {
                 artistName={
                   useExternalArtist
                     ? externalArtistName.trim()
-                    : formatDisplayName(selectedArtist)
+                    : formatDisplayName(selectedArtist, t, locale)
                 }
                 isExternal={useExternalArtist}
                 externalEmail={useExternalArtist ? externalArtistEmail : null}

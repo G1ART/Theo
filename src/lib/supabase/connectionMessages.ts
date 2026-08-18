@@ -3,7 +3,11 @@ import type { FollowProfileRow } from "./follows";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 
-const SENDER_SELECT = "id, username, display_name, avatar_url, bio, main_role, roles";
+// QA 2026-08-17 bilingual — include the KO/EN slots so downstream
+// consumers can route through `formatDisplayName(row, t, locale)` and
+// `pickLocalizedBio` without an extra round-trip.
+const SENDER_SELECT =
+  "id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles";
 
 export type ConnectionMessageRow = {
   id: string;

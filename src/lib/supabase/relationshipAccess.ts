@@ -394,6 +394,11 @@ export type AccessRequestRowEnriched = AccessRequest & {
     | {
         id: string;
         display_name: string | null;
+        /** QA 2026-08-17 bilingual — populated when the RPC returns the
+         *  KO/EN slots. Consumers should route through
+         *  `formatDisplayName(requester, t, locale)`. */
+        display_name_ko?: string | null;
+        display_name_en?: string | null;
         username: string | null;
         avatar_url: string | null;
         main_role: string | null;

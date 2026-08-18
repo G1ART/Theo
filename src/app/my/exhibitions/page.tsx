@@ -225,7 +225,7 @@ export default function MyExhibitionsPage() {
                           ? ex.start_date
                           : ex.status}
                       {" · "}
-                      {getExhibitionHostCuratorLabel(ex, t)}
+                      {getExhibitionHostCuratorLabel(ex, t, locale)}
                       {typeof ex.works_count === "number" && (
                         <>
                           {" · "}

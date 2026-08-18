@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
 import { getMyProfile } from "@/lib/supabase/profiles";
 
 type ChipMode = "posting" | "editing" | "replying";
@@ -31,7 +32,7 @@ type Props = {
  */
 export function ActingAsChip({ mode = "editing", className }: Props) {
   const { actingAsProfileId, actingAsLabel } = useActingAs();
-  const { t } = useT();
+  const { t, locale } = useT();
   const [operatorLabel, setOperatorLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,14 +43,23 @@ export function ActingAsChip({ mode = "editing", className }: Props) {
     let cancelled = false;
     void getMyProfile().then(({ data }) => {
       if (cancelled) return;
-      const p = data as { display_name?: string | null; username?: string | null } | null;
-      const dn = (p?.display_name ?? "").trim();
-      setOperatorLabel(dn || p?.username || null);
+      const p = data as {
+        display_name?: string | null;
+        display_name_ko?: string | null;
+        display_name_en?: string | null;
+        username?: string | null;
+      } | null;
+      if (!p) {
+        setOperatorLabel(null);
+        return;
+      }
+      const dn = formatDisplayName(p, t, locale);
+      setOperatorLabel(dn || p.username || null);
     });
     return () => {
       cancelled = true;
     };
-  }, [actingAsProfileId]);
+  }, [actingAsProfileId, t, locale]);
 
   if (!actingAsProfileId) return null;
 

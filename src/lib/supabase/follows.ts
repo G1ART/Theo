@@ -15,8 +15,13 @@ export type FollowProfileRow = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — read via `formatDisplayName(row, t, locale)`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   bio: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   main_role: string | null;
   roles: string[] | null;
   /**
@@ -27,7 +32,8 @@ export type FollowProfileRow = {
   followed_at?: string | null;
 };
 
-const PROFILE_SELECT = "id, username, display_name, avatar_url, bio, main_role, roles";
+const PROFILE_SELECT =
+  "id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles";
 
 export async function getMyFollowers(options: { limit?: number; cursor?: string } = {}) {
   const {

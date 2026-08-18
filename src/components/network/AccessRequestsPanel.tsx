@@ -24,6 +24,7 @@ import { LaneChips, type LaneOption } from "@/components/ds/LaneChips";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { Chip } from "@/components/ds/Chip";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { requireSessionUid } from "@/lib/supabase/requireSessionUid";
 import { supabase } from "@/lib/supabase/client";
@@ -276,7 +277,11 @@ export function AccessRequestsPanel() {
                       <p className="mt-0.5 text-[11px] text-zinc-500 break-keep">
                         {(() => {
                           const r = row.requester;
+                          const localized = r
+                            ? formatDisplayName(r, t, locale)
+                            : "";
                           const name =
+                            localized ||
                             r?.display_name?.trim() ||
                             (r?.username ? `@${r.username}` : null) ||
                             t("accessRequestInbox.requesterUnknown");

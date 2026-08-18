@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
+import type { Locale } from "@/lib/i18n/locale";
 import {
   PRESET_PERMISSIONS,
   cancelDelegationInvite,
@@ -79,7 +82,7 @@ export function DelegationDetailDrawer({
   initialAction = null,
   proposedPermissions = null,
 }: DelegationDetailDrawerProps) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [detail, setDetail] = useState<DelegationDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -301,7 +304,7 @@ export function DelegationDetailDrawer({
             <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
           )}
           {detail && (
-            <DetailBody t={t} detail={detail} viewerIsOwner={viewerIsOwner} />
+            <DetailBody t={t} locale={locale} detail={detail} viewerIsOwner={viewerIsOwner} />
           )}
         </div>
 
@@ -549,20 +552,28 @@ function DetailFooter({
 }
 
 function DetailBody({
-  t, detail, viewerIsOwner,
-}: { t: (k: string) => string; detail: DelegationDetail; viewerIsOwner: boolean }) {
+  t, locale, detail, viewerIsOwner,
+}: {
+  t: (k: string) => string;
+  locale: Locale;
+  detail: DelegationDetail;
+  viewerIsOwner: boolean;
+}) {
   const d = detail.delegation;
   const counterpart = viewerIsOwner ? detail.delegate_profile : detail.delegator_profile;
   const counterpartLabel =
-    counterpart?.display_name?.trim() ||
+    (counterpart && formatDisplayName(counterpart, t, locale)) ||
     (counterpart?.username ? `@${counterpart.username}` : null) ||
     d.delegate_email ||
     "—";
 
+  const projectTitle = detail.project
+    ? pickLocalizedTitle(detail.project, locale) || detail.project.title
+    : null;
   const scopeLabel =
     d.scope_type === "project"
-      ? detail.project?.title
-        ? t("delegation.scopeExhibitionPrefix").replace("{title}", detail.project.title)
+      ? projectTitle
+        ? t("delegation.scopeExhibitionPrefix").replace("{title}", projectTitle)
         : t("delegation.scopeProject")
       : t("delegation.scopeAccount");
 

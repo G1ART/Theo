@@ -27,10 +27,19 @@ export type ShortlistItemRow = {
   artwork?: {
     id: string;
     title: string | null;
+    /** QA 2026-08-17 bilingual — feed `pickLocalizedArtworkTitle`. */
+    title_ko?: string | null;
+    title_en?: string | null;
     artist_id: string;
     image_path: string | null;
   } | null;
-  exhibition?: { id: string; title: string | null } | null;
+  exhibition?: {
+    id: string;
+    title: string | null;
+    /** QA 2026-08-17 bilingual — feed `pickLocalizedTitle`. */
+    title_ko?: string | null;
+    title_en?: string | null;
+  } | null;
 };
 
 export type ShortlistCollaboratorRow = {
@@ -39,7 +48,13 @@ export type ShortlistCollaboratorRow = {
   profile_id: string;
   role: "viewer" | "editor";
   created_at: string;
-  profile?: { username: string | null; display_name: string | null } | null;
+  profile?: {
+    username: string | null;
+    display_name: string | null;
+    /** QA 2026-08-17 bilingual — feed `formatDisplayName(profile, t, locale)`. */
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  } | null;
 };
 
 export type RoomItem = {
@@ -163,7 +178,7 @@ export async function listShortlistItems(
   const { data, error } = await supabase
     .from("shortlist_items")
     .select(
-      "*, artworks!artwork_id(id, title, artist_id, artwork_images(storage_path, sort_order, view_type)), projects!exhibition_id(id, title)"
+      "*, artworks!artwork_id(id, title, title_ko, title_en, artist_id, artwork_images(storage_path, sort_order, view_type)), projects!exhibition_id(id, title, title_ko, title_en)"
     )
     .eq("shortlist_id", shortlistId)
     .order("position")
@@ -174,6 +189,8 @@ export async function listShortlistItems(
       | {
           id: string;
           title: string | null;
+          title_ko?: string | null;
+          title_en?: string | null;
           artist_id: string;
           artwork_images?: { storage_path: string | null; sort_order: number | null }[] | null;
         }
@@ -188,6 +205,8 @@ export async function listShortlistItems(
       artwork = {
         id: aw.id,
         title: aw.title,
+        title_ko: aw.title_ko ?? null,
+        title_en: aw.title_en ?? null,
         artist_id: aw.artist_id,
         image_path: imgs[0]?.storage_path ?? null,
       };
@@ -268,14 +287,21 @@ export async function listShortlistCollaborators(
 ): Promise<{ data: ShortlistCollaboratorRow[]; error: unknown }> {
   const { data, error } = await supabase
     .from("shortlist_collaborators")
-    .select("*, profiles!profile_id(username, display_name)")
+    .select(
+      "*, profiles!profile_id(username, display_name, display_name_ko, display_name_en)"
+    )
     .eq("shortlist_id", shortlistId)
     .order("created_at");
   if (error) return { data: [], error };
   const rows = (data ?? []).map((r: Record<string, unknown>) => {
     const pr = r.profiles;
     const profile = pr && typeof pr === "object" && !Array.isArray(pr)
-      ? pr as { username: string | null; display_name: string | null }
+      ? pr as {
+          username: string | null;
+          display_name: string | null;
+          display_name_ko?: string | null;
+          display_name_en?: string | null;
+        }
       : null;
     return { ...r, profile } as ShortlistCollaboratorRow;
   });
@@ -375,16 +401,36 @@ export async function setRoomExpiry(
 
 export async function searchProfilesForCollab(
   query: string
-): Promise<{ data: { id: string; username: string | null; display_name: string | null }[]; error: unknown }> {
+): Promise<{
+  data: {
+    id: string;
+    username: string | null;
+    display_name: string | null;
+    display_name_ko: string | null;
+    display_name_en: string | null;
+  }[];
+  error: unknown;
+}> {
   const q = query.trim();
   if (!q) return { data: [], error: null };
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, display_name")
-    .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
+    .select("id, username, display_name, display_name_ko, display_name_en")
+    .or(
+      `username.ilike.%${q}%,display_name.ilike.%${q}%,display_name_ko.ilike.%${q}%,display_name_en.ilike.%${q}%`,
+    )
     .limit(10);
   if (error) return { data: [], error };
-  return { data: (data ?? []) as { id: string; username: string | null; display_name: string | null }[], error: null };
+  return {
+    data: (data ?? []) as {
+      id: string;
+      username: string | null;
+      display_name: string | null;
+      display_name_ko: string | null;
+      display_name_en: string | null;
+    }[],
+    error: null,
+  };
 }
 
 // ── Check if artwork is in any of user's shortlists ──────────

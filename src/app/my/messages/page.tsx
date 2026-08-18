@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
 import {
   acceptConnectionMessageThread,
   declineConnectionMessageThread,
@@ -333,8 +334,8 @@ export default function MyMessagesPage() {
             {rows.map((c) => {
               const peer = c.otherUser;
               const name =
-                peer?.display_name ??
-                peer?.username ??
+                (peer && formatDisplayName(peer, t, locale)) ||
+                peer?.username ||
                 t("connection.inbox.unknownUser");
               const handle = peer?.username ? `@${peer.username}` : null;
               const avatarSrc = peer?.avatar_url

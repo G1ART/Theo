@@ -54,6 +54,7 @@ import {
   pickLocalizedArtworkTitle,
   pickLocalizedMedium,
   pickLocalizedStory,
+  pickLocalizedTitle,
 } from "@/lib/i18n/pickLocalized";
 import { logFeedEvent, peekFeedSource } from "@/lib/feed/telemetry";
 import { peekRoomSource, setRoomSource } from "@/lib/room/source";
@@ -1287,11 +1288,11 @@ function ArtworkDetailContent() {
                       const byPhrase = claimTypeToByPhrase(c.claim_type as ClaimType);
                       const label = byPhrase
                         ? `${byPhrase} ${formatIdentityPair(c.profiles, t, locale).primary}`
-                        : (c.claim_type === "CREATED" && (
-                            artwork?.profiles?.display_name_ko ||
-                            artwork?.profiles?.display_name_en ||
-                            artwork?.profiles?.display_name
-                          )) || "—";
+                        : (c.claim_type === "CREATED" &&
+                            artwork?.profiles &&
+                            (formatIdentityPair(artwork.profiles, t, locale).primary ||
+                              artwork.profiles.display_name)) ||
+                          "—";
                       const date = c.created_at
                         ? new Date(c.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
                         : "";
@@ -1329,15 +1330,15 @@ function ArtworkDetailContent() {
                             href={`/my/exhibitions/${ex.id}`}
                             className="font-medium text-zinc-900 underline hover:text-zinc-700"
                           >
-                            {ex.title}
+                            {pickLocalizedTitle(ex, locale) || ex.title}
                             {dates && ` · ${dates}`}
                           </Link>
                         ) : (
                           <span>
-                            {ex.title}
+                            {pickLocalizedTitle(ex, locale) || ex.title}
                             {dates && ` · ${dates}`}
                             {" · "}
-                            {getExhibitionHostCuratorLabel(ex, t)}
+                            {getExhibitionHostCuratorLabel(ex, t, locale)}
                           </span>
                         )}
                       </li>

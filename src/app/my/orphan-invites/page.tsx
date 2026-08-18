@@ -312,7 +312,16 @@ export default function MyOrphanInvitesPage() {
               ? t("orphanInvites.confirmBody")
                   .replace(
                     "{artist}",
-                    pending.display_name ?? "—"
+                    pickLocalizedDisplayName(
+                      {
+                        display_name: pending.display_name,
+                        display_name_ko: pending.display_name_ko,
+                        display_name_en: pending.display_name_en,
+                      },
+                      locale,
+                    ) ||
+                      pending.display_name ||
+                      "—",
                   )
                   .replace(
                     "{inviter}",

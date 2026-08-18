@@ -37,7 +37,7 @@ import {
   type PeopleRec,
   type PeopleRecMode,
 } from "@/lib/supabase/peopleRecs";
-import { formatRoleChips } from "@/lib/identity/format";
+import { formatDisplayName, formatRoleChips } from "@/lib/identity/format";
 
 type LaneKey = PeopleRecMode;
 
@@ -279,8 +279,9 @@ export function SuggestionCard({
   lane: LaneKey | "role";
   onDismiss?: () => void;
 }) {
-  const { t } = useT();
-  const name = row.display_name ?? row.username ?? "—";
+  const { t, locale } = useT();
+  const name =
+    formatDisplayName(row, t, locale) || row.username || "—";
   const src = avatarSrc(row.avatar_url);
   const roleChips = formatRoleChips(
     {
@@ -378,9 +379,10 @@ export function SuggestionCardCompact({
   row: PeopleRec;
   lane: LaneKey | "role";
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   void lane;
-  const name = row.display_name ?? row.username ?? "—";
+  const name =
+    formatDisplayName(row, t, locale) || row.username || "—";
   const src = avatarSrc(row.avatar_url);
   const roleChips = formatRoleChips(
     {

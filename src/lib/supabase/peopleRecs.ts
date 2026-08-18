@@ -19,6 +19,11 @@ export type PeopleRecMutualAvatar = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated whenever the underlying RPC
+   *  includes the KO/EN slots. Consumers should route the name through
+   *  `formatDisplayName(row, t, locale)` so they resolve locale-first. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
 };
 
@@ -26,6 +31,9 @@ export type PeopleRec = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual (see PeopleRecMutualAvatar). */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   bio?: string | null;
   main_role: string | null;

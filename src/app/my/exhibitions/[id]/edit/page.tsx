@@ -37,7 +37,13 @@ const STATUS_OPTIONS = [
   { value: "ended", labelKey: "exhibition.statusEnded" },
 ] as const;
 
-type ProfileOption = { id: string; username: string | null; display_name: string | null };
+type ProfileOption = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
 
 export default function EditExhibitionPage() {
   const params = useParams();
@@ -201,6 +207,12 @@ export default function EditExhibitionPage() {
           setCuratorSelected({
             id: data.curator_id,
             display_name: data.curator?.display_name ?? null,
+            display_name_ko:
+              (data.curator as { display_name_ko?: string | null } | null | undefined)?.display_name_ko ??
+              null,
+            display_name_en:
+              (data.curator as { display_name_en?: string | null } | null | undefined)?.display_name_en ??
+              null,
             username: data.curator?.username ?? null,
           });
         }
@@ -215,6 +227,12 @@ export default function EditExhibitionPage() {
           setHostSelected({
             id: data.host_profile_id,
             display_name: data.host?.display_name ?? null,
+            display_name_ko:
+              (data.host as { display_name_ko?: string | null } | null | undefined)?.display_name_ko ??
+              null,
+            display_name_en:
+              (data.host as { display_name_en?: string | null } | null | undefined)?.display_name_en ??
+              null,
             username: data.host?.username ?? null,
           });
         }
@@ -231,7 +249,13 @@ export default function EditExhibitionPage() {
     setCuratorSearching(true);
     const { data } = await searchPeople({ q, limit: 10 });
     setCuratorResults(
-      (data ?? []).map((p) => ({ id: p.id, username: p.username, display_name: p.display_name }))
+      (data ?? []).map((p) => ({
+        id: p.id,
+        username: p.username,
+        display_name: p.display_name,
+        display_name_ko: p.display_name_ko ?? null,
+        display_name_en: p.display_name_en ?? null,
+      }))
     );
     setCuratorSearching(false);
   }, [curatorSearch]);
@@ -468,12 +492,12 @@ export default function EditExhibitionPage() {
                     curatorMe
                       ? t("exhibition.curatorMe")
                       : curatorSelected
-                        ? formatDisplayName(curatorSelected)
+                        ? formatDisplayName(curatorSelected, t, locale)
                         : null
                   }
                   hostLabel={
                     hostSelected
-                      ? formatDisplayName(hostSelected)
+                      ? formatDisplayName(hostSelected, t, locale)
                       : hostName || null
                   }
                   venueLabel={venueName || null}
@@ -640,7 +664,7 @@ export default function EditExhibitionPage() {
                             }}
                             className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-zinc-50"
                           >
-                            {formatDisplayName(p)}
+                            {formatDisplayName(p, t, locale)}
                             {p.username && (
                               <span className="ml-1 text-xs text-zinc-500">{formatUsername(p)}</span>
                             )}
@@ -651,7 +675,7 @@ export default function EditExhibitionPage() {
                   )}
                   {curatorSelected && (
                     <p className="mt-1 text-xs text-zinc-600">
-                      {t("common.selected")}: {formatDisplayName(curatorSelected)}
+                      {t("common.selected")}: {formatDisplayName(curatorSelected, t, locale)}
                     </p>
                   )}
                   {!curatorSelected &&

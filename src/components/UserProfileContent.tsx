@@ -1079,7 +1079,7 @@ export function UserProfileContent({
                       <p className="truncate text-xs text-zinc-500">
                         {ex.start_date && ex.end_date ? `${ex.start_date} – ${ex.end_date}` : ex.start_date ?? ex.status}
                         {" · "}
-                        {getExhibitionHostCuratorLabel(ex, t)}
+                        {getExhibitionHostCuratorLabel(ex, t, locale)}
                       </p>
                       <p className="text-[11px] text-zinc-400">{t("exhibition.works")} →</p>
                     </div>

@@ -45,7 +45,7 @@ export function ExhibitionMemoryStrip({ exhibition, feedContext }: Props) {
     exhibition.start_date && exhibition.end_date
       ? `${exhibition.start_date} – ${exhibition.end_date}`
       : exhibition.start_date ?? exhibition.status ?? "";
-  const creditsLine = getExhibitionHostCuratorLabel(exhibition, t);
+  const creditsLine = getExhibitionHostCuratorLabel(exhibition, t, locale);
   const thumbs = (exhibition.cover_image_paths ?? []).slice(0, 3);
   const thumbGridCols = thumbs.length === 2 ? "grid-cols-2" : "grid-cols-3";
 

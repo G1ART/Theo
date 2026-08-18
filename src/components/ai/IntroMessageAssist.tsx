@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
 import { aiApi } from "@/lib/ai/browser";
 import { markAiAccepted } from "@/lib/ai/accept";
 import { copyToClipboard } from "./AiDraftPanel";
@@ -762,10 +763,19 @@ export function IntroMessageAssist({
     );
   }
 
-  const displayName =
-    typeof (recipient as { display_name?: string | null }).display_name === "string"
-      ? (recipient as { display_name?: string | null }).display_name
+  const recipientRow = recipient as {
+    display_name?: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+    username?: string | null;
+  };
+  const localizedDisplayName =
+    formatDisplayName(recipientRow, t, locale);
+  const legacyDisplayName =
+    typeof recipientRow.display_name === "string"
+      ? recipientRow.display_name
       : null;
+  const displayName = localizedDisplayName || legacyDisplayName;
 
   return (
     <>

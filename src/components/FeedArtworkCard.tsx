@@ -292,14 +292,14 @@ export function FeedArtworkCard({
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      aria-label={artwork.title ?? undefined}
+      aria-label={pickLocalizedArtworkTitle(artwork, locale) || undefined}
       className="group flex h-full cursor-pointer flex-col focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
     >
       <div className={`relative w-full ${aspectClass} overflow-hidden ${imageWrapClass}`}>
         {imageUrl ? (
           <CroppedArtworkImage
             src={imageUrl}
-            alt={artwork.title ?? ""}
+            alt={pickLocalizedArtworkTitle(artwork, locale) || ""}
             sizes={
               isAnchor
                 ? "(max-width: 1024px) 50vw, 600px"

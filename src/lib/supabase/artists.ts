@@ -4,10 +4,17 @@ export type PublicProfile = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated whenever the RPC surfaces the
+   *  KO/EN slots. Consumers should route the name through
+   *  `formatDisplayName(row, t, locale)` for locale-first display. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   main_role: string | null;
   roles: string[] | null;
   avatar_url: string | null;
   bio?: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   reason?: string;
   reason_tags?: string[];
   reason_detail?: {
@@ -81,6 +88,11 @@ export type SearchPeopleWithExternalResult = {
   kind: "profile" | "external";
   id: string;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated when the search RPC surfaces
+   *  the KO/EN slots. Consumers should route through
+   *  `formatDisplayName(row, t, locale)`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   username: string | null;
   avatar_url: string | null;
   main_role: string | null;

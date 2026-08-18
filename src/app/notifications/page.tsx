@@ -129,7 +129,7 @@ function FollowRequestActions({
 }
 
 function NotificationsContent() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [list, setList] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
@@ -216,7 +216,7 @@ function NotificationsContent() {
         <ul className="mt-4 divide-y divide-zinc-100">
           {list.map((row) => {
             const href = notificationLink(row, entitlements, viewerId);
-            const label = notificationLabel(row, t, entitlements);
+            const label = notificationLabel(row, t, entitlements, locale);
             const unread = row.read_at == null;
             const isFollowRequest = row.type === "follow_request";
             const inlineControls = isFollowRequest ? (

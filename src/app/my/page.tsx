@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
 import {
   getMyProfile,
   getMyStats,
@@ -65,7 +66,7 @@ type Profile = FullProfile;
  * banners fall through as before.
  */
 function WorkspaceContent() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [stats, setStats] = useState<MyStats | null>(null);
@@ -355,7 +356,11 @@ function WorkspaceContent() {
         <div className="mt-6">
           <DelegationBriefPanel
             actingAsProfileId={actingAsProfileId}
-            principalName={profile.display_name ?? profile.username ?? null}
+            principalName={
+              formatDisplayName(profile, t, locale) ||
+              profile.username ||
+              null
+            }
           />
         </div>
       )}

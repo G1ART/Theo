@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { getSession } from "@/lib/supabase/auth";
 import { isFollowing } from "@/lib/supabase/follows";
 import { getProfileById } from "@/lib/supabase/profiles";
+import { formatDisplayName } from "@/lib/identity/format";
+import { useT } from "@/lib/i18n/useT";
 import { FollowButton } from "./FollowButton";
 import { MessageRecipientButton } from "./connection/MessageRecipientButton";
 
@@ -13,6 +15,7 @@ type Props = {
 };
 
 export function ProfileActions({ profileId }: Props) {
+  const { t, locale } = useT();
   const [userId, setUserId] = useState<string | null>(null);
   const [following, setFollowing] = useState<boolean>(false);
   const [recipientLabel, setRecipientLabel] = useState<string | null>(null);
@@ -27,14 +30,18 @@ export function ProfileActions({ profileId }: Props) {
         // a friendly recipient name. Failure is non-blocking — the button
         // still works with a generic placeholder if the lookup fails.
         void getProfileById(profileId).then(({ data }) => {
+          if (!data) {
+            setRecipientLabel(null);
+            return;
+          }
           setRecipientLabel(
-            data?.display_name ?? data?.username ?? null,
+            formatDisplayName(data, t, locale) || data.username || null,
           );
         });
       }
       setReady(true);
     });
-  }, [profileId]);
+  }, [profileId, t, locale]);
 
   if (!ready) return null;
   if (!userId) {

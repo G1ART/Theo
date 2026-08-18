@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
+import { pickLocalizedBio, pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 import { FollowButton } from "@/components/FollowButton";
 import {
   getMyFollowers,
@@ -86,7 +88,7 @@ function avatarUrl(v: string | null | undefined): string | null {
 }
 
 export default function MyNetworkPage() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = parseTab(searchParams.get("tab"));
@@ -233,32 +235,36 @@ export default function MyNetworkPage() {
     const q = query.trim().toLowerCase();
     const base = q
       ? rawRows.filter((row) => {
-          const name = (row.display_name ?? "").toLowerCase();
+          const legacyName = (row.display_name ?? "").toLowerCase();
+          const nameKo = (row.display_name_ko ?? "").toLowerCase();
+          const nameEn = (row.display_name_en ?? "").toLowerCase();
           const handle = (row.username ?? "").toLowerCase();
           const bio = (row.bio ?? "").toLowerCase();
+          const bioKo = (row.bio_ko ?? "").toLowerCase();
+          const bioEn = (row.bio_en ?? "").toLowerCase();
           return (
-            name.includes(q) ||
+            legacyName.includes(q) ||
+            nameKo.includes(q) ||
+            nameEn.includes(q) ||
             handle.includes(q) ||
-            (bio ? bio.includes(q) : false)
+            (bio ? bio.includes(q) : false) ||
+            (bioKo ? bioKo.includes(q) : false) ||
+            (bioEn ? bioEn.includes(q) : false)
           );
         })
       : rawRows;
+    const nameKey = (row: (typeof rawRows)[number]): string =>
+      (pickLocalizedDisplayName(row, locale) || row.username || "").toLowerCase();
     if (sort === "alpha") {
-      return [...base].sort((a, b) => {
-        const an = (a.display_name ?? a.username ?? "").toLowerCase();
-        const bn = (b.display_name ?? b.username ?? "").toLowerCase();
-        return an.localeCompare(bn);
-      });
+      return [...base].sort((a, b) => nameKey(a).localeCompare(nameKey(b)));
     }
     return [...base].sort((a, b) => {
       const at = a.followed_at ? new Date(a.followed_at).getTime() : 0;
       const bt = b.followed_at ? new Date(b.followed_at).getTime() : 0;
       if (bt !== at) return bt - at;
-      const an = (a.display_name ?? a.username ?? "").toLowerCase();
-      const bn = (b.display_name ?? b.username ?? "").toLowerCase();
-      return an.localeCompare(bn);
+      return nameKey(a).localeCompare(nameKey(b));
     });
-  }, [rawRows, query, sort, isFollowTab]);
+  }, [rawRows, query, sort, isFollowTab, locale]);
 
   const followersCount = stats?.followersCount ?? 0;
   const followingCount = stats?.followingCount ?? 0;
@@ -470,8 +476,10 @@ export default function MyNetworkPage() {
               <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
                 {filtered.map((row) => {
                   const src = avatarUrl(row.avatar_url);
-                  const name = row.display_name ?? row.username ?? "—";
+                  const name =
+                    formatDisplayName(row, t, locale) || row.username || "—";
                   const handle = row.username ? `@${row.username}` : null;
+                  const rowBio = pickLocalizedBio(row, locale) || row.bio;
                   return (
                     <li
                       key={row.id}
@@ -502,10 +510,10 @@ export default function MyNetworkPage() {
                           <span className="block truncate text-sm font-medium text-zinc-900">
                             {name}
                           </span>
-                          {(handle || row.bio) && (
+                          {(handle || rowBio) && (
                             <span className="mt-0.5 block truncate text-xs text-zinc-500">
                               {handle}
-                              {handle && row.bio && (
+                              {handle && rowBio && (
                                 <span
                                   aria-hidden
                                   className="mx-1 text-zinc-300"
@@ -513,8 +521,8 @@ export default function MyNetworkPage() {
                                   ·
                                 </span>
                               )}
-                              {row.bio && (
-                                <span className="text-zinc-500">{row.bio}</span>
+                              {rowBio && (
+                                <span className="text-zinc-500">{rowBio}</span>
                               )}
                             </span>
                           )}

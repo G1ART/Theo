@@ -35,6 +35,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
+import type { Locale } from "@/lib/i18n/locale";
 import { UserProfileContent } from "@/components/UserProfileContent";
 import { getMyProfile } from "@/lib/supabase/me";
 import {
@@ -78,7 +80,7 @@ export function PrivateProfileShell({
   initialTabParam,
   privateCard,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [state, setState] = useState<LoadState>("checking");
   const [profile, setProfile] = useState<ProfilePublic | null>(null);
   const [artworks, setArtworks] = useState<
@@ -179,7 +181,7 @@ export function PrivateProfileShell({
 
   // Visitor branch — show meta card + Follow/Request action.
   if (privateCard) {
-    return <VisitorPrivateCard t={t} card={privateCard} />;
+    return <VisitorPrivateCard t={t} locale={locale} card={privateCard} />;
   }
 
 
@@ -233,13 +235,16 @@ function OwnerPrivateBanner({ t }: { t: (key: string) => string }) {
 
 function VisitorPrivateCard({
   t,
+  locale,
   card,
 }: {
   t: (key: string) => string;
+  locale: Locale;
   card: PrivateProfileCard;
 }) {
   const initialStatus = card.viewer_follow_status;
-  const display = card.display_name?.trim() || card.username || "—";
+  const display =
+    formatDisplayName(card, t, locale) || card.username || "—";
   const role = card.main_role?.trim() ? card.main_role : null;
 
   /**

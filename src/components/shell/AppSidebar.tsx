@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import { getUnreadCount } from "@/lib/supabase/notifications";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 import {
   listMyDelegations,
   type DelegationWithDetails,
@@ -73,6 +74,8 @@ export function AppSidebar({
   const [session, setSession] = useState<Session | null>(null);
   const [username, setUsername] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [displayNameKo, setDisplayNameKo] = useState<string | null>(null);
+  const [displayNameEn, setDisplayNameEn] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
   const [accounts, setAccounts] = useState<DelegationWithDetails[]>([]);
@@ -96,6 +99,8 @@ export function AppSidebar({
       /* eslint-disable react-hooks/set-state-in-effect */
       setUsername(null);
       setDisplayName(null);
+      setDisplayNameKo(null);
+      setDisplayNameEn(null);
       setAvatarUrl(null);
       setUnread(0);
       setAccounts([]);
@@ -111,10 +116,14 @@ export function AppSidebar({
         const p = data as {
           username?: string | null;
           display_name?: string | null;
+          display_name_ko?: string | null;
+          display_name_en?: string | null;
           avatar_url?: string | null;
         } | null;
         setUsername(p?.username ?? null);
         setDisplayName(p?.display_name ?? null);
+        setDisplayNameKo(p?.display_name_ko ?? null);
+        setDisplayNameEn(p?.display_name_en ?? null);
         setAvatarUrl(p?.avatar_url ?? null);
       });
       getUnreadCount().then(({ data }) => !cancelled && setUnread(data ?? 0));
@@ -273,7 +282,16 @@ export function AppSidebar({
           <AccountSwitcher
             layout="sidebar"
             username={username}
-            displayName={displayName}
+            displayName={
+              pickLocalizedDisplayName(
+                {
+                  display_name: displayName,
+                  display_name_ko: displayNameKo,
+                  display_name_en: displayNameEn,
+                },
+                locale,
+              ) || displayName
+            }
             avatarUrl={avatarUrl}
             accounts={accounts}
             accountsLoaded={accountsLoaded}

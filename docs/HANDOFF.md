@@ -2,6 +2,48 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (13) — 이중언어(KO/EN) 표시 전수감사 픽스
+
+> Supabase SQL 돌려야 할 것은 없음 (client-side only; RPC 후속은 별도 patch — 아래 flag 참조) · 환경 변수 변경 없음
+
+### 배경
+- 계정에 KO/EN 이름 모두 등록해 두었는데 EN 로케일에서 여전히 KO 이름이 노출되는 버그(사이드바 프로필 칩)가 시작점. "이런 케이스가 많을 것" 이라는 사용자 지적으로 전수감사 착수.
+
+### 변경 요약 — 59파일 수정 (원본 리포트 34 + 확장 발견 25)
+- **Bug #1 (사이드바 프로필 칩)**: `AppSidebar.tsx` 가 `display_name` 만 hydrate 하고 있어서 EN 로케일에서 "김현민" 이 그대로. `display_name_ko/en` 을 함께 fetch 하고 `pickLocalizedDisplayName` → `formatDisplayName` fallback 체인으로 라우팅.
+- **위임 (Delegations) 전면**: `/my/delegations`, `DelegationDetailDrawer`, `CreateDelegationWizard`, `/invites/delegation` 랜딩, `ActingAsChip` — 상대방 이름 · 프로젝트 scope 라벨 · wizard 검색/리뷰 스텝 모두 `formatDisplayName(..., t, locale)` / `pickLocalizedTitle` 로.
+- **메시지 / 문의**: `/my/messages` 스레드 리스트, `IntroMessageAssist` 수신자 라벨, `ProfileActions.MessageRecipientButton`, `connectionMessages.ts:SENDER_SELECT` 에 KO/EN + bio_ko/en 추가.
+- **네트워크 페이지**: 팔로워/팔로잉 이름·bio 검색이 KO-only 값을 EN 세션에서 못 찾던 문제 해결 — 검색·정렬키·표시 모두 모든 언어 슬롯 스캔. `RelationshipDeskPanel` 데스크 리스트·상세 카드 모두 락케일.
+- **아트웍 / 전시 카드**: `alt` 텍스트, 캡션, "전시 이력" 리스트 등 raw `.title` 남아있던 곳들 `pickLocalizedArtworkTitle` / `pickLocalizedTitle` 로 교체. `ArtistThreadCard`, `MatchmakerCard`, `ExploreExhibitionCard`, `ExhibitionMemoryStrip`, `FeedArtworkCard`, `ArtworkCard`, `SortableExhibitionRow` 포함.
+- **업로드 폼**: `/upload`, `/upload/bulk`, `/artwork/[id]/edit` — 아티스트 검색 결과 & 선택 라벨 & attribution 배너 & external picker & 확인 다이얼로그 모두 `formatDisplayName(..., t, locale)`. `ArtistOption` 등 타입에 KO/EN 슬롯 추가.
+- **전시 편집 & 폼**: `NewExhibitionFormShell`, `ExhibitionHostVenueFields`, `/my/exhibitions/[id]/edit` — curator/host picker labels, `ExhibitionDraftAssist` 라벨, participant picker 모두 락케일. `setProjectTitle(ex.title)` → `pickLocalizedTitle` 로 down-stream 배너까지 올바른 언어.
+- **Private profile / trending / dashboard**: 방문자 private 카드 (`PrivateProfileShell`), 트렌딩 칩 (`PeopleClient`), `/my` 대시보드 delegation brief `principalName` 모두 락케일.
+- **온보딩 / orphan invites**: `/my/artists`, `/my/orphan-invites`, `OrphanInvitesBanner` confirm 다이얼로그의 `{artist}` placeholder 를 `pickLocalizedDisplayName` 로.
+- **알림 / 스튜디오 / 가시성 패널**: `NotificationsDrawer`, `notificationLink.ts`, `StudioPortfolioPanel`, `AdvancedVisibilityPanel` 도 라우팅 통일.
+- **타입 / 로더 확장** (pickLocalized 가 실제로 뽑을 데이터가 있도록):
+ - `RelationshipDeskRow`, `RelationshipCard.profile` (`display_name_ko/en`, `bio_ko/en`)
+ - `DelegationParticipant`, `DelegationProjectInfo`, `GetDelegationByTokenResult.delegator`, `DelegationWithDetails.project`
+ - `SearchPeopleWithExternalResult`, `MyExternalArtist`, `PrivateProfileCard`
+ - `SENDER_SELECT`, `listMyExternalArtists` normalizer
+
+### False alarms (건드리지 않음, 리포트에 사유 명시)
+- Settings/onboarding 폼 hydration(legacy field 가 write-side canonical), avatar-initial fallback, admin ops 디버깅 surface(3개 슬롯 나란히 노출이 의도), CSV 라이브러리 export, 웹 임포트 스크레이프 원본 필드, 이중언어 secondary-line nudge(`BilingualContextualNudge`) 등은 그대로 유지.
+
+### **Schema flags for parent — 후속 SQL patch 필요**
+client 타입은 다 준비되었지만 **RPC 가 KO/EN 컬럼을 반환하지 않으면 pickLocalized 가 뽑을 값이 없어 무용지물**. 아래 RPC 들이 `_ko`/`_en` 열을 리턴하도록 수정 필요:
+1. `list_my_delegations`, `get_delegation_by_token`, `get_delegation_detail` — `display_name_ko/en`, `title_ko/en`.
+2. `lookup_profile_by_username` (private branch) — `display_name_ko/en`, `bio_ko/en`.
+3. `list_my_external_artists`, `search_people_with_external`, `search_orphan_external_artists_for_me` — `display_name_ko/en` + `inviter_display_name_ko/en`.
+4. `get_relationship_desk_v3` / `get_relationship_card_v3` — `profile.display_name_ko/en`, `bio_ko/en`.
+5. `get_people_recs`, `search_people`, `get_trending_people` — 여전히 legacy 만 반환.
+6. `is_staff_at_least` / `list_staff` / `lookup_staff_candidates` — 내부 ops 만 쓰므로 낮은 우선순위.
+
+→ 이번 릴리즈 다음 patch 로 마이그레이션 작성해 원격에 적용 예정. 아래 (14) 항목에 이어짐.
+
+### Verified
+- `npx tsc --noEmit` clean (전체 workspace)
+- 워커가 실행한 `npx eslint <touched files>` — 신규 도입 error 없음. 잔여 `react-hooks/set-state-in-effect` 경고는 stash 대비 재현 확인된 pre-existing 이슈.
+
 ## 2026-08-17 (12) — 피드 우측 카드 제목 "네트워크" 로 통일
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

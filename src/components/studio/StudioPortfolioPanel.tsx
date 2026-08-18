@@ -17,6 +17,7 @@ import {
   type PersonaTab,
 } from "@/lib/provenance/personaTabs";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import type { ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { getProfileExhibitionOrders } from "@/lib/supabase/exhibitions";
 import {
@@ -77,7 +78,7 @@ export function StudioPortfolioPanel({
   onRefresh,
   onToast,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [active, setActive] = useState<ActiveStudioTab>({ kind: "persona", tab: "all" });
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -667,13 +668,15 @@ export function StudioPortfolioPanel({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-zinc-900">{ex.title}</p>
+                    <p className="truncate text-sm font-semibold text-zinc-900">
+                      {pickLocalizedTitle(ex, locale) || ex.title}
+                    </p>
                     <p className="truncate text-xs text-zinc-500">
                       {ex.start_date && ex.end_date
                         ? `${ex.start_date} – ${ex.end_date}`
                         : ex.start_date ?? ex.status}
                       {" · "}
-                      {getExhibitionHostCuratorLabel(ex, t)}
+                      {getExhibitionHostCuratorLabel(ex, t, locale)}
                     </p>
                     <p className="text-[11px] text-zinc-400">{t("exhibition.works")} →</p>
                   </div>

@@ -7,6 +7,7 @@ import type { ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 
 function GripIcon() {
   return (
@@ -33,7 +34,7 @@ type Props = {
  * `SortableArtworkCard` disables card navigation in reorder mode.
  */
 export function SortableExhibitionRow({ exhibition }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const {
     attributes,
     listeners,
@@ -80,13 +81,15 @@ export function SortableExhibitionRow({ exhibition }: Props) {
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-zinc-900">{exhibition.title}</p>
+        <p className="truncate text-sm font-semibold text-zinc-900">
+          {pickLocalizedTitle(exhibition, locale) || exhibition.title}
+        </p>
         <p className="truncate text-xs text-zinc-500">
           {exhibition.start_date && exhibition.end_date
             ? `${exhibition.start_date} – ${exhibition.end_date}`
             : exhibition.start_date ?? exhibition.status}
           {" · "}
-          {getExhibitionHostCuratorLabel(exhibition, t)}
+          {getExhibitionHostCuratorLabel(exhibition, t, locale)}
         </p>
       </div>
     </li>

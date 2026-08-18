@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import { formatDisplayName } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { setArtworkBack } from "@/lib/artworkBack";
@@ -261,8 +262,9 @@ function DeskRowItem({
   row: RelationshipDeskRow;
   onOpen: () => void;
 }) {
-  const { t } = useT();
-  const name = row.display_name || row.username || "—";
+  const { t, locale } = useT();
+  const name =
+    formatDisplayName(row, t, locale) || row.username || "—";
   const avatar = avatarSrc(row.avatar_url);
   const statusLabel = relationshipStatusLabel(row.relationship_status, t);
   const lastActivity = row.last_activity_at
@@ -421,8 +423,11 @@ function CardBody({
   noteSavedAt: number | null;
   nowMs: number;
 }) {
-  const { t } = useT();
-  const name = card.profile.display_name || card.profile.username || "—";
+  const { t, locale } = useT();
+  const name =
+    formatDisplayName(card.profile, t, locale) ||
+    card.profile.username ||
+    "—";
   const avatar = avatarSrc(card.profile.avatar_url);
   const profileHref = card.profile.username
     ? `/u/${card.profile.username}`

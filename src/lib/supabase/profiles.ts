@@ -114,10 +114,17 @@ export type PrivateProfileCard = {
   id: string;
   username: string | null;
   display_name: string | null;
+  /** QA 2026-08-17 bilingual — populated when the profile RPC surfaces
+   *  the KO/EN slots. Consumers should route through
+   *  `formatDisplayName(card, t, locale)` and `pickLocalizedBio`. */
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   main_role: string | null;
   roles: string[] | null;
   bio: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
   is_public: false;
   viewer_follow_status: "none" | "pending" | "accepted";
 };
@@ -163,10 +170,14 @@ export async function lookupPublicProfileByUsername(username: string): Promise<{
       id: String(raw?.id ?? ""),
       username: raw?.username != null ? String(raw.username) : null,
       display_name: raw?.display_name != null ? String(raw.display_name) : null,
+      display_name_ko: stringFieldOrNull(raw?.display_name_ko),
+      display_name_en: stringFieldOrNull(raw?.display_name_en),
       avatar_url: raw?.avatar_url != null ? String(raw.avatar_url) : null,
       main_role: raw?.main_role != null ? String(raw.main_role) : null,
       roles: Array.isArray(raw?.roles) ? (raw.roles as string[]) : null,
       bio: raw?.bio != null ? String(raw.bio) : null,
+      bio_ko: stringFieldOrNull(raw?.bio_ko),
+      bio_en: stringFieldOrNull(raw?.bio_en),
       is_public: false,
       viewer_follow_status:
         status === "accepted" || status === "pending" ? status : "none",

@@ -18,7 +18,7 @@ import {
   getTrendingPeople,
 } from "@/lib/supabase/peopleRecs";
 import { AuthGate } from "@/components/AuthGate";
-import { hasPublicLinkableUsername } from "@/lib/identity/format";
+import { formatDisplayName, hasPublicLinkableUsername } from "@/lib/identity/format";
 import { reasonTagToI18n } from "@/lib/people/reason";
 import { SectionFrame } from "@/components/ds/SectionFrame";
 import { PageShell } from "@/components/ds/PageShell";
@@ -775,11 +775,12 @@ function ToastStack({
 // state. Clicking navigates to the profile; the list itself is
 // horizontally scrollable on mobile.
 function TrendingChip({ profile }: { profile: PeopleRec }) {
+  const { t, locale } = useT();
   const username = profile.username ?? "";
   if (!username) return null;
   if (!hasPublicLinkableUsername(profile)) return null;
   const display =
-    (profile.display_name ?? "").trim() ||
+    formatDisplayName(profile, t, locale) ||
     (username.startsWith("@") ? username : `@${username}`);
   // We use a plain anchor so the click happens before the input's
   // onBlur callback can hide the trending row (we already gate that

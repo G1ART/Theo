@@ -18,9 +18,10 @@ import { searchPeople, type PublicProfile } from "@/lib/supabase/artists";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 
 export default function MyArtistsPage() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [list, setList] = useState<MyExternalArtist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,7 +128,9 @@ export default function MyArtistsPage() {
               <li key={a.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-zinc-900">{a.display_name}</p>
+                    <p className="truncate font-medium text-zinc-900">
+                      {pickLocalizedDisplayName(a, locale) || a.display_name}
+                    </p>
                     <p className="mt-0.5 text-xs text-zinc-500">
                       {t("myArtists.worksCount").replace("{count}", String(a.work_count))}
                       <span className="mx-1.5 text-zinc-300">·</span>
@@ -166,7 +169,7 @@ export default function MyArtistsPage() {
                       ) : (
                         <ul className="divide-y divide-zinc-100">
                           {results.map((p) => {
-                            const name = formatDisplayName(p);
+                            const name = formatDisplayName(p, t, locale);
                             const handle = formatUsername(p);
                             return (
                               <li key={p.id}>
@@ -207,8 +210,15 @@ export default function MyArtistsPage() {
           description={
             pending
               ? t("myArtists.confirmBody")
-                  .replace("{artist}", pending.artist.display_name)
-                  .replace("{target}", formatDisplayName(pending.target) || "—")
+                  .replace(
+                    "{artist}",
+                    pickLocalizedDisplayName(pending.artist, locale) ||
+                      pending.artist.display_name,
+                  )
+                  .replace(
+                    "{target}",
+                    formatDisplayName(pending.target, t, locale) || "—",
+                  )
                   .replace("{count}", String(pending.artist.work_count))
               : undefined
           }

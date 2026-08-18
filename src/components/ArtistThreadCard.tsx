@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import {
   type ArtworkWithLikes,
   canEditArtwork,
@@ -56,7 +57,7 @@ export function ArtistThreadCard({
   onLikeUpdate,
 }: Props) {
   const router = useRouter();
-  const { t } = useT();
+  const { t, locale } = useT();
   const username = artist.username ?? "";
   const { primary: displayName, secondary: handleLabel } =
     formatIdentityPair(artist);
@@ -181,7 +182,7 @@ export function ArtistThreadCard({
               {imageUrl ? (
                 <Image
                   src={imageUrl}
-                  alt={artwork.title ?? "Artwork"}
+                  alt={pickLocalizedArtworkTitle(artwork, locale) || artwork.title || "Artwork"}
                   width={200}
                   height={200}
                   className="h-full w-full object-contain transition-opacity group-hover:opacity-90"

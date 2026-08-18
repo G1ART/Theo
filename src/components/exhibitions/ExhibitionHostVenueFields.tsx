@@ -25,6 +25,8 @@ export type HostProfileOption = {
   id: string;
   username: string | null;
   display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
 };
 
 export type HostVenueNameFields = {
@@ -71,7 +73,7 @@ export function ExhibitionHostVenueFields({
   venueNameEn,
   onVenueNamesChange,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [meSuggestion, setMeSuggestion] = useState<HostVenueSuggestion | null>(null);
   const [hostSearch, setHostSearch] = useState("");
   const [hostResults, setHostResults] = useState<HostProfileOption[]>([]);
@@ -102,6 +104,8 @@ export function ExhibitionHostVenueFields({
         id: p.id,
         username: p.username,
         display_name: p.display_name,
+        display_name_ko: p.display_name_ko ?? null,
+        display_name_en: p.display_name_en ?? null,
       }))
     );
     setHostSearching(false);
@@ -215,7 +219,7 @@ export function ExhibitionHostVenueFields({
                         }}
                         className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-zinc-50"
                       >
-                        {formatDisplayName(p)}
+                        {formatDisplayName(p, t, locale)}
                         {p.username && (
                           <span className="ml-1 text-xs text-zinc-500">
                             {formatUsername(p)}
@@ -228,7 +232,7 @@ export function ExhibitionHostVenueFields({
               )}
               {hostSelected && (
                 <p className="mt-1 text-xs text-zinc-600">
-                  {t("common.selected")}: {formatDisplayName(hostSelected)}
+                  {t("common.selected")}: {formatDisplayName(hostSelected, t, locale)}
                 </p>
               )}
             </div>
