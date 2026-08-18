@@ -2,6 +2,103 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (18) — Vision AI ① 업로드 품질 게이트 (`artwork_quality_gate`)
+
+> Supabase SQL 돌려야 할 것은 없음 (localStorage pref) · 환경 변수: `OPENAI_API_KEY` (기존, 재사용)
+
+### 배경 및 감사 결론
+- 감사 리포트 결론: **OpenAI 비전 스택은 `cv-import` 딱 한 곳** 에서만 쓰이고, artwork enhancement 파이프라인 (analyze → 코너 → warp → AWB → Pro Look → 벌크) 은 vision API 를 **한 번도 호출 안 함**. "AI 보정" 이라는 이름이 실제로는 Photoroom + local canvas DSP 를 가리키는 상태였음.
+- 유저 결정 (Order D): Top 3 개선 (품질 게이트 / 자동 코너 / 매체 분류) 을 **각각 별개 기능** 으로 순차 발주. gate strictness = **moderate** (false-block <10%).
+- 이 릴리즈는 그 중 **#2 품질 게이트** + 후속 두 개가 재사용할 **shared vision infra** 확립.
+
+### 구조
+- **Route**: `POST /api/ai/artwork-quality-gate` — `handleAiRoute` scaffolding 사용, vision `detail: "low"` (severity 판정에 high 불필요), fail-open 정책 (degraded 응답 → `usable:true` 로 폴백해서 인프라 장애가 정상 업로드를 절대 막지 못함).
+- **Shared vision infra** (`src/lib/image/enhancement/aiClient.ts`):
+ - `prepareImageForVision(file, {maxLongEdge=768, quality=0.85})` — OffscreenCanvas 리사이즈 + JPEG 인코딩 + base64 + SHA-256 계산.
+ - `getOrFetchVisionResult<T>(key, fetcher)` — 세션 내 in-memory dedup 캐시 (같은 사진 × 같은 feature 두 번 호출 방지).
+ - `clearVisionCache()` — 테스트 및 유저-트리거 재분석용.
+ - **재사용 계획**: #1 자동 코너 (`artwork_frame_detect`), #3 매체 분류 (`artwork_medium_detect`) 모두 이 infra 위에.
+- **Schema**: `{ usable, severity: "ok"|"warn"|"block", issues[], reshootAdviceKo/En, scores: {sharpness, glare, exposure, framing} }`.
+- **Prompt** (MODERATE): BLOCK 은 심각한 motion blur / 과다 클리핑 / 저해상도 / 스크린 촬영 moiré / 큰 폭 occlusion 만; 경미한 흐림·글레어·구도는 WARN; 애매하면 항상 낮은 쪽 선택 (`block ↔ warn` 애매 시 `warn`, `warn ↔ ok` 애매 시 `warn`). 타겟 false-block <10%.
+
+### UX
+- **단일 업로드** (`ImageStandardizeEditor.tsx`):
+ - `analyzeImageFile` 직후 자동 발화, 배너 (yellow / red) 상단에.
+ - Severity `ok` → 배너 없음.
+ - `warn` → 노란 배너 + 이슈 chip + `reshootAdvice` + `[재촬영]` `[계속 진행]`. Save 활성.
+ - `block` → 빨간 배너 + `[재촬영]` primary. Save **비활성**. Secondary `[그래도 계속]` → override, `enhancement_meta.qualityGate.override = true` 로 QA 기록.
+ - `onQualityGate` 콜백으로 부모 (`upload/page.tsx`) 에 상태 전파 → Next/Publish 버튼 게이팅.
+- **벌크 업로드** (`upload/bulk/page.tsx`):
+ - 각 파일에 대해 자동 게이트 발화, 진행률 뱃지.
+ - `warn` → 노란 뱃지 "품질 낮음 · 재촬영 권장", enhance 는 그대로 실행 (배치는 더 관대).
+ - `block` → 빨간 뱃지 "사용 불가", enhance **스킵** (원본 파일은 업로드됨). Row-level `[그래도 처리]` 체크박스로 override.
+ - 하단 요약: "품질 확인: 경고 N · 차단 M".
+
+### Preferences
+- `localStorage["theo.enhancement.qualityGate"]` = `"1"` / `"0"`, default on.
+- 병렬로 랜딩한 (17) `theo.simulation.aiCalibration` 과 **동일 패턴** — 두 훅 모두 `useSyncExternalStore` + `getServerSnapshot(): true` 로 SSR-safe 하이드레이션.
+- 설정 페이지에 `<EnhancementQualityGatePreference />` 로우 추가. off 시 게이트 호출 완전 스킵.
+
+### Metering
+- Meter key: `USAGE_KEYS.AI_ARTWORK_QUALITY_GATE_EVALUATED` = `"ai.artwork_quality_gate.evaluated"` (신규).
+- Entitlement key: **없음** — 소프트캡 (`checkDailySoftCap`) 만 적용. audit map 상 다른 enhancement AI 와 동일 패턴.
+
+### 지연 항목 (P1.5 백로그)
+- Malformed vision response 재시도 정책 없음 — `normalizeResult` 가 fail-open. 옵저버빌리티 필요 시 별도 Supabase event 로 `reason` 로깅.
+- Dedup 캐시는 process-scoped `Map` — 새로고침 시 초기화. 세션 내 UX 는 문제없음. 아티스트당 영속 결과가 필요하면 `enhancement_meta.qualityGate.aiEventId` 기반 인덱스.
+- 벌크 게이트가 파일 수 × 벤치마크 비용 (~0.05¢/장) 이므로 100장 배치 = ~5¢. 대량 아티스트에게 rate-limit 검토 필요할 수 있음.
+
+### Verified
+- `npx tsc --noEmit` — exit 0.
+- `ReadLints` on 21개 파일 (양쪽 워커 합산) — no errors.
+- 벌크·단일 양쪽에서 fail-open 시나리오 (`OPENAI_API_KEY` 미설정) 트레이스 — 게이트 자동 스킵, 기존 파이프라인 정상.
+
+## 2026-08-17 (17) — Vision AI ② 공간 시뮬레이션 자동 스케일 (`space.calibrate`)
+
+> Supabase SQL 돌려야 할 것은 없음 (localStorage pref) · 환경 변수: `OPENAI_API_KEY` (기존, 재사용)
+
+### 배경
+- (16) tap-to-place 로 콜렉터가 "탭 → 배치" 로 3동작에 놓을 수 있게 됐지만, **정확한 스케일** 이 필요할 때 유저가 "벽 폭 몇 cm?" 를 직접 알아야 했음 (대부분 모름).
+- 유저 제안: "AI 가 사진에서 창문·소파 같은 물건을 감지하고, 그 물건의 실제 크기만 유저가 입력하면 스케일이 자동으로 잡히게" — 수학적으로 pxPerCm 스칼라 하나 = 벽 스케일 확정.
+
+### 왜 OpenAI (Claude 아님)
+- 코드베이스의 AI 스택 100% OpenAI (`src/lib/ai/client.ts` 이미 vision 지원, `gpt-4o-mini` 기본). `handleAiRoute` scaffolding = auth/entitlement/softcap/log/metering 전부 배선됨.
+- 이 태스크 ("사물 2-3개 감지 + bbox") 에서 Claude vs GPT-4o 정확도 격차 없음. Claude 도입은 새 SDK/키/env/스캐폴딩 우회 부담만.
+
+### 구조
+- **Route**: `POST /api/ai/space-calibrate` — `handleAiRoute`, vision `detail: "high"` (bbox 정확도가 유저-입력 cm 로 즉시 스케일에 반영되므로 정확도 우선), authz spot-check on `spaces.owner_id`.
+- **Schema**: `{ candidates: [{ id, kind, label_ko/en, bbox {x0,y0,x1,y1} 0-1, dimension: width|height|diagonal|seat_back, ask_ko/en, typical_range_cm {min,max} }] }` (0-4개).
+- **Prompt**: 창문/문/TV/소파/책장/카운터/러그 우선. 벽 위 작품·사람·식물 제외 (변동성 큼).
+- **Feature key**: `space.calibrate`. **Entitlement**: `simulation.2d` piggyback (신규 plan_feature_matrix 로우 X). **Meter**: `simulation.space.created` (기존 재사용, `metadata.ai_feature = "space.calibrate"`).
+
+### UX (`SpaceEditor.tsx`)
+- 사진 업로드 성공 직후 자동 발화 (가드: pref on + `photoCorners` 없음 + `widthCm` 없음 + mime/dim 유효).
+- 카드 상단에 후보 1개 표시:
+ - 사진 위 dashed bbox 오버레이 + 라벨 chip.
+ - 제목 `AI가 [창문]을 스케일 참조로 찾았어요`, 질문 `이 창문의 가로 폭이 얼마인가요?`, cm 입력 (space.unit 따라 in 변환), placeholder = typical_range 중간값, hint `보통 80-200cm`.
+ - Actions: `[적용]` `[다른 물건]` (후보 순환) `[직접 재기]` `[나중에]`.
+- Apply 시 `pxLen = normalizedBboxDim × nativePhotoDim` → `pxPerCm = pxLen / userCm` → `wallWidthCm = imagePxWidth / pxPerCm`, `wallHeightCm = imagePxHeight / pxPerCm` → `updateSurface({widthCm, heightCm})`.
+
+### 수동 fallback (`직접 재기`)
+- AI 카드의 `[직접 재기]` 또는 "정확한 스케일 (고급)" 아코디언 내 새 버튼으로 진입.
+- Crosshair 커서 + 상단 힌트 chip `사진에서 두 점을 찍어 실제 거리를 알려주세요 [취소]`.
+- 탭 1 → 초록 dot "1", 탭 2 → dot "2" + dashed 연결선. 중간지점 팝업 `이 거리가 실제로 얼마인가요? [__] cm [적용]`.
+- 계산: `pxDistanceCss = √(Δx²+Δy²)` in imageBox frame → `× nativeW/imageBox.w` → native pxPerCm → 벽 치수. ESC 로 언제든 취소.
+
+### Preferences
+- `localStorage["theo.simulation.aiCalibration"]` = `"1"` / `"0"`, default on.
+- `<SimulationCalibrationPreference />` 로우가 설정 페이지에 (18) 게이트 토글 바로 위에.
+- 두 pref 훅 (`calibrationPref.ts`, `qualityGatePref.ts`) 동일 패턴 유지 — `useSyncExternalStore` + `getServerSnapshot(): true` + `useEffect` subscribe.
+
+### 지연 항목 (P1.5 백로그)
+- Toast "AI가 스케일을 잡고 있어요…" 는 2.5s auto-dismiss. API 가 더 걸리면 카드 등장 전 사라짐 — 카드 도착 자체가 시각 신호이므로 MVP acceptable.
+- Primary surface 만 보정 — 멀티 서피스는 에디터도 아직 primary 만 편집하므로 스코프 일치.
+- 별도 metering slice 필요 시 `USAGE_KEYS.SIMULATION_SPACE_CALIBRATED` 2-line 추가.
+
+### Verified
+- `npx tsc --noEmit` — exit 0. `ReadLints` — no errors.
+- Degraded 시나리오 (API 키 없음, 인증 실패, 소프트캡 초과) 트레이스 — 조용히 fallback, 유저에게 에러 없음.
+
 ## 2026-08-17 (16) — 시뮬레이션 에디터 UX: tap-to-place + "고급" 캘리브레이션 접기
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

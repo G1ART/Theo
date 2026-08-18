@@ -161,6 +161,38 @@ export type CaptureProvenance = {
   captureDevice: string | null;
 };
 
+/**
+ * 2026-08-19 — Pre-flight vision quality gate provenance.
+ *
+ * Populated when the artist-facing quality gate ran BEFORE the DSP
+ * pipeline (perspective / AWB / Pro Look) fired. The gate is a
+ * vision LLM call that flags severe issues DSP can't rescue
+ * (motion blur, screen-photo moiré, extreme clipping, majority-out-
+ * of-frame). Absent when:
+ *   - the user disabled the gate in settings, or
+ *   - the gate degraded (no OpenAI key, timeout, rate limit, …) —
+ *     degraded verdicts fail open and are NOT persisted so we don't
+ *     poison downstream QA queries with `severity: "ok"` events that
+ *     weren't actually judged.
+ *
+ * `override: true` records that the artist saw a `block` verdict
+ * and clicked "그래도 계속 / Use anyway" — QA / dashboards can slice
+ * on this to catch systemic false-block regressions without adding a
+ * new usage_events key.
+ */
+export type QualityGateProvenance = {
+  severity: "ok" | "warn" | "block";
+  issues: string[];
+  scores: {
+    sharpness: number;
+    glare: number;
+    exposure: number;
+    framing: number;
+  };
+  degraded?: boolean;
+  override?: boolean;
+};
+
 export type EnhancementMeta = {
   provider: EnhancementProvider;
   mode: EnhancementMode;
@@ -191,6 +223,8 @@ export type EnhancementMeta = {
   capturedAtIso?: string | null;
   /** Compact device string, e.g. "Apple iPhone 15 Pro (iPhone 15 Pro back triple camera)". */
   captureDevice?: string | null;
+  /** 2026-08-19 — Pre-flight vision quality gate result. */
+  qualityGate?: QualityGateProvenance;
 };
 
 /** Current schema version for `EnhancementMeta`. Bump when readers must
@@ -372,6 +406,11 @@ export function normalizeEnhancementMeta(
     typeof raw.captureDevice === "string" && raw.captureDevice.trim()
       ? raw.captureDevice.slice(0, 200)
       : null;
+  const qualityGateRaw = raw.qualityGate as Record<string, unknown> | undefined;
+  const qualityGate =
+    qualityGateRaw && typeof qualityGateRaw === "object"
+      ? normalizeQualityGate(qualityGateRaw)
+      : undefined;
   return {
     provider,
     mode,
@@ -385,6 +424,49 @@ export function normalizeEnhancementMeta(
     ...(portfolioCoherence ? { portfolioCoherence } : {}),
     ...(capturedAtIso ? { capturedAtIso } : {}),
     ...(captureDevice ? { captureDevice } : {}),
+    ...(qualityGate ? { qualityGate } : {}),
+  };
+}
+
+/**
+ * 2026-08-19 — Defensive normalizer for the pre-flight quality gate
+ * provenance. Unknown severities collapse to `"ok"` so a corrupt
+ * payload never blocks display in the studio dashboard; unknown
+ * issue strings pass through (the DB is the source of truth, and the
+ * enum may grow between deploys).
+ */
+function normalizeQualityGate(
+  raw: Record<string, unknown>,
+): QualityGateProvenance | undefined {
+  const severity =
+    raw.severity === "warn" || raw.severity === "block" || raw.severity === "ok"
+      ? (raw.severity as "ok" | "warn" | "block")
+      : "ok";
+  const issuesRaw = Array.isArray(raw.issues) ? raw.issues : [];
+  const issues: string[] = [];
+  for (const it of issuesRaw) {
+    if (typeof it === "string" && it.trim()) {
+      issues.push(it.trim().slice(0, 40));
+      if (issues.length >= 10) break;
+    }
+  }
+  const scoresRaw = (raw.scores ?? {}) as Record<string, unknown>;
+  const num = (v: unknown, fallback: number): number => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(1, Math.max(0, n));
+  };
+  return {
+    severity,
+    issues,
+    scores: {
+      sharpness: num(scoresRaw.sharpness, 0.5),
+      glare: num(scoresRaw.glare, 0),
+      exposure: num(scoresRaw.exposure, 0.5),
+      framing: num(scoresRaw.framing, 0.5),
+    },
+    ...(raw.degraded === true ? { degraded: true } : {}),
+    ...(raw.override === true ? { override: true } : {}),
   };
 }
 

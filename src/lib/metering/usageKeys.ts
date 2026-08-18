@@ -33,6 +33,18 @@ export const USAGE_KEYS = {
    * so the beta cohort dashboard can slice usage by pipeline and
    * upload surface (single / bulk / exhibition_single / exhibition_bulk).
    */
+  /**
+   * Pre-flight artwork quality gate (2026-08-19). Fired once per
+   * successful vision-LLM verdict on an uploaded photo (single OR
+   * bulk). Metadata carries `{ severity, issues, source }` so the
+   * beta dashboard can slice false-block vs. warn rates and see
+   * which upload surface produced them.
+   *
+   * Skipped when the vision call was degraded (no key, timeout, rate
+   * limit, …) — degraded gates emit an `ai_events` row via
+   * `handleAiRoute` for diagnostics but don't touch this meter.
+   */
+  AI_ARTWORK_QUALITY_GATE_EVALUATED: "ai.artwork_quality_gate.evaluated",
   AI_IMAGE_ENHANCE_REQUESTED: "ai.image_enhance.requested",
   /**
    * Fires when the enhancement pipeline (local flat OR photoroom hybrid)
@@ -109,6 +121,22 @@ export const AI_FEATURE_TO_METER_KEY: Record<string, string> = {
    * plan_quota_matrix + PLAN_QUOTA_MATRIX 상수) 을 갖는다.
    */
   translate_draft: USAGE_KEYS.AI_TRANSLATE_DRAFT_GENERATED,
+  /**
+   * P1 (2026-08-19) — measurement-based scale calibration for a hanging
+   * space. We piggyback on the existing `simulation.space.created` meter
+   * to keep the P1 dashboard slice shape unchanged; the emitted event
+   * carries `metadata.ai_feature = "space.calibrate"` so analytics can
+   * separate the calibration slice when needed. No new usage key is
+   * added to `USAGE_KEYS` for MVP scope.
+   */
+  "space.calibrate": USAGE_KEYS.SIMULATION_SPACE_CREATED,
+  /**
+   * 2026-08-19 — Artwork upload pre-flight quality gate. Emitted for
+   * every successful (non-degraded) verdict; the DSP enhancement
+   * pipeline still has its own `.previewed` / `.completed` meters
+   * downstream, so this key stays isolated to the pre-flight step.
+   */
+  artwork_quality_gate: USAGE_KEYS.AI_ARTWORK_QUALITY_GATE_EVALUATED,
 };
 
 /** Maps a canonical AI feature key to the entitlement feature key that
@@ -132,4 +160,12 @@ export const AI_FEATURE_TO_ENTITLEMENT_KEY: Record<string, string> = {
    * PLAN_QUOTA_MATRIX 참조).
    */
   translate_draft: "ai.translate_draft",
+  /**
+   * P1 (2026-08-19) — Space calibrate reuses the `simulation.2d` gate so
+   * we don't add a plan_feature_matrix row for a single automation
+   * behavior. Users who can create a hanging space also get AI scale
+   * detection; if they can't (soft cap / no plan), the resolver
+   * short-circuits before we spend a vision token.
+   */
+  "space.calibrate": "simulation.2d",
 };

@@ -228,7 +228,26 @@ export type AiFeatureKey =
    * 편집 가능한 draft 한 개를 반환한다. 절대 자동 저장하지 않고, UI 는
    * 입력창에 채워 넣기만 한다 (사용자가 폼 저장을 눌러야 반영).
    */
-  | "translate_draft";
+  | "translate_draft"
+  /**
+   * P1 (2026-08-19) — Display / Hang Simulation의 "측정 기반" 스케일
+   * 보정. 방 사진 한 장을 vision LLM 으로 분석해 창문/문/TV/소파 등
+   * 사용자가 실측 값을 알 만한 물건 2-4 개를 후보로 반환한다. 사용자가
+   * 하나의 후보에 실치수(cm) 를 입력하면 클라이언트가 픽셀 대비 cm 을
+   * 역산해 벽 너비/높이를 `space_surfaces.width_cm/height_cm` 에
+   * 반영한다. entitlement 는 기존 `simulation.2d` 를 그대로 쓴다.
+   */
+  | "space.calibrate"
+  /**
+   * 2026-08-19 — 업로드 파이프라인 pre-flight 품질 게이트. 사용자가
+   * 업로드한 원본 사진 한 장을 vision LLM 으로 판정해 심각한 품질
+   * 이슈(모션 블러, 스크린 촬영 모아레, 극단적 클리핑, 대부분 잘림
+   * 등) 만 "재촬영 권장" 으로 조기 경고한다. DSP 파이프라인(perspective
+   * / AWB / Pro Look) 앞단에서만 동작하며 게이트가 실패(no_key, timeout
+   * 등) 하면 조용히 통과시킨다 — AI 인프라 장애가 정상 업로드를 막지
+   * 않도록. entitlement 없음, 소프트캡만 공유.
+   */
+  | "artwork_quality_gate";
 
 /**
  * QA 2026-07-28 (Track C) — 번역 draft 결과. 짧은 필드(title, medium,
@@ -352,4 +371,110 @@ export type DelegationBriefResult = AiDegradation & {
   watchItems: string[];
   /** Optional draft message the operator can paste back to the principal. */
   draftMessage?: string;
+};
+
+/**
+ * P1 (2026-08-19) — Space calibrate (measurement-based scale detection).
+ *
+ * A candidate is a physical object visible in the uploaded room photo
+ * whose real-world size a typical homeowner would know (window width,
+ * door height, TV diagonal, etc.). The client renders one candidate at a
+ * time as a dashed bounding-box overlay with a compact question card;
+ * on Apply the client derives `pxPerCm` from the candidate's normalized
+ * bbox extent + user-supplied length and writes `widthCm`/`heightCm`
+ * back to the primary surface. No auto-write from the model; the user
+ * always confirms.
+ */
+export type SpaceCalibrateCandidateKind =
+  | "window"
+  | "door"
+  | "tv"
+  | "sofa"
+  | "table"
+  | "bookshelf"
+  | "counter"
+  | "rug"
+  | "other";
+
+export type SpaceCalibrateDimension =
+  | "width"
+  | "height"
+  | "diagonal"
+  | "seat_back";
+
+export type SpaceCalibrateCandidate = {
+  /** Stable id so the UI can key the "Try another" cycle. */
+  id: string;
+  kind: SpaceCalibrateCandidateKind;
+  label_ko: string;
+  label_en: string;
+  /** Normalized image-space bbox (0.0 – 1.0), origin at top-left. */
+  bbox: { x0: number; y0: number; x1: number; y1: number };
+  /** Which side of the bbox the user should measure. */
+  dimension: SpaceCalibrateDimension;
+  ask_ko: string;
+  ask_en: string;
+  /** Sensible cm range shown as a placeholder / hint. */
+  typical_range_cm: { min: number; max: number };
+};
+
+export type SpaceCalibrateResult = AiDegradation & {
+  candidates: SpaceCalibrateCandidate[];
+};
+
+/**
+ * 2026-08-19 — Artwork upload pre-flight quality gate.
+ *
+ * A verdict about whether the just-uploaded artwork photo is usable
+ * for Theo's catalog. The gate runs BEFORE the DSP enhancement
+ * pipeline (perspective / AWB / Pro Look) fires, so we can warn the
+ * artist about issues DSP can't rescue (motion blur, screen-photo
+ * moiré, majority-out-of-frame framing) before they spend attention
+ * on the enhance step.
+ *
+ * Design contract
+ * ---------------
+ *   - The model is intentionally **conservative** — false blocks are
+ *     worse than false warns for artist trust. When uncertain the
+ *     prompt is instructed to prefer `warn` over `block`, and `warn`
+ *     over `ok`.
+ *   - `usable === false` iff `severity === "block"`. Callers should
+ *     treat `warn` as "banner shown, upload still allowed".
+ *   - On any AI infrastructure failure (no OpenAI key, timeout, rate
+ *     limit, upstream auth, parse error) the browser helper falls back
+ *     to `{ severity: "ok", usable: true, degraded: true }`. This is a
+ *     deliberate "fail open" — the DSP pipeline still enforces its own
+ *     quality heuristics (`analyzeImageFile`) so we never hard-block a
+ *     legitimate upload because a vision route was down.
+ */
+export type ArtworkQualityGateIssue =
+  | "blur"
+  | "motion_blur"
+  | "glare"
+  | "highlight_clip"
+  | "shadow_clip"
+  | "low_resolution"
+  | "moire"
+  | "reproduction"
+  | "occlusion"
+  | "poor_framing";
+
+export type ArtworkQualityGateSeverity = "ok" | "warn" | "block";
+
+export type ArtworkQualityGateResult = AiDegradation & {
+  usable: boolean;
+  severity: ArtworkQualityGateSeverity;
+  issues: ArtworkQualityGateIssue[];
+  reshootAdviceKo: string;
+  reshootAdviceEn: string;
+  scores: {
+    /** 0-1, higher = sharper. */
+    sharpness: number;
+    /** 0-1, higher = more severe glare. */
+    glare: number;
+    /** 0-1, 0.5 = ideally exposed. */
+    exposure: number;
+    /** 0-1, higher = better framing. */
+    framing: number;
+  };
 };

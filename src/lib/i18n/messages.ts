@@ -3941,6 +3941,31 @@ export const messages = {
     "simulation.wall.cornersHint":
       "Drag each dot to the corners of the wall in the photo.",
 
+    // P1 (2026-08-19) — Measurement-based calibration (AI + manual).
+    // The AI card appears above the canvas after a fresh photo upload
+    // when the user preference is on and the space is not yet
+    // calibrated. Manual mode is the fallback entry point (from the
+    // card OR from the "정확한 스케일" accordion).
+    "simulation.calibrate.detecting": "AI is figuring out the scale…",
+    "simulation.calibrate.cardTitle":
+      "AI found this {label} as a scale reference",
+    "simulation.calibrate.apply": "Apply",
+    "simulation.calibrate.tryAnother": "Try another",
+    "simulation.calibrate.manual": "Measure manually",
+    "simulation.calibrate.later": "Later",
+    "simulation.calibrate.applied": "Scale applied",
+    "simulation.calibrate.rangeHint": "Usually {min}-{max}cm",
+    "simulation.calibrate.manualHint":
+      "Tap two points on the photo and enter the real distance",
+    "simulation.calibrate.manualDistanceLabel":
+      "How long is this distance in real life?",
+    "simulation.calibrate.settingsSectionTitle": "Simulation",
+    "simulation.calibrate.settingsSectionHint":
+      "How the hanging simulation behaves when you upload a room photo.",
+    "simulation.calibrate.settingsTitle": "Auto scale detection (AI)",
+    "simulation.calibrate.settingsDesc":
+      "When you upload a photo, AI detects object sizes to auto-calibrate the wall scale. Turn off to measure manually only.",
+
     "simulation.picker.title": "Add an artwork",
     "simulation.picker.tab.saved": "Saved",
     "simulation.picker.tab.recent": "Recent",
@@ -3982,6 +4007,38 @@ export const messages = {
     "simulation.errors.uploadFailed": "Couldn't upload that photo.",
     "simulation.errors.notFound": "This space no longer exists.",
     "simulation.errors.generic": "Something went wrong. Try again.",
+
+    // ─────────────────────────────────────────────────────────────
+    // Pre-flight artwork quality gate (2026-08-19)
+    // ─────────────────────────────────────────────────────────────
+    "enhancement.quality.detecting": "AI checking quality…",
+    "enhancement.quality.warnTitle": "Take a look at this photo",
+    "enhancement.quality.blockTitle": "This photo can't be used",
+    "enhancement.quality.reshoot": "Reshoot",
+    "enhancement.quality.proceed": "Proceed",
+    "enhancement.quality.useAnyway": "Use anyway",
+    "enhancement.quality.bulk.warn": "Quality low · Reshoot suggested",
+    "enhancement.quality.bulk.block": "Blocked",
+    "enhancement.quality.bulk.override": "Process anyway",
+    "enhancement.quality.summary":
+      "Quality check: {warn} warn · {block} block",
+    "enhancement.quality.settingsSectionTitle": "AI assist",
+    "enhancement.quality.settingsSectionHint":
+      "How AI helps prepare your upload before publishing.",
+    "enhancement.quality.settingsTitle":
+      "Auto quality check on upload (AI)",
+    "enhancement.quality.settingsDesc":
+      "AI checks for blur, glare, and other issues in uploaded photos and warns you. Turn off to always proceed as-is.",
+    "enhancement.quality.issue.blur": "Blur",
+    "enhancement.quality.issue.motion_blur": "Motion blur",
+    "enhancement.quality.issue.glare": "Glare",
+    "enhancement.quality.issue.highlight_clip": "Highlight clipping",
+    "enhancement.quality.issue.shadow_clip": "Shadow clipping",
+    "enhancement.quality.issue.low_resolution": "Low resolution",
+    "enhancement.quality.issue.moire": "Moiré",
+    "enhancement.quality.issue.reproduction": "Screen or reproduction",
+    "enhancement.quality.issue.occlusion": "Occlusion",
+    "enhancement.quality.issue.poor_framing": "Poor framing",
   },
   ko: {
     "nav.feed": "피드",
@@ -7862,6 +7919,30 @@ export const messages = {
     "simulation.inspector.unit.in": "in",
     "simulation.inspector.selectHint": "벽에 걸린 작품을 눌러 편집해 보세요.",
 
+    // P1 (2026-08-19) — 측정 기반 스케일 보정 (AI + 수동).
+    // 사진을 처음 올렸을 때, 사용자 설정이 켜져 있고 아직 보정되지
+    // 않은 공간이면 캔버스 위에 AI 카드가 뜬다. 수동 측정은 카드에서
+    // 또는 "정확한 스케일" 아코디언에서 진입한다.
+    "simulation.calibrate.detecting": "AI가 스케일을 잡고 있어요…",
+    "simulation.calibrate.cardTitle":
+      "AI가 스케일 참조로 [{label}]을 찾았어요",
+    "simulation.calibrate.apply": "적용",
+    "simulation.calibrate.tryAnother": "다른 물건",
+    "simulation.calibrate.manual": "직접 재기",
+    "simulation.calibrate.later": "나중에",
+    "simulation.calibrate.applied": "스케일이 적용됐어요",
+    "simulation.calibrate.rangeHint": "보통 {min}-{max}cm",
+    "simulation.calibrate.manualHint":
+      "사진에서 두 점을 찍어 실제 거리를 알려주세요",
+    "simulation.calibrate.manualDistanceLabel":
+      "이 거리가 실제로 얼마인가요?",
+    "simulation.calibrate.settingsSectionTitle": "시뮬레이션",
+    "simulation.calibrate.settingsSectionHint":
+      "방 사진을 올렸을 때 걸어보기 시뮬레이션이 어떻게 동작할지 설정해요.",
+    "simulation.calibrate.settingsTitle": "자동 스케일 감지 (AI)",
+    "simulation.calibrate.settingsDesc":
+      "사진 업로드 시 AI가 물건 크기로 벽 스케일을 자동 잡아드립니다. 끄면 수동으로만 재요.",
+
     "simulation.wall.title": "벽 보정",
     "simulation.wall.advancedTitle": "정확한 스케일 (고급)",
     "simulation.wall.advancedHint":
@@ -7914,6 +7995,38 @@ export const messages = {
     "simulation.errors.uploadFailed": "사진을 업로드하지 못했어요.",
     "simulation.errors.notFound": "이 공간을 찾을 수 없어요.",
     "simulation.errors.generic": "문제가 발생했어요. 다시 시도해 주세요.",
+
+    // ─────────────────────────────────────────────────────────────
+    // Pre-flight artwork quality gate (2026-08-19)
+    // ─────────────────────────────────────────────────────────────
+    "enhancement.quality.detecting": "AI 품질 확인 중…",
+    "enhancement.quality.warnTitle": "이 사진, 살펴봐 주세요",
+    "enhancement.quality.blockTitle": "이 사진은 사용이 어려워요",
+    "enhancement.quality.reshoot": "재촬영",
+    "enhancement.quality.proceed": "계속 진행",
+    "enhancement.quality.useAnyway": "그래도 계속",
+    "enhancement.quality.bulk.warn": "품질 낮음 · 재촬영 권장",
+    "enhancement.quality.bulk.block": "사용 불가",
+    "enhancement.quality.bulk.override": "그래도 처리",
+    "enhancement.quality.summary":
+      "품질 확인: 경고 {warn} · 차단 {block}",
+    "enhancement.quality.settingsSectionTitle": "AI 지원",
+    "enhancement.quality.settingsSectionHint":
+      "업로드 전에 AI가 어떻게 도와줄지 설정해요.",
+    "enhancement.quality.settingsTitle":
+      "업로드 품질 자동 확인 (AI)",
+    "enhancement.quality.settingsDesc":
+      "업로드된 사진의 흔들림·글레어 등 품질 이슈를 AI가 미리 알려줘요. 끄면 항상 그대로 진행합니다.",
+    "enhancement.quality.issue.blur": "흐림",
+    "enhancement.quality.issue.motion_blur": "흔들림",
+    "enhancement.quality.issue.glare": "글레어",
+    "enhancement.quality.issue.highlight_clip": "하이라이트 클리핑",
+    "enhancement.quality.issue.shadow_clip": "섀도 클리핑",
+    "enhancement.quality.issue.low_resolution": "해상도 낮음",
+    "enhancement.quality.issue.moire": "모아레",
+    "enhancement.quality.issue.reproduction": "스크린/복제 촬영",
+    "enhancement.quality.issue.occlusion": "가려짐",
+    "enhancement.quality.issue.poor_framing": "구도 문제",
   },
 } as const;
 

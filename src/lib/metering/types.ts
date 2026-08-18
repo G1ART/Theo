@@ -34,6 +34,11 @@ export type UsageEventKey =
   | "ai.image_enhance.accepted"
   | "ai.image_enhance.rejected"
   | "ai.image_enhance.failed"
+  // Pre-flight artwork quality gate (2026-08-19). Fires once per
+  // successful (non-degraded) vision-LLM verdict on an uploaded
+  // photo; degraded verdicts skip the meter and only leave an
+  // `ai_events` row for diagnostics.
+  | "ai.artwork_quality_gate.evaluated"
   | "ai.accepted"
   // Boards / shortlists
   | "board.created"

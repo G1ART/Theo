@@ -267,3 +267,102 @@ Rules:
   - Return only the translation string; no notes, no alternatives, no quotes around the output.`;
 
 export const TRANSLATE_DRAFT_SCHEMA = `{"fieldKind": "title"|"preface"|"bio"|"statement"|"medium"|"story"|"host_name", "sourceLocale": "ko"|"en", "targetLocale": "ko"|"en", "draft": string}`;
+
+// ─────────────────────────────────────────────────────────────────────
+// P1 — Space Calibrate (measurement-based scale detection, 2026-08-19)
+// ─────────────────────────────────────────────────────────────────────
+//
+// One-shot vision LLM call from the SpaceEditor after a room photo
+// uploads. The model sees ONE photo (base64, high-detail) and returns
+// 2-4 candidate objects the user is likely to know the real size of
+// (window width, door height, TV diagonal, sofa seat-back length, …).
+// The client renders one candidate at a time as a dashed bbox overlay
+// with a compact question card. On Apply the client computes
+// `pxPerCm = bboxLengthPx / userCm` and writes `widthCm`/`heightCm`
+// on the primary surface (no model auto-write).
+//
+// Why bilingual labels + questions? The SpaceEditor is fully bilingual
+// (KO first, EN fallback) and the picked label ends up in a toast /
+// title. Returning both lets the UI switch on locale without a
+// follow-up translate call.
+export const SPACE_CALIBRATE_SYSTEM = `You analyze a single room photograph to help calibrate a spatial simulation tool. Your job is to identify 2-4 physical objects in the photo whose real-world size a typical homeowner would know off the top of their head. The user will then type one number (in cm) and the tool will derive the wall scale.
+
+Prefer objects the user is likely to have measured or can eyeball with confidence:
+  - windows (width)
+  - doors (height)
+  - flat-panel TVs (diagonal)
+  - standard sofas (seat-back / horizontal length)
+  - dining or coffee tables (width)
+  - bookshelves (width)
+  - kitchen countertops (width)
+  - area rugs (width)
+
+AVOID:
+  - artworks / posters on walls (that is what the tool simulates — never use them as a reference)
+  - people, pets, plants (variable size, unreliable)
+  - decorative objects (candles, vases, small sculptures)
+  - anything whose visible extent is heavily occluded, cropped by the frame, or foreshortened at a steep angle
+
+For each candidate, provide:
+  - "id": a stable short id like "cand_1", "cand_2" …
+  - "kind": one of "window" | "door" | "tv" | "sofa" | "table" | "bookshelf" | "counter" | "rug" | "other"
+  - "label_ko" and "label_en": the object noun in Korean and English (e.g. "창문" / "Window")
+  - "bbox": a tight bounding box in NORMALIZED image coordinates {x0, y0, x1, y1}, where (0, 0) is the top-left corner and (1, 1) is the bottom-right. Keep it snug — the client uses bbox extent to compute px-per-cm scale, so slack in the box degrades accuracy.
+  - "dimension": the side the user should measure — "width" (horizontal extent, e.g. window), "height" (vertical, e.g. door), "diagonal" (screen diagonal, e.g. TV), "seat_back" (horizontal seat-back length, e.g. sofa).
+  - "ask_ko" / "ask_en": a natural conversational question in each locale, e.g. "이 창문의 가로 폭이 얼마인가요?" / "How wide is this window?"
+  - "typical_range_cm": {min, max} in centimetres for the specified dimension (e.g. window width 80..200, door height 190..220, TV diagonal 80..190). Use conservative ranges typical of residential spaces.
+
+Return AT MOST 4 candidates, sorted by how easy the object is to measure (easiest first). If the photo shows none of the preferred objects clearly, return an empty candidates array — do NOT invent objects.
+
+Never fabricate objects that are not clearly visible. Never emit bboxes outside 0..1. Never return more than 4 candidates. Return ONLY the JSON object.`;
+
+export const SPACE_CALIBRATE_SCHEMA = `{"candidates": [{"id": string, "kind": "window"|"door"|"tv"|"sofa"|"table"|"bookshelf"|"counter"|"rug"|"other", "label_ko": string, "label_en": string, "bbox": {"x0": number, "y0": number, "x1": number, "y1": number}, "dimension": "width"|"height"|"diagonal"|"seat_back", "ask_ko": string, "ask_en": string, "typical_range_cm": {"min": number, "max": number}}]}`;
+
+// ─────────────────────────────────────────────────────────────────────
+// Pre-flight artwork quality gate (2026-08-19)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Runs BEFORE the DSP enhancement pipeline (perspective / AWB /
+// Pro Look). The gate's job is a binary "is this photo usable" call
+// with a KO/EN reshoot-advice sentence when it isn't. Vision detail is
+// "low" — accuracy for the block/warn split doesn't need pixel-level
+// fidelity, and the DSP path does its own fine-grained scoring
+// (`analyzeImageFile`) on the full-res image separately.
+//
+// Strictness — deliberately moderate. Artists prefer minor imperfection
+// over a false rejection, so the prompt is told to bias toward WARN
+// (not BLOCK). Target false-block rate < 10%; when uncertain between
+// two severities, always pick the softer one.
+export const ARTWORK_QUALITY_GATE_SYSTEM = `You evaluate whether a photo of an artwork is usable for a curated art platform's catalog. Verdict guidance (MODERATE strictness — err toward WARN, not BLOCK; artists prefer minor imperfection over false rejection):
+
+BLOCK only when at least one is true:
+  - Severe motion blur that hides the work's brushwork/detail
+  - Majority of the artwork is out-of-frame or occluded
+  - Resolution so low the work would be unrecognizable at display size (obvious pixelation, thumbnail-only quality)
+  - Obvious moiré from screen photography (photo-of-monitor)
+  - Extreme clipping (either pure white or pure black) covering >40% of the artwork area
+
+WARN when recoverable in post OR aesthetically noticeable but usable:
+  - Mild softness / autofocus miss on parts of the work
+  - Localized specular glare on glossy surface
+  - Slight framing tilt or off-centering (<15°)
+  - Underexposure/overexposure that DSP can rescue
+  - Minor color cast from artificial lighting
+
+OK when the photo is catalog-ready or has only trivial issues DSP handles automatically.
+
+Target false-block rate: <10%. When uncertain between block/warn, choose WARN. When uncertain between warn/ok, choose WARN.
+
+Fill "issues" from this closed enum only (omit any that don't apply): "blur" | "motion_blur" | "glare" | "highlight_clip" | "shadow_clip" | "low_resolution" | "moire" | "reproduction" | "occlusion" | "poor_framing".
+
+"scores" carries four calibration values in [0, 1]:
+  - sharpness: 1 = crisp, 0 = severely blurred
+  - glare: 1 = large saturated highlight patch, 0 = none
+  - exposure: 0.5 = ideal, 0 = severely underexposed, 1 = severely overexposed
+  - framing: 1 = well framed, 0 = mostly out-of-frame or occluded
+
+Return "reshootAdviceKo" and "reshootAdviceEn" as ONE actionable sentence each (e.g. '창가에서 자연광 활용하여 다시 촬영해 보세요.' / 'Try reshooting near a window with natural light.'). Never mention specific technical settings (ISO, aperture, shutter speed) — artists may not know them. When severity is "ok", return empty strings for both advice fields.
+
+Set "usable" to true unless severity is "block". Never invent problems that aren't visible in the photo. Return only the JSON object.`;
+
+export const ARTWORK_QUALITY_GATE_SCHEMA = `{"usable": boolean, "severity": "ok"|"warn"|"block", "issues": ("blur"|"motion_blur"|"glare"|"highlight_clip"|"shadow_clip"|"low_resolution"|"moire"|"reproduction"|"occlusion"|"poor_framing")[], "reshootAdviceKo": string, "reshootAdviceEn": string, "scores": {"sharpness": number, "glare": number, "exposure": number, "framing": number}}`;

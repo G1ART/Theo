@@ -61,6 +61,14 @@ import {
   toneSignature,
 } from "@/lib/image/enhancement/coherence";
 import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
+import { aiApi } from "@/lib/ai/browser";
+import type { ArtworkQualityGateResult } from "@/lib/ai/types";
+import {
+  getOrFetchVisionResult,
+  prepareImageForVision,
+} from "@/lib/image/enhancement/aiClient";
+import { useQualityGatePref } from "@/lib/image/enhancement/qualityGatePref";
+import { QualityGateBanner } from "@/components/upload/QualityGateBanner";
 
 /**
  * Capture-mode chip (2026-08-06). Pre-seeds the enhance pipeline so
@@ -101,6 +109,26 @@ export type EnhancementDraft = {
   displayFile: File;
   previewUrl: string;
   meta: EnhancementMeta;
+};
+
+/**
+ * 2026-08-19 — Snapshot of the pre-flight quality gate the editor
+ * pushes upstream through `onQualityGate` so a parent Save/Publish
+ * CTA can gate itself on a `block` severity that the artist has not
+ * overridden.
+ *
+ * `dismissed` is true after the artist explicitly acknowledges a
+ * `warn` banner via "계속 진행". Parents should treat dismissed warns
+ * exactly like `severity: "ok"` (upload proceeds normally).
+ *
+ * `degraded` mirrors the AI degradation flag — the parent should
+ * NEVER block on a degraded gate.
+ */
+export type QualityGateSurfaceState = {
+  severity: "ok" | "warn" | "block";
+  override: boolean;
+  degraded: boolean;
+  dismissed: boolean;
 };
 
 /**
@@ -158,6 +186,22 @@ type Props = {
   /** Metering source label so lifecycle events carry the right
    *  provenance (single / bulk / exhibition_single / exhibition_bulk). */
   meteringSource?: "single" | "bulk" | "exhibition_single" | "exhibition_bulk";
+  /**
+   * 2026-08-19 — Pre-flight quality gate observer. Fires whenever the
+   * gate result changes (result arrives, user clicks proceed / use
+   * anyway, or file changes). Parents that render a Save/Publish CTA
+   * use this to disable the button when
+   * `severity === "block" && !override && !degraded && !dismissed`.
+   * `null` means "gate has not produced a verdict yet on this file".
+   */
+  onQualityGate?: (state: QualityGateSurfaceState | null) => void;
+  /**
+   * 2026-08-19 — Called when the artist clicks the banner's "재촬영"
+   * button. Parents SHOULD remove this file from their list; if
+   * omitted, the banner only dismisses locally (the file stays and
+   * the artist can retry).
+   */
+  onReshootRequest?: () => void;
   /**
    * Artist profile id, used to fetch portfolio-tone statistics for the
    * H — portfolio coherence pass (release brief 2026-08-07). The
@@ -289,8 +333,10 @@ export function ImageStandardizeEditor({
   onEnhance,
   meteringSource = "single",
   artistProfileId = null,
+  onQualityGate,
+  onReshootRequest,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const enhancementEnabled = typeof onEnhance === "function";
   const [tab, setTab] = useState<"quick" | "enhance">(
     enhancementEnabled && enhancement ? "enhance" : "quick",
@@ -390,6 +436,121 @@ export function ImageStandardizeEditor({
       alive = false;
     };
   }, [file]);
+
+  // ------------------------------------------------------------------
+  // 2026-08-19 — Pre-flight artwork quality gate (vision LLM)
+  // ------------------------------------------------------------------
+  //
+  // Runs AFTER `analyzeImageFile` succeeds (so we can pass the DSP
+  // `mode` hint) and BEFORE the "Save" / "Enhance" CTAs enable. The
+  // gate is fail-open — any degraded response silently returns `ok`
+  // so the artist is never hard-blocked by an AI infra failure.
+  //
+  // Dedup: `${sha256}:artwork_quality_gate` via the shared vision
+  // cache. Re-opening the same photo in the wizard never re-hits
+  // OpenAI in the same session.
+  const qualityGatePref = useQualityGatePref();
+  const [qualityGate, setQualityGate] =
+    useState<ArtworkQualityGateResult | null>(null);
+  const [qualityGateRunning, setQualityGateRunning] = useState(false);
+  const [qualityGateOverride, setQualityGateOverride] = useState(false);
+  const [qualityGateDismissed, setQualityGateDismissed] = useState(false);
+
+  useEffect(() => {
+    // Reset per-file so a new upload gets a fresh verdict.
+    setQualityGate(null);
+    setQualityGateOverride(false);
+    setQualityGateDismissed(false);
+  }, [file]);
+
+  useEffect(() => {
+    // Wait for the DSP analyzer to succeed — we key on `analysis.mode`
+    // for the `contextHint`. If analyze failed, still run the gate
+    // with `unknown` so a broken decode doesn't silence us.
+    if (analyzing) return;
+    if (!qualityGatePref) {
+      setQualityGate(null);
+      return;
+    }
+    let alive = true;
+    setQualityGateRunning(true);
+    (async () => {
+      try {
+        const contextHint =
+          analysis?.mode === "flat"
+            ? "flat_2d"
+            : analysis?.mode === "object"
+              ? "sculpture_3d"
+              : "unknown";
+        const payload = await prepareImageForVision(file);
+        if (!alive) return;
+        const key = `${payload.sha256}:artwork_quality_gate`;
+        const result = await getOrFetchVisionResult<ArtworkQualityGateResult>(
+          key,
+          () =>
+            aiApi.artworkQualityGate({
+              imageBase64: payload.imageBase64,
+              mime: payload.mime,
+              imagePxWidth: payload.imagePxWidth,
+              imagePxHeight: payload.imagePxHeight,
+              contextHint,
+            }),
+        );
+        if (!alive) return;
+        setQualityGate(result);
+      } catch {
+        // Fail open — any exception (decode failed, network dropped)
+        // silently degrades to "ok".
+        if (!alive) return;
+        setQualityGate({
+          usable: true,
+          severity: "ok",
+          issues: [],
+          reshootAdviceKo: "",
+          reshootAdviceEn: "",
+          scores: { sharpness: 0.5, glare: 0, exposure: 0.5, framing: 0.5 },
+          degraded: true,
+          reason: "error",
+        });
+      } finally {
+        if (alive) setQualityGateRunning(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [file, analyzing, analysis?.mode, qualityGatePref]);
+
+  // Push gate state upstream whenever any input to the observable
+  // shape changes. Parent Save/Publish CTAs use this to gate on
+  // `severity === "block" && !override && !degraded && !dismissed`.
+  useEffect(() => {
+    if (!onQualityGate) return;
+    if (!qualityGate) {
+      onQualityGate(null);
+      return;
+    }
+    const isDegraded = qualityGate.degraded === true;
+    onQualityGate({
+      severity: qualityGate.severity,
+      override: qualityGateOverride,
+      degraded: isDegraded,
+      dismissed: qualityGateDismissed,
+    });
+  }, [qualityGate, qualityGateOverride, qualityGateDismissed, onQualityGate]);
+
+  // Effective severity — a degraded verdict or a dismissed warn is
+  // treated as `ok` for banner rendering AND for auto-preview
+  // gating. Block+override still surfaces the enhance flow, but the
+  // meta records `override: true` for QA visibility.
+  const effectiveGateSeverity: "ok" | "warn" | "block" = (() => {
+    if (!qualityGate) return "ok";
+    if (qualityGate.degraded) return "ok";
+    if (qualityGate.severity === "warn" && qualityGateDismissed) return "ok";
+    return qualityGate.severity;
+  })();
+  const gateBlocked =
+    effectiveGateSeverity === "block" && !qualityGateOverride;
 
   // Push tone/crop changes upstream. Only after the user has actually
   // interacted — mount alone must never populate parent state.
@@ -937,6 +1098,10 @@ export function ImageStandardizeEditor({
 
   const runEnhancePreview = useCallback(async () => {
     if (!onEnhance) return;
+    // 2026-08-19 — Blocked by the pre-flight quality gate (and not
+    // overridden). The banner tells the artist why; silently no-op
+    // here so any manual "Preview" click also respects the block.
+    if (gateBlocked) return;
     setEnhanceError(null);
     setEnhanceRunning(true);
     void recordUsageEvent({
@@ -1174,6 +1339,19 @@ export function ImageStandardizeEditor({
       const capturedAtIso =
         exif?.dateTimeOriginal ?? new Date(file.lastModified).toISOString();
       const captureDevice = exif ? formatCaptureDevice(exif) : null;
+      // 2026-08-19 — Persist the pre-flight quality gate verdict into
+      // enhancement_meta so QA / dashboards can slice on false-block
+      // regressions later (severity + override + issues). Absent when
+      // the gate degraded or was disabled by the user.
+      const qualityGateProvenance =
+        qualityGate && !qualityGate.degraded
+          ? {
+              severity: qualityGate.severity,
+              issues: qualityGate.issues as string[],
+              scores: qualityGate.scores,
+              ...(qualityGateOverride ? { override: true } : {}),
+            }
+          : undefined;
       const meta: EnhancementMeta = {
         provider: "local_opencv",
         mode: enhanceMode,
@@ -1188,6 +1366,7 @@ export function ImageStandardizeEditor({
         },
         capturedAtIso,
         captureDevice,
+        ...(qualityGateProvenance ? { qualityGate: qualityGateProvenance } : {}),
       };
       if (enhancePreviewUrlRef.current) {
         try {
@@ -1307,6 +1486,9 @@ export function ImageStandardizeEditor({
     ellipseRestored,
     perspectiveSkipped,
     keepOriginalAspect,
+    gateBlocked,
+    qualityGate,
+    qualityGateOverride,
   ]);
 
   // F4 (2026-08-10) — auto-run a first preview as soon as the user
@@ -1324,6 +1506,11 @@ export function ImageStandardizeEditor({
     if (enhanceRunning) return;
     if (didAutoPreviewRef.current) return;
     if (resolvedAutoMode === "object") return;
+    // 2026-08-19 — Don't auto-run the enhance pipeline on a photo the
+    // pre-flight gate has flagged as `block` (unless the artist
+    // explicitly clicked "그래도 계속" to override). Warn severity
+    // still auto-runs — it's a soft advisory.
+    if (gateBlocked) return;
     didAutoPreviewRef.current = true;
     void runEnhancePreview();
   }, [
@@ -1336,6 +1523,7 @@ export function ImageStandardizeEditor({
     enhanceRunning,
     resolvedAutoMode,
     runEnhancePreview,
+    gateBlocked,
   ]);
 
   // F4 — debounced re-run when the user changes intensity or wall
@@ -1461,6 +1649,40 @@ export function ImageStandardizeEditor({
           </button>
         </div>
       )}
+
+      {/*
+        2026-08-19 — Pre-flight quality gate surface. "detecting"
+        status uses aria-live so screen readers hear the check without
+        stealing focus; the banner itself renders only for warn/block
+        verdicts (fail-open contract — degraded verdicts and ok
+        verdicts are silent).
+       */}
+      {qualityGateRunning && !qualityGate && (
+        <p
+          className="text-xs text-zinc-500"
+          role="status"
+          aria-live="polite"
+        >
+          {t("enhancement.quality.detecting")}
+        </p>
+      )}
+      {qualityGate &&
+        !qualityGate.degraded &&
+        (qualityGate.severity === "block" ||
+          (qualityGate.severity === "warn" && !qualityGateDismissed)) && (
+          <QualityGateBanner
+            severity={qualityGate.severity}
+            issues={qualityGate.issues}
+            result={qualityGate}
+            locale={locale}
+            onReshoot={() => {
+              if (onReshootRequest) onReshootRequest();
+              else setQualityGateDismissed(true);
+            }}
+            onProceed={() => setQualityGateDismissed(true)}
+            onUseAnyway={() => setQualityGateOverride(true)}
+          />
+        )}
 
       {enhancementEnabled && (
         <div

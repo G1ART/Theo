@@ -85,6 +85,9 @@ import {
   applyHomography,
   invertHomography,
 } from "@/lib/image/enhancement/homography";
+import { aiApi } from "@/lib/ai/browser";
+import type { SpaceCalibrateCandidate } from "@/lib/ai/types";
+import { useAiCalibrationPref } from "@/lib/simulation/calibrationPref";
 
 const SNAP_TOLERANCE_CM = 3;
 const EYE_LEVEL_CM = 150;
@@ -100,6 +103,68 @@ const FALLBACK_WALL_HEIGHT_CM = 260;
 function tempId(): string {
   return `tmp_${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/**
+ * P1 — measurement-based calibration helpers. Kept top-level (pure)
+ * so they can be unit-tested independently of the editor state and so
+ * the render logic stays readable.
+ */
+
+/** Convert a File into a raw base64 string (no `data:` prefix). */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result ?? "");
+      const commaIdx = raw.indexOf(",");
+      resolve(commaIdx >= 0 ? raw.slice(commaIdx + 1) : raw);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Compute the bounding-box "length" in NATIVE photo pixels for the
+ * dimension the AI wants the user to measure.
+ *   - width  → normalized bbox width × native photo width
+ *   - height → normalized bbox height × native photo height
+ *   - diagonal → Pythagoras across width & height (native px)
+ *   - seat_back → treated as width (sofa seat-back horizontal length)
+ */
+function candidateNativePxLength(
+  candidate: SpaceCalibrateCandidate,
+  imagePxWidth: number,
+  imagePxHeight: number,
+): number {
+  const { bbox, dimension } = candidate;
+  const wPx = Math.max(0, bbox.x1 - bbox.x0) * imagePxWidth;
+  const hPx = Math.max(0, bbox.y1 - bbox.y0) * imagePxHeight;
+  switch (dimension) {
+    case "height":
+      return hPx;
+    case "diagonal":
+      return Math.sqrt(wPx * wPx + hPx * hPx);
+    case "width":
+    case "seat_back":
+    default:
+      return wPx;
+  }
+}
+
+/** Midpoint of the model-supplied cm range, used as the input placeholder. */
+function typicalMidpoint(candidate: SpaceCalibrateCandidate): number {
+  const { min, max } = candidate.typical_range_cm;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return 100;
+  return Math.round((min + max) / 2);
+}
+
+type MeasurePoint = { x: number; y: number };
+type MeasureState =
+  | { phase: "idle" }
+  | { phase: "pointA" }
+  | { phase: "pointB"; pointA: MeasurePoint }
+  | { phase: "input"; pointA: MeasurePoint; pointB: MeasurePoint };
 
 type EditorState = {
   space: SpaceScene["space"];
@@ -134,6 +199,27 @@ function SpaceEditorContent({ id }: { id: string }) {
   const [exportBusy, setExportBusy] = useState(false);
   const [snapHints, setSnapHints] = useState<SnapHint[]>([]);
   const [dragPlacementId, setDragPlacementId] = useState<string | null>(null);
+
+  // P1 (2026-08-19) — measurement-based calibration state.
+  //
+  // `calibrateCandidates` holds the raw AI response (empty when the
+  // model returned nothing, the pref is off, or we skipped). We render
+  // one candidate at a time (`calibrateIdx`) and let the user cycle via
+  // "다른 물건 / Try another". `calibrateInputCm` is the user's typed
+  // real-world length; on Apply we derive pxPerCm and persist.
+  const [calibrateCandidates, setCalibrateCandidates] = useState<
+    SpaceCalibrateCandidate[]
+  >([]);
+  const [calibrateIdx, setCalibrateIdx] = useState(0);
+  const [calibrateInputCm, setCalibrateInputCm] = useState("");
+
+  // Manual tap-to-measure state. The user drops 2 points on the photo,
+  // then enters the real distance for that segment. Coordinates live in
+  // `imageBox` CSS-pixel space (i.e., relative to the rendered <img>).
+  const [measureState, setMeasureState] = useState<MeasureState>({ phase: "idle" });
+  const [measureInputCm, setMeasureInputCm] = useState("");
+
+  const aiCalibrationEnabled = useAiCalibrationPref();
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -487,17 +573,67 @@ function SpaceEditorContent({ id }: { id: string }) {
   const handleUploadPhoto = useCallback(
     async (file: File) => {
       if (!state) return;
+      // Snapshot the "already calibrated?" decision BEFORE the upload
+      // reload rewrites `state`. We only want AI to run on a truly
+      // fresh space, so a photo replacement on an already-corrected
+      // wall keeps the user's calibration untouched. Reading from
+      // `state` (pre-load) is intentional.
+      const hadCorners = Boolean(
+        state.space.surfaces[0]?.photoCorners,
+      );
+      const hadWallDims = Boolean(state.space.surfaces[0]?.widthCm);
       setUploadBusy(true);
       try {
-        await uploadSpacePhoto(state.space.id, file);
+        const upload = await uploadSpacePhoto(state.space.id, file);
         await load();
+
+        // Guard: only trigger AI on a truly first-time upload for this
+        // surface. Already-calibrated spaces (either photoCorners set
+        // via the advanced corner picker OR widthCm already persisted
+        // via AI / manual measure) are left alone so re-uploads never
+        // overwrite the user's confirmed scale.
+        if (hadCorners || hadWallDims) return;
+        if (!aiCalibrationEnabled) return;
+        if (!upload.widthPx || !upload.heightPx) return;
+        if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return;
+
+        setToast(t("simulation.calibrate.detecting"));
+        try {
+          const base64 = await fileToBase64(file);
+          const res = await aiApi.spaceCalibrate({
+            spaceId: state.space.id,
+            imageBase64: base64,
+            mime: file.type,
+            imagePxWidth: upload.widthPx,
+            imagePxHeight: upload.heightPx,
+          });
+          if (res.candidates.length > 0) {
+            setCalibrateCandidates(res.candidates);
+            setCalibrateIdx(0);
+            setCalibrateInputCm("");
+            setToast(null);
+          } else {
+            // Degraded / empty. Clear the "detecting" toast quietly —
+            // the "정확한 스케일" accordion always exposes the manual
+            // "직접 재기" entry point, so no error UI is needed.
+            setToast(null);
+            if (process.env.NODE_ENV !== "production") {
+              console.debug("[simulation] calibrate degraded", res);
+            }
+          }
+        } catch (err) {
+          setToast(null);
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[simulation] calibrate failed", err);
+          }
+        }
       } catch {
         setToast(t("simulation.errors.uploadFailed"));
       } finally {
         setUploadBusy(false);
       }
     },
-    [state, load, t],
+    [state, load, t, aiCalibrationEnabled],
   );
 
   const handleDeleteSelected = useCallback(async () => {
@@ -691,6 +827,151 @@ function SpaceEditorContent({ id }: { id: string }) {
     [state, primarySurface],
   );
 
+  /**
+   * Apply the currently-active AI calibration candidate.
+   *
+   * Math (all in NATIVE photo pixels — the AI's normalized bbox is
+   * relative to the native photo dimensions, NOT the on-screen `<img>`
+   * frame):
+   *   pxLen  = normalizedBboxDim × native photo dim  (per `dimension`)
+   *   pxPerCm = pxLen / userInputCm
+   *   wallWidthCm  = imagePxWidth  / pxPerCm
+   *   wallHeightCm = imagePxHeight / pxPerCm
+   * This gives the "full photo → wall" mapping — so a placement's
+   * `imagePxToWallCm` fallback (which linearly maps image → wall)
+   * lands at real-world scale even before the user opens the
+   * advanced corner picker.
+   */
+  const handleApplyCalibrateCandidate = useCallback(async () => {
+    if (!state || !primarySurface) return;
+    const candidate = calibrateCandidates[calibrateIdx];
+    if (!candidate) return;
+    const rawInput = parseFloat(calibrateInputCm);
+    if (!Number.isFinite(rawInput) || rawInput <= 0) return;
+    // Respect the current display unit — user may be typing inches.
+    const cm = state.space.unit === "in" ? rawInput * 2.54 : rawInput;
+    const nativeW = state.space.photoWidthPx ?? 0;
+    const nativeH = state.space.photoHeightPx ?? 0;
+    if (nativeW <= 0 || nativeH <= 0) return;
+    const pxLen = candidateNativePxLength(candidate, nativeW, nativeH);
+    if (pxLen <= 0) return;
+    const pxPerCm = pxLen / cm;
+    if (!Number.isFinite(pxPerCm) || pxPerCm <= 0) return;
+    const wallWidthCm = nativeW / pxPerCm;
+    const wallHeightCm = nativeH / pxPerCm;
+    setState((prev) =>
+      prev
+        ? {
+            ...prev,
+            space: {
+              ...prev.space,
+              surfaces: prev.space.surfaces.map((s) =>
+                s.id === primarySurface.id
+                  ? { ...s, widthCm: wallWidthCm, heightCm: wallHeightCm }
+                  : s,
+              ),
+            },
+          }
+        : prev,
+    );
+    await updateSurface(
+      primarySurface.id,
+      { widthCm: wallWidthCm, heightCm: wallHeightCm },
+      { spaceIdForTouch: state.space.id },
+    );
+    setCalibrateCandidates([]);
+    setCalibrateIdx(0);
+    setCalibrateInputCm("");
+    setToast(t("simulation.calibrate.applied"));
+  }, [
+    state,
+    primarySurface,
+    calibrateCandidates,
+    calibrateIdx,
+    calibrateInputCm,
+    t,
+  ]);
+
+  const handleCycleCandidate = useCallback(() => {
+    if (calibrateCandidates.length <= 1) return;
+    setCalibrateIdx((i) => (i + 1) % calibrateCandidates.length);
+    setCalibrateInputCm("");
+  }, [calibrateCandidates.length]);
+
+  const handleDismissCalibrate = useCallback(() => {
+    setCalibrateCandidates([]);
+    setCalibrateIdx(0);
+    setCalibrateInputCm("");
+  }, []);
+
+  /**
+   * Enter manual tap-to-measure mode. Clears the AI card AND any
+   * pending artwork placement so the canvas clicks route unambiguously
+   * to the measure flow.
+   */
+  const startManualMeasure = useCallback(() => {
+    setCalibrateCandidates([]);
+    setPendingArtwork(null);
+    setMeasureState({ phase: "pointA" });
+    setMeasureInputCm("");
+  }, []);
+
+  const cancelManualMeasure = useCallback(() => {
+    setMeasureState({ phase: "idle" });
+    setMeasureInputCm("");
+  }, []);
+
+  /**
+   * Apply the manual 2-point measurement. Distance is measured in the
+   * imageBox (CSS-pixel) frame; we rescale to native photo pixels via
+   * the `imagePxWidth / imageBox.w` ratio before deriving pxPerCm so
+   * downstream widthCm matches the calibration math above (i.e. same
+   * "full photo → wall" mapping).
+   */
+  const handleApplyManualMeasure = useCallback(async () => {
+    if (!state || !primarySurface) return;
+    if (measureState.phase !== "input") return;
+    const raw = parseFloat(measureInputCm);
+    if (!Number.isFinite(raw) || raw <= 0) return;
+    const cm = state.space.unit === "in" ? raw * 2.54 : raw;
+    const dxCss = measureState.pointB.x - measureState.pointA.x;
+    const dyCss = measureState.pointB.y - measureState.pointA.y;
+    const pxDistanceCss = Math.sqrt(dxCss * dxCss + dyCss * dyCss);
+    if (pxDistanceCss <= 0 || imageBox.w <= 0) return;
+    const nativeW = state.space.photoWidthPx ?? 0;
+    const nativeH = state.space.photoHeightPx ?? 0;
+    if (nativeW <= 0 || nativeH <= 0) return;
+    const cssToNative = nativeW / imageBox.w;
+    const pxDistanceNative = pxDistanceCss * cssToNative;
+    const pxPerCm = pxDistanceNative / cm;
+    if (!Number.isFinite(pxPerCm) || pxPerCm <= 0) return;
+    const wallWidthCm = nativeW / pxPerCm;
+    const wallHeightCm = nativeH / pxPerCm;
+    setState((prev) =>
+      prev
+        ? {
+            ...prev,
+            space: {
+              ...prev.space,
+              surfaces: prev.space.surfaces.map((s) =>
+                s.id === primarySurface.id
+                  ? { ...s, widthCm: wallWidthCm, heightCm: wallHeightCm }
+                  : s,
+              ),
+            },
+          }
+        : prev,
+    );
+    await updateSurface(
+      primarySurface.id,
+      { widthCm: wallWidthCm, heightCm: wallHeightCm },
+      { spaceIdForTouch: state.space.id },
+    );
+    setMeasureState({ phase: "idle" });
+    setMeasureInputCm("");
+    setToast(t("simulation.calibrate.applied"));
+  }, [state, primarySurface, measureState, measureInputCm, imageBox.w, t]);
+
   const handleWallDims = useCallback(
     async (patch: { widthCm?: number | null; heightCm?: number | null }) => {
       if (!state || !primarySurface) return;
@@ -740,6 +1021,11 @@ function SpaceEditorContent({ id }: { id: string }) {
       const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
       if (e.key === "Escape") {
+        if (measureState.phase !== "idle") {
+          e.preventDefault();
+          cancelManualMeasure();
+          return;
+        }
         if (pendingArtwork) {
           e.preventDefault();
           setPendingArtwork(null);
@@ -764,7 +1050,15 @@ function SpaceEditorContent({ id }: { id: string }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, selectedId, handleDeleteSelected, pendingArtwork]);
+  }, [
+    undo,
+    redo,
+    selectedId,
+    handleDeleteSelected,
+    pendingArtwork,
+    measureState.phase,
+    cancelManualMeasure,
+  ]);
 
   // ── Snap-hint lines (image-space, projected) ─────────────────
   const snapLines = useMemo(() => {
@@ -881,6 +1175,109 @@ function SpaceEditorContent({ id }: { id: string }) {
         </div>
       )}
 
+      {/* P1 — AI calibration card. Renders above the canvas so the
+          bbox overlay (drawn inside the canvas) and the question
+          card sit side-by-side on the same visual axis. Priority over
+          the detecting toast; only shown when the model returned at
+          least one candidate. */}
+      {calibrateCandidates.length > 0 && (() => {
+        const c = calibrateCandidates[calibrateIdx];
+        if (!c) return null;
+        const label = locale === "ko" ? c.label_ko : c.label_en;
+        const ask = locale === "ko" ? c.ask_ko : c.ask_en;
+        const midpoint = typicalMidpoint(c);
+        const rangeMin = space.unit === "in"
+          ? Math.round((c.typical_range_cm.min / 2.54) * 10) / 10
+          : c.typical_range_cm.min;
+        const rangeMax = space.unit === "in"
+          ? Math.round((c.typical_range_cm.max / 2.54) * 10) / 10
+          : c.typical_range_cm.max;
+        const rangeHint = t("simulation.calibrate.rangeHint")
+          .replace("{min}", String(rangeMin))
+          .replace("{max}", String(rangeMax));
+        const placeholder = String(
+          space.unit === "in"
+            ? Math.round((midpoint / 2.54) * 10) / 10
+            : midpoint,
+        );
+        return (
+          <div
+            role="dialog"
+            aria-labelledby="calibrate-card-title"
+            className="mb-4 flex flex-col gap-3 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-4 shadow-sm"
+          >
+            <div>
+              <h3
+                id="calibrate-card-title"
+                className="text-sm font-semibold text-emerald-900"
+              >
+                {t("simulation.calibrate.cardTitle").replace(
+                  "{label}",
+                  label,
+                )}
+              </h3>
+              <p className="mt-1 text-xs text-emerald-800">{ask}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-2 py-1.5">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.5"
+                  min={1}
+                  value={calibrateInputCm}
+                  onChange={(e) => setCalibrateInputCm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleApplyCalibrateCandidate();
+                    }
+                  }}
+                  placeholder={placeholder}
+                  className="w-20 rounded border-0 px-1 py-0.5 text-sm outline-none focus:ring-0"
+                  aria-label={ask}
+                />
+                <span className="text-xs text-zinc-500">{space.unit}</span>
+              </label>
+              <span className="text-[11px] text-emerald-700">{rangeHint}</span>
+              <div className="ml-auto flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleApplyCalibrateCandidate()}
+                  disabled={!parseFloat(calibrateInputCm)}
+                  className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  {t("simulation.calibrate.apply")}
+                </button>
+                {calibrateCandidates.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleCycleCandidate}
+                    className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                  >
+                    {t("simulation.calibrate.tryAnother")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={startManualMeasure}
+                  className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                >
+                  {t("simulation.calibrate.manual")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDismissCalibrate}
+                  className="rounded-full px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                >
+                  {t("simulation.calibrate.later")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section ref={canvasRef} className="min-w-0">
           {photoUrl ? (
@@ -893,9 +1290,38 @@ function SpaceEditorContent({ id }: { id: string }) {
                 className="block h-auto w-full select-none"
                 draggable={false}
                 style={{
-                  cursor: pendingArtwork ? "crosshair" : "default",
+                  cursor:
+                    pendingArtwork ||
+                    measureState.phase === "pointA" ||
+                    measureState.phase === "pointB"
+                      ? "crosshair"
+                      : "default",
                 }}
                 onClick={(e) => {
+                  // Manual tap-to-measure takes priority — it's a
+                  // modal-ish sub-mode entered explicitly by the user
+                  // (via the AI card or the "정확한 스케일" accordion).
+                  if (
+                    measureState.phase === "pointA" ||
+                    measureState.phase === "pointB"
+                  ) {
+                    if (!imgRef.current) return;
+                    const rect = imgRef.current.getBoundingClientRect();
+                    const p = {
+                      x: e.clientX - rect.left,
+                      y: e.clientY - rect.top,
+                    };
+                    if (measureState.phase === "pointA") {
+                      setMeasureState({ phase: "pointB", pointA: p });
+                    } else {
+                      setMeasureState({
+                        phase: "input",
+                        pointA: measureState.pointA,
+                        pointB: p,
+                      });
+                    }
+                    return;
+                  }
                   if (pendingArtwork) {
                     handleCanvasTap(e);
                     return;
@@ -999,6 +1425,192 @@ function SpaceEditorContent({ id }: { id: string }) {
                   </button>
                 </div>
               )}
+
+              {/* Manual measure — top hint chip while dropping points. */}
+              {(measureState.phase === "pointA" ||
+                measureState.phase === "pointB") && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 top-3 mx-auto flex w-max max-w-[92%] items-center gap-2 rounded-full bg-emerald-700/95 px-3 py-1.5 text-xs text-white shadow-lg"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="truncate">
+                    📐 {t("simulation.calibrate.manualHint")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={cancelManualMeasure}
+                    className="pointer-events-auto rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-white/25"
+                  >
+                    {t("simulation.editor.cancelPlacement")}
+                  </button>
+                </div>
+              )}
+
+              {/* Manual measure — dropped-point + line overlay. */}
+              {imageBox.w > 0 &&
+                (measureState.phase === "pointB" ||
+                  measureState.phase === "input") && (
+                  <svg
+                    className="pointer-events-none absolute left-0 top-0"
+                    width={imageBox.w}
+                    height={imageBox.h}
+                    aria-hidden
+                  >
+                    {(() => {
+                      const a = measureState.pointA;
+                      const b =
+                        measureState.phase === "input"
+                          ? measureState.pointB
+                          : null;
+                      return (
+                        <g>
+                          {b && (
+                            <line
+                              x1={a.x}
+                              y1={a.y}
+                              x2={b.x}
+                              y2={b.y}
+                              stroke="rgba(16, 185, 129, 0.95)"
+                              strokeWidth={2}
+                              strokeDasharray="6 4"
+                            />
+                          )}
+                          <circle
+                            cx={a.x}
+                            cy={a.y}
+                            r={7}
+                            fill="rgba(16, 185, 129, 0.95)"
+                            stroke="white"
+                            strokeWidth={2}
+                          />
+                          <text
+                            x={a.x}
+                            y={a.y + 4}
+                            textAnchor="middle"
+                            fontSize={10}
+                            fontWeight={600}
+                            fill="white"
+                          >
+                            1
+                          </text>
+                          {b && (
+                            <>
+                              <circle
+                                cx={b.x}
+                                cy={b.y}
+                                r={7}
+                                fill="rgba(16, 185, 129, 0.95)"
+                                stroke="white"
+                                strokeWidth={2}
+                              />
+                              <text
+                                x={b.x}
+                                y={b.y + 4}
+                                textAnchor="middle"
+                                fontSize={10}
+                                fontWeight={600}
+                                fill="white"
+                              >
+                                2
+                              </text>
+                            </>
+                          )}
+                        </g>
+                      );
+                    })()}
+                  </svg>
+                )}
+
+              {/* Manual measure — distance input popup near the segment midpoint. */}
+              {measureState.phase === "input" &&
+                imageBox.w > 0 &&
+                (() => {
+                  const midX =
+                    (measureState.pointA.x + measureState.pointB.x) / 2;
+                  const midY =
+                    (measureState.pointA.y + measureState.pointB.y) / 2;
+                  // Clamp so the popup stays fully inside the canvas
+                  // (approx 260px wide, 60px tall).
+                  const left = Math.max(
+                    12,
+                    Math.min(imageBox.w - 272, midX - 130),
+                  );
+                  const top = Math.max(
+                    12,
+                    Math.min(imageBox.h - 72, midY - 30),
+                  );
+                  return (
+                    <div
+                      className="absolute z-10 flex items-center gap-2 rounded-xl border border-emerald-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur"
+                      style={{ left, top, width: 260 }}
+                    >
+                      <label className="flex flex-1 items-center gap-2 text-xs text-zinc-700">
+                        <span className="shrink-0 font-medium">
+                          {t("simulation.calibrate.manualDistanceLabel")}
+                        </span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.5"
+                          min={1}
+                          value={measureInputCm}
+                          onChange={(e) => setMeasureInputCm(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleApplyManualMeasure();
+                            }
+                          }}
+                          className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
+                          autoFocus
+                        />
+                        <span className="text-[11px] text-zinc-500">
+                          {space.unit}
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleApplyManualMeasure()}
+                        className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                        disabled={!parseFloat(measureInputCm)}
+                      >
+                        {t("simulation.calibrate.apply")}
+                      </button>
+                    </div>
+                  );
+                })()}
+
+              {/* AI calibration — bbox overlay for the active candidate. */}
+              {calibrateCandidates.length > 0 &&
+                imageBox.w > 0 &&
+                (() => {
+                  const c = calibrateCandidates[calibrateIdx];
+                  if (!c) return null;
+                  const boxLeft = c.bbox.x0 * imageBox.w;
+                  const boxTop = c.bbox.y0 * imageBox.h;
+                  const boxW = (c.bbox.x1 - c.bbox.x0) * imageBox.w;
+                  const boxH = (c.bbox.y1 - c.bbox.y0) * imageBox.h;
+                  const label = locale === "ko" ? c.label_ko : c.label_en;
+                  return (
+                    <div
+                      className="pointer-events-none absolute rounded-md border-2 border-dashed border-emerald-400/90"
+                      style={{
+                        left: boxLeft,
+                        top: boxTop,
+                        width: boxW,
+                        height: boxH,
+                        boxShadow:
+                          "0 0 0 9999px rgba(0,0,0,0.08) inset",
+                      }}
+                      aria-hidden
+                    >
+                      <span className="absolute -top-2 left-2 -translate-y-full rounded-md bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white shadow">
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })()}
             </div>
           ) : (
             <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/70 px-4 text-center">
@@ -1213,15 +1825,24 @@ function SpaceEditorContent({ id }: { id: string }) {
                 />
               </label>
               {photoUrl && (
-                <button
-                  type="button"
-                  onClick={() => setCornersOpen((v) => !v)}
-                  className="mt-2 rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                >
-                  {cornersOpen
-                    ? t("simulation.wall.closeCorners")
-                    : t("simulation.wall.editCorners")}
-                </button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCornersOpen((v) => !v)}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                  >
+                    {cornersOpen
+                      ? t("simulation.wall.closeCorners")
+                      : t("simulation.wall.editCorners")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startManualMeasure}
+                    className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-50"
+                  >
+                    {t("simulation.calibrate.manual")}
+                  </button>
+                </div>
               )}
             </div>
           </details>

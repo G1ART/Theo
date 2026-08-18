@@ -32,6 +32,7 @@ import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
 import {
   ImageStandardizeEditor,
   type EnhancementDraft,
+  type QualityGateSurfaceState,
 } from "@/components/upload/ImageStandardizeEditor";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
@@ -200,6 +201,23 @@ function UploadPageContent() {
     enhancement: EnhancementDraft | null;
   };
   const [images, setImages] = useState<PendingImage[]>([]);
+  /**
+   * 2026-08-19 — Per-image pre-flight quality gate state. Populated
+   * by `ImageStandardizeEditor.onQualityGate`. We use a keyed object
+   * (id → state) instead of extending PendingImage to keep the file's
+   * existing setImages plumbing untouched — the gate is a side channel
+   * that only gates the Publish CTA.
+   */
+  const [imageQualityGates, setImageQualityGates] = useState<
+    Record<string, QualityGateSurfaceState>
+  >({});
+  const publishBlockedByGate = images.some((img) => {
+    const gate = imageQualityGates[img.id];
+    if (!gate) return false;
+    if (gate.degraded) return false;
+    if (gate.dismissed) return false;
+    return gate.severity === "block" && !gate.override;
+  });
   const [title, setTitle] = useState("");
   /**
    * QA 2026-07-28 — 이중언어 title/medium/story 슬롯. 두 언어를 나란히
@@ -1361,6 +1379,26 @@ function UploadPageContent() {
                           }}
                           meteringSource={fromExhibition ? "exhibition_single" : "single"}
                           artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
+                          onQualityGate={(gate) => {
+                            setImageQualityGates((prev) => {
+                              if (!gate) {
+                                if (!prev[img.id]) return prev;
+                                const next = { ...prev };
+                                delete next[img.id];
+                                return next;
+                              }
+                              return { ...prev, [img.id]: gate };
+                            });
+                          }}
+                          onReshootRequest={() => {
+                            setImages((prev) => prev.filter((p) => p.id !== img.id));
+                            setImageQualityGates((prev) => {
+                              if (!prev[img.id]) return prev;
+                              const next = { ...prev };
+                              delete next[img.id];
+                              return next;
+                            });
+                          }}
                         />
                       </div>
                     )}
@@ -1718,7 +1756,8 @@ function UploadPageContent() {
               </button>
               <button
                 type="submit"
-                className="flex-1 rounded-full bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800"
+                disabled={publishBlockedByGate}
+                className="flex-1 rounded-full bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 disabled:opacity-50"
               >
                 {t("upload.nextCheckDedup")}
               </button>
@@ -1762,7 +1801,7 @@ function UploadPageContent() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || publishBlockedByGate}
                 className="flex-1 rounded-full bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 disabled:opacity-50"
               >
                 {isSubmitting ? t("upload.uploading") : t("nav.upload")}

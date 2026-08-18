@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 import type {
   AiDegradation,
   AiFeatureKey,
+  ArtworkQualityGateResult,
   BioDraftResult,
   BoardPitchPackResult,
   CvImportResult,
@@ -15,6 +16,7 @@ import type {
   MatchmakerRationalesResult,
   PortfolioSuggestionsResult,
   ProfileSuggestionsResult,
+  SpaceCalibrateResult,
   StudioDigestResult,
   TranslateDraftFieldKind,
   TranslateDraftResult,
@@ -34,6 +36,8 @@ const FEATURE_TO_PATH: Record<AiFeatureKey, string> = {
   delegation_brief: "/api/ai/delegation-brief",
   cv_import: "/api/ai/cv-import",
   translate_draft: "/api/ai/translate-draft",
+  "space.calibrate": "/api/ai/space-calibrate",
+  artwork_quality_gate: "/api/ai/artwork-quality-gate",
 };
 
 export type CallAiOptions = {
@@ -247,6 +251,44 @@ export const aiApi = {
    * sourceText, styleAnchors? } }`. Degraded shape returns `draft: ""`
    * so the caller can distinguish "empty" from "error" via `degraded`.
    */
+  /**
+   * P1 (2026-08-19) — Space calibrate (measurement-based scale detection).
+   * Body: `{ spaceId, imageBase64, mime, imagePxWidth, imagePxHeight }`.
+   * Degraded shape returns `candidates: []` so the caller can just check
+   * `.candidates.length` and silently fall through to the manual entry
+   * point when the model / key / entitlement fails.
+   */
+  spaceCalibrate: (body: Record<string, unknown>, opts?: CallAiOptions) =>
+    callAi<SpaceCalibrateResult>(
+      "space.calibrate",
+      body,
+      { candidates: [] },
+      opts,
+    ),
+  /**
+   * 2026-08-19 — Pre-flight artwork quality gate. Body shape:
+   * `{ imageBase64, mime, imagePxWidth, imagePxHeight, contextHint? }`.
+   *
+   * The fallback intentionally returns `severity: "ok"` + `usable:
+   * true` so any degraded response (`degraded === true`) never
+   * hard-blocks the upload — the DSP pipeline's own quality checks
+   * still run on the full-res image afterwards. Callers should treat
+   * `degraded === true` as "gate not conclusive, proceed normally".
+   */
+  artworkQualityGate: (body: Record<string, unknown>, opts?: CallAiOptions) =>
+    callAi<ArtworkQualityGateResult>(
+      "artwork_quality_gate",
+      body,
+      {
+        usable: true,
+        severity: "ok",
+        issues: [],
+        reshootAdviceKo: "",
+        reshootAdviceEn: "",
+        scores: { sharpness: 0.5, glare: 0, exposure: 0.5, framing: 0.5 },
+      },
+      opts,
+    ),
   translateDraft: (body: Record<string, unknown>, opts?: CallAiOptions) => {
     const translate = (body.translate ?? {}) as {
       fieldKind?: TranslateDraftFieldKind;

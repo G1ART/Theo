@@ -30,6 +30,8 @@ import {
 } from "@/lib/profile/taxonomy";
 import { BuildStamp } from "@/components/BuildStamp";
 import { SizeUnitPreference } from "@/components/settings/SizeUnitPreference";
+import { SimulationCalibrationPreference } from "@/components/settings/SimulationCalibrationPreference";
+import { EnhancementQualityGatePreference } from "@/components/settings/EnhancementQualityGatePreference";
 import { BioDraftAssist } from "@/components/ai/BioDraftAssist";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
@@ -1178,6 +1180,10 @@ export default function SettingsPage() {
             </div>
 
             <SizeUnitPreference />
+
+            <SimulationCalibrationPreference />
+
+            <EnhancementQualityGatePreference />
 
             {/* P1-0 Profile identity surface (auto-save for media + slider, on-blur for statement). */}
             {uid && (
