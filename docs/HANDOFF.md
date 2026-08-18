@@ -2,6 +2,17 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (12) — 피드 우측 카드 제목 "네트워크" 로 통일
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 변경 요약
+- 피드 우측 카드가 "내 커넥션 / My Connection" 이었는데 카드 내용은 이미 커뮤니티 펄스 + 초대 + 추천 = 전부 네트워크 개념이고, 사이드바 항목도 "네트워크" 라 이름 불일치가 있었다. 값만 "네트워크 / Network" 로 통일. i18n 키(`rail.myConnection.*`)는 유지(감사 워커가 컴포넌트 파일 편집 중이라 충돌 회피); 감사 완료 후 키 이름도 `rail.network.*` 계열로 정리 예정.
+
+### Verified
+- `npx tsc --noEmit` clean
+- `npx eslint src/lib/i18n/messages.ts` clean
+
 ## 2026-08-17 (11) — 전시 시뮬레이션 P1 lib 레이어 (Chunk B)
 
 > Supabase SQL 돌려야 할 것은 없음 (Chunk A 스키마 활용) · 환경 변수 변경 없음

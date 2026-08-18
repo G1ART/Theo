@@ -67,7 +67,7 @@ export const messages = {
     "notifications.drawer.action.go": "Go",
 
     // Aug-2026 redesign — right-rail widgets (My Connection + Theo Board).
-    "rail.myConnection.title": "My Connection",
+    "rail.myConnection.title": "Network",
     "rail.myConnection.more": "more",
     "rail.myConnection.invitations": "Invitations",
     "rail.myConnection.suggestions": "Suggestions",
@@ -3896,7 +3896,7 @@ export const messages = {
     "notifications.drawer.empty": "새로운 알림이 없습니다.",
     "notifications.drawer.action.go": "이동",
 
-    "rail.myConnection.title": "내 커넥션",
+    "rail.myConnection.title": "네트워크",
     "rail.myConnection.more": "더 보기",
     "rail.myConnection.invitations": "초대",
     "rail.myConnection.suggestions": "추천",
