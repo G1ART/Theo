@@ -2,6 +2,78 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (15) — 전시 시뮬레이션 P1 Chunk C: space-first UI + 익명 공유 RPC
+
+> Supabase SQL 적용함: `supabase/migrations/20260818100000_space_share_rpc.sql` (MCP `apply_migration` 성공, 사후 `get_advisors` 확인) · 환경 변수 변경 없음
+
+### 배경
+- Chunk A(스키마) + Chunk B(lib) 만으로는 사용자 인터페이스에서 "전시 시뮬레이션" 진입점이 보이지 않음. Chunk C 는 **콜렉터 space-first + 큐레이터 shortlist-first** 두 흐름을 모두 지원하는 UI 를 랜딩.
+- 브리프 대로 "shortlist 를 먼저 만들어야 시뮬레이션이 가능한" 진입장벽을 낮추고, **작품 상세 → "내 공간에서 보기"** 1탭 시퀀스를 우선 시퀀스로.
+
+### UI 랜딩 (14개 파일 신설/수정)
+- **사이드바 / 모바일 햄버거**
+ - `src/lib/shell/navConfig.ts` — "spaces" NavItem 을 Saved 옆에 (Saved / My Spaces / Delegations).
+ - `src/components/shell/HamburgerContextPeek.tsx` — 모바일 메뉴에 "내 공간" 프리뷰 행.
+ - `src/lib/i18n/messages.ts` — `sidebar.spaces`, `nav.peek.spacesActive/Idle`, `simulation.*` 네임스페이스 (EN/KO 전량).
+- **`/my/spaces` (리스트)**
+ - `src/app/my/spaces/layout.tsx` — `AppShell` 래퍼 (right rail 없음).
+ - `src/app/my/spaces/page.tsx` — 그리드 리스트 + 카운터 + share/edit 액션 + entitlement UX.
+ - `src/components/simulation/CreateSpaceDialog.tsx` — 재사용 가능한 생성 다이얼로그.
+ - `src/components/simulation/SimulationPaywallCard.tsx` — `simulation.2d` / `simulation.2d.export` 페이월 CTA.
+ - `src/components/simulation/spacePhotoUrl.ts` — 저장 경로 → public URL 헬퍼.
+- **`/my/spaces/[id]` (에디터)**
+ - `src/app/my/spaces/[id]/page.tsx` — client route (`useParams` + `SpaceEditor`), 서버 클라이언트가 없어 shortlist 편집 페이지와 동일한 pattern.
+ - `src/components/simulation/SpaceEditor.tsx` — 캔버스 오버레이 + 인스펙터 + 벽 캘리브레이션 (`PerspectiveCornerPicker` 재사용) + 작품 피커 + 스냅 가이드 (3cm 톨러런스, 눈높이 150cm) + drag + 400ms debounce 저장 + undo/redo (20슬롯 in-memory) + 사진 업로드/교체 + share/export 헤더.
+ - `src/components/simulation/ArtworkPickerSheet.tsx` — Saved / Recent / Search 탭, `work_form='flat_2d'` 필터.
+- **CTA**
+ - `src/components/simulation/SeeInMySpaceCta.tsx` — 아트워크 상세용 3-상태 CTA (anon / 0-space / N-space).
+ - `src/components/simulation/HangShortlistInSpaceCta.tsx` — 보드용 CTA (`createSpaceFromShortlist`).
+ - `src/app/artwork/[id]/page.tsx` — Like/Save 옆에 CTA 삽입, `work_form='flat_2d'` 게이트.
+ - `src/app/my/shortlists/[id]/page.tsx` — 헤더 아래에 CTA 삽입.
+- **공개 공유**
+ - `src/app/space/[token]/page.tsx` — 읽기 전용 뷰, `renderScene2D` 재사용, Theo 크레딧 푸터.
+
+### 후속 수정 (Chunk C 워커가 flag 한 2건 즉시 픽스)
+
+**1. 익명 공유 RPC (`supabase/migrations/20260818100000_space_share_rpc.sql`)**
+- 문제: Chunk B 가 `spaces` / `space_surfaces` / `space_placements` RLS 를 `to authenticated USING (owner_id = auth.uid())` 로 닫아둬서 `/space/[token]` anon 뷰어는 빈 결과만 받음 — 공유 링크 자체가 동작하지 않는 상태.
+- 검토: 순진하게 `to anon USING (share_token IS NOT NULL AND is_active AND ...)` 정책 추가는 anon 이 `SELECT share_token FROM spaces WHERE is_active` 로 **모든 활성 share_token 을 enumerate 가능** → "토큰=시크릿" 모델 붕괴. ❌
+- 채택: **SECURITY DEFINER RPC `get_space_by_share_token(_token uuid) → jsonb`** 로 challenge-response 만 허용. 테이블은 anon 에 여전히 닫혀 있고, anon 은 정확한 UUID 를 제시해야만 payload 를 받음. 게이팅 (`is_active` + `expires_at`) + `visibility='public'` 아트웍 필터도 RPC 내부로 이동.
+- payload shape 은 기존 embedded-select 응답을 그대로 유지 (`space_row.space_surfaces` / `space_row.space_placements`) → 클라이언트는 기존 `rowToSceneSpace` / `rowToArtworkThumb` deserializer 그대로 재사용, 별도 브랜치 없음.
+- `src/lib/supabase/spaces.ts:getSpaceByShareToken` → `.from('spaces').select(...)` 을 `.rpc('get_space_by_share_token', { _token })` 으로 교체. `fetchArtworkThumbs`/`PUBLIC_ARTWORK_SELECT` 는 `getSpaceById` 가 계속 사용해서 dead code 없음.
+- Grants: `revoke all from public` + `grant execute to anon, authenticated, service_role` (least-privilege 패턴; `is_space_owner` 와 다르게 이번엔 처음부터 명시).
+
+**2. `Artwork` 타입에 `work_form` + 치수 컬럼 추가 (`src/lib/supabase/artworks.ts`)**
+- 문제: Chunk A 마이그가 DB 에는 `work_form/width_cm/height_cm/depth_cm/dims_confirmed_at` 을 추가했지만, `Artwork` TS 타입에는 아직 없어서 Chunk C 워커가 `(artwork as unknown as { work_form?: string })` 캐스트로 우회.
+- 픽스: `Artwork` 타입에 5개 필드 추가 + `ARTWORK_SELECT` 상수 + `getArtworkById` 인라인 SELECT 두 곳 모두 `work_form, width_cm, height_cm, depth_cm, dims_confirmed_at` 추가.
+- `src/app/artwork/[id]/page.tsx` — `as unknown` 캐스트 5개 제거, 자연스러운 `artwork.work_form` 접근으로.
+- Chunk A default 가 `flat_2d` 라서 legacy 로우도 자동 opt-in.
+
+### UX decisions (Chunk C 워커 원본 결정, 배경 참고)
+- **에디터는 client component**: `getSpaceById` 는 브라우저 세션 RLS 필요. 서버 쿠키 클라이언트 부재로 shortlist 페이지와 동일 패턴 (`AuthGate` 진입).
+- **snap tolerance 3cm, eye-level 150cm** (미술관 관습). **기본 벽 400×260cm fallback** (첫 작품이 화면 밖으로 새지 않게).
+- **회전 slider ±45°** (스캇 액자용). **undo/redo 20슬롯** (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z, Delete/Backspace).
+- **드래그 시 cm 좌표는 pxPerCm 근사값** (완전 역-homography 는 P1 범위 밖; 눈높이 근처 사진에선 오차 인지 불가).
+- **모바일 시트**: sm 이하 bottom-drawer / sm 이상 중앙 다이얼로그 (기존 fixed-inset 패턴 재사용).
+
+### 알려진 지연 항목 (P1.5 백로그)
+- **PDF export / 캔버스 스냅샷 렌더**: `exportSpace` 는 현재 share_token URL 만 반환. 실제 이미지 다운로드는 별도 워커/edge function 필요.
+- **`/space/[token]` 의 `generateMetadata`** (og:image): 서버 클라이언트 + 렌더 서비스 필요. RLS 는 이번 (15) 에서 해결됐으니 후속에서 metadata 만 추가하면 됨.
+- **HEIC 디코드**: 브라우저 native 위임 (`compressArtworkImage` 처리). Safari 이외 별도 대응.
+- **터치/태블릿 스냅 미리보기 fine-tune**: pointer events 는 정상, 손가락 미리보기 폴리싱 미완.
+- **placement 좌우 엣지 정렬**: `snapHints` 는 `siblingCenterX` 만. 좌우 엣지 정렬은 P1.5.
+- **`?see_in_space=1` post-sign-in 자동 fire**: 코드는 있으나 hydrate 타이밍 스모크 테스트 필요.
+- **작품 피커 "최근 본 작품"**: 실제 view-tracking 없어 `listPublicArtworks({sort:'latest'})` 로 대체. P1.5 에서 view-tracking 도입 시 교체.
+- **0-space 온보딩 시 `?focus=latest` 자동 selection**: 인서트 시점에 placement id 를 클라가 모름 → 즉시 편집 진입은 되지만 자동 selection 은 P1.5.
+
+### Verified
+- MCP `apply_migration` (20260818100000_space_share_rpc): `{ success: true }`.
+- `execute_sql` spot-check: `security_definer=true`, `args='_token uuid'`, `returns=jsonb`, grants `[anon:EXECUTE, authenticated:EXECUTE, postgres:EXECUTE, service_role:EXECUTE]`. 임의 UUID 로 호출 시 `null` 반환. `spaces` 활성 row 가 아직 없어 실제 payload spot-check 는 첫 유저 space 이후로 defer (RPC 로직은 `getSpaceById` 와 동일 SELECT 를 SQL 로 옮긴 것이라 shape 확실).
+- `get_advisors(type='security')`: 새 WARN 2건 — `anon_security_definer_function_executable` + `authenticated_security_definer_function_executable`. **의도적 노출** (share view 자체가 anon 이 SECURITY DEFINER RPC 를 호출하는 게 존재 이유). 다른 SECURITY DEFINER 헬퍼(`is_space_owner`, `lookup_profile_by_username` 등)와 동일한 정상 어드바이저 패턴. False-positive 로 문서화.
+- `npx tsc --noEmit` — exit 0.
+- `ReadLints` on 새로 추가/수정된 파일 — no errors.
+- 남아있는 lint 경고 (5건, `useEffect` deps 등)는 모두 pre-existing (Chunk C 이전에도 존재). 이번 패치가 신규 도입하지 않음.
+
 ## 2026-08-17 (14) — 이중언어(KO/EN) RPC 반환 columns patch
 
 > Supabase SQL 적용함: MCP `apply_migration` 으로 7개 마이그레이션을 순서대로 원격에 apply (모두 additive). 로컬 파일: `supabase/migrations/2026081803000{0..9}_bilingual_rpc_*.sql` (6개) + `20260818090000_search_people_with_external_maincast_fix.sql`. · 환경 변수 변경 없음

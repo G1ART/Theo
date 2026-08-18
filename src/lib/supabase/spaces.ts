@@ -307,17 +307,22 @@ export async function getSpaceById(
 }
 
 /**
- * Server-only: fetch a scene by its opaque share token, gated to
- * `is_active = true` AND (`expires_at IS NULL OR expires_at > now()`).
+ * Fetch a scene by its opaque share token. Works for both anonymous
+ * and authenticated callers.
  *
- * Public shares are read-only. Artwork thumbnails are filtered to
- * `visibility = 'public'` so an artist who later hides / deletes a
- * work never has private data leaked via a stale share link. The
- * placement row itself is still returned so the viewer can see "this
- * artwork is no longer available" if the UI chooses.
+ * Backed by the `public.get_space_by_share_token(uuid)` SECURITY
+ * DEFINER RPC (migration `20260818100000_space_share_rpc.sql`) —
+ * the `spaces` / `space_surfaces` / `space_placements` tables are
+ * closed to anon RLS to prevent share_token enumeration, so we
+ * pivot on a challenge-response function that requires the caller
+ * to already know the token.
  *
- * Do NOT re-export this from a client-only module. Chunk C's
- * `/space/[token]` route must call it from a server component.
+ * Gating (`is_active = true` AND `expires_at IS NULL OR expires_at
+ * > now()`) and artwork public-only filtering both live inside the
+ * RPC; the client just deserializes the payload with the same
+ * `rowToSceneSpace` / `rowToArtworkThumb` helpers as `getSpaceById`.
+ * The placement row itself is still returned so the UI can say
+ * "this artwork is no longer available" if the join drops.
  */
 export async function getSpaceByShareToken(
   token: string,
@@ -325,25 +330,21 @@ export async function getSpaceByShareToken(
 ): Promise<{ data: SpaceScene | null; error: unknown }> {
   const client = options.client ?? defaultClient;
   const locale = options.locale ?? "en";
-  const nowIso = new Date().toISOString();
-  const { data, error } = await client
-    .from("spaces")
-    .select(SPACE_SELECT)
-    .eq("share_token", token)
-    .eq("is_active", true)
-    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-    .maybeSingle();
+  const { data, error } = await client.rpc("get_space_by_share_token", {
+    _token: token,
+  });
   if (error) return { data: null, error };
-  if (!data) return { data: null, error: null };
-  const space = rowToSceneSpace(data as Record<string, unknown>);
-  const artworkIds = space.placements.map((p) => p.artworkId);
-  const artworks = await fetchArtworkThumbs(
-    client,
-    artworkIds,
-    PUBLIC_ARTWORK_SELECT,
-    locale,
-    /* publicOnly */ true,
-  );
+  if (data == null) return { data: null, error: null };
+  const payload = data as {
+    space_row?: Record<string, unknown> | null;
+    artwork_rows?: RawArtworkRow[] | null;
+  };
+  if (!payload.space_row) return { data: null, error: null };
+  const space = rowToSceneSpace(payload.space_row);
+  const artworks = new Map<string, ArtworkThumbForScene>();
+  for (const row of payload.artwork_rows ?? []) {
+    artworks.set(row.id, rowToArtworkThumb(row, locale));
+  }
   return { data: { space, artworks }, error: null };
 }
 

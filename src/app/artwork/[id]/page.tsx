@@ -63,6 +63,7 @@ import { ownershipStatusLabel } from "@/lib/artworks/labels";
 import { formatSizeForLocale } from "@/lib/size/format";
 import { useSizeUnitPref } from "@/lib/size/preference";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
+import { SeeInMySpaceCta } from "@/components/simulation/SeeInMySpaceCta";
 import { formatIdentityPair, formatRoleChips } from "@/lib/identity/format";
 import { InquiryReplyAssist } from "@/components/ai/InquiryReplyAssist";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
@@ -1232,7 +1233,7 @@ function ArtworkDetailContent() {
                 )}
               </div>
             )}
-            <div className="mt-2 flex items-center gap-3">
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <LikeButton
                 artworkId={artwork.id}
                 likesCount={Number(artwork.likes_count) || 0}
@@ -1254,6 +1255,30 @@ function ArtworkDetailContent() {
                   {t("boards.save.cta")}
                 </button>
               )}
+              {/*
+                2026-08-17 (14) Chunk C — "내 공간에서 보기" CTA.
+                Rendered inline with the like/save cluster so the
+                collector flow (see a work → hang it) is discoverable
+                without a hunt. Only flat 2D works surface this CTA; 3D /
+                installation / time-based works skip it entirely per
+                brief. `work_form` defaults to `flat_2d` at the DB level
+                (Chunk A migration), so legacy rows opt in automatically.
+              */}
+              {(() => {
+                if ((artwork.work_form ?? "flat_2d") !== "flat_2d") return null;
+                return (
+                  <SeeInMySpaceCta
+                    artwork={{
+                      id: artwork.id,
+                      widthCm: artwork.width_cm ?? null,
+                      heightCm: artwork.height_cm ?? null,
+                      depthCm: artwork.depth_cm ?? null,
+                    }}
+                    userId={userId}
+                    sessionChecked={sessionChecked}
+                  />
+                );
+              })()}
             </div>
             {/* Feed-first cold front door: anonymous visitors see the image
                 + public metadata above, then this inline gate consolidates

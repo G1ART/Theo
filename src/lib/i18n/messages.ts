@@ -40,6 +40,13 @@ export const messages = {
     // Feed-first cold front door (2026-08-07) — anonymous app-shell CTA
     // and the reusable inline auth gate ("Join now to explore more").
     "nav.getStarted": "Get started",
+    // 2026-08-17 (14) Chunk C — top-level sidebar entry mirroring
+    // "Saved". Kept under a `sidebar.*` namespace (not `nav.*`) to
+    // match the brief and keep it grep-able alongside future
+    // workspace-first surfaces.
+    "sidebar.spaces": "My Spaces",
+    "nav.peek.spacesActive": "{n} rooms ready to hang",
+    "nav.peek.spacesIdle": "Upload one photo, try any work",
     "authGate.title": "Join now to explore more",
     "authGate.description":
       "Sign up to view full profiles, save works, follow artists, and send inquiries.",
@@ -3845,6 +3852,132 @@ export const messages = {
     "network.peopleSearch.noResultsInvite": "Invite them to Theo →",
     "network.peopleSearch.loadMore": "Show 24 more",
     "network.peopleSearch.exhausted": "That's all the search results",
+
+    // ── 2026-08-17 (14) — P1 Display / Hang Simulation (Chunk C) ──
+    // "See it on my wall" is a space-first workflow: the user
+    // uploads a room photo once, then any artwork can be tried on
+    // that wall in one tap. All copy stays outside `nav.*` because
+    // the surface is a workspace concept (like Saved), not a
+    // navigation slot.
+    "simulation.list.title": "My Spaces",
+    "simulation.list.subtitle":
+      "Upload one photo of your wall — then try any artwork on it in a tap.",
+    "simulation.list.createCta": "+ New space",
+    "simulation.list.counter": "{used}/{limit} spaces used",
+    "simulation.list.counterUnlimited": "{used} spaces",
+    "simulation.list.updatedRelative": "Updated {when}",
+    "simulation.list.empty.title": "Set up your first space",
+    "simulation.list.empty.body":
+      "Upload one room photo and any artwork becomes a one-tap try-on.",
+    "simulation.list.share.copy": "Share",
+    "simulation.list.share.copied": "Link copied",
+    "simulation.list.edit": "Edit",
+    "simulation.list.thumbAlt": "Room photo for {title}",
+
+    "simulation.create.title": "New space",
+    "simulation.create.titleLabel": "Space name",
+    "simulation.create.titlePlaceholder": "Living room, north wall…",
+    "simulation.create.photoLabel": "Room photo",
+    "simulation.create.photoHint":
+      "JPEG / PNG / WebP. Wide, straight-on shots work best.",
+    "simulation.create.photoPick": "Choose photo",
+    "simulation.create.photoReplace": "Replace",
+    "simulation.create.submit": "Create space",
+    "simulation.create.submitting": "Creating…",
+    "simulation.create.cancel": "Cancel",
+    "simulation.create.errorTitle": "Give your space a name.",
+    "simulation.create.errorPhoto": "Add a room photo to continue.",
+    "simulation.create.errorMime":
+      "Unsupported image format. Use JPEG, PNG, or WebP.",
+    "simulation.create.errorGeneric": "Couldn't create the space. Try again.",
+
+    "simulation.paywall.title": "You've reached your space limit.",
+    "simulation.paywall.body":
+      "Upgrade to keep hanging works on new walls.",
+    "simulation.paywall.cta": "See plans",
+    "simulation.paywall.export.title": "Sharing simulations is a Pro feature.",
+    "simulation.paywall.export.body":
+      "Upgrade to share your simulations or export them as an image.",
+
+    "simulation.editor.back": "My Spaces",
+    "simulation.editor.saving": "Saving…",
+    "simulation.editor.saved": "Saved",
+    "simulation.editor.saveFailed": "Couldn't save changes.",
+    "simulation.editor.titlePlaceholder": "Untitled space",
+    "simulation.editor.share": "Share",
+    "simulation.editor.share.copied": "Link copied",
+    "simulation.editor.export": "Export",
+    "simulation.editor.exportBusy": "Preparing…",
+    "simulation.editor.needsPhoto":
+      "Upload a room photo to start hanging works.",
+    "simulation.editor.uploadPhoto": "Upload photo",
+    "simulation.editor.replacePhoto": "Replace photo",
+    "simulation.editor.addArtwork": "+ Add artwork",
+    "simulation.editor.emptyCanvas":
+      "Nothing on the wall yet — pick an artwork to hang.",
+    "simulation.editor.locked":
+      "This space is over your plan's limit. Existing works stay visible.",
+
+    "simulation.inspector.selection": "Selected work",
+    "simulation.inspector.dimensions": "Dimensions",
+    "simulation.inspector.width": "Width",
+    "simulation.inspector.height": "Height",
+    "simulation.inspector.rotation": "Rotation",
+    "simulation.inspector.remove": "Remove from wall",
+    "simulation.inspector.unit": "Units",
+    "simulation.inspector.unit.cm": "cm",
+    "simulation.inspector.unit.in": "in",
+    "simulation.inspector.selectHint": "Tap a work on the wall to edit it.",
+
+    "simulation.wall.title": "Wall calibration",
+    "simulation.wall.widthCm": "Wall width (cm)",
+    "simulation.wall.heightCm": "Wall height (cm)",
+    "simulation.wall.editCorners": "Adjust photo corners",
+    "simulation.wall.closeCorners": "Done",
+    "simulation.wall.cornersHint":
+      "Drag each dot to the corners of the wall in the photo.",
+
+    "simulation.picker.title": "Add an artwork",
+    "simulation.picker.tab.saved": "Saved",
+    "simulation.picker.tab.recent": "Recent",
+    "simulation.picker.tab.search": "Search",
+    "simulation.picker.searchPlaceholder": "Search by title or artist",
+    "simulation.picker.empty": "Nothing here yet.",
+    "simulation.picker.filterHint":
+      "3D sculpture and installation coming soon — only flat works can hang here for now.",
+    "simulation.picker.add": "Add to wall",
+    "simulation.picker.close": "Close",
+
+    "simulation.snap.eyeLevel": "Eye level · 150 cm",
+    "simulation.snap.center": "Center",
+    "simulation.snap.align": "Aligned",
+
+    "simulation.artworkCta.title": "See in my space",
+    "simulation.artworkCta.subtitleZero":
+      "Upload a room photo — we'll hang it right away.",
+    "simulation.artworkCta.subtitle": "Pick a space to try this work on.",
+    "simulation.artworkCta.notFlat":
+      "3D and time-based works can't be hung on a 2D wall yet.",
+    "simulation.artworkCta.newSpace": "+ New space",
+    "simulation.artworkCta.open": "Open",
+
+    "simulation.shortlist.cta": "Hang this board in a space",
+    "simulation.shortlist.ctaHint":
+      "Seeds a new space with every flat work on this board.",
+    "simulation.shortlist.creating": "Setting up your space…",
+    "simulation.shortlist.failed": "Couldn't seed a space from this board.",
+
+    "simulation.share.footer": "Theo · {title}",
+    "simulation.share.metaTitle": "Theo · {title}",
+    "simulation.share.notFound": "This space isn't available.",
+
+    "simulation.errors.entitlement":
+      "Your current plan doesn't cover this action.",
+    "simulation.errors.entitlementExport":
+      "Sharing simulations isn't available on your current plan.",
+    "simulation.errors.uploadFailed": "Couldn't upload that photo.",
+    "simulation.errors.notFound": "This space no longer exists.",
+    "simulation.errors.generic": "Something went wrong. Try again.",
   },
   ko: {
     "nav.feed": "피드",
@@ -3871,6 +4004,9 @@ export const messages = {
     "nav.delegations": "위임",
     "nav.viewMyPublicProfile": "내 공개 프로필 보기",
     "nav.getStarted": "시작하기",
+    "sidebar.spaces": "내 공간",
+    "nav.peek.spacesActive": "저장된 공간 {n}개",
+    "nav.peek.spacesIdle": "공간 사진 하나로 어떤 작품이든 걸어봐요",
     "authGate.title": "더 둘러보려면 지금 가입하세요",
     "authGate.description":
       "가입하면 전체 프로필 보기, 작품 저장, 작가 팔로우, 문의 보내기를 이용할 수 있어요.",
@@ -7649,6 +7785,127 @@ export const messages = {
       "찾으시는 분이 아직 Theo에 없다면 초대해 보세요 →",
     "network.peopleSearch.loadMore": "24명 더 보기",
     "network.peopleSearch.exhausted": "검색 결과가 여기까지예요",
+
+    // ── 2026-08-17 (14) — P1 전시 시뮬레이션 (Chunk C) ──
+    "simulation.list.title": "내 공간",
+    "simulation.list.subtitle":
+      "공간 사진을 하나 올려두면 어떤 작품이든 1탭으로 걸어볼 수 있어요.",
+    "simulation.list.createCta": "+ 새 공간",
+    "simulation.list.counter": "{used}/{limit} 공간 사용 중",
+    "simulation.list.counterUnlimited": "{used}개 사용 중",
+    "simulation.list.updatedRelative": "업데이트 · {when}",
+    "simulation.list.empty.title": "첫 공간을 만들어보세요",
+    "simulation.list.empty.body":
+      "공간 사진을 하나 올려두면 어떤 작품이든 1탭으로 걸어볼 수 있어요.",
+    "simulation.list.share.copy": "공유",
+    "simulation.list.share.copied": "링크 복사됨",
+    "simulation.list.edit": "편집",
+    "simulation.list.thumbAlt": "{title} 공간 사진",
+
+    "simulation.create.title": "새 공간",
+    "simulation.create.titleLabel": "공간 이름",
+    "simulation.create.titlePlaceholder": "거실 북쪽 벽…",
+    "simulation.create.photoLabel": "공간 사진",
+    "simulation.create.photoHint":
+      "JPEG · PNG · WebP. 벽면을 정면에서 넓게 담은 사진이 좋아요.",
+    "simulation.create.photoPick": "사진 선택",
+    "simulation.create.photoReplace": "다시 선택",
+    "simulation.create.submit": "공간 만들기",
+    "simulation.create.submitting": "만드는 중…",
+    "simulation.create.cancel": "취소",
+    "simulation.create.errorTitle": "공간 이름을 입력해 주세요.",
+    "simulation.create.errorPhoto": "공간 사진을 하나 골라 주세요.",
+    "simulation.create.errorMime":
+      "지원하지 않는 형식이에요. JPEG · PNG · WebP 로 올려주세요.",
+    "simulation.create.errorGeneric": "공간을 만들지 못했어요. 다시 시도해 주세요.",
+
+    "simulation.paywall.title": "무료 공간 한도에 도달했어요.",
+    "simulation.paywall.body":
+      "플랜을 업그레이드하면 더 많은 벽에 작품을 걸 수 있어요.",
+    "simulation.paywall.cta": "플랜 보기",
+    "simulation.paywall.export.title": "시뮬레이션 공유는 유료 기능이에요.",
+    "simulation.paywall.export.body":
+      "업그레이드하면 시뮬레이션을 공유하거나 이미지로 내보낼 수 있어요.",
+
+    "simulation.editor.back": "내 공간",
+    "simulation.editor.saving": "저장 중…",
+    "simulation.editor.saved": "저장됨",
+    "simulation.editor.saveFailed": "변경사항을 저장하지 못했어요.",
+    "simulation.editor.titlePlaceholder": "이름 없는 공간",
+    "simulation.editor.share": "공유",
+    "simulation.editor.share.copied": "링크 복사됨",
+    "simulation.editor.export": "내보내기",
+    "simulation.editor.exportBusy": "준비 중…",
+    "simulation.editor.needsPhoto":
+      "먼저 공간 사진을 올려주세요.",
+    "simulation.editor.uploadPhoto": "사진 올리기",
+    "simulation.editor.replacePhoto": "사진 교체",
+    "simulation.editor.addArtwork": "+ 작품 추가",
+    "simulation.editor.emptyCanvas":
+      "아직 벽에 걸린 작품이 없어요 — 아래에서 작품을 골라보세요.",
+    "simulation.editor.locked":
+      "현재 플랜 한도를 초과한 공간이에요. 이미 걸린 작품은 그대로 볼 수 있어요.",
+
+    "simulation.inspector.selection": "선택한 작품",
+    "simulation.inspector.dimensions": "크기",
+    "simulation.inspector.width": "가로",
+    "simulation.inspector.height": "세로",
+    "simulation.inspector.rotation": "기울기",
+    "simulation.inspector.remove": "벽에서 내리기",
+    "simulation.inspector.unit": "단위",
+    "simulation.inspector.unit.cm": "cm",
+    "simulation.inspector.unit.in": "in",
+    "simulation.inspector.selectHint": "벽에 걸린 작품을 눌러 편집해 보세요.",
+
+    "simulation.wall.title": "벽 보정",
+    "simulation.wall.widthCm": "벽 가로 (cm)",
+    "simulation.wall.heightCm": "벽 세로 (cm)",
+    "simulation.wall.editCorners": "사진 모서리 조정",
+    "simulation.wall.closeCorners": "완료",
+    "simulation.wall.cornersHint":
+      "네 모서리를 사진 속 벽면의 모서리에 맞춰 드래그하세요.",
+
+    "simulation.picker.title": "작품 추가",
+    "simulation.picker.tab.saved": "내 저장",
+    "simulation.picker.tab.recent": "최근 본 작품",
+    "simulation.picker.tab.search": "검색",
+    "simulation.picker.searchPlaceholder": "작품 제목 · 작가 이름으로 검색",
+    "simulation.picker.empty": "아직 없어요.",
+    "simulation.picker.filterHint":
+      "3D 시뮬은 곧 제공됩니다. 지금은 평면 작품만 걸어볼 수 있어요.",
+    "simulation.picker.add": "벽에 걸기",
+    "simulation.picker.close": "닫기",
+
+    "simulation.snap.eyeLevel": "눈높이 · 150 cm",
+    "simulation.snap.center": "중앙 정렬",
+    "simulation.snap.align": "정렬됨",
+
+    "simulation.artworkCta.title": "내 공간에서 보기",
+    "simulation.artworkCta.subtitleZero":
+      "공간 사진 하나만 올려도 바로 걸어볼 수 있어요.",
+    "simulation.artworkCta.subtitle": "어느 공간에 걸어볼지 골라주세요.",
+    "simulation.artworkCta.notFlat":
+      "3D · 영상 작품은 아직 평면 벽에 걸어볼 수 없어요.",
+    "simulation.artworkCta.newSpace": "+ 새 공간",
+    "simulation.artworkCta.open": "열기",
+
+    "simulation.shortlist.cta": "이 보드를 공간에 걸어보기",
+    "simulation.shortlist.ctaHint":
+      "보드의 평면 작품들을 담아 새 공간을 만들어요.",
+    "simulation.shortlist.creating": "공간을 만드는 중…",
+    "simulation.shortlist.failed": "보드에서 공간을 만들지 못했어요.",
+
+    "simulation.share.footer": "Theo · {title}",
+    "simulation.share.metaTitle": "Theo · {title}",
+    "simulation.share.notFound": "이 공간은 표시할 수 없어요.",
+
+    "simulation.errors.entitlement":
+      "현재 플랜에서 사용할 수 없는 기능이에요.",
+    "simulation.errors.entitlementExport":
+      "공유 · 내보내기는 현재 플랜에서 사용할 수 없어요.",
+    "simulation.errors.uploadFailed": "사진을 업로드하지 못했어요.",
+    "simulation.errors.notFound": "이 공간을 찾을 수 없어요.",
+    "simulation.errors.generic": "문제가 발생했어요. 다시 시도해 주세요.",
   },
 } as const;
 

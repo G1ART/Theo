@@ -158,6 +158,24 @@ export type Artwork = {
   size: string | null;
   /** 사용자 입력 단위 보존: 'cm' | 'in' | null (null = 기존/호수 등) */
   size_unit?: "cm" | "in" | null;
+  /**
+   * 2026-08-17 Chunk A — display simulation dimensionality.
+   * `work_form` gates 2D-only surfaces (hang simulator CTA, etc.).
+   * `width_cm/height_cm/depth_cm` are structured mirrors of `size` used
+   * for to-scale rendering. `dims_confirmed_at` marks explicit user
+   * confirmation (vs. auto-parsed from the free-text `size`).
+   */
+  work_form?:
+    | "flat_2d"
+    | "relief"
+    | "sculpture_3d"
+    | "installation"
+    | "time_based"
+    | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  depth_cm?: number | null;
+  dims_confirmed_at?: string | null;
   story: string | null;
   story_ko?: string | null;
   story_en?: string | null;
@@ -481,6 +499,11 @@ const ARTWORK_SELECT = `
   medium_en,
   size,
   size_unit,
+  work_form,
+  width_cm,
+  height_cm,
+  depth_cm,
+  dims_confirmed_at,
   story,
   story_ko,
   story_en,
@@ -1265,6 +1288,11 @@ export async function getArtworkById(
       medium_en,
       size,
       size_unit,
+      work_form,
+      width_cm,
+      height_cm,
+      depth_cm,
+      dims_confirmed_at,
       story,
       story_ko,
       story_en,

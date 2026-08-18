@@ -70,6 +70,18 @@ export const PRIMARY_NAV: NavItem[] = [
     gated: true,
   },
   {
+    // 2026-08-17 (14) — Chunk C: top-level workspace surface for the
+    // Display / Hang Simulation. Positioned as a sibling of "Saved" so
+    // collectors treat spaces the same way they treat boards. The
+    // label + i18n key mirrors Saved's pattern; the route hosts both
+    // the list (`/my/spaces`) and editor (`/my/spaces/[id]`).
+    key: "spaces",
+    href: "/my/spaces",
+    labelKey: "sidebar.spaces",
+    matchPatterns: ["/my/spaces"],
+    gated: true,
+  },
+  {
     key: "upload",
     href: "/upload",
     labelKey: "nav.upload",

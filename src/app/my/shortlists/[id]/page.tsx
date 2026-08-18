@@ -35,6 +35,7 @@ import {
   type ShortlistCollaboratorRow,
 } from "@/lib/supabase/shortlists";
 import { RoomVisibilityPill } from "@/components/visibility/RoomVisibilityPill";
+import { HangShortlistInSpaceCta } from "@/components/simulation/HangShortlistInSpaceCta";
 
 function ShortlistDetailContent() {
   const { t, locale } = useT();
@@ -221,6 +222,22 @@ function ShortlistDetailContent() {
             </Link>
           </div>
         </div>
+      )}
+
+      {/*
+        2026-08-17 (14) Chunk C — "이 보드를 공간에 걸어보기" CTA.
+        Sits directly under the header, above the "Promote to
+        exhibition" affordance, so curators and collectors see the
+        space seed action right where they pivot from board → next
+        step. Filters to artwork-bearing shortlists; the CTA hides
+        entirely on empty boards.
+      */}
+      {items.some((i) => Boolean(i.artwork_id)) && (
+        <HangShortlistInSpaceCta
+          shortlistId={id}
+          shortlistTitle={shortlist.title}
+          hasFlatArtworks={items.some((i) => Boolean(i.artwork_id))}
+        />
       )}
 
       {/* Promote to exhibition post */}
