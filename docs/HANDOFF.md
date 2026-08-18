@@ -2,6 +2,37 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (11) — 전시 시뮬레이션 P1 lib 레이어 (Chunk B)
+
+> Supabase SQL 돌려야 할 것은 없음 (Chunk A 스키마 활용) · 환경 변수 변경 없음
+
+### 변경 요약 (Chunk B — Scene 모델 + 2D 렌더러 + spaces CRUD)
+- **`src/lib/simulation/scene.ts`** — Chunk A DB 3테이블(`spaces`/`space_surfaces`/`space_placements`)의 정본 TS 미러 + Insert/Update 변형 + snake↔camel 매퍼(`rowToSceneSpace`, `sceneSpaceInsertToRow`, …) + `ArtworkThumbForScene` + zod-호환 validator surface. (scene.ts 자체는 앞서 [e3b80be](https://github.com/G1ART/Theo/commit/e3b80be) 에 실수로 딸려 들어감 — 나머지 4개 lib 파일이 이번 커밋.)
+- **`src/lib/simulation/transforms.ts`** — 순수 지오메트리: `cmToPx`/`pxToCm`, `photoCornersToPx`, `computeSurfacePxScale`(상단 edge 기반 pxPerCm, fallback 1), `computeSurfaceLocalPx`, `surfaceLocalToImageHomography`, `placementLocalCorners`(placement 중심을 pivot 으로 `rot_z_deg` 회전), `placementRectInPhotoPx`(투영된 이미지 space 4-corner), `placementCanvasCssTransform`(`matrix3d` + `widthPx`/`heightPx` for DOM overlays), `homographyToCssMatrix3d`.
+- **`src/lib/simulation/renderer2d.ts`** — `renderScene2D(space, imagePxSize, artworkThumbs)` → z_order 정렬된 `Array<{ placement, artwork, surface, css: { matrix3d, widthPx, heightPx, zIndex } }>`. Chunk C 편집기·공유뷰 공통 소비.
+- **`src/lib/simulation/storage.ts`** — `uploadSpacePhoto(spaceId, file)`: 기존 `compressArtworkImage`(maxLongEdge 2048, q 0.85, WebP) 재사용, **기존 `artworks` 버킷** 재사용(`{userId}/spaces/{spaceId}/photo{,_original}.<ext>` — `can_manage_artworks_storage_path` RLS 가 첫 세그먼트 `auth.uid()` 룰이라 owner-scoped write + public read 그대로). `spaces` row 에 photo_* 컬럼 패치. `SpacePhotoValidationError` export.
+- **`src/lib/supabase/spaces.ts`** — RLS-safe CRUD: `listMySpaces`, `getSpaceById`, `getSpaceByShareToken`(서버 전용, `is_active=true` + `expires_at` 미래, 아트웍 썸네일은 `visibility='public'` + 최소 컬럼 화이트리스트만), `createEmptySpace`/`createSpaceFromShortlist`(`simulation.space.created` emit), `updateSpace`(soft PATCH + `updated_at` bump), `deleteSpace`(soft), `updateSurface`, `upsertPlacements`(batch onConflict=id), `deletePlacement`, `exportSpace` 스텁(엔타이틀먼트 게이팅 + `simulation.render.exported` emit + `/space/{share_token}` 반환). 모든 mutation 은 `resolveEntitlementFor` 통과 후에만 실행, 거부 시 `SimulationEntitlementError` throw.
+
+### 워커 편차·가정 (수용)
+- **Validator = zod-호환 surface, 실제 zod 미도입**: package.json 에 zod 없고 브리프가 "새 의존성 금지" 라서 `parse`/`safeParse` API 만 흉내낸 자체 `SceneSchema<T>` 로 구현. 향후 zod 도입 시 1-line 스왑.
+- **룸 포토는 WebP**: 브리프는 JPEG 라고 했지만 재사용한 `compressArtworkImage` 는 프로젝트 컨벤션대로 WebP. 품질(0.85)·롱엣지(2048)는 브리프 그대로.
+- **Placement 로컬 원점 = 중심**: DB 코멘트만으로는 중심 vs 좌상 모호. 회전축이 작품 자체 걸이점이 되도록 중심 채택. `transforms.ts` 에 명시 주석.
+- **Homography 헬퍼 실경로**: 내가 `src/lib/homography.ts` 라고 했는데 실제로는 `@/lib/image/enhancement/homography`. 워커가 후자 재사용.
+- **스토리지 버킷 = 기존 `artworks` 재사용, 새 마이그레이션 없음**. 관측성 목적으로 향후 전용 `spaces` 버킷 원하면 Chunk C 에서 마이그 추가하고 `BUCKET` 상수만 스왑.
+- **`getSpaceByShareToken` 서버 전용은 JSDoc 만으로 표기**. 물리적 `"use server"` 경계는 이 프로젝트에 없어서. Chunk C 에서 서버 컴포넌트에서만 호출. 추후 원하면 SECURITY DEFINER RPC 로 감쌀 수 있음.
+- **공유뷰 아트웍 프로젝션**: `visibility='public'` + `(id, title, title_ko, title_en, work_form, width_cm, height_cm, depth_cm, artwork_images(storage_path, sort_order, view_type))` 만. 가격·소유권·story 절대 미유출. 아티스트가 언퍼블리시하면 렌더러가 조용히 skip.
+
+### Chunk C 미완 항목
+- **UI 전부**: `/my/simulation/[id]` 편집기, `/space/[token]` 공유뷰, corner-picker 와이어링, 룸 포토 업로드 UI, 아트웍 dims 캡처 UX, `SimulationEntitlementError` 위 페이월 토스트/CTA.
+- **실제 export/render**: `exportSpace()` 는 URL + 이벤트만. 서버 캔버스 또는 client-html2canvas 로 실제 합성 이미지 생성은 Chunk C.
+- `share_token` rotation / expiry setter 헬퍼, acting-as / delegation 지원(`forProfileId` 옵션), HEIC 업로드 fallback UX.
+
+### Verified
+- `npx tsc --noEmit` clean (전체 workspace)
+- `npx eslint` on 5 chunk B 파일 clean
+- ReadLints 5파일 0 진단
+- 마이그레이션·Supabase 변경 없음 (Chunk A 활용만)
+
 ## 2026-08-17 (10) — 커뮤니티 스트립 레전드 컬러 스와치 복원
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
