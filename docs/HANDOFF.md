@@ -2,6 +2,54 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (16) — 시뮬레이션 에디터 UX: tap-to-place + "고급" 캘리브레이션 접기
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 배경
+- (15) Chunk C 랜딩 직후 사용자 피드백: 벽 4점 캘리브레이션이 **필수처럼 보여** 진입장벽. 그리고 작품이 "자동으로 벽 중앙에 놓임" 이라 콜렉터가 "여기에 걸고 싶다" 는 의도를 표현할 수 없음.
+- 실제 기존 코드는 캘리브레이션 없이도 렌더됨 (fallback 400×260cm 벽). 문제는 **인스펙터 UI 가 캘리브레이션 카드를 최상단에 노출** 해서 심리적 관문이 됐다는 것.
+- 목표: "탭 → 배치 → 드래그" 3동작으로 콜렉터 첫 배치까지 3탭, 캘리브레이션은 프로 유저 opt-in.
+
+### 변경 (2파일)
+- **`src/components/simulation/SpaceEditor.tsx`** — 244줄 순증
+ - `pendingArtwork: PickerArtwork | null` 상태 도입. 픽커에서 작품 선택 시 즉시 배치하지 않고 pending 큐잉만.
+ - `imagePxToWallCm(xImg, yImg, surface)`: 사진 픽셀 → 벽 cm 변환. 캘리브레이션 있으면 `invertHomography` 로 원근 정확 매핑, 없으면 `FALLBACK_WALL_{WIDTH,HEIGHT}_CM` 기준 linear 매핑.
+ - `handleCanvasTap`: pending 상태에서 사진 탭 시 그 지점 중심으로 placement 생성. 초기 드롭에도 `computeSnappedPosition` 적용 → eye-level/sibling snap 이 첫 배치부터 작동.
+ - 캘리브레이션 카드 → **native `<details>` 아코디언** (`simulation.wall.advancedTitle` = "정확한 스케일 (고급) / Precise scale (advanced)"). 기본 닫힘, hint 카피 `simulation.wall.advancedHint` 로 언제 켤지 안내.
+ - **사진 교체** 는 별도 소카드로 분리 (아코디언 안 아님 — 흔히 쓰는 액션이라 항상 노출).
+ - 배치 모드 chip: 캔버스 상단에 `📍 [작품 제목] · [탭하여 배치] · [취소]`. 컨테이너는 `pointer-events-none`, Cancel 버튼만 `pointer-events-auto` → 탭 이벤트가 chip 을 통과해 사진에 도달.
+ - ESC 키 추가: pending 상태만 클리어 (기존 undo/redo/delete 키 그대로).
+ - 캔버스 이미지 커서: pending 시 `crosshair`, 아닐 때 default. placement 오버레이는 기존 `grab/grabbing` 유지.
+ - 빈 캔버스 hint 카피 개선: "작품을 추가하여 시작하세요 / Add an artwork to begin".
+- **`src/lib/i18n/messages.ts`** — 5개 키 (EN + KO 각각):
+ - `simulation.editor.tapToPlace` = "원하는 위치를 눌러 배치하세요 / Tap where you want to hang it"
+ - `simulation.editor.cancelPlacement` = "취소 / Cancel"
+ - `simulation.wall.advancedTitle` = "정확한 스케일 (고급) / Precise scale (advanced)"
+ - `simulation.wall.advancedHint` = "벽 폭을 입력하면 작품이 실제 비율로 표시됩니다. / Enter wall width to render artworks at true scale."
+ - `simulation.editor.emptyCanvas` = "작품을 추가하여 시작하세요 / Add an artwork to begin" (기존 카피 교체)
+
+### UX before → after
+| | Before | After |
+| --- | --- | --- |
+| 첫 배치까지 | 업로드 → (캘리브레이션 카드가 눈에 걸림) → 픽커 → **자동 벽중앙 배치** → 원하는 위치로 드래그 | 업로드 → 픽커 → **사진 위 원하는 지점 탭** → 그 자리에 배치 |
+| 캘리브레이션 노출 | 인스펙터 최상단 카드 (필수 인상) | `<details>` 아코디언, 기본 닫힘 |
+| 정확 스케일 필요 시 | 항상 켜져 있어 오히려 방해 | 아코디언 열기 → 벽 폭 입력만으로도 스케일 정확, 4점 캘리브레이션은 그 안에 |
+| 배치 취소 | (없음) | ESC / chip 취소 pill / 다른 작품 재선택 |
+
+### 취소되지 않는 케이스 (의도)
+- pending 상태에서 **기존 placement 오버레이 탭** → pending 유지 (오버레이는 sibling 이라 클릭이 img 까지 안 옴). 스펙에 명시된 cancel 3가지(ESC / pill / 재선택) 외에는 예상 밖 취소가 없도록 함.
+
+### 지연/추후 (P1.5 백로그)
+- **핀치/드래그 리사이즈 핸들** — 이번엔 explicitly out-of-scope. 인스펙터의 width/height 숫자 입력으로 충분.
+- **캘리브레이션 없이도 원근 근사** — 사진 EXIF 초점거리 + tilt 자동감지로 벽 자동 추정하는 옵션 (P2 3D 로 넘어가면 자연스럽게 해결).
+- **탭-to-place 애니메이션** — 현재는 즉시 나타남. 살짝 페이드-in scale 트랜지션 폴리싱.
+
+### Verified
+- `npx tsc --noEmit` — exit 0.
+- `ReadLints` on 수정된 2파일 — no errors.
+- 사고 실험: (a) 미캘리브레이션 새 space 에서 탭 → linear 매핑으로 사진 대략 위치에 배치 ✓, (b) 캘리브레이션된 space 에서 탭 → 원근 역보정으로 벽 표면상 정확한 지점 ✓, (c) 드래그/undo/redo/delete/inspector 편집 무영향 ✓, (d) ESC 로 pending 만 취소, selectedId 무영향 ✓.
+
 ## 2026-08-17 (15) — 전시 시뮬레이션 P1 Chunk C: space-first UI + 익명 공유 RPC
 
 > Supabase SQL 적용함: `supabase/migrations/20260818100000_space_share_rpc.sql` (MCP `apply_migration` 성공, 사후 `get_advisors` 확인) · 환경 변수 변경 없음

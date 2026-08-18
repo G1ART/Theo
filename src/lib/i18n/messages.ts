@@ -3913,8 +3913,9 @@ export const messages = {
     "simulation.editor.uploadPhoto": "Upload photo",
     "simulation.editor.replacePhoto": "Replace photo",
     "simulation.editor.addArtwork": "+ Add artwork",
-    "simulation.editor.emptyCanvas":
-      "Nothing on the wall yet — pick an artwork to hang.",
+    "simulation.editor.emptyCanvas": "Add an artwork to begin",
+    "simulation.editor.tapToPlace": "Tap where you want to hang it",
+    "simulation.editor.cancelPlacement": "Cancel",
     "simulation.editor.locked":
       "This space is over your plan's limit. Existing works stay visible.",
 
@@ -3930,6 +3931,9 @@ export const messages = {
     "simulation.inspector.selectHint": "Tap a work on the wall to edit it.",
 
     "simulation.wall.title": "Wall calibration",
+    "simulation.wall.advancedTitle": "Precise scale (advanced)",
+    "simulation.wall.advancedHint":
+      "Enter wall width to render artworks at true scale.",
     "simulation.wall.widthCm": "Wall width (cm)",
     "simulation.wall.heightCm": "Wall height (cm)",
     "simulation.wall.editCorners": "Adjust photo corners",
@@ -7841,8 +7845,9 @@ export const messages = {
     "simulation.editor.uploadPhoto": "사진 올리기",
     "simulation.editor.replacePhoto": "사진 교체",
     "simulation.editor.addArtwork": "+ 작품 추가",
-    "simulation.editor.emptyCanvas":
-      "아직 벽에 걸린 작품이 없어요 — 아래에서 작품을 골라보세요.",
+    "simulation.editor.emptyCanvas": "작품을 추가하여 시작하세요",
+    "simulation.editor.tapToPlace": "원하는 위치를 눌러 배치하세요",
+    "simulation.editor.cancelPlacement": "취소",
     "simulation.editor.locked":
       "현재 플랜 한도를 초과한 공간이에요. 이미 걸린 작품은 그대로 볼 수 있어요.",
 
@@ -7858,6 +7863,9 @@ export const messages = {
     "simulation.inspector.selectHint": "벽에 걸린 작품을 눌러 편집해 보세요.",
 
     "simulation.wall.title": "벽 보정",
+    "simulation.wall.advancedTitle": "정확한 스케일 (고급)",
+    "simulation.wall.advancedHint":
+      "벽 폭을 입력하면 작품이 실제 비율로 표시됩니다.",
     "simulation.wall.widthCm": "벽 가로 (cm)",
     "simulation.wall.heightCm": "벽 세로 (cm)",
     "simulation.wall.editCorners": "사진 모서리 조정",

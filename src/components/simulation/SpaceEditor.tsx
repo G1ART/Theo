@@ -41,6 +41,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useT } from "@/lib/i18n/useT";
@@ -80,7 +81,10 @@ import {
   type PickerArtwork,
 } from "./ArtworkPickerSheet";
 import { SimulationPaywallCard } from "./SimulationPaywallCard";
-import { applyHomography } from "@/lib/image/enhancement/homography";
+import {
+  applyHomography,
+  invertHomography,
+} from "@/lib/image/enhancement/homography";
 
 const SNAP_TOLERANCE_CM = 3;
 const EYE_LEVEL_CM = 150;
@@ -121,6 +125,9 @@ function SpaceEditorContent({ id }: { id: string }) {
   const [saving, setSaving] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingArtwork, setPendingArtwork] = useState<PickerArtwork | null>(
+    null,
+  );
   const [cornersOpen, setCornersOpen] = useState(false);
   const [imageBox, setImageBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -517,45 +524,117 @@ function SpaceEditorContent({ id }: { id: string }) {
     [state],
   );
 
-  const handlePickArtwork = useCallback(
-    async (artwork: PickerArtwork) => {
-      if (!state) return;
-      setPickerOpen(false);
-      pushHistory();
-      const surface = state.space.surfaces[0];
-      const surfaceId = surface?.id ?? null;
+  /**
+   * Picking an artwork no longer auto-places it — we defer placement
+   * until the collector taps a location on the canvas. This keeps the
+   * "just show me where to put it" mental model that the P1 feedback
+   * called out: precision tools (wall calibration, dimensions inputs)
+   * remain available, but the primary interaction is a single tap.
+   */
+  const handlePickArtwork = useCallback((artwork: PickerArtwork) => {
+    setPickerOpen(false);
+    setPendingArtwork(artwork);
+    setSelectedId(null);
+  }, []);
+
+  /**
+   * Convert an image-pixel point into surface-local centimetres. When
+   * the surface has been calibrated (photo corners exist) we invert
+   * the surface→image homography for a perspective-correct mapping;
+   * otherwise we fall back to a linear map that treats the whole
+   * photo as the wall — matches the fallback `FALLBACK_WALL_*_CM`
+   * rendering path so first-time users get sensible placements.
+   */
+  const imagePxToWallCm = useCallback(
+    (
+      xImg: number,
+      yImg: number,
+      surface: SceneSurface | null,
+    ): { xCm: number; yCm: number } => {
       const wallW = surface?.widthCm ?? FALLBACK_WALL_WIDTH_CM;
       const wallH = surface?.heightCm ?? FALLBACK_WALL_HEIGHT_CM;
+      if (
+        surface?.photoCorners &&
+        homography &&
+        imageBox.w > 0 &&
+        imageBox.h > 0
+      ) {
+        const inverse = invertHomography(homography);
+        const localPx = inverse
+          ? applyHomography(inverse, [xImg, yImg])
+          : null;
+        if (localPx) {
+          const local = computeSurfaceLocalPx(surface, imageBox);
+          if (local.pxPerCm > 0) {
+            return {
+              xCm: localPx[0] / local.pxPerCm,
+              yCm: localPx[1] / local.pxPerCm,
+            };
+          }
+        }
+      }
+      const boxW = Math.max(imageBox.w, 1);
+      const boxH = Math.max(imageBox.h, 1);
+      return {
+        xCm: (xImg / boxW) * wallW,
+        yCm: (yImg / boxH) * wallH,
+      };
+    },
+    [homography, imageBox],
+  );
+
+  const handleCanvasTap = useCallback(
+    (e: ReactMouseEvent<HTMLImageElement>) => {
+      if (!pendingArtwork || !state || !imgRef.current) return;
+      const rect = imgRef.current.getBoundingClientRect();
+      const xImg = e.clientX - rect.left;
+      const yImg = e.clientY - rect.top;
+      const surface = state.space.surfaces[0] ?? null;
+      const surfaceId = surface?.id ?? null;
+      const { xCm: rawX, yCm: rawY } = imagePxToWallCm(xImg, yImg, surface);
       const now = new Date().toISOString();
-      const nextPlacement: ScenePlacement = {
+      const provisional: ScenePlacement = {
         id: tempId(),
         spaceId: state.space.id,
         surfaceId,
-        artworkId: artwork.id,
-        xCm: wallW / 2,
-        yCm: Math.min(EYE_LEVEL_CM, wallH - (artwork.heightCm ?? 60) / 2),
+        artworkId: pendingArtwork.id,
+        xCm: rawX,
+        yCm: rawY,
         zCm: 0,
         rotXDeg: 0,
         rotYDeg: 0,
         rotZDeg: 0,
-        widthCm: artwork.widthCm,
-        heightCm: artwork.heightCm,
-        depthCm: artwork.depthCm,
+        widthCm: pendingArtwork.widthCm,
+        heightCm: pendingArtwork.heightCm,
+        depthCm: pendingArtwork.depthCm,
         zOrder: state.space.placements.length,
         createdAt: now,
         updatedAt: now,
       };
+      // Snap the initial drop to eye-level and sibling edges so the
+      // first placement is aligned even before the user drags.
+      const { x: snappedX, y: snappedY } = computeSnappedPosition(
+        provisional,
+        rawX,
+        rawY,
+      );
+      const nextPlacement: ScenePlacement = {
+        ...provisional,
+        xCm: snappedX,
+        yCm: snappedY,
+      };
+      pushHistory();
       const artworks = new Map(state.artworks);
       const thumb: ArtworkThumbForScene = {
-        id: artwork.id,
-        title: artwork.title,
-        imageUrl: artwork.imageUrl,
-        widthCm: artwork.widthCm,
-        heightCm: artwork.heightCm,
-        depthCm: artwork.depthCm,
-        workForm: artwork.workForm,
+        id: pendingArtwork.id,
+        title: pendingArtwork.title,
+        imageUrl: pendingArtwork.imageUrl,
+        widthCm: pendingArtwork.widthCm,
+        heightCm: pendingArtwork.heightCm,
+        depthCm: pendingArtwork.depthCm,
+        workForm: pendingArtwork.workForm,
       };
-      artworks.set(artwork.id, thumb);
+      artworks.set(pendingArtwork.id, thumb);
       setState({
         space: {
           ...state.space,
@@ -565,9 +644,17 @@ function SpaceEditorContent({ id }: { id: string }) {
       });
       dirtyPlacements.current.set(nextPlacement.id, nextPlacement);
       setSelectedId(nextPlacement.id);
+      setPendingArtwork(null);
       scheduleFlush();
     },
-    [state, pushHistory, scheduleFlush],
+    [
+      pendingArtwork,
+      state,
+      imagePxToWallCm,
+      computeSnappedPosition,
+      pushHistory,
+      scheduleFlush,
+    ],
   );
 
   const handleCornersConfirm = useCallback(
@@ -652,6 +739,13 @@ function SpaceEditorContent({ id }: { id: string }) {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      if (e.key === "Escape") {
+        if (pendingArtwork) {
+          e.preventDefault();
+          setPendingArtwork(null);
+        }
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -670,7 +764,7 @@ function SpaceEditorContent({ id }: { id: string }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, selectedId, handleDeleteSelected]);
+  }, [undo, redo, selectedId, handleDeleteSelected, pendingArtwork]);
 
   // ── Snap-hint lines (image-space, projected) ─────────────────
   const snapLines = useMemo(() => {
@@ -798,7 +892,16 @@ function SpaceEditorContent({ id }: { id: string }) {
                 alt={space.title || ""}
                 className="block h-auto w-full select-none"
                 draggable={false}
-                onClick={() => setSelectedId(null)}
+                style={{
+                  cursor: pendingArtwork ? "crosshair" : "default",
+                }}
+                onClick={(e) => {
+                  if (pendingArtwork) {
+                    handleCanvasTap(e);
+                    return;
+                  }
+                  setSelectedId(null);
+                }}
               />
               {/* Placement overlays */}
               {rendered.map((rp) => {
@@ -872,9 +975,28 @@ function SpaceEditorContent({ id }: { id: string }) {
                   ))}
                 </svg>
               )}
-              {rendered.length === 0 && (
+              {rendered.length === 0 && !pendingArtwork && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 mx-auto max-w-xs rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white">
                   {t("simulation.editor.emptyCanvas")}
+                </div>
+              )}
+              {pendingArtwork && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 top-3 mx-auto flex w-max max-w-[92%] items-center gap-2 rounded-full bg-zinc-900/90 px-3 py-1.5 text-xs text-white shadow-lg"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="truncate">
+                    📍 {pendingArtwork.title} ·{" "}
+                    {t("simulation.editor.tapToPlace")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingArtwork(null)}
+                    className="pointer-events-auto rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-white/20"
+                  >
+                    {t("simulation.editor.cancelPlacement")}
+                  </button>
                 </div>
               )}
             </div>
@@ -1017,10 +1139,44 @@ function SpaceEditorContent({ id }: { id: string }) {
             )}
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-zinc-900">
-              {t("simulation.wall.title")}
-            </h2>
+          {photoUrl && (
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-sm font-medium text-zinc-700 hover:text-zinc-900 disabled:opacity-50"
+                disabled={uploadBusy}
+              >
+                {uploadBusy
+                  ? t("simulation.create.submitting")
+                  : t("simulation.editor.replacePhoto")}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleUploadPhoto(f);
+                }}
+              />
+            </div>
+          )}
+
+          <details className="group rounded-2xl border border-zinc-200 bg-white p-4 open:pb-4">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-zinc-900 marker:hidden">
+              <span>{t("simulation.wall.advancedTitle")}</span>
+              <span
+                aria-hidden
+                className="text-xs text-zinc-400 transition-transform group-open:rotate-180"
+              >
+                ▾
+              </span>
+            </summary>
+            <p className="mt-2 text-xs text-zinc-500">
+              {t("simulation.wall.advancedHint")}
+            </p>
             <div className="mt-3 space-y-2 text-sm">
               <label className="flex items-center justify-between">
                 <span className="text-xs text-zinc-500">
@@ -1067,32 +1223,8 @@ function SpaceEditorContent({ id }: { id: string }) {
                     : t("simulation.wall.editCorners")}
                 </button>
               )}
-              {photoUrl && (
-                <div className="mt-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-zinc-500 hover:text-zinc-800"
-                    disabled={uploadBusy}
-                  >
-                    {uploadBusy
-                      ? t("simulation.create.submitting")
-                      : t("simulation.editor.replacePhoto")}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void handleUploadPhoto(f);
-                    }}
-                  />
-                </div>
-              )}
             </div>
-          </div>
+          </details>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">
