@@ -34,6 +34,14 @@ const ROLE_COLOR: Record<(typeof ROLE_OPTIONS)[number], string> = {
  * accurate, so we surface them directly and let the bar visualise
  * composition. A future unique-member RPC could add a real headline
  * number.
+ *
+ * 2026-08-17 minimal pass: earlier version stacked live-dot + LIVE
+ * caption + colored bar + 4 colored legend dots + textual CTA row —
+ * five green-tone layers competing for attention, and the legend
+ * wrapped on narrow rails. Reduced to: single live dot + bar +
+ * 4-column grid legend (neutral text, no dots — bar is the sole color
+ * layer) + tiny hover chevron. CTA text moved to aria-label so the
+ * link is still discoverable to assistive tech.
  */
 export function CommunityPulseStrip() {
   const { t } = useT();
@@ -56,25 +64,29 @@ export function CommunityPulseStrip() {
       ) : (
         <Link
           href="/my/network"
+          aria-label={t("rail.community.cta")}
           className="group block rounded-md px-2 py-1.5 hover:bg-zinc-50"
         >
           <div className="flex items-center justify-between">
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-600">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-700">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
               </span>
               {t("rail.community.title")}
             </span>
-            <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-              {t("network.persona.live")}
+            <span
+              aria-hidden
+              className="text-[11px] text-zinc-300 transition-colors group-hover:text-zinc-600"
+            >
+              →
             </span>
           </div>
 
           <div
             role="img"
             aria-label={buildA11yLabel(t("network.persona.a11yBar"), counts)}
-            className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-zinc-100"
+            className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-zinc-100"
           >
             {ROLE_OPTIONS.map((role) => {
               const pct = (counts[role] / total) * 100;
@@ -89,25 +101,18 @@ export function CommunityPulseStrip() {
             })}
           </div>
 
-          <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
+          <ul className="mt-2 grid grid-cols-4 gap-x-1 text-center">
             {ROLE_OPTIONS.map((role) => (
-              <li key={role} className="inline-flex items-center gap-1">
-                <span
-                  aria-hidden
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${ROLE_COLOR[role]}`}
-                />
-                <span>{t(`people.role.${role}`)}</span>
-                <span className="font-semibold tabular-nums text-zinc-700">
+              <li key={role} className="min-w-0">
+                <div className="truncate text-[10px] leading-none text-zinc-500">
+                  {t(`people.role.${role}`)}
+                </div>
+                <div className="mt-0.5 text-xs font-semibold tabular-nums text-zinc-800">
                   {counts[role].toLocaleString()}
-                </span>
+                </div>
               </li>
             ))}
           </ul>
-
-          <div className="mt-2 flex items-center justify-end gap-1 text-[11px] text-zinc-500 group-hover:text-zinc-900">
-            {t("rail.community.cta")}
-            <span aria-hidden>→</span>
-          </div>
         </Link>
       )}
     </div>

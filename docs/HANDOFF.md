@@ -2,6 +2,25 @@
 
 Last updated: 2026-08-17
 
+## 2026-08-17 (9) — 커뮤니티 스트립 미니멀 리디자인
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 배경
+- 직전 (7) 핫픽스 이후 스트립에 초록 톤이 (1) 라이브 점, (2) LIVE 캡션, (3) 스택바, (4) 레전드 4개 도트 — 5겹으로 겹쳐 눈이 어지럽다는 피드백. 좁은 rail 폭에서 레전드가 wrap 되어 컬렉터만 다음 줄로 빠지는 것도 결정타.
+
+### 변경 요약
+- **헤더**: LIVE 캡션 제거(펄스 점과 중복). 우상단에 얇은 `→` 훅. 호버 시에만 zinc-600으로 진해짐 → 링크임을 은근하게 시사.
+- **레전드**: `flex flex-wrap` → `grid grid-cols-4 gap-x-1 text-center` 로 강제 4등분 → wrap 원천 차단. 각 셀은 역할명(10px zinc-500) 위에 카운트(12px semibold zinc-800)를 스택. **레전드 도트 4개 전부 제거**.
+- **컬러 레이어**: 오직 스택바 하나. 텍스트는 전부 뉴트럴 zinc 톤. 시선이 튀지 않음.
+- **CTA 행 제거**: "네트워크에서 만나보기 →" 텍스트 행을 제거. 카드 전체가 여전히 `/my/network` 링크. 스크린리더에는 `aria-label={t("rail.community.cta")}` 로 CTA 문자열을 그대로 노출 → 시각적으론 사라졌지만 AT 접근성 유지.
+- 라이브 펄스 애니메이션(초록 점의 ping 링) 유지 — 이 하나만 남아 정체성 역할.
+
+### Verified
+- `npx tsc --noEmit` clean
+- `npx eslint` on `CommunityPulseStrip.tsx` clean
+- IDE 진단(ReadLints) 클린
+
 ## 2026-08-17 (8) — 전시 시뮬레이션 P1 파운데이션 (Chunk A)
 
 > Supabase SQL 적용함: MCP `apply_migration` 으로 `spaces_schema` / `artwork_dimensionality` / `simulation_feature_keys` 세 개를 순서대로 원격에 적용. 로컬 파일: `supabase/migrations/20260818000000_spaces_schema.sql`, `20260818010000_artwork_dimensionality.sql`, `20260818020000_simulation_feature_keys.sql`. · 환경 변수 변경 없음
