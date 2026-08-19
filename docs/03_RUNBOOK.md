@@ -12,8 +12,9 @@
   - NEXT_PUBLIC_APP_URL (로컬: `http://localhost:3000`; 배포 시 Vercel에서 프로덕션 URL로 설정)
   - (optional) NEXT_PUBLIC_KRW_TO_USD_RATE
   - (optional) `NEXT_PUBLIC_DIAGNOSTICS=1` — enables `/my/diagnostics` in production (otherwise dev-only). Uses `beta_analytics_events` (apply `p0_beta_hardening_wave1.sql`).
+  - `NEXT_PUBLIC_SIGNUP_V2` — Signup v2 wizard feature flag (2026-08-20). 초기값 `false`. `true` 로 두면 `/signup` 신규 마법사 + 리디자인된 로그인 화면이 노출된다. Phase 6 롤아웃 시 10% → 100% 램프 예정. 상세는 `docs/SIGNUP_REDESIGN_SPEC.md` §6/§11.
   - 초대 메일 사용 시: SENDGRID_API_KEY, INVITE_FROM_EMAIL
-  - (optional) `PHOTOROOM_API_KEY` — Theo Image Enhance (Beta) 의 "Object" 파이프라인. 서버 전용 (NEXT_PUBLIC_ prefix 붙이지 말 것). 미설정 시 Object 모드는 `provider_unauthorized` fallback 을 반환하고 로컬 flat 파이프라인만 동작한다.
+  - (optional) `PHOTOROOM_API_KEY` — Theo Image Enhance (Beta) 의 "Object" 파이프라인 + Display Simulation Phase 2 의 Track 2 (`/api/ai/artwork-cutout-alpha`, 투명 PNG cutout). 서버 전용 (NEXT_PUBLIC_ prefix 붙이지 말 것). 미설정 시 Object 모드는 `provider_unauthorized` fallback 을 반환하고, Track 2 cutout 라우트는 501 을 반환한다. Track 1 (무료 Vision bbox 크롭) 은 영향 없음.
   - Theo Board 발행 시: `THEO_BOARD_PUBLISH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` (서버 전용). 발행: `THEO_BOARD_PUBLISH_TOKEN=... npm run publish:theo -- --title "..." --type announcement`
 
 3) Run
@@ -51,13 +52,14 @@
 - **NEXT_PUBLIC_APP_URL** — 앱 공개 URL (예: `https://abstract-mvp-dxfn.vercel.app`). 위임/초대 이메일 링크의 base로 사용. 없으면 초대 링크가 잘못된 주소로 갈 수 있음.
 - (optional) NEXT_PUBLIC_KRW_TO_USD_RATE
 - (optional) **NEXT_PUBLIC_DIAGNOSTICS** — `1`이면 `/my/diagnostics` 노출(베타 이벤트 테이블 필요)
+- **NEXT_PUBLIC_SIGNUP_V2** — Signup v2 wizard 피처 플래그 (2026-08-20 도입). 초기 배포는 `false` 로 세팅 (레거시 `/onboarding` + `/login` 유지). Phase 1 QA 이후 `true` 로 램프. Preview 환경에서 먼저 `true` 로 두고 내부 검증하는 것을 권장. 상세: `docs/SIGNUP_REDESIGN_SPEC.md` §6/§11.
 
   초대 메일(위임·아티스트 초대)을 쓰는 경우 추가:
 - **SENDGRID_API_KEY**
 - **INVITE_FROM_EMAIL** (예: `Abstract <noreply@your-domain.com>`)
 
   Theo Image Enhance (Beta, 2026-08-05) — "Object" 파이프라인 사용 시:
-- **PHOTOROOM_API_KEY** — [Photoroom SDK](https://sdk.photoroom.com) 의 세그멘테이션 API 키. 서버 전용(Server-side Only). `NEXT_PUBLIC_` prefix 붙이면 안 된다. 없으면 Object 모드가 `provider_unauthorized` fallback 을 반환하고 flat(평면 작품) 파이프라인만 동작한다.
+- **PHOTOROOM_API_KEY** — [Photoroom SDK](https://sdk.photoroom.com) 의 세그멘테이션 API 키. 서버 전용(Server-side Only). `NEXT_PUBLIC_` prefix 붙이면 안 된다. 두 곳에서 사용된다: (1) Theo Image Enhance (Beta) Object 파이프라인, (2) Display Simulation Phase 2 — Track 2 (`/api/ai/artwork-cutout-alpha`) 로 시뮬레이션용 투명 PNG cutout 을 생성. 미설정 시 (1) Object 모드는 `provider_unauthorized` fallback 을 반환하고 flat 파이프라인만 동작, (2) Track 2 cutout 라우트는 HTTP 501 로 응답한다 (Track 1 무료 Vision bbox 크롭은 계속 작동).
 
   Theo Board (2026-08-13) — 발행 API / CLI. **둘 다 서버 전용** (`NEXT_PUBLIC_` 붙이지 말 것):
 - **THEO_BOARD_PUBLISH_TOKEN** — CLI(및 향후 Slack)가 `POST /api/theo-board/*` 에 보내는 Bearer 시크릿. 긴 랜덤 문자열.

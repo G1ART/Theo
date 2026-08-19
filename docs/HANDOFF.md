@@ -2,6 +2,50 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (28) — 사인업 v2 스펙 확정 + Phase 0 (profile 컬럼 + feature flag)
+
+> Supabase SQL **실행 필요**: `supabase/migrations/20260820020000_signup_v2_profile_columns.sql` (Supabase SQL Editor 에서 수동 실행) · **환경 변수 추가**: `NEXT_PUBLIC_SIGNUP_V2` (로컬 `.env.local` + Vercel Production/Preview 모두 초기값 `false`)
+
+### 배경
+사전 워커 (`fbd478c1`) 가 703줄 audit spec 을 만들고 부모가 13개 결정 사항에 대해 sign-off 를 완료. 이번 워커는 (1) 스펙 문서를 sign-off-locked 상태로 최종화하고 (2) Phase 0 foundation (스키마 + 피처 플래그) 을 착수. UI 는 Phase 1 부터. 시뮬 P2 워커 (`ca3a0e8d`) 가 병렬 실행 중이라 시뮬 파일은 건드리지 않음.
+
+### 확정된 13개 결정 (요약)
+- **#1 Name**: `full_name` 단일 컬럼. First/Last, Secondary Role 드롭.
+- **#2 Gender**: 사인업에서 완전 드롭 (컬럼 미도입).
+- **#3 Tone**: Option C 하이브리드 (auth + 브랜드 접점만).
+- **#4 Step 4**: 완전 옵셔널. `ownership_status='CREATED'` 자동. Title/Year/Medium/Size/Story 모두 `_ko`/`_en` 자동 로케일 슬롯 저장. Size 는 `parseSizeToDimensionsCm` 로 자동 파싱 → cm 채움.
+- **#5 OAuth**: Google + Apple Phase 3, Kakao 연기.
+- **#6 Enumeration**: Step 1 은 anti-enumeration soft path 유지.
+- **#7 Non-artist Step 4**: role-aware 카피 분기 (`main_role` 로 헤더/본문 스왑).
+- **#8 Password**: 12자 최소 + 강도 메터 + HIBP k-anonymity 유출 체크. Helper `src/lib/auth/passwordPolicy.ts` 신설 예정.
+- **#9 Existing 59명**: dismissable "프로필 완성" 배너. `profiles.profile_completed_at IS NULL` 이 SSOT. localStorage `signup:v2:banner-dismissed` 로 dismiss 저장. 강제 게이트 금지.
+- **#10 Username**: Step 1 이메일 local-part → sanitize → 중복 시 suffix. Step 3 에서 편집 가능, 300ms debounce, 중복일 때만 에러.
+- **#11 KO 카피**: 워커 초안, 디자이너 리뷰 후 확정.
+- **#12 ToS/Privacy**: `/legal/terms` + `/legal/privacy` stub (SafeMd). 사인업 최종 단계 passive 소극동의. `profiles.tos_accepted_at` 자동 stamp.
+- **#13 Wizard 상태**: `sessionStorage['signup:v2:draft']` 저장/복원. 완주·취소 시 clear.
+
+### 변경 (5개 파일)
+- **`docs/SIGNUP_REDESIGN_SPEC.md`** — audit → sign-off 스펙으로 승격. §1 executive summary 갱신, §2.3~2.5 위저드 스텝 필드 사양 재작성, §3.2/3.3 매핑 표 갱신 (dropped 컬럼 명시 + Phase 0 추가 컬럼 표시), §3.4 status dropdown 제거 결정 문서화, §5 전체 → 13개 최종 결정 표, §6 Phase 계획 재작성 (Phase 0 SHIPPED 명시, Phase 1~6 스코프), **신규 §11** (스키마 세부 + password 정책 + username auto-suggest + 배너 UX + wizard state 스키마 + ToS + feature flag 헬퍼).
+- **`supabase/migrations/20260820020000_signup_v2_profile_columns.sql`** — 신규. `profiles` 에 `full_name text`, `tos_accepted_at timestamptz`, `profile_completed_at timestamptz` 3개 컬럼 추가. IF NOT EXISTS 가드 (idempotent). `age_band` 는 이미 존재 확인 (`profile_v0_fields.sql` 2026-02-14) 하여 재추가 안 함. Column comments 로 목적 문서화. RLS 는 기존 owner-scoped `UPDATE` + `is_public OR owner` `SELECT` 정책이 새 컬럼 자동 커버 → 별도 정책 불요.
+- **`src/lib/featureFlags/signupV2.ts`** — 신규. `isSignupV2Enabled(): boolean` 헬퍼. Phase 0 은 단순 env 체크. Phase 6 램프 로직 TODO 주석. Return type 을 `boolean` 으로 잠가서 램프 추가 시 call-site 변경 없음.
+- **`.env.example`** — `NEXT_PUBLIC_SIGNUP_V2=false` + KO 주석 추가.
+- **`docs/03_RUNBOOK.md`** — 로컬 Env 섹션 + Vercel Env 섹션 둘 다 `NEXT_PUBLIC_SIGNUP_V2` 항목 신설.
+
+### 검증
+- `npx tsc --noEmit` — 내가 추가한 `src/lib/featureFlags/signupV2.ts` 는 0 errors (ReadLints 도 clean). Repo 전체 tsc 는 sim P2 워커의 WIP (`src/app/upload/bulk/page.tsx`) 에서 2개 pre-existing error 있으나 내 스코프 아님 → sim 워커 커밋 때 함께 해결 예정.
+- 마이그레이션 파일은 함수 정의 0개, `alter table ... add column if not exists` 3개 + `comment on column` 3개로만 구성 → dashboard 통짜 paste 안전. 섹션 분리 불필요.
+- Supabase MCP `information_schema.columns` 로 사전 확인: 현재 `profiles` 에 `age_band` 는 있고 `full_name`/`tos_accepted_at`/`profile_completed_at` 은 없음. 마이그레이션 실행 후 3개 컬럼 신규 추가 예상.
+
+### 사용자 액션 (필수)
+1. **Supabase SQL Editor** 에서 `supabase/migrations/20260820020000_signup_v2_profile_columns.sql` 통짜 실행.
+2. **로컬**: `.env.local` 에 `NEXT_PUBLIC_SIGNUP_V2=false` 추가 (없어도 default `false` 동작).
+3. **Vercel Dashboard** → Environment Variables → `NEXT_PUBLIC_SIGNUP_V2=false` 를 Production, Preview 둘 다 세팅. Phase 1 QA 이후 Preview 부터 `true` 로 램프 예정.
+
+### 다음 (Phase 1 착수 대기)
+- `/signup` 라우트 + `<SignupWizardShell/>` + Steps 1~3 primitives (`<OvalInput/>`, `<OvalSelect/>`, `<PillRadio/>`, `<PillButton/>`, `<AuthShell/>`).
+- `src/lib/auth/passwordPolicy.ts` 신설 (12자 + strength meter, HIBP 는 Phase 5 활성).
+- 스펙 §11 이 완전한 참조 (컬럼 semantics, wizard draft 스키마, 카피 KO/EN 초안).
+
 ## 2026-08-19 (27) — 시뮬 렌더 퀄리티: 종횡비 왜곡 픽스 + 마운트 어포던스 + aspect 배지
 
 > Supabase SQL 적용함 (MCP `apply_migration` 원격 반영): `supabase/migrations/20260819050000_space_share_rpc_image_dims.sql` · 환경 변수 변경 없음
