@@ -48,6 +48,8 @@
     "test:size-unit-toggle": "tsx tests/size-unit-toggle.test.ts",
     "test:size-display": "tsx tests/size-display.test.ts",
     "test:size-parse": "tsx --test src/lib/size/format.test.ts",
+    "test:password-policy": "tsx --test src/lib/auth/passwordPolicy.test.ts",
+    "test:signup-wizard-state": "tsx --test src/lib/auth/signupWizardState.test.ts",
     "test:image-enhance-recipe": "tsx src/lib/image/enhancement/__tests__/recipe.test.ts",
     "test:image-enhance-prepare": "tsx src/lib/image/enhancement/__tests__/prepare.test.ts",
     "test:image-enhance-geometry": "tsx src/lib/image/enhancement/__tests__/geometry.test.ts",
@@ -74,6 +76,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.95.3",
+    "@types/zxcvbn": "^4.4.5",
     "cheerio": "^1.2.0",
     "hangeul": "^0.3.1",
     "mammoth": "^1.12.0",
@@ -83,7 +86,8 @@
     "pdfjs-dist": "^4.10.38",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "zxcvbn": "^4.4.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

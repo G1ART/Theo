@@ -4206,6 +4206,84 @@ export const messages = {
       "The room photo, placements, and share link will be removed. Anyone with the share link will lose access immediately.",
     "spaces.delete.success": "Space deleted",
     "spaces.delete.failed": "Couldn't delete the space. Please try again.",
+
+    // ── 2026-08-19 — Signup v2 Phase 1 (wizard Steps 1-3 + passwordPolicy).
+    // Feature-flag gated by NEXT_PUBLIC_SIGNUP_V2. Legacy /onboarding
+    // copy still lives under `onboarding.*` — this namespace covers the
+    // new /signup wizard only.
+    "auth.signupV2.back": "Back",
+    "auth.signupV2.haveAccount": "Already have an account?",
+    "auth.signupV2.logInCta": "Log in",
+    "auth.signupV2.stepEyebrow": "Step {step} of {total}",
+    "auth.signupV2.step1.title": "Enter your email",
+    "auth.signupV2.step1.subtitle":
+      "We'll use this to sign you in and send occasional updates.",
+    "auth.signupV2.step1.emailLabel": "Email",
+    "auth.signupV2.step1.emailHint":
+      "Use an email you check regularly — you'll confirm it in a moment.",
+    "auth.signupV2.step1.emailInvalid": "That doesn't look like a valid email.",
+    "auth.signupV2.step1.continueCta": "Continue",
+    "auth.signupV2.step1.orDivider": "or",
+    "auth.signupV2.step1.continueWithGoogle": "Continue with Google",
+    "auth.signupV2.step1.continueWithApple": "Continue with Apple",
+    "auth.signupV2.step1.oauthComingSoon": "Coming soon",
+    "auth.signupV2.step2.title": "Choose a password",
+    "auth.signupV2.step2.subtitle":
+      "Use at least 12 characters. Longer is stronger — a passphrase works well.",
+    "auth.signupV2.step2.passwordLabel": "Password",
+    "auth.signupV2.step2.passwordHint": "Must be at least {min} characters.",
+    "auth.signupV2.step2.errorTooShort": "Password must be at least {min} characters.",
+    "auth.signupV2.step2.errorPwned":
+      "This password appears in known data breaches. Please choose another.",
+    "auth.signupV2.step2.showPassword": "Show",
+    "auth.signupV2.step2.hidePassword": "Hide",
+    "auth.signupV2.step2.continueCta": "Continue",
+    "auth.signupV2.step2.legalTemplate":
+      "By creating an account you agree to the {terms} and {privacy}.",
+    "auth.signupV2.step2.termsLabel": "Terms of Service",
+    "auth.signupV2.step2.privacyLabel": "Privacy Policy",
+    "auth.signupV2.step3.title": "Tell us about you",
+    "auth.signupV2.step3.subtitle":
+      "You can edit any of this later in your profile.",
+    "auth.signupV2.step3.fullNameLabel": "Name",
+    "auth.signupV2.step3.fullNameHint":
+      "Displayed on your profile. Use your real name or a stage name.",
+    "auth.signupV2.step3.ageBandLabel": "Age",
+    "auth.signupV2.step3.ageBandHint": "Optional — helps us tune recommendations.",
+    "auth.signupV2.step3.mainRoleLabel": "Primary role",
+    "auth.signupV2.step3.mainRolePlaceholder": "Choose a role",
+    "auth.signupV2.step3.mainRoleHint":
+      "Optional. You can add more roles later in Studio.",
+    "auth.signupV2.step3.roleSkip": "Skip for now",
+    "auth.signupV2.step3.usernameLabel": "Username",
+    "auth.signupV2.step3.usernameHint":
+      "3–20 characters. Letters, numbers, and underscores.",
+    "auth.signupV2.step3.usernameTaken": "This username is already taken.",
+    "auth.signupV2.step3.usernameReserved":
+      "That username is reserved. Please choose another.",
+    "auth.signupV2.step3.avatarPlaceholder":
+      "You can add a profile photo from Studio → Profile after signup.",
+    "auth.signupV2.step3.createCta": "Create account",
+    "auth.signupV2.step3.nextHint": "You'll land on your feed after this.",
+    "auth.signupV2.step3.checkEmail":
+      "Check your email to confirm the account, then continue where you left off.",
+    "auth.signupV2.step3.errorGeneric":
+      "Something went wrong. Please try again.",
+    "auth.signupV2.step3.errorSave":
+      "Account created, but we couldn't save your profile.",
+    "auth.signupV2.step3.duplicateTitle": "We found an account for {email}",
+    "auth.signupV2.step3.duplicateBody":
+      "Log in with your existing password, or reset it if you don't remember.",
+    "auth.signupV2.step3.duplicateLoginCta": "Log in",
+    "auth.signupV2.step3.duplicateResetCta": "Reset password",
+    "auth.signupV2.step3.duplicateChangeEmail": "Use a different email",
+
+    // Password strength labels — surfaced under the Step 2 meter.
+    "auth.password.strength.veryWeak": "Very weak",
+    "auth.password.strength.weak": "Weak",
+    "auth.password.strength.fair": "Fair",
+    "auth.password.strength.strong": "Strong",
+    "auth.password.strength.veryStrong": "Very strong",
   },
   ko: {
     "nav.feed": "피드",
@@ -8344,6 +8422,79 @@ export const messages = {
       "공간 사진과 배치, 공유 링크가 모두 사라져요. 공유 링크를 가진 다른 사람도 즉시 접근할 수 없게 돼요.",
     "spaces.delete.success": "공간을 삭제했어요",
     "spaces.delete.failed": "공간을 삭제하지 못했어요. 다시 시도해 주세요.",
+
+    // ── 2026-08-19 — Signup v2 Phase 1 (wizard Steps 1-3 + passwordPolicy).
+    "auth.signupV2.back": "뒤로",
+    "auth.signupV2.haveAccount": "이미 계정이 있으신가요?",
+    "auth.signupV2.logInCta": "로그인",
+    "auth.signupV2.stepEyebrow": "STEP {step} · {total}",
+    "auth.signupV2.step1.title": "이메일을 입력해 주세요",
+    "auth.signupV2.step1.subtitle":
+      "가입과 알림에 사용할 이메일이에요. 자주 사용하는 주소로 넣어 주세요.",
+    "auth.signupV2.step1.emailLabel": "이메일",
+    "auth.signupV2.step1.emailHint": "곧 확인 이메일을 보내 드릴게요.",
+    "auth.signupV2.step1.emailInvalid": "이메일 형식이 올바르지 않아요.",
+    "auth.signupV2.step1.continueCta": "계속",
+    "auth.signupV2.step1.orDivider": "또는",
+    "auth.signupV2.step1.continueWithGoogle": "Google로 계속하기",
+    "auth.signupV2.step1.continueWithApple": "Apple로 계속하기",
+    "auth.signupV2.step1.oauthComingSoon": "곧 지원 예정이에요",
+    "auth.signupV2.step2.title": "비밀번호를 설정해 주세요",
+    "auth.signupV2.step2.subtitle":
+      "12자 이상으로 만들어 주세요. 문장(passphrase)이 가장 안전하고 기억하기도 쉬워요.",
+    "auth.signupV2.step2.passwordLabel": "비밀번호",
+    "auth.signupV2.step2.passwordHint": "최소 {min}자 이상 사용해 주세요.",
+    "auth.signupV2.step2.errorTooShort": "비밀번호는 최소 {min}자 이상이어야 해요.",
+    "auth.signupV2.step2.errorPwned":
+      "이 비밀번호는 데이터 유출에 포함된 적 있어요. 다른 비밀번호를 사용해 주세요.",
+    "auth.signupV2.step2.showPassword": "보이기",
+    "auth.signupV2.step2.hidePassword": "숨기기",
+    "auth.signupV2.step2.continueCta": "계속",
+    "auth.signupV2.step2.legalTemplate":
+      "계정 생성 시 {terms} 및 {privacy}에 동의하는 것으로 간주됩니다.",
+    "auth.signupV2.step2.termsLabel": "이용약관",
+    "auth.signupV2.step2.privacyLabel": "개인정보처리방침",
+    "auth.signupV2.step3.title": "당신에 대해 알려주세요",
+    "auth.signupV2.step3.subtitle":
+      "언제든 프로필에서 다시 편집할 수 있어요.",
+    "auth.signupV2.step3.fullNameLabel": "이름",
+    "auth.signupV2.step3.fullNameHint":
+      "프로필에 표시돼요. 본명이나 활동명 모두 괜찮아요.",
+    "auth.signupV2.step3.ageBandLabel": "나이대",
+    "auth.signupV2.step3.ageBandHint": "선택 사항 · 추천을 개인화하는 데 사용돼요.",
+    "auth.signupV2.step3.mainRoleLabel": "주 역할",
+    "auth.signupV2.step3.mainRolePlaceholder": "역할을 선택해 주세요",
+    "auth.signupV2.step3.mainRoleHint":
+      "선택 사항 · 나중에 스튜디오에서 추가 역할을 더할 수 있어요.",
+    "auth.signupV2.step3.roleSkip": "나중에 정할게요",
+    "auth.signupV2.step3.usernameLabel": "사용자명",
+    "auth.signupV2.step3.usernameHint":
+      "3–20자, 영문 소문자·숫자·언더스코어(_)만 가능해요.",
+    "auth.signupV2.step3.usernameTaken": "해당 유저네임은 이미 사용 중입니다.",
+    "auth.signupV2.step3.usernameReserved":
+      "예약된 사용자명이에요. 다른 이름을 선택해 주세요.",
+    "auth.signupV2.step3.avatarPlaceholder":
+      "가입 후 스튜디오 → 프로필에서 사진을 추가할 수 있어요.",
+    "auth.signupV2.step3.createCta": "계정 만들기",
+    "auth.signupV2.step3.nextHint": "이 단계가 끝나면 피드로 이동해요.",
+    "auth.signupV2.step3.checkEmail":
+      "이메일에서 계정 확인 후 이어서 진행해 주세요.",
+    "auth.signupV2.step3.errorGeneric": "문제가 발생했어요. 잠시 후 다시 시도해 주세요.",
+    "auth.signupV2.step3.errorSave":
+      "계정은 만들어졌지만 프로필을 저장하는 중 문제가 생겼어요.",
+    "auth.signupV2.step3.duplicateTitle": "{email} 계정이 이미 있어요",
+    "auth.signupV2.step3.duplicateBody":
+      "기존 비밀번호로 로그인하거나, 기억나지 않으면 비밀번호를 재설정해 주세요.",
+    "auth.signupV2.step3.duplicateLoginCta": "로그인",
+    "auth.signupV2.step3.duplicateResetCta": "비밀번호 재설정",
+    "auth.signupV2.step3.duplicateChangeEmail": "다른 이메일 사용",
+
+    // 비밀번호 강도 라벨 — Step 2 미터 아래에 노출.
+    "auth.password.strength.veryWeak": "매우 약함",
+    "auth.password.strength.weak": "약함",
+    "auth.password.strength.fair": "보통",
+    "auth.password.strength.strong": "강함",
+    "auth.password.strength.veryStrong": "매우 강함",
   },
 } as const;
 

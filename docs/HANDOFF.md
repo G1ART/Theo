@@ -2,6 +2,71 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (33) — 사인업 v2 Phase 1: 위저드 (Steps 1-3) + 프리미티브 + passwordPolicy
+
+> **Supabase SQL 적용 필요**: `supabase/migrations/20260819180000_upsert_my_profile_signup_v2.sql` (Supabase SQL Editor 에서 수동 실행). 함수 정의 1개만 포함하므로 SECTION 배너 없이 전체 붙여넣기 → Run.
+>
+> **환경 변수 변경: 없음** (`NEXT_PUBLIC_SIGNUP_V2` 는 Phase 0 에서 이미 도입, 초기값 `false` 유지).
+>
+> **Dependency 추가**: `zxcvbn` (^4.4.2), `@types/zxcvbn` (^4.4.5). Step 2 강도 메터가 사용.
+
+### 배경
+Phase 0 (`f9cc6c8`) 이 `profiles.full_name` / `tos_accepted_at` / `profile_completed_at` 3개 컬럼과 `NEXT_PUBLIC_SIGNUP_V2` 플래그만 넣고 종료 (UI 는 Phase 1 대기). 이번 Phase 1 워커가 (a) 사인업 위저드 UI 뼈대 (b) 5개 오벌/필 프리미티브 (c) `passwordPolicy.ts` (12자 + zxcvbn 강도 + HIBP k-anonymity) (d) `/legal/*` 임시 placeholder 를 착수.
+
+### 스펙 편차 · 사유
+- **부모 태스크의 HANDOFF 초안**은 "Supabase SQL: 없음 (Phase 0 스키마 재사용)" 이었으나, Phase 0 이 컬럼만 추가하고 `upsert_my_profile` RPC 를 확장하지 않아 실제로는 SQL 이 한 번 더 필요했다. `src/lib/supabase/client.ts` 의 `createGuardedFetch` 가 `/rest/v1/profiles` 직접 쓰기를 차단하므로, 새 컬럼을 저장하려면 RPC 를 확장할 수밖에 없다. 이번 워커가 `20260819180000_upsert_my_profile_signup_v2.sql` 로 그 배관 gap 을 메웠고, `full_name` / `age_band` / `tos_accepted_at` / `profile_completed_at` 4개 base key 를 additive 방식으로 수용하도록 만들었다. 옛 caller (settings, onboarding, identity, artist statement 편집기) 는 시그니처가 동일하므로 재빌드 불필요.
+
+### 변경 (신규 15 파일 · 수정 3 파일 · 1 SQL)
+
+**신규 라이브러리:**
+- `src/lib/auth/passwordPolicy.ts` — `MIN_PASSWORD_LENGTH=12`, `validatePasswordShape`, `computePasswordStrength` (zxcvbn 4 wrapper, 5-buckets), `checkHibpPwned` (SHA-1 prefix 5자 + `Add-Padding: true`, 실패 시 fail-open). WebCrypto 로 SHA-1 계산 → Node 폴리필 없음. 옵션 인자 `fetchImpl` / `sha1Impl` 로 테스트에서 mock 가능.
+- `src/lib/auth/signupWizardState.ts` — `signup:v2:draft` sessionStorage draft 로드/저장/머지, `sanitizeUsernameSeed` (email local-part → username seed). Password 는 절대 저장 안 함.
+- `src/lib/auth/passwordPolicy.test.ts` — 13 tests (shape/strength/HIBP).
+- `src/lib/auth/signupWizardState.test.ts` — 14 tests (parse/merge/sanitize).
+
+**신규 프리미티브** (`src/components/auth/primitives/`):
+- `OvalInput.tsx` — 오벌 border-radius input, floating label, leading/trailing adornment, loading spinner, error / hint slot.
+- `OvalSelect.tsx` — 커스텀 dropdown, keyboard nav (Enter/Space/Arrow/Escape), 외부 클릭 시 close.
+- `PillRadio.tsx` — role="radiogroup" wrapping `<label><input type=radio/></label>`, SR-friendly.
+- `PillButton.tsx` — primary / secondary / ghost variants + `loading` spinner + `fullWidth`.
+- `AuthShell.tsx` — 좌상단 back arrow, 중앙 상단 Theo 로고, 좁은 max-w-md 컬럼, eyebrow / title / subtitle / footer / alternate 슬롯. `/signup`, `/login` (v2), reset flow 등 브랜드 접점 공용.
+- `index.ts` — barrel export.
+
+**신규 위저드** (`src/components/auth/`):
+- `SignupWizardShell.tsx` — URL-driven step (`/signup?step=1..3`), draft 하이드레이션, `goToStep`, `clearDraft`, back-button 지원. 초기 하이드레이션 시 URL 이 `?step=` 이면 URL 이 우선, 없으면 draft 의 마지막 step 으로 이동하며 URL 도 동기화.
+- `steps/SignupStep1Email.tsx` — 이메일 검증 (RFC-lite regex), anti-enumeration soft path (존재 여부 확인 없이 다음 단계), OAuth 버튼은 placeholder disabled + "곧 지원 예정" 툴팁.
+- `steps/SignupStep2Password.tsx` — 12자 미만 진행 불가, zxcvbn 강도 미터 (5-bar), blur 시 500ms debounced HIBP 체크 (pwned 시 붉은 힌트), show/hide 토글, `{terms}` / `{privacy}` 토큰 치환된 소극동의 카피.
+- `steps/SignupStep3Profile.tsx` — 이름 (필수), 나이대 (PillRadio · TAXONOMY.ageBandOptions), 주 역할 (OvalSelect · ROLE_KEYS · Skip 옵션), `@username` (300ms debounce, 중복시에만 에러). 최종 submit 는 `signUpWithPassword` → 세션 확립 → `upsert_my_profile` 로 `username`/`display_name`/`full_name`/`main_role`/`roles`/`age_band`/`tos_accepted_at`/`profile_completed_at`/`is_public` 저장 → `routeByAuthState` 로 게이팅. 중복 이메일은 Supabase 의 "empty identities" 시그널로 감지 후 fallback `signInWithPassword` 시도.
+
+**신규 라우트:**
+- `src/app/signup/page.tsx` — server component, feature flag OFF 시 `/onboarding` 으로 `redirect()`, ON 시 `<SignupWizardShell/>` 렌더.
+- `src/app/legal/terms/page.tsx` — "약관 준비 중" placeholder (Phase 4 에서 정식 카피 교체).
+- `src/app/legal/privacy/page.tsx` — 동일 placeholder.
+
+**수정 파일:**
+- `src/lib/supabase/profileSaveUnified.ts` — `BASE_KEYS` 에 `full_name`, `age_band`, `tos_accepted_at`, `profile_completed_at` 추가. `NULLABLE_BASE_KEYS` 에 `full_name`, `age_band` 추가 (사용자가 나중에 clear 가능). `tos_accepted_at` / `profile_completed_at` 은 stamp-only (RPC 의 coalesce 로 first-write-wins).
+- `src/lib/i18n/messages.ts` — `auth.signupV2.*` (Steps 1-3 label/hint/error/CTA) + `auth.password.strength.veryWeak..veryStrong` KO/EN 슬롯. 소극동의 카피는 스펙 §11 원본 사용.
+- `package.json` — `test:password-policy`, `test:signup-wizard-state` npm script 추가; `zxcvbn` + `@types/zxcvbn` dependency 등록.
+
+**신규 SQL 마이그레이션:**
+- `supabase/migrations/20260819180000_upsert_my_profile_signup_v2.sql` — `upsert_my_profile` RPC 를 확장해 `full_name` / `age_band` / `tos_accepted_at` / `profile_completed_at` 4개 base key 수용. `tos_accepted_at` / `profile_completed_at` 은 `"true"` / `"now"` 문자열을 stamp 트리거로 해석하고 `coalesce()` 로 first-write-wins. 옛 caller 시그니처 (jsonb, jsonb, int) 동일 → 재컴파일 불필요.
+
+### 수동 검증 시나리오 결과
+1. `npx tsc --noEmit` — clean (0 errors).
+2. `npx tsx --test src/lib/auth/passwordPolicy.test.ts src/lib/auth/signupWizardState.test.ts` — **27/27 pass**.
+3. `npx eslint src/components/auth src/app/signup src/app/legal src/lib/auth` — clean (0 errors/warnings in Phase 1 scope). 시뮬 워커들의 pre-existing 부채는 스코프 밖.
+4. `NEXT_PUBLIC_SIGNUP_V2=true next build --experimental-build-mode=compile` — `/signup`, `/legal/terms`, `/legal/privacy` 모두 컴파일 성공. `/onboarding`, `/login` legacy 경로도 그대로.
+5. Feature flag 검증: `NEXT_PUBLIC_SIGNUP_V2=false` 상태에서 `/signup` 접근 → `redirect()` 이 `/onboarding` 으로 이동. Flag `true` 로 뒤집으면 위저드 진입 가능.
+6. Draft 복원 시나리오: Step 1 이메일 입력 → Step 2 이동 → 페이지 새로고침 → `sessionStorage['signup:v2:draft']` 에서 이메일 복원 + URL `?step=2` 유지. Back 버튼으로 Step 1 재방문 → 이메일 pre-fill. 유닛 테스트 `mergeSignupDraft` / `parseSignupDraft` 로 저장·복원 로직 커버.
+7. 취약한 비번 (`12345678901`) 강도 메터: 12자 미달로 CTA disabled + "12자 이상" 오류. `abcdefghijkl` (12자, 취약) → 강도 미터 veryWeak/weak, HIBP 는 fail-open 상 흐름 방해 없음. 유닛 테스트로 score ≤ 1 검증.
+8. Pwned 시나리오: 유닛 테스트 mock 으로 count > 0 케이스 확인 → 붉은 힌트 노출 브랜치 도달.
+
+### 다음 (Phase 2+)
+- **Phase 2**: Step 4 (optional artwork upload) — `createArtworkForSignup(payload)` wrapper + role-aware 카피 (아티스트 vs 큐레이터/컬렉터/갤러리스트).
+- **Phase 3**: OAuth (Google + Apple) — Step 1 의 disabled 버튼을 `signInWithOAuth({ provider })` 로 배선.
+- **Phase 4**: "프로필 완성" 배너 + `/legal/*` 실제 콘텐츠 교체 (`SafeMd` 기반 markdown seed).
+- **Phase 5**: `MIN_PASSWORD_LENGTH` 를 legacy 페이지들 (`/onboarding`, `/set-password`, `/auth/reset`) 에서도 12 로 승격.
+
 ## 2026-08-19 (32) — 시뮬 렌더 Y축 왜곡 hot-fix
 
 > **Supabase SQL 적용 필요: 없음** (순수 렌더러 수정).

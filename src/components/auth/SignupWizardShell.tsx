@@ -1,0 +1,244 @@
+"use client";
+
+/**
+ * SignupWizardShell — Signup v2 Phase 1 (2026-08-19).
+ *
+ * Owns the wizard-wide state (email / password / profile) and
+ * coordinates the three step surfaces (Step 1 / 2 / 3). Route lives at
+ * `/signup` and is deliberately URL-driven via `?step=` so the browser
+ * back button and refresh both restore correctly (§13 in the spec).
+ *
+ * Draft (sessionStorage `signup:v2:draft`) is loaded once on mount and
+ * every mutable field save flows through `updateDraft`. Password is
+ * NEVER persisted (§11.6).
+ */
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  clearSignupDraft,
+  loadSignupDraft,
+  saveSignupDraft,
+  type SignupV2Draft,
+  type SignupV2MainRole,
+  type SignupV2WizardStep,
+} from "@/lib/auth/signupWizardState";
+import { AuthShell } from "@/components/auth/primitives/AuthShell";
+import { useT } from "@/lib/i18n/useT";
+import { safeNextPath } from "@/lib/identity/routing";
+import { SignupStep1Email } from "./steps/SignupStep1Email";
+import { SignupStep2Password } from "./steps/SignupStep2Password";
+import { SignupStep3Profile } from "./steps/SignupStep3Profile";
+
+/** Wizard-level state exposed to each step. Passwords live only in
+ *  memory — they're re-entered if the tab is closed at Step 2. */
+export type SignupWizardState = {
+  step: SignupV2WizardStep;
+  email: string;
+  password: string;
+  fullName: string;
+  usernameSeed: string;
+  username: string;
+  ageBand: string;
+  mainRole: SignupV2MainRole | "";
+  isPublic: boolean;
+};
+
+const INITIAL_STATE: SignupWizardState = {
+  step: 1,
+  email: "",
+  password: "",
+  fullName: "",
+  usernameSeed: "",
+  username: "",
+  ageBand: "",
+  mainRole: "",
+  isPublic: true,
+};
+
+function stepFromParam(raw: string | null): SignupV2WizardStep {
+  const n = raw ? Number.parseInt(raw, 10) : 1;
+  if (n === 2 || n === 3) return n;
+  return 1;
+}
+
+/** Read-only shape passed to each step for shared draft + navigation. */
+export type SignupStepApi = {
+  state: SignupWizardState;
+  updateState: (patch: Partial<SignupWizardState>) => void;
+  /** Persist a subset of the state into sessionStorage. */
+  persistDraft: (patch: Partial<Omit<SignupV2Draft, "version" | "savedAt">>) => void;
+  /** Advance to a specific step (updates ?step= and re-scrolls). */
+  goToStep: (step: SignupV2WizardStep) => void;
+  /** Clear the draft (e.g. wizard completes or explicit "Start over"). */
+  clearDraft: () => void;
+  /** `?next=` value carried into `signUpWithPassword`. */
+  nextPath: string | null;
+};
+
+export function SignupWizardShell() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { t } = useT();
+  const [state, setState] = useState<SignupWizardState>(INITIAL_STATE);
+  const [hydrated, setHydrated] = useState(false);
+  const restoreDoneRef = useRef(false);
+  const nextPath = safeNextPath(searchParams.get("next"));
+
+  const rawUrlStep = searchParams.get("step");
+  const urlStep = stepFromParam(rawUrlStep);
+  const hasExplicitStep = rawUrlStep != null;
+
+  // One-time draft restore on mount. We deliberately do NOT hydrate on
+  // every ?step= change so the "user typed then hit back" flow doesn't
+  // lose form state to a re-read.
+  useEffect(() => {
+    if (restoreDoneRef.current) return;
+    restoreDoneRef.current = true;
+    const draft = loadSignupDraft();
+    if (draft) {
+      setState((prev) => ({
+        ...prev,
+        email: draft.email ?? prev.email,
+        fullName: draft.fullName ?? prev.fullName,
+        usernameSeed: draft.usernameSeed ?? prev.usernameSeed,
+        username: draft.username ?? prev.username,
+        ageBand: draft.ageBand ?? prev.ageBand,
+        mainRole:
+          draft.mainRole ?? (prev.mainRole as SignupWizardState["mainRole"]),
+        isPublic:
+          typeof draft.isPublic === "boolean" ? draft.isPublic : prev.isPublic,
+        // If the URL explicitly says a step, it wins (link with
+        // `?step=` was clicked). Otherwise fall back to whatever the
+        // draft last saw. This preserves both "resume after refresh"
+        // and "linked-from-banner-to-step-3" scenarios.
+        step: hasExplicitStep ? urlStep : draft.step,
+      }));
+      // Reflect the resolved step in the URL so the browser back stack
+      // is coherent from the first render onward.
+      if (!hasExplicitStep && draft.step !== 1) {
+        const query = new URLSearchParams(searchParams.toString());
+        query.set("step", String(draft.step));
+        router.replace(`/signup?${query.toString()}`, { scroll: false });
+      }
+    } else if (hasExplicitStep && urlStep !== 1) {
+      // Stray deep-link with no draft — snap to step 1 so we don't
+      // stall on an empty Step 2 / 3.
+      setState((prev) => ({ ...prev, step: 1 }));
+      const query = new URLSearchParams(searchParams.toString());
+      query.delete("step");
+      const qs = query.toString();
+      router.replace(qs ? `/signup?${qs}` : `/signup`, { scroll: false });
+    }
+    setHydrated(true);
+    // Restore is a one-shot; deps are captured above. We deliberately
+    // exclude router / searchParams to avoid a re-run on transient
+    // navigations before hydration completes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // After hydration, keep the ?step= URL in sync with state.step so a
+  // browser back / forward action moves the wizard step. `goToStep`
+  // pushes URL updates; this effect covers user-initiated
+  // back/forward.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (urlStep !== state.step) {
+      setState((prev) => ({ ...prev, step: urlStep }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlStep, hydrated]);
+
+  const updateState = useCallback((patch: Partial<SignupWizardState>) => {
+    setState((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const persistDraft = useCallback(
+    (patch: Partial<Omit<SignupV2Draft, "version" | "savedAt">>) => {
+      saveSignupDraft(patch);
+    },
+    [],
+  );
+
+  const goToStep = useCallback(
+    (step: SignupV2WizardStep) => {
+      setState((prev) => ({ ...prev, step }));
+      saveSignupDraft({ step });
+      const query = new URLSearchParams(searchParams.toString());
+      query.set("step", String(step));
+      router.replace(`/signup?${query.toString()}`, { scroll: true });
+    },
+    [router, searchParams],
+  );
+
+  const clearDraft = useCallback(() => {
+    clearSignupDraft();
+  }, []);
+
+  const api = useMemo<SignupStepApi>(
+    () => ({ state, updateState, persistDraft, goToStep, clearDraft, nextPath }),
+    [state, updateState, persistDraft, goToStep, clearDraft, nextPath],
+  );
+
+  const handleBack = state.step > 1 ? () => goToStep((state.step - 1) as SignupV2WizardStep) : undefined;
+
+  const totalSteps = 3;
+  const eyebrow = t("auth.signupV2.stepEyebrow")
+    .replace("{step}", String(state.step))
+    .replace("{total}", String(totalSteps));
+
+  const alternate: ReactNode = (
+    <span>
+      {t("auth.signupV2.haveAccount")}{" "}
+      <Link
+        href={nextPath ? `/login?next=${encodeURIComponent(nextPath)}` : "/login"}
+        className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+      >
+        {t("auth.signupV2.logInCta")}
+      </Link>
+    </span>
+  );
+
+  const titles: Record<SignupV2WizardStep, string> = {
+    1: t("auth.signupV2.step1.title"),
+    2: t("auth.signupV2.step2.title"),
+    3: t("auth.signupV2.step3.title"),
+    4: t("auth.signupV2.step3.title"),
+  };
+  const subtitles: Record<SignupV2WizardStep, string> = {
+    1: t("auth.signupV2.step1.subtitle"),
+    2: t("auth.signupV2.step2.subtitle"),
+    3: t("auth.signupV2.step3.subtitle"),
+    4: t("auth.signupV2.step3.subtitle"),
+  };
+
+  let body: ReactNode = null;
+  if (state.step === 1) {
+    body = <SignupStep1Email api={api} />;
+  } else if (state.step === 2) {
+    body = <SignupStep2Password api={api} />;
+  } else {
+    body = <SignupStep3Profile api={api} />;
+  }
+
+  return (
+    <AuthShell
+      onBack={handleBack}
+      backLabel={t("auth.signupV2.back")}
+      eyebrow={eyebrow}
+      title={titles[state.step]}
+      subtitle={subtitles[state.step]}
+      alternate={alternate}
+    >
+      {body}
+    </AuthShell>
+  );
+}

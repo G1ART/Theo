@@ -37,6 +37,15 @@ const BASE_KEYS = new Set([
   "artist_statement_ko",
   "artist_statement_en",
   "artist_statement_hero_image_url",
+  // Signup v2 Phase 1 (2026-08-19) — new physical columns exposed
+  // through the extended `upsert_my_profile` RPC. `tos_accepted_at`
+  // and `profile_completed_at` are boolean-like ("true" / "now")
+  // triggers: the RPC first-write-wins the timestamp. `full_name` /
+  // `age_band` are plain strings (nullable, `nullif(trim(...), '')`).
+  "full_name",
+  "age_band",
+  "tos_accepted_at",
+  "profile_completed_at",
 ]);
 
 /**
@@ -71,6 +80,13 @@ const NULLABLE_BASE_KEYS = new Set([
   "display_name_en",
   "artist_statement_ko",
   "artist_statement_en",
+  // Signup v2 (2026-08-19): full_name / age_band can be re-cleared by
+  // a user editing their profile later (e.g. Studio → Profile). The
+  // "true" / "now" trigger keys for `tos_accepted_at` /
+  // `profile_completed_at` are NEVER cleared via this path — they are
+  // stamp-only fields (see the RPC's coalesce() clause).
+  "full_name",
+  "age_band",
 ]);
 
 /**
