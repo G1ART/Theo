@@ -146,10 +146,34 @@ export function computeSurfacePxScale(
 
 /**
  * Surface-local pixel dimensions computed from the surface's cm
- * extent and the derived `pxPerCm` scale. When `heightCm` is missing
- * we derive a proportional height from the average side-edge ratio so
- * the projection stays consistent. `pxPerCm` is exposed for callers
- * that need the same scale for placements.
+ * extent and the derived `pxPerCm` scale. `pxPerCm` is exposed for
+ * callers that need the same scale for placements.
+ *
+ * Priority order for `heightPx` (2026-08-19 fix — regression from the
+ * original P1 pass):
+ *
+ *   1. **photo_corners avg aspect** — when the surface has calibrated
+ *      corners, the corners are the ground truth for the wall's
+ *      projected aspect in the room photo (this is literally the
+ *      quad the user picked / AI detected as "the wall"). Using
+ *      surface.heightCm here would silently stretch or squash Y in
+ *      `surfaceLocalToImageHomography` whenever the user's typed
+ *      heightCm doesn't perfectly match the aspect of the polygon —
+ *      which is almost always, because users typically include the
+ *      full floor-to-ceiling height (223 cm) while photo_corners
+ *      captures only the visible wall segment (say 174 cm behind a
+ *      desk). The symptom was a portrait placement (61 × 76.2 cm,
+ *      h/w = 1.25) rendering as a near-square (h/w ≈ 0.83) — 34 %
+ *      vertical compression, exactly the mismatch factor
+ *      (photo_wall_aspect / surface_declared_aspect) = 0.585 / 0.75.
+ *   2. **surface.heightCm** — only when photo_corners is unset, we
+ *      trust the user's typed height to build a local rectangle.
+ *      Downstream this fills the whole photo (no perspective), so no
+ *      stretch is introduced.
+ *   3. **imagePxSize aspect** — no corners AND no heightCm: fall
+ *      back to matching the rendered image's aspect so overlays line
+ *      up with the `<img>` element.
+ *   4. **Square** — last-resort fallback for degenerate inputs.
  */
 export function computeSurfaceLocalPx(
   surface: SceneSurface,
@@ -159,12 +183,8 @@ export function computeSurfaceLocalPx(
   const widthCm = surface.widthCm ?? 0;
   const widthPx = widthCm > 0 ? widthCm * pxPerCm : imagePxSize.w;
   let heightPx: number;
-  if (surface.heightCm != null && surface.heightCm > 0) {
-    heightPx = surface.heightCm * pxPerCm;
-  } else if (surface.photoCorners && imagePxSize.w > 0 && imagePxSize.h > 0) {
-    // No calibrated height yet — fall back to the average projected
-    // side length so the local rectangle roughly matches the photo
-    // quad's aspect. This is only ever used until the user calibrates.
+  if (surface.photoCorners && imagePxSize.w > 0 && imagePxSize.h > 0) {
+    // Photo corners win over surface.heightCm — see JSDoc §1.
     const { tl, tr, br, bl } = photoCornersToPx(surface.photoCorners, imagePxSize);
     const leftH = distance(tl, bl);
     const rightH = distance(tr, br);
@@ -173,11 +193,9 @@ export function computeSurfaceLocalPx(
     const avgH = (leftH + rightH) / 2;
     const avgW = (topW + bottomW) / 2;
     heightPx = avgW > 0 ? widthPx * (avgH / avgW) : widthPx;
+  } else if (surface.heightCm != null && surface.heightCm > 0) {
+    heightPx = surface.heightCm * pxPerCm;
   } else if (imagePxSize.w > 0 && imagePxSize.h > 0) {
-    // No corners AND no heightCm — match the rendered image's
-    // aspect ratio so placements laid on the "whole photo = wall"
-    // pxPerCm above project onto a rectangle that lines up with the
-    // <img> element (not a square).
     heightPx = widthPx * (imagePxSize.h / imagePxSize.w);
   } else {
     heightPx = widthPx;

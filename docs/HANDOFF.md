@@ -2,6 +2,18 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (32) — 시뮬 렌더 Y축 왜곡 hot-fix
+
+> **Supabase SQL 적용 필요: 없음** (순수 렌더러 수정).
+>
+> **환경 변수 변경: 없음.**
+
+- 증상: 세로가 긴 작품 (예: Naked Flower C 61 × 76.2 cm) 이 벽에 걸릴 때 정사각형에 가깝게 왜곡. 렌더 aspect ≈ 원본의 66 % 로 압축.
+- 근본 원인: `computeSurfaceLocalPx` 가 `surface.heightCm` (사용자 입력, 종종 천장/바닥 포함) 를 우선했는데 그 값이 `photo_corners` (사진에서 실제 보이는 벽 quad) 의 aspect 와 어긋나면 `surfaceLocalToImageHomography` 가 Y축을 강제 스트레치. 실측: photo_corners aspect 0.585 vs declared 0.75 → k = 0.585/0.75 = 0.78 → 22 % Y-압축.
+- 수정: `transforms.ts::computeSurfaceLocalPx` 우선순위 변경. `photo_corners` 가 존재하면 그것으로 aspect 도출 (사진이 시각적 truth). `heightCm` 은 `photo_corners` 가 없을 때만 신뢰. JSDoc 에 순위 명시.
+- 사이드 이펙트: 기존 placement 의 yCm 은 그대로 유지되나 렌더된 위치가 약간 이동할 수 있음 (수학적 재정렬). 사용자는 필요 시 재드래그.
+- Verified: `npx tsc --noEmit` clean. 호출부 3곳 (drag/pointer/snap-lines) 모두 안전 — `pxPerCm` 은 불변, `heightPx` 만 변경되며 스냅 라인은 오히려 실제 벽에 더 정확히 정렬됨.
+
 ## 2026-08-19 (31) — Lint cleanup: 시뮬 P1~P3 도입한 ESLint 부채 정리
 
 > **Supabase SQL 적용 필요: 없음** (순수 코드 정리).
