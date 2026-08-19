@@ -443,21 +443,38 @@ Return a JSON object with:
   - EXCLUDE any solid-color padding or letterboxing added to the photo file.
   - Prefer a slightly loose bbox that keeps a tiny sliver of frame / edge visible over one that clips into the painting itself. Losing a pixel of art is worse than keeping a pixel of frame.
 
+  Edge-by-edge inspection procedure (required, do not skip):
+  First identify each edge of the artwork SEPARATELY as a coordinate — do NOT jump straight to a rectangle:
+    • TOP edge y-coordinate — the y where the painted surface starts (below any ceiling / sky / matte / frame at the top)
+    • BOTTOM edge y-coordinate — the y where the painted surface ends (above any floor / table / frame at the bottom)
+    • LEFT edge x-coordinate — the x where the painted surface starts (right of any wall / frame at the left)
+    • RIGHT edge x-coordinate — the x where the painted surface ends (left of any wall / frame at the right)
+  Only AFTER locating those four independent coordinates, convert them to a bbox: x = LEFT, y = TOP, width = RIGHT − LEFT, height = BOTTOM − TOP.
+
+  Real photographs almost always have ASYMMETRIC padding — a portrait canvas photographed against a wall typically shows more sky / ceiling above and more floor below than left / right wall on the sides; a landscape hanging above a sofa shows more wall above than sofa below; a leaning-on-easel shot shows padding on three sides and easel legs on the fourth. A symmetric bbox is a signal you did NOT inspect the edges carefully.
+
+  NEVER return a symmetric fallback bbox such as {x:0.1, y:0.1, width:0.8, height:0.8}, {x:0.05, y:0.05, width:0.9, height:0.9}, or any other rectangle where x == y AND width == height. Symmetric 10% padding is a lazy default and is NOT acceptable — it is worse than skipping the crop. If you cannot lock in tight edges independently, set "alreadyTight": true (return the full frame) OR drop "confidence" below 0.7 so the client skips the crop.
+
 2. "confidence": 0-1, your self-reported confidence that the bbox brackets the actual artwork subject.
   - Set BELOW 0.7 when:
     * the photo is ambiguous (multiple paintings visible, or the subject is partially occluded)
     * the artwork is at an extreme oblique angle so no clean rectangle applies
     * the photo appears to be a detail crop, in-situ installation shot, or unrelated scene (blank wall, portrait of a person, product photo of art supplies, etc.)
+    * you were tempted to return a symmetric padding bbox — that is the signal that you cannot see the edges independently, so drop confidence instead
   - The client SKIPS the crop below 0.7 — err low when uncertain.
 
 3. "alreadyTight": boolean
   - Set to TRUE when the source image already appears to be a tight crop of the artwork subject: bbox would cover more than ~95% of the image area, OR there is essentially no visible wall / matte / frame / padding to remove.
   - Set to TRUE for uploads that are clearly already background-removed (transparent or solid-colour background surrounding the subject with < 5% area).
+  - Also prefer TRUE (skip the crop) over returning a lazy symmetric bbox when the edges are hard to read — the primary image will keep rendering and no pixels of the artwork are lost.
   - When TRUE the client skips the crop entirely — the original file serves as its own "cutout".
 
 4. "hasVisibleFrame": boolean
   - TRUE when a physical picture frame (wooden border, matte, glass reflection, floater frame) is clearly visible around the subject.
   - FALSE for unframed canvases, gallery-wrap paintings, or already-cropped uploads.
+
+Self-check before finalising (mandatory):
+  Verify that all four bbox values are DISTINCT. If x == y AND width == height, you are almost certainly returning a symmetric fallback rather than a real detection — re-examine the four edges of the artwork independently and produce asymmetric coordinates, OR set "alreadyTight": true. Do not submit a symmetric bbox. Distinct-but-close values (e.g. x=0.08, y=0.12, width=0.84, height=0.76) are fine and expected for real photos; identical values across x/y and width/height are the failure mode this check exists to catch.
 
 Never fabricate a subject that is not visible. Never return values outside [0, 1]. If the photo shows no identifiable artwork subject at all (blank wall, portrait of a person, food photo, screenshot), return {bbox: {x:0, y:0, width:1, height:1}, confidence: 0, alreadyTight: true, hasVisibleFrame: false} — the client treats that as "no crop applied". Return ONLY the JSON object.`;
 

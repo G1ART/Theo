@@ -2,6 +2,75 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (35) — Display Sim 여백 자동 제거 정확도 개선 (gpt-4o + prompt + local trim) + 물리 크기 인지 "Suggested size"
+
+> **Supabase SQL 적용 필요: 없음** — 스키마 변경 없음. `artwork_user_cutouts.metadata` 는 이미 `jsonb` 라 `metadata.trim` 필드만 추가로 기록 (schemaless, 마이그레이션 불필요).
+>
+> **환경 변수 변경: 없음**.
+>
+> **DB 수동 리셋**: "Summer Garden II" (artwork `56e428cc-…`, space `fc8372d6-…`) placement 를 자동 스냅 이전 물리 크기 `121.92 × 106.68cm` 로 복원 완료 (Fix D 검증용). `update space_placements set width_cm=121.92, height_cm=106.68 where id='81329367-5ad0-4b66-a0ec-784e36f40cd1'` (배포 스크립트에는 포함 안 함, 이 케이스 전용).
+
+### 관측된 버그
+- Display Simulation 의 "여백 자동 제거 (AI)" 파이프라인이 정확도가 낮았음. `gpt-4o-mini` 가 대칭적인 10% 폴백 bbox (`{x:0.1, y:0.1, w:0.8, h:0.8}`) 를 자주 반환 — 이건 실제 검출이 아니라 lazy default 라 결과적으로 matte / frame padding 이 그대로 남았다.
+- `refreshArtworkThumb` 가 새 cutout 이 도착하면 placement 를 자동으로 cutout 픽셀 aspect 로 스냅 → 사용자가 기재한 물리 크기를 조용히 덮어썼다. 관측 사례: "Summer Garden II" (물리 121.92×106.68cm landscape) 가 자동 크롭 후 121.92×162.56cm portrait 로 뒤집힘.
+
+### 이번 라운드에서 한 것 (Fix A/B/C/D)
+
+**Fix A — 모델 오버라이드 (`src/lib/ai/client.ts`)**
+- 새 `FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>>` 맵 추가. `artwork_painting_bbox → "gpt-4o"`. 다른 feature 는 그대로 `DEFAULT_MODEL` (환경에 따라 `gpt-4o-mini`) 유지 → 전역 비용 폭발 없음.
+- `generateJSON` 이 feature 별로 모델을 픽하도록 `resolveModelForFeature` 를 통해 라우팅. `ai_events.model` 은 이미 실행된 모델을 그대로 기록하므로 로그도 자동으로 갱신됨.
+- `src/app/api/ai/artwork-painting-bbox/route.ts` 헤더 JSDoc 에 모델 선택 이유 문서화 ("symmetric fallback pattern was observed on gpt-4o-mini for typical framed photos").
+
+**Fix B — 프롬프트 강화 (`src/lib/ai/prompts/index.ts`)**
+- `ARTWORK_PAINTING_BBOX_SYSTEM` 에 anti-fallback 지침 3세트 추가:
+  - 대칭 bbox (`{x==y, w==h}`) 는 lazy default 이며 절대 금지. 확신이 없으면 `alreadyTight=true` 또는 `confidence<0.7`.
+  - Edge-by-edge 절차: TOP y / BOTTOM y / LEFT x / RIGHT x 를 먼저 개별 좌표로 확인한 뒤 bbox 로 조립.
+  - 실제 사진은 대칭 padding 이 거의 없음 (portrait canvas 위에는 천장, 아래는 바닥). 대칭 반환은 검토 부실의 신호임.
+  - 최종 self-check: 네 값이 모두 distinct 인지 확인. `x==y AND w==h` 면 폴백이므로 다시 검사할 것.
+- Schema (`ARTWORK_PAINTING_BBOX_SCHEMA`) 는 변경 없음.
+
+**Fix C — Local canvas trim post-processing**
+- 신규 `src/lib/simulation/cutoutTrim.ts` — pure-JS `refineTightBboxByLuminanceFromImageData(imageData, initialCropRect, options)`. 크롭 사각형의 상/하/좌/우 5% 경계 스트립을 샘플 → 평균 luminance > 235 (near-white matte/wall) 또는 < 20 (near-black shadow) 이면서 variance < 400 이면 그 엣지를 "trimmable" 로 판단. 각 엣지 최대 `maxAdditionalTrimFrac=0.15` 만큼 shrink. 반환 `{cropX, cropY, cropW, cropH, trimmed:{top,bottom,left,right}}` (모두 픽셀 단위).
+- `src/lib/simulation/cutoutClient.ts` — DOM canvas wrapper `refineTightBboxByLuminance(canvas, initialCropRect, options)` 는 `ctx.getImageData()` 후 pure-core 로 위임 (getImageData taint 실패 시 no-op fallback). `runVisionBboxCrop` 에서 model bbox → 캔버스 draw 이후, `toDataURL` 이전에 trim 실행. trim 이 발생하면 더 작은 캔버스로 재-draw 후 그 결과를 업로드. 최종 cutout 은 항상 (model bbox, model bbox further trimmed) 중 더 tight 한 쪽.
+- `artwork_user_cutouts.metadata.trim` 에 per-edge 픽셀 delta + refined/initial 크기 + options 기록 (production 관측용). 스키마 변경 없이 `jsonb` 에 추가.
+- 단위 테스트 `src/lib/simulation/__tests__/cutoutTrim.test.ts` — 6 케이스: (1) all-white matte / (2) dark shadow letterbox / (3) already tight / (4) cream mixed matte / (5) `maxAdditionalTrimFrac` cap / (6) `isStripTrimmable` 헬퍼. `npm run test:cutout-trim` 스크립트 추가.
+
+**Fix D — Placement snap 은 제안으로 (자동 적용 폐기)**
+- `src/components/simulation/SpaceEditor.tsx::refreshArtworkThumb` — 새 cutout 도착 시 placement 를 dirty 하게 만들던 auto-snap side effect 를 완전 제거. JSDoc 에 "removed on 2026-08-19 because it silently overrode physical dims" 명시.
+- `snapPlacementToCutoutAspect` 는 유지 (export 는 안 하지만 컴포넌트 내부에서 여전히 호출됨) — 이제 사용자가 카드에서 명시적으로 "Apply" 를 눌러야만 실행됨. JSDoc 도 갱신.
+- 인스펙터의 기존 amber "aspectMismatch" 배너를 **통합 "제안된 크기 / Suggested size" 카드** 로 교체:
+  - 현재 placement 크기를 상단에 표시.
+  - **제안 1 (`physical`, 최우선)**: `artwork.width_cm/height_cm` 이 있고 placement aspect 와 6% 이상 다르면 "물리 크기 121.92 × 106.68cm 적용" 버튼 노출.
+  - **제안 2 (`cutout`)**: cutout 이 있고 placement aspect 와 6% 이상 다르며 physical aspect 와도 6% 이상 다를 때만 "사진 비율 … 적용" 버튼 노출 (dedup).
+  - **"이대로 유지 / Keep as-is"** 버튼은 `sessionStorage["abstract:sim:suggestedSize:dismissed"]` 에 placement id 를 push → 탭 내 재선택에서도 sticky, 새 탭에서는 리셋.
+- 신규 i18n 키 8개 (KO+EN):
+  - `simulation.inspector.suggestedSize.badge` / `.title` / `.hint` / `.current` / `.applyPhysical` / `.applyCutout` / `.keepAsIs` — 모두 `{size}` placeholder 지원.
+- 레거시 `simulation.inspector.aspectMismatch.*` 5개 키는 유지 (참조하는 다른 코드가 있을 수 있음), SpaceEditor 는 더 이상 렌더링하지 않음.
+- 죽은 `computeAspectMismatch` 헬퍼는 제거 (인라인 `aspectDelta` 로 대체) → ESLint no-unused-vars 안 나게.
+
+### 사용자에게 보이는 UX 변경
+- Placement 는 **더 이상 자동 스냅되지 않는다**. cutout 이 도착해도 사이즈가 조용히 바뀌는 일이 없음.
+- 대신 인스펙터 상단에 파란색 "제안된 크기" 카드가 뜬다. 물리 크기가 기록되어 있으면 "물리 크기 W × H 적용" 버튼이 최상단에 노출. Cutout aspect 가 물리 크기와 다르면 두 번째 옵션으로 "사진 비율 …" 버튼도 함께 노출. 항상 "이대로 유지" 버튼으로 dismiss 가능.
+
+### 비용 노트
+- `gpt-4o` 는 `gpt-4o-mini` 대비 토큰당 약 10× 비쌈. **하지만 이 오버라이드는 `artwork_painting_bbox` 한 feature 만 적용** — 이 feature 는 (a) 업로드 직후 1회, (b) SpaceEditor 의 on-demand CTA 로만 호출됨. Beta 단계 예상 사용량이 낮아 절대 금액 impact 는 작다. 다른 AI feature (profile copilot / portfolio / matchmaker / studio digest / bio draft / …) 는 그대로 `gpt-4o-mini` 를 씀.
+
+### 수동 검증
+1. `npx tsc --noEmit` — 0 errors.
+2. `npx eslint <touched files>` — 0 new errors. `SpaceEditor.tsx:1243` 의 pre-existing `react-hooks/exhaustive-deps` 경고 1건만 남음 (내 변경과 무관, 위치만 `computeAspectMismatch` 제거로 인해 1282 → 1243 로 이동).
+3. `npm run test:cutout-trim` — pass (6 케이스, all-white matte / dark shadow / already tight / cream matte / cap / strip-trimmable helper).
+4. `npm run test:ai-safety` — 이전과 동일한 pre-existing 경고만, 신규 regression 없음 (git stash 로 확인).
+5. Supabase: `space_placements` 의 Summer Garden II placement (`81329367-5ad0-4b66-a0ec-784e36f40cd1`) 를 `121.92 × 106.68 cm` 로 복원 완료 → 이 상태로 사용자가 인스펙터를 열면 새 UX 확인 가능 (물리 크기와 이미 일치하면 카드 안 뜨고, cutout aspect 가 다르면 두 번째 버튼만 뜸).
+
+### Non-goals (이번에 하지 않은 것)
+- Photoroom Track 2 route / env var 는 그대로 (`PHOTOROOM_API_KEY` 미설정 → 501 fallback 유지).
+- EXIF 기반 자동 회전 없음 (별도 future work).
+- 다른 AI feature 의 모델 스왑 없음.
+- `artwork_user_cutouts` 스키마 변경 없음 (`metadata.trim` 은 free-form jsonb 에 추가만).
+- 물리 vs 이미지 orientation 불일치 시 자동 회전 없음 — "제안된 크기" 카드가 interim UX.
+
+---
+
 ## 2026-08-19 (34) — Display Sim cutouts: 비-작가 뷰어용 personal cutouts (Track 1/2 RLS 해소)
 
 > **Supabase SQL**: `supabase/migrations/20260819060000_artwork_user_cutouts.sql` — **이번 배포에서는 MCP `apply_migration` 로 이미 원격 DB 에 반영됨** (테이블 생성, 4개 RLS 정책, `updated_at` 트리거, grants, orphan 파일 4건 정리). SQL 자체는 `create table if not exists` / `drop policy if exists` / `not exists` 가드로 idempotent 하므로 다른 환경에서도 그대로 재실행 가능. 파일은 `SET LOCAL storage.allow_delete_query = 'true'` 로 Supabase 의 `storage.protect_delete()` 트리거를 이 트랜잭션에서만 우회한다.

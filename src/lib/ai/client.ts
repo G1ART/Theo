@@ -20,11 +20,53 @@ export const DEFAULT_MODEL = CONFIGURED_MODEL || "gpt-4o-mini";
  */
 export const GENERATE_TIMEOUT_MS = 45_000;
 
+/**
+ * Per-feature model overrides (2026-08-19).
+ *
+ * The default (`DEFAULT_MODEL`, typically `gpt-4o-mini`) is fine for
+ * most text-only JSON copilots — but a handful of vision features
+ * need the fuller `gpt-4o` for measurably tighter geometry. When a
+ * key is present here, `generateJSON` picks THIS model instead of
+ * the environment default; every other feature keeps riding
+ * `DEFAULT_MODEL` so we don't 10x the token bill globally.
+ *
+ * Current overrides:
+ *   • `artwork_painting_bbox` → `gpt-4o` — the Display Simulation
+ *     "여백 자동 제거 (AI)" pipeline. `gpt-4o-mini` frequently
+ *     returned a symmetric 10% fallback bbox
+ *     ({x:0.1, y:0.1, w:0.8, h:0.8}) instead of tight edges for
+ *     typical framed-photo uploads, which defeats the whole feature
+ *     (the fallback keeps every pixel of matte / frame padding).
+ *     `gpt-4o` measurably tightens those edges. See
+ *     `ARTWORK_PAINTING_BBOX_SYSTEM` for the prompt-side companion
+ *     changes (anti-fallback instructions).
+ */
+export const FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>> = {
+  artwork_painting_bbox: "gpt-4o",
+};
+
+/**
+ * Pick the model for a given feature. Env override
+ * (`OPENAI_MODEL=…`) is intentionally IGNORED for keys that appear
+ * in `FEATURE_MODEL_OVERRIDE` — a feature-specific choice (e.g.
+ * "we need gpt-4o for this bbox") shouldn't silently regress to
+ * mini when someone force-pins mini via env for another workflow.
+ */
+export function resolveModelForFeature(feature: AiFeatureKey): string {
+  return FEATURE_MODEL_OVERRIDE[feature] ?? DEFAULT_MODEL;
+}
+
 // Log the model in use on first module load so Vercel Function logs always
 // show which model is active. Helps catch misconfigurations (e.g. typos in
 // OPENAI_MODEL env var) without requiring a failed request.
 if (process.env.OPENAI_API_KEY) {
-  console.info("[ai/client] model=%s (env=%s)", DEFAULT_MODEL, CONFIGURED_MODEL || "(default)");
+  const overrideKeys = Object.keys(FEATURE_MODEL_OVERRIDE);
+  console.info(
+    "[ai/client] default=%s (env=%s) overrides=%s",
+    DEFAULT_MODEL,
+    CONFIGURED_MODEL || "(default)",
+    overrideKeys.length > 0 ? overrideKeys.join(",") : "(none)",
+  );
 }
 
 let client: OpenAI | null = null;
@@ -120,11 +162,16 @@ export async function generateJSON<T extends object>(
   const started = Date.now();
   const ai = getOpenAiClient();
   const contextSize = opts.system.length + opts.user.length + opts.schemaHint.length;
+  // Per-feature model override (see FEATURE_MODEL_OVERRIDE). Every
+  // ai_events row now records the model that ACTUALLY ran, so the
+  // artwork_painting_bbox rows will read `gpt-4o` while the rest keep
+  // reading `gpt-4o-mini`.
+  const model = resolveModelForFeature(opts.feature);
 
   if (!ai) {
     return {
       data: { ...opts.fallback(), degraded: true, reason: "no_key" },
-      meta: { latencyMs: 0, model: DEFAULT_MODEL, errorCode: "no_key", contextSize },
+      meta: { latencyMs: 0, model, errorCode: "no_key", contextSize },
     };
   }
 
@@ -156,7 +203,7 @@ export async function generateJSON<T extends object>(
   const run = async () => {
     return ai.chat.completions.create(
       {
-        model: DEFAULT_MODEL,
+        model,
         temperature: 0.7,
         /** Portfolio / profile JSON payloads need headroom beyond the default cap. */
         max_completion_tokens: 2048,
@@ -186,7 +233,7 @@ export async function generateJSON<T extends object>(
         data: parsed,
         meta: {
           latencyMs: Date.now() - started,
-          model: DEFAULT_MODEL,
+          model,
           errorCode: null,
           contextSize,
         },
@@ -227,7 +274,7 @@ export async function generateJSON<T extends object>(
         }
         console.error("[ai/client] OpenAI BadRequest", {
           feature: opts.feature,
-          model: DEFAULT_MODEL,
+          model,
           attempt,
           code: e.code,
           message: e.message,
@@ -246,7 +293,7 @@ export async function generateJSON<T extends object>(
         }
         console.error("[ai/client] OpenAI call failed", {
           feature: opts.feature,
-          model: DEFAULT_MODEL,
+          model,
           attempt,
           status: e.status,
           code: e.code,
@@ -264,7 +311,7 @@ export async function generateJSON<T extends object>(
       }
       console.error("[ai/client] OpenAI call failed", {
         feature: opts.feature,
-        model: DEFAULT_MODEL,
+        model,
         attempt,
         status: anyErr?.status,
         name: anyErr?.name,
@@ -293,7 +340,7 @@ export async function generateJSON<T extends object>(
     data: { ...opts.fallback(), degraded: true, reason },
     meta: {
       latencyMs: Date.now() - started,
-      model: DEFAULT_MODEL,
+      model,
       errorCode: lastError,
       contextSize,
     },

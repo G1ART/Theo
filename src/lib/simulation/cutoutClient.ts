@@ -23,8 +23,63 @@
 import { supabase } from "@/lib/supabase/client";
 import { aiApi } from "@/lib/ai/browser";
 import { attachArtworkImage } from "@/lib/supabase/artworks";
+import {
+  refineTightBboxByLuminanceFromImageData,
+  summarizeTrim,
+  type CropRect,
+  type CutoutTrimMeta,
+  type RefinedTightBbox,
+  type RefineTightBboxOptions,
+} from "./cutoutTrim";
 
 const BUCKET = "artworks";
+
+/**
+ * DOM canvas wrapper around
+ * `refineTightBboxByLuminanceFromImageData`. Reads the canvas's
+ * pixel buffer once, then delegates to the pure-JS core (which the
+ * unit tests exercise directly with synthetic ImageData).
+ *
+ * The passed canvas is expected to be the model-bbox crop of the
+ * source image, drawn 1:1 (`ctx.drawImage(img, cropX, cropY, cropW,
+ * cropH, 0, 0, cropW, cropH)`) — i.e. its own pixel space is 0..cropW
+ * × 0..cropH. `initialCropRect` mirrors that in canvas-local coords:
+ * `{cropX: 0, cropY: 0, cropW: canvas.width, cropH: canvas.height}`.
+ * Callers translate the returned delta back to source-image space.
+ */
+export function refineTightBboxByLuminance(
+  canvas: HTMLCanvasElement,
+  initialCropRect: CropRect,
+  options?: RefineTightBboxOptions,
+): RefinedTightBbox {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return {
+      ...initialCropRect,
+      trimmed: { top: 0, bottom: 0, left: 0, right: 0 },
+    };
+  }
+  let imgData: ImageData;
+  try {
+    imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } catch {
+    // getImageData can throw on tainted canvases (unlikely here —
+    // we drew from a same-origin CDN with crossOrigin='anonymous'
+    // — but keep the graceful fallback so the trim never blocks
+    // the cutout write.
+    return {
+      ...initialCropRect,
+      trimmed: { top: 0, bottom: 0, left: 0, right: 0 },
+    };
+  }
+  return refineTightBboxByLuminanceFromImageData(
+    imgData,
+    initialCropRect,
+    options,
+  );
+}
+
+export type { CutoutTrimMeta, RefinedTightBbox, RefineTightBboxOptions };
 
 /**
  * 2026-08-19 (personal cutouts fix) — decide whether the current
@@ -223,6 +278,9 @@ export async function runVisionBboxCrop(input: {
   }
 
   let dataUrl: string;
+  let trimMeta: CutoutTrimMeta | null = null;
+  let finalCropW = cropW;
+  let finalCropH = cropH;
   try {
     const canvas = document.createElement("canvas");
     canvas.width = cropW;
@@ -230,7 +288,56 @@ export async function runVisionBboxCrop(input: {
     const ctx = canvas.getContext("2d");
     if (!ctx) return { applied: false, reason: "canvas_failed" };
     ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-    dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+
+    // Post-processing trim (2026-08-19): even after the model bbox
+    // + gpt-4o + prompt hardening, a thin sliver of near-white
+    // matte or near-black shadow padding sometimes remains along
+    // one or two edges. Sample the border 5% of the crop and
+    // shrink the rect wherever the strip is uniform enough to
+    // clearly not be part of the painting. See `cutoutTrim.ts` for
+    // the full description.
+    //
+    // The refined rect is expressed in the canvas's local pixel
+    // space (0..cropW × 0..cropH); if any edge trimmed, we re-draw
+    // into a smaller canvas so the JPEG we upload is actually the
+    // tighter rect.
+    const initialLocalCrop: CropRect = {
+      cropX: 0,
+      cropY: 0,
+      cropW,
+      cropH,
+    };
+    const refined = refineTightBboxByLuminance(canvas, initialLocalCrop);
+    const hasTrim =
+      refined.trimmed.top > 0 ||
+      refined.trimmed.bottom > 0 ||
+      refined.trimmed.left > 0 ||
+      refined.trimmed.right > 0;
+    let canvasForUpload = canvas;
+    if (hasTrim && refined.cropW > 0 && refined.cropH > 0) {
+      const trimCanvas = document.createElement("canvas");
+      trimCanvas.width = refined.cropW;
+      trimCanvas.height = refined.cropH;
+      const trimCtx = trimCanvas.getContext("2d");
+      if (trimCtx) {
+        trimCtx.drawImage(
+          canvas,
+          refined.cropX,
+          refined.cropY,
+          refined.cropW,
+          refined.cropH,
+          0,
+          0,
+          refined.cropW,
+          refined.cropH,
+        );
+        canvasForUpload = trimCanvas;
+        finalCropW = refined.cropW;
+        finalCropH = refined.cropH;
+      }
+    }
+    trimMeta = summarizeTrim(initialLocalCrop, refined);
+    dataUrl = canvasForUpload.toDataURL("image/jpeg", 0.92);
   } catch {
     return { applied: false, reason: "canvas_failed" };
   }
@@ -277,8 +384,8 @@ export async function runVisionBboxCrop(input: {
     return {
       applied: true,
       cutoutPath: path,
-      bboxPxWidth: cropW,
-      bboxPxHeight: cropH,
+      bboxPxWidth: finalCropW,
+      bboxPxHeight: finalCropH,
       confidence: res.confidence,
       cutoutScope: "global",
     };
@@ -294,10 +401,19 @@ export async function runVisionBboxCrop(input: {
         artwork_id: input.artworkId,
         view_type: "cutout",
         storage_path: path,
-        px_width: cropW,
-        px_height: cropH,
+        px_width: finalCropW,
+        px_height: finalCropH,
         source: "vision_bbox",
-        metadata: { confidence: res.confidence, bbox: res.bbox },
+        // `metadata.trim` (2026-08-19): per-edge pixel delta the
+        // luminance post-processor contributed on top of the model
+        // bbox. Nullable — pre-2026-08-19 rows and any run where
+        // the border sampler chose not to trim will not carry it.
+        // See `cutoutTrim.ts::summarizeTrim` for the shape.
+        metadata: {
+          confidence: res.confidence,
+          bbox: res.bbox,
+          ...(trimMeta ? { trim: trimMeta } : {}),
+        },
       },
       { onConflict: "user_id,artwork_id,view_type" },
     );
@@ -313,8 +429,8 @@ export async function runVisionBboxCrop(input: {
   return {
     applied: true,
     cutoutPath: path,
-    bboxPxWidth: cropW,
-    bboxPxHeight: cropH,
+    bboxPxWidth: finalCropW,
+    bboxPxHeight: finalCropH,
     confidence: res.confidence,
     cutoutScope: "personal",
   };

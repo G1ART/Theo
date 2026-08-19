@@ -287,51 +287,12 @@ function typicalMidpoint(candidate: SpaceCalibrateCandidate): number {
   return Math.round((min + max) / 2);
 }
 
-/**
- * Compare an artwork's source-image aspect with a placement's
- * physical aspect (both expressed as width / height). Returns the
- * fractional delta relative to the larger aspect, plus the two
- * inputs so the inspector can display them.
- *
- * Returns `null` when either input is missing or degenerate — the
- * inspector treats that as "no signal, hide the warning".
- */
-function computeAspectMismatch(
-  imagePxWidth: number | null,
-  imagePxHeight: number | null,
-  placementWidthCm: number | null,
-  placementHeightCm: number | null,
-): {
-  imageAspect: number;
-  placementAspect: number;
-  delta: number;
-} | null {
-  if (
-    imagePxWidth == null ||
-    imagePxHeight == null ||
-    placementWidthCm == null ||
-    placementHeightCm == null
-  ) {
-    return null;
-  }
-  if (
-    imagePxWidth <= 0 ||
-    imagePxHeight <= 0 ||
-    placementWidthCm <= 0 ||
-    placementHeightCm <= 0
-  ) {
-    return null;
-  }
-  const imageAspect = imagePxWidth / imagePxHeight;
-  const placementAspect = placementWidthCm / placementHeightCm;
-  if (!Number.isFinite(imageAspect) || !Number.isFinite(placementAspect)) {
-    return null;
-  }
-  const denom = Math.max(imageAspect, placementAspect);
-  if (denom <= 0) return null;
-  const delta = Math.abs(imageAspect - placementAspect) / denom;
-  return { imageAspect, placementAspect, delta };
-}
+// 2026-08-19 (Fix D) — the legacy `computeAspectMismatch` helper
+// was retired when the inspector's "aspectMismatch" banner became
+// the "Suggested size" card (which does its own inline aspect
+// diff). The card also folds in the trusted physical dims signal,
+// which the old helper didn't know about. See SpaceEditor.tsx's
+// inspector block for the replacement flow.
 
 type MeasurePoint = { x: number; y: number };
 type MeasureState =
@@ -1556,6 +1517,48 @@ function SpaceEditorContent({ id }: { id: string }) {
     return () => clearTimeout(h);
   }, [autoCropToast]);
 
+  // 2026-08-19 (Fix D) — "제안된 크기 / Suggested size" card
+  // dismiss state. Keyed by placement id, persisted per-browser
+  // via sessionStorage so a "이대로 유지" click stays sticky across
+  // re-selects within the tab but resets on next visit (the user
+  // may have added a fresh cutout by then). Session (not local) so
+  // dismissals don't accumulate forever.
+  const SUGGESTED_SIZE_DISMISS_SS_KEY = "abstract:sim:suggestedSize:dismissed";
+  const [dismissedSuggestedSize, setDismissedSuggestedSize] = useState<
+    Set<string>
+  >(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.sessionStorage.getItem(SUGGESTED_SIZE_DISMISS_SS_KEY);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.filter((v): v is string => typeof v === "string"));
+      }
+      return new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const dismissSuggestedSize = useCallback((placementId: string) => {
+    setDismissedSuggestedSize((prev) => {
+      if (prev.has(placementId)) return prev;
+      const next = new Set(prev);
+      next.add(placementId);
+      if (typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(
+            SUGGESTED_SIZE_DISMISS_SS_KEY,
+            JSON.stringify(Array.from(next)),
+          );
+        } catch {
+          /* quota / private mode — best-effort */
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const readAutoCropFailedCache = useCallback((): Record<string, number> => {
     if (typeof window === "undefined") return {};
     try {
@@ -1603,12 +1606,20 @@ function SpaceEditorContent({ id }: { id: string }) {
   );
 
   /**
-   * "Keep long axis" aspect snap — mirrors
-   * `applyFitToImage("long")` in the inspector's aspect-mismatch
-   * card. Given a placement's current cm rect and a cutout's pixel
-   * aspect, returns the new cm rect that freezes the longer side
-   * and derives the shorter from the aspect. Returns null when
-   * inputs are degenerate (missing dims / non-positive aspect).
+   * "Keep long axis" aspect snap. Given a placement's current cm
+   * rect and a cutout's pixel aspect, returns the new cm rect that
+   * freezes the longer side and derives the shorter from the
+   * aspect. Returns null when inputs are degenerate (missing dims
+   * / non-positive aspect).
+   *
+   * 2026-08-19 — no longer auto-applied. The refreshArtworkThumb
+   * side-effect that used to dirty every matching placement was
+   * removed because it silently overrode trusted physical dims
+   * (Summer Garden II case: 121.92×106.68cm → 121.92×162.56cm
+   * portrait). Kept exported / callable in case future callers
+   * want the "snap to cutout aspect" transform on demand; the
+   * inspector's "제안된 크기 / Suggested size" card now surfaces
+   * this option to the user explicitly.
    */
   function snapPlacementToCutoutAspect(
     widthCm: number | null,
@@ -1647,12 +1658,25 @@ function SpaceEditorContent({ id }: { id: string }) {
   }
 
   /**
-   * Refresh a single artwork's scene-thumb in `state.artworks` and,
-   * if the fresh thumb carries a new cutout, snap every placement
-   * that references it to the cutout's aspect. Used by both the
-   * silent auto-crop path and the existing manual CTAs (which used
-   * to `await load()` — Phase 3 replaces those with this lighter
-   * per-artwork refetch).
+   * Refresh a single artwork's scene-thumb in `state.artworks`.
+   *
+   * 2026-08-19 — the automatic aspect-snap ("if a new cutout
+   * arrives, silently re-write every placement's cm rect to match
+   * the cutout's pixel aspect") was REMOVED. It silently overrode
+   * trusted physical dims — a 121.92×106.68cm landscape ("Summer
+   * Garden II") got snapped to 121.92×162.56cm portrait after
+   * auto-crop, which is worse than not cropping at all. The
+   * inspector's "제안된 크기 / Suggested size" card now surfaces
+   * both the physical-dim mismatch AND the cutout-aspect mismatch
+   * as suggestions the user explicitly opts into (see
+   * `snapPlacementToCutoutAspect` — still exported for the manual
+   * "Apply cutout aspect" button — and the physical-dim path in
+   * the inspector).
+   *
+   * The refresh itself is still needed after Track 1 / Track 2
+   * (the renderer swaps to `cutoutImageUrl` once it's present) and
+   * after silent auto-crop; it just no longer dirties any
+   * placement.
    */
   const refreshArtworkThumb = useCallback(
     async (artworkId: string) => {
@@ -1662,48 +1686,10 @@ function SpaceEditorContent({ id }: { id: string }) {
         if (!prev) return prev;
         const nextArtworks = new Map(prev.artworks);
         nextArtworks.set(artworkId, thumb);
-        // Aspect-snap: only when a NEW cutout arrived (i.e. we
-        // didn't already have one before this refresh). Reads the
-        // OLD map so we don't re-snap on every refresh.
-        const oldThumb = prev.artworks.get(artworkId);
-        const hadCutout = Boolean(
-          oldThumb?.cutoutImageUrl || oldThumb?.cutoutAlphaImageUrl,
-        );
-        const hasCutout = Boolean(
-          thumb.cutoutImageUrl || thumb.cutoutAlphaImageUrl,
-        );
-        if (!hadCutout && hasCutout) {
-          const cutoutPxW =
-            thumb.cutoutAlphaImagePxWidth ?? thumb.cutoutImagePxWidth ?? null;
-          const cutoutPxH =
-            thumb.cutoutAlphaImagePxHeight ?? thumb.cutoutImagePxHeight ?? null;
-          const nextPlacements = prev.space.placements.map((p) => {
-            if (p.artworkId !== artworkId) return p;
-            const snap = snapPlacementToCutoutAspect(
-              p.widthCm,
-              p.heightCm,
-              cutoutPxW,
-              cutoutPxH,
-            );
-            if (!snap) return p;
-            const next = { ...p, ...snap };
-            // Queue for the next flush so the aspect snap lands in
-            // the DB (dragging / re-selecting doesn't re-snap
-            // because the aspect will already match).
-            dirtyPlacements.current.set(next.id, next);
-            return next;
-          });
-          scheduleFlush();
-          return {
-            ...prev,
-            artworks: nextArtworks,
-            space: { ...prev.space, placements: nextPlacements },
-          };
-        }
         return { ...prev, artworks: nextArtworks };
       });
     },
-    [locale, scheduleFlush],
+    [locale],
   );
 
   /**
@@ -3407,24 +3393,6 @@ function SpaceEditorContent({ id }: { id: string }) {
                     : hasBboxCutout
                       ? "cutout"
                       : "primary";
-                // Fold the resolved-source signal into the aspect
-                // mismatch check. When a cutout row exists, the
-                // renderer already draws the cropped painting at
-                // exactly the placement aspect — the "padding" that
-                // the warning was designed to surface no longer
-                // exists, so showing it would confuse the user.
-                const mismatch =
-                  artwork && resolvedSource === "primary"
-                    ? computeAspectMismatch(
-                        artwork.imagePxWidth,
-                        artwork.imagePxHeight,
-                        selected.widthCm,
-                        selected.heightCm,
-                      )
-                    : null;
-                const showMismatch =
-                  mismatch != null &&
-                  mismatch.delta >= ASPECT_MISMATCH_THRESHOLD;
                 const currentFramePreset = resolveFramePreset(
                   selected.framePreset,
                 );
@@ -3434,42 +3402,138 @@ function SpaceEditorContent({ id }: { id: string }) {
                 const alphaBusy =
                   cutoutBusy?.artworkId === selected.artworkId &&
                   cutoutBusy.track === "alpha";
-                const applyFitToImage = (axis: "long" | "short") => {
+
+                // ─── 2026-08-19 (Fix D) — Suggested size card ─────
+                // Replaces the old amber "aspectMismatch" banner.
+                // The card surfaces up to TWO suggestions the user
+                // can opt into (never auto-applied):
+                //
+                //   1. **Physical dims** — when the artwork has
+                //      trusted `width_cm × height_cm` values on the
+                //      `artworks` row AND the current placement
+                //      aspect differs by >6%, offer to restore the
+                //      physical size. Highest priority: this is the
+                //      artist's authored ground truth.
+                //   2. **Cutout aspect** — when a cutout exists, the
+                //      cutout's pixel aspect differs from the
+                //      placement aspect by >6%, AND the cutout
+                //      aspect does NOT already match the physical
+                //      aspect, offer to snap to it. Cutouts still
+                //      matter for legacy uploads without recorded
+                //      physical dims (or for artists who mis-typed
+                //      the dims).
+                //
+                // The "Keep as-is" affordance dismisses the card via
+                // sessionStorage keyed by placement id (see
+                // `dismissedSuggestedSize` above).
+                const placementAspect =
+                  selected.widthCm != null &&
+                  selected.heightCm != null &&
+                  selected.widthCm > 0 &&
+                  selected.heightCm > 0
+                    ? selected.widthCm / selected.heightCm
+                    : null;
+                const physicalWidthCm = artwork?.widthCm ?? null;
+                const physicalHeightCm = artwork?.heightCm ?? null;
+                const physicalAspect =
+                  physicalWidthCm != null &&
+                  physicalHeightCm != null &&
+                  physicalWidthCm > 0 &&
+                  physicalHeightCm > 0
+                    ? physicalWidthCm / physicalHeightCm
+                    : null;
+                function aspectDelta(a: number, b: number): number {
+                  const denom = Math.max(a, b);
+                  return denom > 0 ? Math.abs(a - b) / denom : 0;
+                }
+                const physicalMismatch =
+                  placementAspect != null &&
+                  physicalAspect != null &&
+                  aspectDelta(placementAspect, physicalAspect) >=
+                    ASPECT_MISMATCH_THRESHOLD;
+                // Cutout aspect from the strongest cutout available;
+                // fall back to the primary image aspect only when we
+                // are STILL rendering the primary (no cutout row) —
+                // that's the legacy aspect-mismatch case.
+                const cutoutPxW =
+                  artwork?.cutoutAlphaImagePxWidth ??
+                  artwork?.cutoutImagePxWidth ??
+                  null;
+                const cutoutPxH =
+                  artwork?.cutoutAlphaImagePxHeight ??
+                  artwork?.cutoutImagePxHeight ??
+                  null;
+                const cutoutAspect =
+                  cutoutPxW != null && cutoutPxH != null && cutoutPxH > 0
+                    ? cutoutPxW / cutoutPxH
+                    : null;
+                const primaryAspect =
+                  resolvedSource === "primary" &&
+                  artwork?.imagePxWidth != null &&
+                  artwork?.imagePxHeight != null &&
+                  artwork.imagePxHeight > 0
+                    ? artwork.imagePxWidth / artwork.imagePxHeight
+                    : null;
+                const imageAspectForSuggestion =
+                  cutoutAspect ?? primaryAspect ?? null;
+                const cutoutSuggestionMismatch =
+                  placementAspect != null &&
+                  imageAspectForSuggestion != null &&
+                  aspectDelta(placementAspect, imageAspectForSuggestion) >=
+                    ASPECT_MISMATCH_THRESHOLD &&
+                  // Skip the cutout suggestion when its aspect already
+                  // matches the physical aspect — the physical row
+                  // covers it and dedup keeps the card tidy.
+                  (physicalAspect == null ||
+                    aspectDelta(imageAspectForSuggestion, physicalAspect) >=
+                      ASPECT_MISMATCH_THRESHOLD);
+                const isDismissed = dismissedSuggestedSize.has(selected.id);
+                const showSuggestedSize =
+                  !isDismissed &&
+                  (physicalMismatch || cutoutSuggestionMismatch);
+
+                const applyPhysicalDims = () => {
                   if (
-                    !mismatch ||
+                    physicalWidthCm == null ||
+                    physicalHeightCm == null ||
+                    physicalWidthCm <= 0 ||
+                    physicalHeightCm <= 0
+                  ) {
+                    return;
+                  }
+                  mutatePlacement(selected.id, {
+                    widthCm: Number(physicalWidthCm.toFixed(2)),
+                    heightCm: Number(physicalHeightCm.toFixed(2)),
+                  });
+                };
+                const applyCutoutAspect = () => {
+                  if (
+                    imageAspectForSuggestion == null ||
                     selected.widthCm == null ||
                     selected.heightCm == null
                   ) {
                     return;
                   }
-                  // "긴 축 유지" — freeze whichever placement axis
-                  // is currently longer (in cm) and derive the
-                  // other from the image aspect. "짧은 축 유지" is
-                  // the inverse. Both preserve one physical size
-                  // the user cared about while removing the aspect
-                  // mismatch entirely.
-                  const wCm = selected.widthCm;
-                  const hCm = selected.heightCm;
-                  const imgAspect = mismatch.imageAspect; // w / h
-                  const widthIsLonger = wCm >= hCm;
-                  const keepWidth =
-                    (axis === "long" && widthIsLonger) ||
-                    (axis === "short" && !widthIsLonger);
-                  const nextWidth = keepWidth ? wCm : hCm * imgAspect;
-                  const nextHeight = keepWidth ? wCm / imgAspect : hCm;
-                  if (
-                    !Number.isFinite(nextWidth) ||
-                    !Number.isFinite(nextHeight) ||
-                    nextWidth <= 0 ||
-                    nextHeight <= 0
-                  ) {
-                    return;
-                  }
-                  mutatePlacement(selected.id, {
-                    widthCm: Number(nextWidth.toFixed(2)),
-                    heightCm: Number(nextHeight.toFixed(2)),
-                  });
+                  // Same "keep long axis" behaviour as the legacy
+                  // aspect-mismatch card — freeze whichever
+                  // placement axis is longer and derive the shorter
+                  // from the image aspect. Preserves the user's
+                  // hero size.
+                  const snapped = snapPlacementToCutoutAspect(
+                    selected.widthCm,
+                    selected.heightCm,
+                    imageAspectForSuggestion,
+                    1,
+                  );
+                  if (!snapped) return;
+                  mutatePlacement(selected.id, snapped);
                 };
+                function formatCmPair(w: number, h: number): string {
+                  const wDisp = cmDisplay(w);
+                  const hDisp = cmDisplay(h);
+                  const dp = sizeUnit === "in" ? 1 : 1;
+                  return `${wDisp.toFixed(dp)} × ${hDisp.toFixed(dp)}${unitSuffix}`;
+                }
                 return (
                   <div className="mt-3 space-y-3 text-sm text-zinc-700">
                     <div>
@@ -3529,63 +3593,113 @@ function SpaceEditorContent({ id }: { id: string }) {
                         </label>
                       </div>
                     </div>
-                    {showMismatch && (
+                    {showSuggestedSize && (
                       <div
                         role="status"
-                        className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+                        className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900"
                       >
                         <div className="flex items-start gap-2">
-                          <span aria-hidden className="text-sm leading-none">
-                            ⚠️
+                          <span
+                            aria-hidden
+                            className="rounded-md bg-sky-600/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                          >
+                            {t("simulation.inspector.suggestedSize.badge")}
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="font-medium">
-                              {t(
-                                "simulation.inspector.aspectMismatch.title",
+                              {t("simulation.inspector.suggestedSize.title")}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-sky-800/90">
+                              {t("simulation.inspector.suggestedSize.hint")}
+                            </p>
+                            {selected.widthCm != null &&
+                              selected.heightCm != null && (
+                                <p className="mt-1 text-[11px] text-sky-800/80">
+                                  {t(
+                                    "simulation.inspector.suggestedSize.current",
+                                  ).replace(
+                                    "{size}",
+                                    formatCmPair(
+                                      selected.widthCm,
+                                      selected.heightCm,
+                                    ),
+                                  )}
+                                </p>
                               )}
-                            </p>
-                            <p className="mt-0.5 text-[11px] text-amber-800/90">
-                              {t(
-                                "simulation.inspector.aspectMismatch.hint",
-                              )}
-                            </p>
-                            <p className="mt-1 text-[11px] text-amber-800/80">
-                              {t(
-                                "simulation.inspector.aspectMismatch.stats",
-                              )
-                                .replace(
-                                  "{placementRatio}",
-                                  mismatch.placementAspect.toFixed(2),
-                                )
-                                .replace(
-                                  "{imageRatio}",
-                                  mismatch.imageAspect.toFixed(2),
-                                )
-                                .replace(
-                                  "{delta}",
-                                  Math.round(mismatch.delta * 100).toString(),
-                                )}
-                            </p>
                           </div>
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          {physicalMismatch &&
+                            physicalWidthCm != null &&
+                            physicalHeightCm != null && (
+                              <button
+                                type="button"
+                                onClick={applyPhysicalDims}
+                                className="flex items-center justify-between gap-2 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-sky-900 hover:bg-sky-100"
+                              >
+                                <span className="min-w-0 flex-1 truncate text-left">
+                                  {t(
+                                    "simulation.inspector.suggestedSize.applyPhysical",
+                                  ).replace(
+                                    "{size}",
+                                    formatCmPair(
+                                      physicalWidthCm,
+                                      physicalHeightCm,
+                                    ),
+                                  )}
+                                </span>
+                                <span
+                                  aria-hidden
+                                  className="text-sky-700"
+                                >
+                                  →
+                                </span>
+                              </button>
+                            )}
+                          {cutoutSuggestionMismatch &&
+                            imageAspectForSuggestion != null &&
+                            selected.widthCm != null &&
+                            selected.heightCm != null &&
+                            (() => {
+                              const preview = snapPlacementToCutoutAspect(
+                                selected.widthCm,
+                                selected.heightCm,
+                                imageAspectForSuggestion,
+                                1,
+                              );
+                              if (!preview) return null;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={applyCutoutAspect}
+                                  className="flex items-center justify-between gap-2 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-sky-900 hover:bg-sky-100"
+                                >
+                                  <span className="min-w-0 flex-1 truncate text-left">
+                                    {t(
+                                      "simulation.inspector.suggestedSize.applyCutout",
+                                    ).replace(
+                                      "{size}",
+                                      formatCmPair(
+                                        preview.widthCm,
+                                        preview.heightCm,
+                                      ),
+                                    )}
+                                  </span>
+                                  <span
+                                    aria-hidden
+                                    className="text-sky-700"
+                                  >
+                                    →
+                                  </span>
+                                </button>
+                              );
+                            })()}
                           <button
                             type="button"
-                            onClick={() => applyFitToImage("long")}
-                            className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                            onClick={() => dismissSuggestedSize(selected.id)}
+                            className="self-start rounded-lg px-2.5 py-1 text-[11px] font-medium text-sky-800 hover:text-sky-900"
                           >
-                            {t(
-                              "simulation.inspector.aspectMismatch.keepLong",
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => applyFitToImage("short")}
-                            className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
-                          >
-                            {t(
-                              "simulation.inspector.aspectMismatch.keepShort",
-                            )}
+                            {t("simulation.inspector.suggestedSize.keepAsIs")}
                           </button>
                         </div>
                       </div>

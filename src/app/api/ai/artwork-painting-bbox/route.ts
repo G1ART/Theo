@@ -32,6 +32,21 @@ export const maxDuration = 60;
  * primary image as-is (safe fallback), while a false negative crop
  * risks slicing into the actual artwork.
  *
+ * Model choice (2026-08-19): this route ALONE is routed to `gpt-4o`
+ * (see `FEATURE_MODEL_OVERRIDE` in `src/lib/ai/client.ts`) rather
+ * than the shared `gpt-4o-mini` default. On production traffic the
+ * mini model kept returning a symmetric 10% fallback bbox
+ * ({x:0.1, y:0.1, width:0.8, height:0.8}) instead of tight edges
+ * — that pattern is a lazy default (all four values coincidentally
+ * distinct on symmetry axes) and defeats the whole feature. The
+ * full `gpt-4o` inspects edges independently and produces
+ * measurably tighter bboxes; the prompt (see
+ * `ARTWORK_PAINTING_BBOX_SYSTEM`) also carries anti-fallback
+ * instructions as a belt-and-suspenders guard. Cost note: this
+ * feature runs at most once per artwork upload plus the on-demand
+ * CTA — total volume in beta is expected to stay low, so the ~10x
+ * per-token premium of gpt-4o is a small absolute cost.
+ *
  * Entitlement + soft-cap gating reuses `handleAiRoute` (feature key
  * `artwork_painting_bbox` maps to entitlement `simulation.2d` —
  * beta-open to every plan, see `usageKeys.ts`). Metering fires the
@@ -40,7 +55,8 @@ export const maxDuration = 60;
  */
 
 const ALLOWED_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
-/** ~6 MiB decoded — safe for gpt-4o-mini vision. Matches space-wall-detect. */
+/** ~6 MiB decoded — well within gpt-4o vision limits (this route is
+ *  routed to gpt-4o via FEATURE_MODEL_OVERRIDE, not the shared mini). */
 const MAX_BASE64_BYTES = 8 * 1024 * 1024;
 /** Above this bbox area (fraction of image), we treat the source as
  *  already-cropped even if the model didn't self-report it. Belt +
@@ -128,8 +144,8 @@ function normalizeResult(raw: unknown): {
     r.bbox && typeof r.bbox === "object" ? (r.bbox as Record<string, unknown>) : null;
   if (!bboxRaw) return fullFrame;
 
-  let x = clamp01(bboxRaw.x, 0);
-  let y = clamp01(bboxRaw.y, 0);
+  const x = clamp01(bboxRaw.x, 0);
+  const y = clamp01(bboxRaw.y, 0);
   let width = clamp01(bboxRaw.width, 0);
   let height = clamp01(bboxRaw.height, 0);
   // Keep the rectangle inside the image regardless of what the model

@@ -3989,6 +3989,22 @@ export const messages = {
     "simulation.inspector.aspectMismatch.keepLong": "Keep long side",
     "simulation.inspector.aspectMismatch.keepShort": "Keep short side",
 
+    // 2026-08-19 (Fix D) — Unified "Suggested size" card. Replaces
+    // the old amber "aspectMismatch" banner. Surfaces up to two
+    // opt-in suggestions: (a) restore the artist's authored
+    // physical dims (`artworks.width_cm/height_cm`), (b) snap to the
+    // cutout image aspect. Never auto-applied. See SpaceEditor.tsx.
+    "simulation.inspector.suggestedSize.badge": "Suggested",
+    "simulation.inspector.suggestedSize.title": "Suggested size",
+    "simulation.inspector.suggestedSize.hint":
+      "The current placement doesn't match the artwork's real dimensions. Apply one of the suggestions below, or keep the current size.",
+    "simulation.inspector.suggestedSize.current": "Current: {size}",
+    "simulation.inspector.suggestedSize.applyPhysical":
+      "Apply physical size ({size})",
+    "simulation.inspector.suggestedSize.applyCutout":
+      "Match cutout aspect ({size})",
+    "simulation.inspector.suggestedSize.keepAsIs": "Keep as-is",
+
     // Display Simulation Phase 2 (2026-08-20) — mounting realism.
     // The picker exposes five presets; each maps to a nested CSS
     // stack in `buildMountLayers`. Copy stays terse because it
@@ -8228,6 +8244,21 @@ export const messages = {
       "실제 {placementRatio} vs. 사진 {imageRatio} ({delta}% 차이)",
     "simulation.inspector.aspectMismatch.keepLong": "긴 축 유지",
     "simulation.inspector.aspectMismatch.keepShort": "짧은 축 유지",
+
+    // 2026-08-19 (Fix D) — 통합 "제안된 크기" 카드. 기존 amber
+    // "aspectMismatch" 배너를 대체한다. 최대 두 가지 opt-in 제안을
+    // 노출: (a) 작가가 기재한 물리 크기(artworks.width_cm/height_cm)
+    // 복원, (b) cutout 이미지 비율에 스냅. 자동 적용 안 함.
+    "simulation.inspector.suggestedSize.badge": "제안",
+    "simulation.inspector.suggestedSize.title": "제안된 크기",
+    "simulation.inspector.suggestedSize.hint":
+      "지금 크기가 물리 크기와 다릅니다. 아래 제안 중 하나를 적용하거나, 지금 크기를 그대로 유지할 수 있어요.",
+    "simulation.inspector.suggestedSize.current": "지금 크기: {size}",
+    "simulation.inspector.suggestedSize.applyPhysical":
+      "물리 크기 {size} 적용",
+    "simulation.inspector.suggestedSize.applyCutout":
+      "사진 비율 {size} 적용",
+    "simulation.inspector.suggestedSize.keepAsIs": "이대로 유지",
 
     // Display Simulation Phase 2 (2026-08-20) — 마운팅 리얼리즘.
     // 5개 프레임 프리셋 + 두 트랙의 그림 분리(cutout) CTA.
