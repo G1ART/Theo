@@ -360,6 +360,16 @@ export type CreateSpaceOptions = {
  * Create an empty space (no seeded placements) after the resolver
  * green-lights `simulation.2d`. Emits `simulation.space.created` on
  * success so the lifetime ceiling counts it.
+ *
+ * A single `role='wall'` surface (`surface_index=0`) is seeded eagerly
+ * — every editor handler (wall-dims input, tap-to-place, AI apply)
+ * dereferences `state.space.surfaces[0]`, so without a seeded row
+ * the whole editor no-ops. `widthCm` / `heightCm` / `photoCorners`
+ * are left null so the user still calibrates via the AI card or the
+ * manual "정확한 스케일" flow (unlike the shortlist path which seeds
+ * a fallback quad because it opens straight into a placement layout).
+ * If the surface insert fails, we roll the space insert back so the
+ * caller never observes a half-created scene.
  */
 export async function createEmptySpace(
   options: CreateSpaceOptions,
@@ -381,6 +391,25 @@ export async function createEmptySpace(
   if (error) return { data: null, error };
 
   const space = rowToSceneSpace(data as Record<string, unknown>);
+
+  const surfaceRow = sceneSurfaceInsertToRow({
+    spaceId: space.id,
+    role: "wall",
+    surfaceIndex: 0,
+    widthCm: null,
+    heightCm: null,
+    photoCorners: null,
+  });
+  const { error: surfaceErr } = await client
+    .from("space_surfaces")
+    .insert(surfaceRow);
+  if (surfaceErr) {
+    // Roll back the parent space so we never leave the caller with a
+    // headless space (which would silently no-op every editor handler).
+    await client.from("spaces").delete().eq("id", space.id);
+    return { data: null, error: surfaceErr };
+  }
+
   await recordUsageEvent(
     {
       userId,
@@ -390,7 +419,19 @@ export async function createEmptySpace(
     },
     { client },
   );
-  return { data: space, error: null };
+
+  // Re-select so the returned scene carries the seeded surface (the
+  // initial insert response was captured before the child row landed).
+  const { data: finalRow, error: finalErr } = await client
+    .from("spaces")
+    .select(SPACE_SELECT)
+    .eq("id", space.id)
+    .single();
+  if (finalErr) return { data: space, error: null };
+  return {
+    data: rowToSceneSpace(finalRow as Record<string, unknown>),
+    error: null,
+  };
 }
 
 export type CreateFromShortlistOptions = {

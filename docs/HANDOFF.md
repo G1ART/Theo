@@ -1,6 +1,75 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
+
+## 2026-08-18 (20) — 내 공간 진입로: 사이드바 → 워크스페이스 6번째 타일
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 배경
+- 사용자 지적: "내 공간" 이 (14) Chunk C 릴리즈 때 사이드바 최상단 카테고리로 배치됐지만, 실제 성격은 초안·문의·소유·내전시·출처와 동급의 **워크스페이스 도메인 도구**. 사이드바는 들러보기/저장/업로드처럼 상시 접근하는 축이어야 하고, 도구성 항목은 `/my` 허브의 grid 로 정리하는 것이 정보구조 상 자연스러움.
+
+### 변경 (7파일)
+- **`src/lib/shell/navConfig.ts`**: `spaces` `NavItem` 블록 삭제. 자리에 이동 사유 breadcrumb 주석만 남김.
+- **`src/components/studio/WorkspaceOperationGrid.tsx`**: `WorkspaceTileKey` 유니온에 `"spaces"` 추가. 모든 타일 `<Link>` 에 `data-tour={\`workspace-tile-${tile.key}\`}` 앵커 부착 (향후 다른 타일 spotlight 도 grid 수정 없이 가능).
+- **`src/app/my/page.tsx`**: `listMySpaces` count fetch (acting-as 반영) + 6번째 `spaces` 타일 (아이콘: 벽+액자 stroke SVG, 다른 5개와 동일 시각 언어). `useMemo` deps 갱신.
+- **`src/components/shell/HamburgerContextPeek.tsx`**: 모바일 햄버거의 "내 공간" 프리뷰 row 제거. 사용하지 않는 i18n 키 (`sidebar.spaces`, `nav.peek.spaces*`) 는 안전하게 messages.ts 에 잔류 (dead-ish 상태이나 미래 재사용 여지).
+- **`src/lib/tours/tourRegistry.ts`**: `TOUR_IDS.studio` `version: 11 → 12`. `grid` 와 `public-profile` 사이에 새 `spaces` 스텝 삽입 (target `workspace-tile-spaces`, placement `top`). `requiredAnchors` 확장.
+- **`src/lib/tours/tourKoCopy.ts`**: 새 스텝 KO 카피 + `grid` 스텝 본문 "다섯 개" → "여섯 개" 정합성.
+- **`src/lib/i18n/messages.ts`**: `workspace.tile.spaces.title/subtitle` + `tour.studio.spaces.title/body` EN/KO. `tour.studio.intro`, `tour.studio.grid.body` 도 5→6 tile 로 소폭 갱신.
+
+### i18n 컨벤션 관찰
+- Worker 가 기존 5개 타일 (`workspace.tile.<key>.title/subtitle`) 명명 컨벤션 따라 `workspace.tile.spaces.*` 로 통일 (원 지시서는 `tiles.*.label` 이었으나 기존 통일성 우선).
+
+### 스튜디오 투어 v12
+- 스텝 순서: `hero → grid → spaces → public-profile → visibility → ops` (ops 는 스태프 전용 자동 skip).
+- v11 완료한 리턴 유저에게 재발화되어 이동 사실 안내.
+
+### Verified
+- `npx tsc --noEmit` — exit 0. `ReadLints` — no errors.
+
+## 2026-08-18 (19) — 시뮬 에디터 P1 hot-fix: `createEmptySpace` surface seed 누락
+
+> Supabase SQL 적용함 (MCP `apply_migration` 원격 반영 완료): `supabase/migrations/20260819020000_backfill_empty_space_surfaces.sql` · 환경 변수 변경 없음
+
+### Root cause (하나의 결함에서 3개 이슈 파생)
+사용자 리포트 3개 (벽 사이즈 입력 안 저장 · AI 감지 카드 안 뜸 · 작품 탭-배치 안 됨) 는 모두 동일 뿌리:
+
+**`createEmptySpace()` (spaces.ts:364-394) 가 `spaces` 행만 insert 하고 `space_surfaces` 시드 안 함**. 대조: `createSpaceFromShortlist` 는 line 409 코멘트대로 `role='wall'` surface_index=0 을 명시적으로 넣음. 결과: 콜렉터 플로우 empty space 는 `state.space.surfaces = []` → `primarySurface = null` → 아래 세 핸들러가 조용히 no-op:
+- `handleWallDims` → 벽 크기 인풋 저장 안 됨.
+- `handleCanvasTap` → `surfaceId=null` 로 placement 생성 → `upsertPlacements` FK 위반 → 캔버스에 아무것도 안 나타남.
+- AI Apply → `updateSurface(primarySurface.id, ...)` 가 `null.id` 로 터짐. 카드 트리거 조건 자체는 성립 (감사 결과), 다만 apply 가 무의미.
+
+**보너스 회귀 자동 해소**: `SeeInMySpaceCta.attachPlacementAndRoute` 도 헤드리스 space 에 `surface_id=null` 인서트 후 `renderer2d` 폴백 미스로 시각적으로 사라지던 부작용이 있었음 — 이번 시드/backfill 로 함께 해소, 별도 픽스 불필요.
+
+### 변경 (4파일)
+- **`src/lib/supabase/spaces.ts`**: `createEmptySpace()` 가 space insert 성공 후 즉시 `role='wall'`/`surface_index=0` 서페이스 시드. 시드 실패 시 부모 space 롤백. 성공 시 `SPACE_SELECT` 재조회로 반환 씬에 서페이스 포함. `createSpaceFromShortlist` (자체 시드 유지) 미변경.
+- **`supabase/migrations/20260819020000_backfill_empty_space_surfaces.sql`**: 기존 헤드리스 space 에 `wall` 서페이스 backfill. 멱등 (`not exists` 가드). MCP 로 적용 완료, pre=1 → post=0 검증.
+- **`src/components/simulation/SpaceEditor.tsx`**:
+ - `runAiCalibration` 공용 헬퍼로 AI 호출 로직 추출 (업로드 경로 리팩터).
+ - `runAiCalibrationFromCurrentPhoto` — 저장된 photoUrl fetch → Blob → File 재조립 후 재호출.
+ - **자동 재실행 useEffect**: 편집기 마운트 시 조건 (사진 있음 · widthCm 없음 · photoCorners 없음 · AI pref on · not busy) 충족 시 `useRef<string | null>` (space id 키) 로 space 당 한 번만 발사. **backfill 된 기존 스페이스도 즉시 커버**.
+ - **수동 재실행 버튼**: "정확한 스케일 (고급)" 아코디언에 "AI로 스케일 다시 감지 / Detect scale with AI again" 추가. `calibrateBusy` 락 중복 방지. 빈 결과 시 "AI가 마땅한 물건을 못 찾았어요" 토스트.
+ - `load()` 방어 경고: `surfaces.length === 0` 이면 dev 환경 `console.warn`. 자동 생성은 하지 않음 (회귀 마스킹 방지).
+- **`src/lib/i18n/messages.ts`**: `simulation.calibrate.retrigger / retriggering / retriggerEmpty` KO/EN 3키 추가.
+
+### 검증 트레이스 (브라우저 없이 코드 경로 추론)
+| 시나리오 | 결과 |
+|---|---|
+| 신규 empty space → 벽 크기 인풋 | primarySurface 실존 → `updateSurface` 성공 → refresh 후 지속 ✅ |
+| 신규 empty space → 탭 배치 | `surface.id` 실 UUID → `upsertPlacements` FK OK → 서버 id 재하이드레이트 → 캔버스 렌더 ✅ |
+| 신규 업로드 → AI 카드 자동 트리거 | 기존 handleUploadPhoto 경로 그대로 + useEffect ref 중복 방지 ✅ |
+| 백필된 기존 space → AI 자동 트리거 | useEffect 마운트 시 조건 충족 → fetch(photoUrl) → File → API ✅ |
+| 아코디언 수동 재트리거 | 버튼 → `handleManualAiRetrigger` → 빈 결과 토스트 안내 ✅ |
+
+### 알려진 caveat
+- 자동 발사 시에도 "AI가 스케일을 잡고 있어요…" 토스트를 그대로 노출 (업로드 경로와 UX 일관성). 사용자가 개입 없이 이 토스트를 처음 보는 게 어색하면 자동 경로만 조용히 실행하는 조정 가능.
+- Public bucket URL 기반 `fetch()` — CORS 이슈 발생 시 `supabase.storage.from(...).download()` 폴백 필요.
+
+### Verified
+- `npx tsc --noEmit` — exit 0.
+- `ReadLints` on 수정된 9파일 (두 워커 합산) — no errors.
+- MCP `apply_migration` `20260819020000_backfill_empty_space_surfaces` → `{success: true}`. Orphan 검증 쿼리 pre=1, post=0.
 
 ## 2026-08-17 (18) — Vision AI ① 업로드 품질 게이트 (`artwork_quality_gate`)
 

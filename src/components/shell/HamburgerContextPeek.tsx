@@ -17,7 +17,6 @@ import {
   type NotificationRow,
 } from "@/lib/supabase/notifications";
 import { getTheoBoardRail, type TheoBoardPost } from "@/lib/supabase/theoBoard";
-import { listMySpaces } from "@/lib/supabase/spaces";
 
 export function useFollowInviteCount(enabled: boolean): number {
   const [count, setCount] = useState(0);
@@ -57,7 +56,6 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
   const [invite, setInvite] = useState<NotificationRow | null>(null);
   const [inviteCount, setInviteCount] = useState(0);
   const [boardPost, setBoardPost] = useState<TheoBoardPost | null>(null);
-  const [spacesCount, setSpacesCount] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +68,6 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
         if (!cancelled) {
           setInvite(null);
           setInviteCount(0);
-          setSpacesCount(null);
         }
         return;
       }
@@ -80,14 +77,6 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
       const invites = (data ?? []).filter((row) => row.type === "follow_request");
       setInviteCount(invites.length);
       setInvite(invites[0] ?? null);
-
-      // 2026-08-17 (14) Chunk C — surface a quiet "count of spaces"
-      // preview under the sidebar peek. Fails silently on RLS/network
-      // hiccups; the row still routes to /my/spaces so a broken
-      // preview never becomes a broken link.
-      const spaces = await listMySpaces();
-      if (cancelled) return;
-      setSpacesCount(spaces.data.length);
     }
 
     void load();
@@ -104,10 +93,6 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
     : t("nav.peek.networkIdle");
   const boardHint = boardPost?.title?.trim() || t("nav.peek.boardIdle");
   const boardHref = boardPost ? `/theo-board/${boardPost.id}` : "/theo-board";
-  const spacesHint =
-    spacesCount != null && spacesCount > 0
-      ? t("nav.peek.spacesActive").replace("{n}", String(spacesCount))
-      : t("nav.peek.spacesIdle");
 
   return (
     <section
@@ -142,23 +127,13 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
         <p className="text-sm font-medium text-zinc-900">{t("nav.theoBoard")}</p>
         <p className="mt-0.5 truncate text-xs text-zinc-500">{boardHint}</p>
       </Link>
-
-      {loggedIn && (
-        // 2026-08-17 (14) Chunk C — quiet "내 공간" preview beneath
-        // Network + Board so mobile users have parity with the
-        // desktop sidebar entry (added to PRIMARY_NAV) even at a
-        // glance. Route stays the same as the sidebar link.
-        <Link
-          href="/my/spaces"
-          onClick={onNavigate}
-          className="mt-1 block rounded-xl px-1 py-1.5 hover:bg-white"
-        >
-          <p className="text-sm font-medium text-zinc-900">
-            {t("sidebar.spaces")}
-          </p>
-          <p className="mt-0.5 truncate text-xs text-zinc-500">{spacesHint}</p>
-        </Link>
-      )}
+      {/* 2026-08-18: "내 공간" (My Spaces) preview row removed. Spaces
+          is now a tile in the `/my` workspace hub instead of a
+          top-level nav slot, so the mobile hamburger no longer needs
+          a dedicated preview line. Users reach Spaces via
+          Workspace → Spaces tile, same as desktop. i18n keys
+          (`sidebar.spaces`, `nav.peek.spaces*`) are intentionally
+          kept in messages.ts for backwards compat. */}
     </section>
   );
 }

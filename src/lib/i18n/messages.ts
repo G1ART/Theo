@@ -280,6 +280,9 @@ export const messages = {
     "workspace.tile.provenance.title": "Provenance",
     "workspace.tile.provenance.subtitle":
       "Manage external artist invitations and links.",
+    "workspace.tile.spaces.title": "My Spaces",
+    "workspace.tile.spaces.subtitle":
+      "Hang works in your own room photos.",
     "workspace.ops.kicker": "Staff only",
     "workspace.ops.title": "Ops console",
     "workspace.ops.subtitle":
@@ -2894,7 +2897,7 @@ export const messages = {
     "tour.reopen": "Guide",
 
     "tour.studio.title": "Workspace tour",
-    "tour.studio.intro": "A quiet jump-off for drafts, inquiries, ownership, exhibitions, and provenance.",
+    "tour.studio.intro": "A quiet jump-off for drafts, inquiries, ownership, exhibitions, provenance, and My Spaces.",
     "tour.studio.hero.title": "This is your Workspace",
     "tour.studio.hero.body":
       "Theo’s operational home. Open a tile when you need to manage work — your public identity is edited on your public profile.",
@@ -2915,7 +2918,10 @@ export const messages = {
       "Quick actions tuned to what your studio needs right now — profile, works, inquiries.",
     "tour.studio.grid.title": "Workspace tiles",
     "tour.studio.grid.body":
-      "Drafts, inquiries, ownership, exhibitions, and provenance — five jump-offs, not a second public profile.",
+      "Drafts, inquiries, ownership, exhibitions, provenance, and My Spaces — six jump-offs, not a second public profile.",
+    "tour.studio.spaces.title": "My Spaces — try hanging a piece",
+    "tour.studio.spaces.body":
+      "This used to live in the sidebar. It now sits here as a workspace tile: upload a photo of your room and drop favorites onto the wall to see how they look.",
     "tour.studio.workshop.title": "Workshop",
     "tour.studio.workshop.body":
       "A private space for in-progress or unlisted works — separate from your public studio.",
@@ -3965,6 +3971,15 @@ export const messages = {
     "simulation.calibrate.settingsTitle": "Auto scale detection (AI)",
     "simulation.calibrate.settingsDesc":
       "When you upload a photo, AI detects object sizes to auto-calibrate the wall scale. Turn off to measure manually only.",
+    // Manual re-trigger for the AI calibration card. Surfaced inside the
+    // "정확한 스케일 (고급)" accordion whenever we have a photo but no
+    // scale yet — covers spaces whose photo was uploaded before the AI
+    // feature landed AND spaces where the user dismissed the card. Also
+    // used as the "detecting" state label while the manual retry runs.
+    "simulation.calibrate.retrigger": "Detect scale with AI again",
+    "simulation.calibrate.retriggering": "Asking AI to detect the scale…",
+    "simulation.calibrate.retriggerEmpty":
+      "AI couldn't find a clear reference. Try measuring manually.",
 
     "simulation.picker.title": "Add an artwork",
     "simulation.picker.tab.saved": "Saved",
@@ -4296,6 +4311,9 @@ export const messages = {
     "workspace.tile.myExhibitions.subtitle": "내가 기획·전시한 프로젝트.",
     "workspace.tile.provenance.title": "출처",
     "workspace.tile.provenance.subtitle": "외부 작가 초대와 연결을 관리.",
+    "workspace.tile.spaces.title": "내 공간",
+    "workspace.tile.spaces.subtitle":
+      "내 방 사진에 마음에 드는 작품을 걸어봐요.",
     "workspace.ops.kicker": "운영진 전용",
     "workspace.ops.title": "운영 콘솔",
     "workspace.ops.subtitle": "보드 승인, 운영진 권한, 내부 도구.",
@@ -6905,7 +6923,7 @@ export const messages = {
     "tour.reopen": "가이드 보기",
 
     "tour.studio.title": "워크스페이스 안내",
-    "tour.studio.intro": "초안·문의·소유·전시·출처로 바로 가는 조용한 출발점이에요.",
+    "tour.studio.intro": "초안·문의·소유·전시·출처·내 공간으로 바로 가는 조용한 출발점이에요.",
     "tour.studio.hero.title": "여기가 워크스페이스예요",
     "tour.studio.hero.body":
       "운영을 위한 홈이에요. 작업이 필요할 때 타일을 열고, 공개 정체성은 공개 프로필에서 바로 고칩니다.",
@@ -6926,7 +6944,10 @@ export const messages = {
       "지금 스튜디오에 도움이 될 만한 일을 간단히 모아두는 곳이에요. 프로필·작품·문의를 바로 열 수 있어요.",
     "tour.studio.grid.title": "워크스페이스 타일",
     "tour.studio.grid.body":
-      "초안·문의·소유·전시·출처 — 다섯 개의 출발점이에요. 두 번째 공개 프로필이 아니에요.",
+      "초안·문의·소유·전시·출처·내 공간 — 여섯 개의 출발점이에요. 두 번째 공개 프로필이 아니에요.",
+    "tour.studio.spaces.title": "내 공간 — 작품을 걸어보세요",
+    "tour.studio.spaces.body":
+      "예전에는 사이드바에 있던 진입로예요. 이제는 여기 워크스페이스 타일에서 열어요. 내 방 사진을 올리고, 마음에 드는 작품을 원하는 자리에 바로 걸어볼 수 있어요.",
     "tour.studio.workshop.title": "작업실",
     "tour.studio.workshop.body":
       "비공개·작업 중·보관 중인 작품을 관리하는 공간이에요. 공개 스튜디오와는 분리돼 있어요.",
@@ -7942,6 +7963,14 @@ export const messages = {
     "simulation.calibrate.settingsTitle": "자동 스케일 감지 (AI)",
     "simulation.calibrate.settingsDesc":
       "사진 업로드 시 AI가 물건 크기로 벽 스케일을 자동 잡아드립니다. 끄면 수동으로만 재요.",
+    // AI 카드를 다시 띄우기 위한 수동 트리거. "정확한 스케일 (고급)"
+    // 아코디언 안에 노출되며, 사진은 있지만 아직 스케일이 없을 때
+    // (기능 출시 이전에 올린 사진 / 사용자가 카드를 닫은 경우) 활성화
+    // 된다. 재시도 진행 상태와 결과가 비었을 때 문구도 여기서 관리.
+    "simulation.calibrate.retrigger": "AI로 스케일 다시 감지",
+    "simulation.calibrate.retriggering": "AI가 스케일을 다시 잡고 있어요…",
+    "simulation.calibrate.retriggerEmpty":
+      "AI가 마땅한 물건을 못 찾았어요. 직접 재기로 시도해 보세요.",
 
     "simulation.wall.title": "벽 보정",
     "simulation.wall.advancedTitle": "정확한 스케일 (고급)",

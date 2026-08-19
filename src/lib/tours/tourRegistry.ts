@@ -37,10 +37,14 @@ export const TOURS: Record<TourId, TourDefinition> = {
     // existing completion records stay valid. Anchors live on `/my`
     // (workspace-hub / workspace-tiles). Tab management belongs on
     // the public profile tour. AI helpers stay unmounted.
-    version: 11,
+    // v12 (2026-08-18): "내 공간 / My Spaces" moved from the sidebar
+    // into the workspace hub as a 6th tile. New `spaces` step
+    // spotlights `workspace-tile-spaces` so returning users find
+    // the relocation on their next visit.
+    version: 12,
     titleKey: "tour.studio.title",
     introKey: "tour.studio.intro",
-    requiredAnchors: ["workspace-hub", "workspace-tiles"],
+    requiredAnchors: ["workspace-hub", "workspace-tiles", "workspace-tile-spaces"],
     steps: [
       {
         id: "hero",
@@ -54,6 +58,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
         target: "workspace-tiles",
         titleKey: "tour.studio.grid.title",
         bodyKey: "tour.studio.grid.body",
+        placement: "top",
+      },
+      {
+        id: "spaces",
+        target: "workspace-tile-spaces",
+        titleKey: "tour.studio.spaces.title",
+        bodyKey: "tour.studio.spaces.body",
         placement: "top",
       },
       {

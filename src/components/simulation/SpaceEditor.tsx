@@ -218,8 +218,15 @@ function SpaceEditorContent({ id }: { id: string }) {
   // `imageBox` CSS-pixel space (i.e., relative to the rendered <img>).
   const [measureState, setMeasureState] = useState<MeasureState>({ phase: "idle" });
   const [measureInputCm, setMeasureInputCm] = useState("");
+  const [calibrateBusy, setCalibrateBusy] = useState(false);
 
   const aiCalibrationEnabled = useAiCalibrationPref();
+
+  // Auto-fire guard for the on-mount AI calibration path (Fix #3 in
+  // the P1 bug patch). Set on the FIRST attempt for a given space so
+  // we never re-fire on re-renders / state churn; the load-triggered
+  // reset ensures navigating to a different space still fires once.
+  const autoCalibrateFiredRef = useRef<string | null>(null);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -253,6 +260,24 @@ function SpaceEditorContent({ id }: { id: string }) {
       setNotFound(true);
       setLoading(false);
       return;
+    }
+    // Defensive guard: a headless space (no primary surface) silently
+    // no-ops every handler in this editor — the wall-dims inputs, the
+    // tap-to-place path, and the AI calibrate Apply all dereference
+    // `surfaces[0]`. `createEmptySpace` now seeds a wall row eagerly
+    // and 20260819020000_backfill_empty_space_surfaces.sql cleaned up
+    // the historical rows, so hitting this branch means we regressed
+    // one of those seeds. Warn loudly in dev so it's caught fast; we
+    // deliberately do NOT client-side create a surface here because
+    // that would paper over server-side regressions.
+    if (
+      data.space.surfaces.length === 0 &&
+      process.env.NODE_ENV !== "production"
+    ) {
+      console.warn(
+        "[simulation] space is missing primary surface — wall-dims / tap-to-place / AI apply will silently no-op",
+        { spaceId: data.space.id, title: data.space.title },
+      );
     }
     setState({ space: data.space, artworks: data.artworks });
     setTitleDraft(data.space.title);
@@ -570,6 +595,133 @@ function SpaceEditorContent({ id }: { id: string }) {
     }
   }, [state, t]);
 
+  /**
+   * Shared AI space-calibrate invocation. Renders one candidate card
+   * on success and reports back so callers can pick their own error
+   * copy (upload path stays silent; retrigger path surfaces a
+   * "couldn't find" toast so the user knows the button did fire).
+   *
+   * Guardrails (mime allowlist, non-zero photo dims) live here so
+   * the two entry points (post-upload + manual retrigger) stay in
+   * sync. `setCalibrateBusy` toggles a lock so the manual button
+   * can't stack requests.
+   */
+  const runAiCalibration = useCallback(
+    async (input: {
+      file: File;
+      imagePxWidth: number;
+      imagePxHeight: number;
+      spaceId: string;
+      mode: "upload" | "retrigger";
+    }): Promise<{ ok: boolean; empty: boolean }> => {
+      if (input.imagePxWidth <= 0 || input.imagePxHeight <= 0) {
+        return { ok: false, empty: true };
+      }
+      if (
+        !["image/jpeg", "image/png", "image/webp"].includes(input.file.type)
+      ) {
+        return { ok: false, empty: true };
+      }
+      setCalibrateBusy(true);
+      setToast(
+        t(
+          input.mode === "retrigger"
+            ? "simulation.calibrate.retriggering"
+            : "simulation.calibrate.detecting",
+        ),
+      );
+      try {
+        const base64 = await fileToBase64(input.file);
+        const res = await aiApi.spaceCalibrate({
+          spaceId: input.spaceId,
+          imageBase64: base64,
+          mime: input.file.type,
+          imagePxWidth: input.imagePxWidth,
+          imagePxHeight: input.imagePxHeight,
+        });
+        if (res.candidates.length > 0) {
+          setCalibrateCandidates(res.candidates);
+          setCalibrateIdx(0);
+          setCalibrateInputCm("");
+          setToast(null);
+          return { ok: true, empty: false };
+        }
+        // Degraded / empty. Upload path stays silent (the manual
+        // "직접 재기" entry point in the accordion is always visible);
+        // retrigger path tells the user AI didn't find anything so
+        // the button press isn't perceived as broken.
+        setToast(
+          input.mode === "retrigger"
+            ? t("simulation.calibrate.retriggerEmpty")
+            : null,
+        );
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] calibrate empty/degraded", res);
+        }
+        return { ok: false, empty: true };
+      } catch (err) {
+        setToast(
+          input.mode === "retrigger"
+            ? t("simulation.calibrate.retriggerEmpty")
+            : null,
+        );
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] calibrate failed", err);
+        }
+        return { ok: false, empty: true };
+      } finally {
+        setCalibrateBusy(false);
+      }
+    },
+    [t],
+  );
+
+  /**
+   * Re-fire the AI calibration for a space whose photo is already on
+   * disk (either uploaded before the AI feature landed OR after the
+   * user dismissed the initial card). Fetches the working WebP copy,
+   * repackages it as a `File`, and hands off to `runAiCalibration`.
+   *
+   * Guarded by the caller — this helper doesn't check the "already
+   * calibrated" condition so it stays reusable for both the auto-fire
+   * useEffect and the manual "AI로 스케일 다시 감지" button.
+   */
+  const runAiCalibrationFromCurrentPhoto = useCallback(
+    async (mode: "upload" | "retrigger"): Promise<{ ok: boolean; empty: boolean }> => {
+      if (!state) return { ok: false, empty: true };
+      const url = spacePhotoUrl(state.space.photoStoragePath);
+      if (!url) return { ok: false, empty: true };
+      const pxW = state.space.photoWidthPx ?? 0;
+      const pxH = state.space.photoHeightPx ?? 0;
+      if (pxW <= 0 || pxH <= 0) return { ok: false, empty: true };
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) return { ok: false, empty: true };
+        const blob = await resp.blob();
+        // Storage sets content-type to image/webp for the display copy.
+        // Fall back to webp when the response omits it (some CDN edges).
+        const mime = blob.type || "image/webp";
+        const file = new File([blob], "space-photo", { type: mime });
+        return await runAiCalibration({
+          file,
+          imagePxWidth: pxW,
+          imagePxHeight: pxH,
+          spaceId: state.space.id,
+          mode,
+        });
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] retrigger fetch failed", err);
+        }
+        if (mode === "retrigger") {
+          setToast(t("simulation.calibrate.retriggerEmpty"));
+        }
+        return { ok: false, empty: true };
+      }
+    },
+    [state, runAiCalibration, t],
+  );
+
   const handleUploadPhoto = useCallback(
     async (file: File) => {
       if (!state) return;
@@ -594,47 +746,72 @@ function SpaceEditorContent({ id }: { id: string }) {
         // overwrite the user's confirmed scale.
         if (hadCorners || hadWallDims) return;
         if (!aiCalibrationEnabled) return;
-        if (!upload.widthPx || !upload.heightPx) return;
-        if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return;
 
-        setToast(t("simulation.calibrate.detecting"));
-        try {
-          const base64 = await fileToBase64(file);
-          const res = await aiApi.spaceCalibrate({
-            spaceId: state.space.id,
-            imageBase64: base64,
-            mime: file.type,
-            imagePxWidth: upload.widthPx,
-            imagePxHeight: upload.heightPx,
-          });
-          if (res.candidates.length > 0) {
-            setCalibrateCandidates(res.candidates);
-            setCalibrateIdx(0);
-            setCalibrateInputCm("");
-            setToast(null);
-          } else {
-            // Degraded / empty. Clear the "detecting" toast quietly —
-            // the "정확한 스케일" accordion always exposes the manual
-            // "직접 재기" entry point, so no error UI is needed.
-            setToast(null);
-            if (process.env.NODE_ENV !== "production") {
-              console.debug("[simulation] calibrate degraded", res);
-            }
-          }
-        } catch (err) {
-          setToast(null);
-          if (process.env.NODE_ENV !== "production") {
-            console.debug("[simulation] calibrate failed", err);
-          }
-        }
+        // Mark auto-fire as consumed so the mount-triggered effect
+        // doesn't double-fire against the same photo after `load()`
+        // repopulates the state we just uploaded to.
+        autoCalibrateFiredRef.current = state.space.id;
+        await runAiCalibration({
+          file,
+          imagePxWidth: upload.widthPx,
+          imagePxHeight: upload.heightPx,
+          spaceId: state.space.id,
+          mode: "upload",
+        });
       } catch {
         setToast(t("simulation.errors.uploadFailed"));
       } finally {
         setUploadBusy(false);
       }
     },
-    [state, load, t, aiCalibrationEnabled],
+    [state, load, t, aiCalibrationEnabled, runAiCalibration],
   );
+
+  /**
+   * Manual "AI로 스케일 다시 감지" trigger. Wired to the accordion
+   * button; also invoked by the auto-fire useEffect below. Kept as a
+   * thin wrapper so the button + effect share the exact same guards.
+   */
+  const handleManualAiRetrigger = useCallback(async () => {
+    if (calibrateBusy) return;
+    await runAiCalibrationFromCurrentPhoto("retrigger");
+  }, [calibrateBusy, runAiCalibrationFromCurrentPhoto]);
+
+  // Auto-fire AI calibration ONCE per space when the editor mounts on
+  // a space that has a photo but no scale yet. This covers users who
+  // uploaded before commit c1333e6 (AI feature landed) — without the
+  // effect they'd never see the card unless they replace the photo.
+  //
+  // Guards (all must hold):
+  //   • AI calibration pref is on
+  //   • space has a photo (path + non-zero native dims)
+  //   • primary surface exists but has neither widthCm nor photoCorners
+  //   • auto-fire hasn't already run for this space id
+  //   • no candidate card currently rendered (would be double-work)
+  //
+  // `autoCalibrateFiredRef` is keyed by space id so navigating from
+  // one space editor to another still fires once per space, while
+  // re-renders on the same space never re-fire.
+  useEffect(() => {
+    if (!state) return;
+    if (!aiCalibrationEnabled) return;
+    if (calibrateBusy) return;
+    if (calibrateCandidates.length > 0) return;
+    const surface = state.space.surfaces[0];
+    if (!surface) return;
+    if (surface.widthCm != null || surface.photoCorners != null) return;
+    if (!state.space.photoStoragePath) return;
+    if (!state.space.photoWidthPx || !state.space.photoHeightPx) return;
+    if (autoCalibrateFiredRef.current === state.space.id) return;
+    autoCalibrateFiredRef.current = state.space.id;
+    void runAiCalibrationFromCurrentPhoto("upload");
+  }, [
+    state,
+    aiCalibrationEnabled,
+    calibrateBusy,
+    calibrateCandidates.length,
+    runAiCalibrationFromCurrentPhoto,
+  ]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (!state || !selectedId) return;
@@ -1842,6 +2019,29 @@ function SpaceEditorContent({ id }: { id: string }) {
                   >
                     {t("simulation.calibrate.manual")}
                   </button>
+                  {/*
+                    Manual re-trigger for the AI calibration card.
+                    Shown only when the space still has an unset scale
+                    (widthCm null AND photoCorners null) so users who
+                    already calibrated don't accidentally re-run the
+                    AI + risk overwriting a good value on Apply. The
+                    pref must also be on — hides the button entirely
+                    for users who opted out at Settings.
+                  */}
+                  {aiCalibrationEnabled &&
+                    !primarySurface?.widthCm &&
+                    !primarySurface?.photoCorners && (
+                      <button
+                        type="button"
+                        onClick={() => void handleManualAiRetrigger()}
+                        disabled={calibrateBusy}
+                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {calibrateBusy
+                          ? t("simulation.calibrate.retriggering")
+                          : t("simulation.calibrate.retrigger")}
+                      </button>
+                    )}
                 </div>
               )}
             </div>

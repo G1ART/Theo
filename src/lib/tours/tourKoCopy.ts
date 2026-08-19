@@ -41,7 +41,11 @@ export const TOUR_KO_STEP: Record<string, { title: string; body: string }> = {
   },
   "studio.main:grid": {
     title: "워크스페이스 타일",
-    body: "초안·문의·소유·전시·출처 — 다섯 개의 출발점이에요. 두 번째 공개 프로필이 아니에요.",
+    body: "초안·문의·소유·전시·출처·내 공간 — 여섯 개의 출발점이에요. 두 번째 공개 프로필이 아니에요.",
+  },
+  "studio.main:spaces": {
+    title: "내 공간 — 작품을 걸어보세요",
+    body: "예전에는 사이드바에 있던 진입로예요. 이제는 여기 워크스페이스 타일에서 열어요. 내 방 사진을 올리고, 마음에 드는 작품을 원하는 자리에 바로 걸어볼 수 있어요.",
   },
   "studio.main:public-profile": {
     title: "공개 프로필",

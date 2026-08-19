@@ -9,7 +9,8 @@ export type WorkspaceTileKey =
   | "inquiries"
   | "ownership"
   | "my_exhibitions"
-  | "provenance";
+  | "provenance"
+  | "spaces";
 
 export type WorkspaceTile = {
   key: WorkspaceTileKey;
@@ -31,12 +32,17 @@ type Props = {
 /**
  * Workspace hub grid (Aug-2026 redesign).
  *
- * Renders the 5 workspace domain tiles (Drafts, Inquiries, Ownership,
- * My Exhibitions, Provenance). Visually distinct from the old 2×4
- * StudioOperationGrid — each tile leads with an icon glyph and a big
- * count, with the label + subtitle stacked below. Keeps the same 2-3
- * column responsive rhythm so the workspace hub feels intentional at
- * every breakpoint.
+ * Renders the workspace domain tiles (Drafts, Inquiries, Ownership,
+ * My Exhibitions, Provenance, Spaces). Visually distinct from the old
+ * 2×4 StudioOperationGrid — each tile leads with an icon glyph and a
+ * big count, with the label + subtitle stacked below. Keeps the same
+ * 2–3 column responsive rhythm so the workspace hub feels intentional
+ * at every breakpoint; 6 tiles land as 2×3 or 3×2 depending on width.
+ *
+ * Each tile carries a `data-tour="workspace-tile-<key>"` anchor so the
+ * guided tour can spotlight any individual tile by key without further
+ * grid changes — future features can add tour steps just by defining a
+ * step that targets its tile's anchor.
  */
 export function WorkspaceOperationGrid({ tiles }: Props) {
   const { t } = useT();
@@ -51,6 +57,7 @@ export function WorkspaceOperationGrid({ tiles }: Props) {
         <Link
           key={tile.key}
           href={tile.href}
+          data-tour={`workspace-tile-${tile.key}`}
           className="group flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 transition-all hover:border-zinc-400 hover:shadow-sm"
         >
           <div className="flex items-center justify-between">

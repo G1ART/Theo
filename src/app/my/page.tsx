@@ -23,6 +23,7 @@ import {
   type ExhibitionWithCredits,
 } from "@/lib/supabase/exhibitions";
 import { listMyExternalArtists } from "@/lib/provenance/externalArtists";
+import { listMySpaces } from "@/lib/supabase/spaces";
 import { OrphanInvitesBanner } from "@/components/onboarding/OrphanInvitesBanner";
 import { DelegationBriefPanel } from "@/components/delegation/DelegationBriefPanel";
 import { PageShell } from "@/components/ds/PageShell";
@@ -52,14 +53,15 @@ type Profile = FullProfile;
  * Workspace hub — `/my` (Aug-2026 redesign).
  *
  * The old "studio" surface (hero + portfolio + materials + intelligence)
- * is intentionally replaced with a compact 5-tile hub matching the new
+ * is intentionally replaced with a compact tile hub matching the new
  * wireframe. Each tile is a jump-off into a workspace domain:
  *
- *   • Drafts       → /my/library?visibility=draft
- *   • Inquiries    → /my/inquiries
- *   • Ownership    → /my/claims
+ *   • Drafts         → /my/library?visibility=draft
+ *   • Inquiries      → /my/inquiries
+ *   • Ownership      → /my/claims
  *   • My Exhibitions → /my/exhibitions
- *   • Provenance   → /my/orphan-invites
+ *   • Provenance     → /my/orphan-invites
+ *   • Spaces         → /my/spaces      (2026-08-18: moved off sidebar)
  *
  * The orphan-invites banner + acting-as delegation brief remain (both
  * are gentle context nudges, not content), and unaffected discovery
@@ -75,6 +77,7 @@ function WorkspaceContent() {
   const [exhibitions, setExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [externalArtistsCount, setExternalArtistsCount] = useState<number | null>(null);
   const [draftExhibitionsCount, setDraftExhibitionsCount] = useState<number | null>(null);
+  const [spacesCount, setSpacesCount] = useState<number | null>(null);
   const [isStaff, setIsStaff] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -92,23 +95,29 @@ function WorkspaceContent() {
     } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
 
-    const [inquiryCountRes, claimsCountRes, exRes, externalRes] = await Promise.all([
-      getMyPriceInquiryCount(effectiveProfileId ?? undefined),
-      getMyPendingClaimsCount(effectiveProfileId ?? undefined),
-      effectiveProfileId
-        ? listExhibitionsForProfile(effectiveProfileId)
-        : listMyExhibitions(),
-      // Provenance count is scoped to the operator; when acting as a
-      // principal we skip the fetch (the RPC filters by inviter =
-      // caller, so it would return 0 anyway).
-      effectiveProfileId
-        ? Promise.resolve({ data: [], error: null })
-        : listMyExternalArtists(),
-    ]);
+    const [inquiryCountRes, claimsCountRes, exRes, externalRes, spacesRes] =
+      await Promise.all([
+        getMyPriceInquiryCount(effectiveProfileId ?? undefined),
+        getMyPendingClaimsCount(effectiveProfileId ?? undefined),
+        effectiveProfileId
+          ? listExhibitionsForProfile(effectiveProfileId)
+          : listMyExhibitions(),
+        // Provenance count is scoped to the operator; when acting as a
+        // principal we skip the fetch (the RPC filters by inviter =
+        // caller, so it would return 0 anyway).
+        effectiveProfileId
+          ? Promise.resolve({ data: [], error: null })
+          : listMyExternalArtists(),
+        // Spaces are owned by the acting profile — pass the acting
+        // profile id when set so the tile mirrors what the operator
+        // will actually see on `/my/spaces`.
+        listMySpaces({ forProfileId: effectiveProfileId ?? undefined }),
+      ]);
     setPriceInquiryCount(inquiryCountRes.data ?? 0);
     setPendingClaimsCount(claimsCountRes.data ?? 0);
     const exList = exRes.data ?? [];
     setExhibitions(exList);
+    setSpacesCount(spacesRes.data?.length ?? 0);
     // Best-effort draft count — the exhibition record uses `visibility`
     // ('public' | 'unlisted' | 'draft') as source of truth for whether
     // it has been published. We treat anything non-public as a draft
@@ -286,8 +295,52 @@ function WorkspaceContent() {
           </svg>
         ),
       },
+      {
+        // 2026-08-18: Spaces moved off the sidebar to sit next to the
+        // other five workspace domains. The tour step
+        // `tour.studio.spaces.*` spotlights this tile so returning
+        // users discover the relocation on their next visit.
+        key: "spaces",
+        labelKey: "workspace.tile.spaces.title",
+        subtitleKey: "workspace.tile.spaces.subtitle",
+        href: "/my/spaces",
+        value: spacesCount,
+        icon: (
+          // Wall + framed artwork glyph — an outer rectangle (the wall)
+          // with a smaller framed rectangle inside (the piece being
+          // hung). Kept stroke-based to stay consistent with the other
+          // tile icons.
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <rect
+              x="3"
+              y="4"
+              width="18"
+              height="16"
+              rx="1.5"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            />
+            <rect
+              x="7"
+              y="8"
+              width="10"
+              height="8"
+              rx="1"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            />
+          </svg>
+        ),
+      },
     ];
-  }, [totalDrafts, priceInquiryCount, pendingClaimsCount, exhibitions.length, externalArtistsCount]);
+  }, [
+    totalDrafts,
+    priceInquiryCount,
+    pendingClaimsCount,
+    exhibitions.length,
+    externalArtistsCount,
+    spacesCount,
+  ]);
 
   return (
     <PageShell variant="studio">

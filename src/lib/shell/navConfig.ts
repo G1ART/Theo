@@ -69,18 +69,12 @@ export const PRIMARY_NAV: NavItem[] = [
     matchPatterns: ["/my/shortlists"],
     gated: true,
   },
-  {
-    // 2026-08-17 (14) — Chunk C: top-level workspace surface for the
-    // Display / Hang Simulation. Positioned as a sibling of "Saved" so
-    // collectors treat spaces the same way they treat boards. The
-    // label + i18n key mirrors Saved's pattern; the route hosts both
-    // the list (`/my/spaces`) and editor (`/my/spaces/[id]`).
-    key: "spaces",
-    href: "/my/spaces",
-    labelKey: "sidebar.spaces",
-    matchPatterns: ["/my/spaces"],
-    gated: true,
-  },
+  // 2026-08-18: "내 공간" (My Spaces) removed from the sidebar and
+  // moved to the `/my` workspace hub as a 6th tile — see
+  // `WorkspaceOperationGrid` and `workspace.tile.spaces.*` copy.
+  // The rationale is that Spaces sits at the same conceptual level
+  // as drafts / inquiries / ownership / my_exhibitions / provenance
+  // (a workspace domain, not a global rail).
   {
     key: "upload",
     href: "/upload",
