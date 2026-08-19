@@ -2,6 +2,46 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (31) — Lint cleanup: 시뮬 P1~P3 도입한 ESLint 부채 정리
+
+> **Supabase SQL 적용 필요: 없음** (순수 코드 정리).
+>
+> **환경 변수 변경: 없음.**
+
+### 배경
+릴리즈 27~30 (Theo Image Enhance / 시뮬 P1~P3) 워커들이 남긴 ESLint 부채 12건을 정리했다. 레거시 전체 lint 스윕은 여전히 스코프 밖 (남은 51 errors + 55 warnings 은 대부분 `ImageStandardizeEditor.tsx` / `PerspectiveCornerPicker.tsx` / 신규 `SavePill.tsx` 의 pre-existing react-hooks 규칙).
+
+### 정리 대상 (총 7 파일)
+- **`src/lib/supabase/artworks.ts`** (10 × `@typescript-eslint/no-explicit-any` + 1 × unused-var).
+  - `getArtworkArtistLabel` / `getExternalArtistClaim` / `getArtworkArtistGroupKey` 의 `(artwork as any).claims` / `(c as any).external_artists` / `(artwork as any).profiles` / `(artwork as any).artist_id` 를 **모두 typed 접근으로 교체** (`Artwork`/`ArtworkClaim` 은 이미 해당 필드를 정확히 선언). Runtime null-guard 는 그대로 유지 (`!!c.external_artists && typeof c.external_artists.display_name === "string"`).
+  - `deleteArtworksBatch` 의 미사용 `const concurrency = options?.concurrency ?? 5` 을 제거. Public API 유지 위해 `options` 파라미터는 그대로 두고 `void options` 로 명시적 reserved 표기 + JSDoc 에 "reserved — future wiring into `runWithLimit`" 명시.
+- **`src/lib/size/preference.ts`** (1 × `react-hooks/set-state-in-effect`).
+  - `useSizeUnitPref` 를 `useEffect + setState` 패턴에서 **`useSyncExternalStore`** 로 리팩터. `subscribeSizeUnitPref` 가 `theo:size-unit-pref` custom event + `storage` event 를 구독, `getStoredSizeUnitPref` 는 그대로 client snapshot, `getServerSizeUnitPref` 는 `"auto"` (SSR/hydration 안정). Hydration flicker 원천 차단.
+- **`src/lib/ai/softCap.ts`** — obsolete `// eslint-disable-next-line no-console` 제거 (config 에 `no-console` 규칙 없음).
+- **`src/lib/supabase/bulkUpload.ts`** — 상동.
+- **`src/lib/ai/taste.ts`** — `WEIGHT_NEW` 를 삭제 대신 **JSDoc + `// eslint-disable-next-line @typescript-eslint/no-unused-vars`** 로 문서화. Weighting scheme 이 call site 에서 명시적으로 읽히도록 유지 (0.8·old + 0.2·new EMA).
+- **`src/lib/image/enhancement/__tests__/keystoneRegression.test.ts`** — 실제 export 되지 않는 `type: _1` destructuring 라인 + 타입 캐스트의 `type: unknown` 필드 삭제.
+- **`src/lib/websiteImport/crawlSite.ts`** — `crawlPortfolioSite` 스코프의 미사용 `skippedCount` accumulator 삭제 (내부 `extractCandidatesFromPage` 의 동명 counter 는 별개, 정상 사용 중). 향후 observability 를 위해 accumulator 재도입 시 `scan_meta` 로 승격하도록 인라인 코멘트 남김.
+
+### 원칙
+- 순수 정리, 기능 변경 없음.
+- Public API (예: `deleteArtworksBatch` 시그니처, `useSizeUnitPref` 반환값) 유지.
+- 사인업 v2 워커가 병렬로 작업 중인 영역 (`src/app/signup/**`, `src/components/auth/**`, `src/lib/auth/**`, `src/lib/featureFlags/signupV2.ts`) 미터치.
+
+### 검증
+- `npx eslint src/**/*.{ts,tsx}` — 대상 7 파일 모두 clean. (전체 카운트: 188 → 106 problems, 127 → 51 errors — 자연스러운 감소 폭은 위 정리분).
+- `npx tsc --noEmit` — clean (0 errors).
+- `npm run test:image-enhance-keystone-regression` — OK.
+- `npm run test:bulk-upload-regression` — 8 assertions passed.
+- `npm run test:external-artist-name-everywhere`, `test:external-artist-dedupe`, `test:size-display`, `test:size-unit-toggle`, `test:website-import` — 모두 ok.
+
+### 남은 부채 (스코프 밖, 후속 정리 후보)
+- `ImageStandardizeEditor.tsx` — 9 × `react-hooks/set-state-in-effect` + 3 × `react-hooks/exhaustive-deps` (릴리즈 26 Theo Image Enhance).
+- `PerspectiveCornerPicker.tsx` — 1 × `react-hooks/refs` (릴리즈 26).
+- `SavePill.tsx` — 1 × `react-hooks/set-state-in-effect` (릴리즈 30, 시뮬 P3).
+- `SpaceEditor.tsx` — 1 × `react-hooks/exhaustive-deps` warning (릴리즈 30).
+- `WebsiteImportPanel.tsx` / `embeddingProvider.ts` — unused imports/params warnings.
+
 ## 2026-08-19 (30) — 시뮬 Phase 3: 재-hydrate 제거 + 자동 여백 정리 + SavePill
 
 > **Supabase SQL 적용 필요: 없음** (순수 클라이언트 UX/성능 패치).

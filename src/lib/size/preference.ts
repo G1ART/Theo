@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { SizeUnitPref } from "./format";
 
 /**
@@ -62,26 +62,36 @@ export function hydrateSizeUnitPref(serverPref: unknown): void {
  * Reactive read of the current viewer size-unit preference. Re-renders
  * when the preference changes in this tab (custom event) or another tab
  * (storage event).
+ *
+ * Implemented via `useSyncExternalStore` so the effect body doesn't have
+ * to call `setState` to seed the initial client value — the store's
+ * `getSnapshot` (which reads `localStorage` synchronously) provides it
+ * on the first client render, and `getServerSnapshot` returns the same
+ * neutral "auto" value the SSR path used to render. This avoids the
+ * `react-hooks/set-state-in-effect` warning and any hydration flicker.
  */
+function subscribeSizeUnitPref(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onCustom = () => callback();
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === STORAGE_KEY) callback();
+  };
+  window.addEventListener(EVENT, onCustom as EventListener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(EVENT, onCustom as EventListener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function getServerSizeUnitPref(): SizeUnitPref {
+  return "auto";
+}
+
 export function useSizeUnitPref(): SizeUnitPref {
-  const [pref, setPref] = useState<SizeUnitPref>("auto");
-
-  useEffect(() => {
-    setPref(getStoredSizeUnitPref());
-    const onCustom = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      setPref(isPref(detail) ? detail : getStoredSizeUnitPref());
-    };
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) setPref(getStoredSizeUnitPref());
-    };
-    window.addEventListener(EVENT, onCustom as EventListener);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener(EVENT, onCustom as EventListener);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, []);
-
-  return pref;
+  return useSyncExternalStore(
+    subscribeSizeUnitPref,
+    getStoredSizeUnitPref,
+    getServerSizeUnitPref,
+  );
 }

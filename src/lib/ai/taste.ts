@@ -7,6 +7,15 @@ import { supabase } from "@/lib/supabase/client";
 import { weightedAverage, normalize } from "./vectorMath";
 
 const WEIGHT_OLD = 0.8;
+/**
+ * Documented complement of {@link WEIGHT_OLD} used by the EMA update rule
+ * (`newTaste = 0.8·oldTaste + 0.2·newLikeEmbedding`). Retained as a
+ * named constant so the weighting scheme is explicit at the call site
+ * even though `weightedAverage` currently accepts only `WEIGHT_OLD` and
+ * infers the complement internally. Do not delete: swapping the mix ratio
+ * lives here.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const WEIGHT_NEW = 0.2;
 
 async function getArtworkEmbedding(artworkId: string): Promise<number[] | null> {

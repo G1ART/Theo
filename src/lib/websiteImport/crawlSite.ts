@@ -505,7 +505,6 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
   let pagesFetched = 0;
   let fetchFailures = 0;
   let rawImageCount = 0;
-  let skippedCount = 0;
   let jsShellHits = 0;
 
   try {
@@ -531,7 +530,10 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
             }
             const extracted = await extractCandidatesFromPage(html, pageUrlStr, originHostname);
             rawImageCount += extracted.rawImageCount;
-            skippedCount += extracted.skippedCount;
+            // `extracted.skippedCount` is intentionally ignored at the
+            // crawler level — the per-page filter count is not surfaced
+            // in `scan_meta` today. Kept accessible on the extractor
+            // return so future observability can plumb it through.
             if (extracted.jsShell) jsShellHits += 1;
             for (const c of extracted.found) {
               if (!candidatesMap.has(c.image_url)) candidatesMap.set(c.image_url, c);

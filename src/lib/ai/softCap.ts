@@ -35,7 +35,6 @@ export async function checkDailySoftCap(
 
   if (error) {
     // Fail open — observability, not a hard dependency.
-    // eslint-disable-next-line no-console
     console.warn("[ai/softCap] check failed, continuing", error);
     return;
   }

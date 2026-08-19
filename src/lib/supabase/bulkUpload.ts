@@ -228,7 +228,6 @@ export async function runBulkUploadLoop<T extends { id: string }>(
         succeeded += 1;
         opts.onSettle?.({ ok: true, id: item.id });
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error("[bulkUpload] item failed", item.id, err);
         failures.push({ itemId: item.id, error: err });
         opts.onSettle?.({ ok: false, id: item.id, error: err });

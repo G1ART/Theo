@@ -38,7 +38,6 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
     resolveAutoCorners,
     isAxisAligned,
     quadFromRect,
-    type: _1,
   } = (await import("../cornerPickerGeometry")) as unknown as {
     resolveAutoCorners: (a: {
       suggestedRectangleCorners?:
@@ -81,7 +80,6 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
           [number, number],
         ]
       | null;
-    type: unknown;
   };
   const {
     homographyForCorners,

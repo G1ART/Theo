@@ -298,14 +298,14 @@ export function getArtworkArtistLabel(
   artwork: Artwork | ArtworkWithLikes,
   locale?: import("@/lib/i18n/locale").Locale,
 ): { label: string | null; profileUsername: string | null } {
-  const claims = (artwork as any).claims as ArtworkClaim[] | undefined;
+  const claims = artwork.claims ?? undefined;
   if (claims && claims.length > 0) {
     // Use first external artist name if present (invited, not yet onboarded).
     const withExternal = claims.find(
       (c) =>
-        (c as any).external_artists &&
-        typeof (c as any).external_artists.display_name === "string" &&
-        (c as any).external_artists.display_name.trim() !== ""
+        !!c.external_artists &&
+        typeof c.external_artists.display_name === "string" &&
+        c.external_artists.display_name.trim() !== ""
     ) as (ArtworkClaim & { external_artists?: ExternalArtistLocalized }) | undefined;
     if (withExternal && withExternal.external_artists) {
       const ext = withExternal.external_artists;
@@ -325,7 +325,7 @@ export function getArtworkArtistLabel(
     }
   }
 
-  const artist = (artwork as any).profiles as ArtistProfile | null | undefined;
+  const artist = artwork.profiles;
   const username = artist?.username ?? null;
   let displayName: string | null = null;
   if (artist) {
@@ -359,13 +359,13 @@ export function getArtworkArtistLabel(
 export function getExternalArtistClaim(
   artwork: Artwork | ArtworkWithLikes
 ): (ArtworkClaim & { external_artists?: { display_name?: string | null } }) | null {
-  const claims = (artwork as any).claims as ArtworkClaim[] | undefined;
+  const claims = artwork.claims ?? undefined;
   if (!claims || claims.length === 0) return null;
   const found = claims.find(
     (c) =>
-      (c as any).external_artists &&
-      typeof (c as any).external_artists.display_name === "string" &&
-      (c as any).external_artists.display_name.trim() !== ""
+      !!c.external_artists &&
+      typeof c.external_artists.display_name === "string" &&
+      c.external_artists.display_name.trim() !== ""
   );
   return (found as (ArtworkClaim & { external_artists?: { display_name?: string | null } }) | undefined) ?? null;
 }
@@ -407,7 +407,7 @@ export function getArtworkArtistGroupKey(
     const name = externalClaim.external_artists?.display_name?.trim().toLowerCase();
     if (name) return `extname:${name}`;
   }
-  const artistId = (artwork as any).artist_id as string | null | undefined;
+  const artistId = artwork.artist_id;
   if (artistId) return artistId;
   const { label } = getArtworkArtistLabel(artwork);
   return `extname:${(label ?? "unknown").toLowerCase()}`;
@@ -1544,12 +1544,20 @@ function runWithLimit<T>(items: T[], fn: (x: T) => Promise<unknown>): Promise<vo
   return Promise.all(workers).then(() => {});
 }
 
-/** Delete multiple artworks with cascade. Owner-only, concurrency=5. */
+/**
+ * Delete multiple artworks with cascade. Owner-only.
+ *
+ * NOTE: the `options.concurrency` field is currently reserved for future
+ * wiring into `runWithLimit`; today the batch always runs at the
+ * module-level `CONCURRENCY = 5`. The option is kept in the signature so
+ * existing callers that already pass it stay source-compatible when we
+ * start honoring it.
+ */
 export async function deleteArtworksBatch(
   ids: string[],
   options?: { concurrency?: number }
 ): Promise<{ okIds: string[]; failed: Array<{ id: string; error: unknown }> }> {
-  const concurrency = options?.concurrency ?? 5;
+  void options; // reserved — see JSDoc.
   const okIds: string[] = [];
   const failed: Array<{ id: string; error: unknown }> = [];
   const items = ids.map((id) => ({ id }));
