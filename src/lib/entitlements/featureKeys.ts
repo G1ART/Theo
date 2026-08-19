@@ -99,6 +99,20 @@ export const FEATURE_KEYS = [
   "simulation.2d",
   "simulation.2d.export",
   "simulation.3d",
+  /**
+   * Display Simulation Phase 2 — Track 2 (2026-08-20) gate for the
+   * Photoroom-backed advanced cutout (transparent PNG). Marked
+   * "premium" long-term but **BETA_UNLIMITED** for every plan while
+   * we watch usage — the PLAN_FEATURE_MATRIX below has all plans
+   * flagged `true` and PLAN_QUOTA_MATRIX intentionally has no rule
+   * so the resolver never blocks the button. Track 1
+   * (`artwork_painting_bbox`, free) reuses `simulation.2d` and is
+   * unaffected by this key.
+   *
+   * Post-beta target: `free = false`, `artist_pro/discovery_pro/
+   * hybrid_pro/gallery_workspace = true`.
+   */
+  "simulation.premium.cutout",
 ] as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[number];

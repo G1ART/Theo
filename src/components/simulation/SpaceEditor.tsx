@@ -41,6 +41,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -70,6 +71,12 @@ import {
   type ArtworkThumbMap,
 } from "@/lib/simulation/renderer2d";
 import {
+  buildMountLayers,
+  readLightDirection,
+  resolveFramePreset,
+} from "@/lib/simulation/mounting";
+import { FRAME_PRESETS, type FramePreset } from "@/lib/simulation/scene";
+import {
   computeSurfaceLocalPx,
   pxToCm,
   surfaceLocalToImageHomography,
@@ -96,6 +103,10 @@ import {
 import { aiApi } from "@/lib/ai/browser";
 import type { SpaceCalibrateCandidate } from "@/lib/ai/types";
 import { useAiCalibrationPref } from "@/lib/simulation/calibrationPref";
+import {
+  runPhotoroomCutout,
+  runVisionBboxCrop,
+} from "@/lib/simulation/cutoutClient";
 
 const SNAP_TOLERANCE_CM = 3;
 const EYE_LEVEL_CM = 150;
@@ -316,6 +327,59 @@ type MeasureState =
   | { phase: "pointB"; pointA: MeasurePoint }
   | { phase: "input"; pointA: MeasurePoint; pointB: MeasurePoint };
 
+/**
+ * Tiny 14×14 preview swatch for the frame preset picker. Static
+ * (no light direction), just enough visual differentiation that a
+ * user can tell "black frame" from "wood frame" at a glance.
+ */
+function FramePresetSwatch({ preset }: { preset: FramePreset }) {
+  const swatchStyle: CSSProperties = (() => {
+    switch (preset) {
+      case "none":
+        return {
+          background: "#f4f4f5",
+          border: "1px dashed #a1a1aa",
+        };
+      case "matte_white_thin":
+        return {
+          background: "#ffffff",
+          border: "1px solid #d4d4d8",
+          boxShadow: "inset 0 0 0 2px #ffffff, inset 0 0 0 3px #a1a1aa",
+        };
+      case "frame_black":
+        return {
+          background: "#0a0a0a",
+          border: "1px solid #0a0a0a",
+        };
+      case "frame_wood":
+        return {
+          background: "linear-gradient(180deg, #b47a48 0%, #7a4a24 100%)",
+          border: "1px solid #6a4020",
+        };
+      case "canvas_edge":
+        return {
+          background: "#f5f2ec",
+          border: "1px solid #d6cec1",
+          boxShadow: "inset 2px 0 0 rgba(0,0,0,0.08)",
+        };
+      default:
+        return { background: "#f4f4f5", border: "1px solid #d4d4d8" };
+    }
+  })();
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-block",
+        width: 14,
+        height: 14,
+        borderRadius: 2,
+        ...swatchStyle,
+      }}
+    />
+  );
+}
+
 type EditorState = {
   space: SpaceScene["space"];
   artworks: ArtworkThumbMap;
@@ -399,6 +463,16 @@ function SpaceEditorContent({ id }: { id: string }) {
     | { kind: "skipped-coverage" }
     | { kind: "skipped-error" }
     | null
+  >(null);
+
+  // Display Simulation Phase 2 (2026-08-20) — cutout CTA busy state.
+  // Two tracks (`bbox` = Track 1 free auto-crop, `alpha` = Track 2
+  // Photoroom Pro) share a single busy indicator scoped to a
+  // specific artwork id so the buttons disable together while the
+  // pipeline runs, but do not disable buttons for other artworks in
+  // the same space.
+  const [cutoutBusy, setCutoutBusy] = useState<
+    { artworkId: string; track: "bbox" | "alpha" } | null
   >(null);
 
   // Auto-fire guard for the on-mount AI calibration path (Fix #3 in
@@ -552,6 +626,7 @@ function SpaceEditorContent({ id }: { id: string }) {
       heightCm: p.heightCm,
       depthCm: p.depthCm,
       zOrder: p.zOrder,
+      framePreset: p.framePreset,
     }));
     const { error } = await upsertPlacements(state.space.id, upserts);
     setSaving(false);
@@ -1035,6 +1110,33 @@ function SpaceEditorContent({ id }: { id: string }) {
           setWallCleanupNotice({ kind: "skipped-error" });
           return { applied: false, cleanedFile: null };
         }
+        // Phase 2 (2026-08-20) — persist the wall-detect
+        // `lightDirection` onto the primary surface's `pose` blob so
+        // downstream renderers (mount shadow direction) can read a
+        // consistent value across editor + share view. `pose` is
+        // schemaless jsonb; we merge in place to avoid stomping
+        // any other keys that later features may add.
+        try {
+          const primary = state?.space.surfaces[0];
+          if (primary?.id) {
+            const nextPose = {
+              ...(primary.pose ?? {}),
+              lightDirection: res.lightDirection,
+            };
+            await updateSurface(
+              primary.id,
+              { pose: nextPose },
+              { spaceIdForTouch: input.spaceId },
+            );
+          }
+        } catch (poseErr) {
+          if (process.env.NODE_ENV !== "production") {
+            console.debug(
+              "[simulation] wall cleanup pose persist skipped",
+              poseErr,
+            );
+          }
+        }
         await load();
         setWallCleanupNotice(null);
         setToast(t("simulation.wallCleanup.done"));
@@ -1303,6 +1405,76 @@ function SpaceEditorContent({ id }: { id: string }) {
     }
   }, [state, selectedId, pushHistory, applyPlacements]);
 
+  /**
+   * Display Simulation Phase 2 (2026-08-20) — Track 1 auto-crop CTA.
+   * Fires the free Vision bbox pipeline for the selected placement's
+   * artwork and reloads so the renderer picks up the new `cutout`
+   * sibling row. Refuses to re-run while another cutout job is in
+   * flight for the same artwork.
+   */
+  const handleRunBboxCrop = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      const artwork = state.artworks.get(artworkId);
+      if (!artwork?.imageUrl) return;
+      if (cutoutBusy) return;
+      setCutoutBusy({ artworkId, track: "bbox" });
+      setToast(t("simulation.cutout.bbox.running"));
+      try {
+        const res = await runVisionBboxCrop({
+          artworkId,
+          imageUrl: artwork.imageUrl,
+        });
+        if (res.applied) {
+          setToast(t("simulation.cutout.bbox.done"));
+          await load();
+        } else if (res.reason === "already_tight") {
+          setToast(t("simulation.cutout.bbox.alreadyTight"));
+        } else if (res.reason === "low_confidence") {
+          setToast(t("simulation.cutout.bbox.lowConfidence"));
+        } else {
+          setToast(t("simulation.cutout.bbox.failed"));
+        }
+      } finally {
+        setCutoutBusy(null);
+      }
+    },
+    [state, cutoutBusy, load, t],
+  );
+
+  /**
+   * Display Simulation Phase 2 (2026-08-20) — Track 2 Photoroom CTA.
+   * Server-side proxy call; on success the renderer prefers the new
+   * `cutout_alpha` row (transparent PNG) so the painting composites
+   * cleanly onto the wall photo.
+   */
+  const handleRunPhotoroomCutout = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      if (cutoutBusy) return;
+      setCutoutBusy({ artworkId, track: "alpha" });
+      setToast(t("simulation.cutout.alpha.running"));
+      try {
+        const res = await runPhotoroomCutout({ artworkId });
+        if (res.applied) {
+          setToast(t("simulation.cutout.alpha.done"));
+          await load();
+        } else if (res.reason === "not_configured") {
+          setToast(t("simulation.cutout.alpha.notConfigured"));
+        } else if (res.reason === "not_entitled") {
+          setToast(t("simulation.cutout.alpha.notEntitled"));
+        } else if (res.reason === "cap_reached") {
+          setToast(t("simulation.cutout.alpha.capReached"));
+        } else {
+          setToast(t("simulation.cutout.alpha.failed"));
+        }
+      } finally {
+        setCutoutBusy(null);
+      }
+    },
+    [state, cutoutBusy, load, t],
+  );
+
   const handleDisplayUnit = useCallback(
     async (unit: DisplayUnit) => {
       setDisplayUnit(unit);
@@ -1460,8 +1632,13 @@ function SpaceEditorContent({ id }: { id: string }) {
         rotZDeg: 0,
         widthCm: placementWidthCm,
         heightCm: placementHeightCm,
-        depthCm: placementDepthCm,
+        depthCm: placementDepthCm ?? null,
         zOrder: state.space.placements.length,
+        // Phase 2 — new placements start with `null` (platform
+        // default; renders as `"none"`). Users pick a preset from
+        // the inspector post-drop; the choice persists back to
+        // `space_placements.frame_preset`.
+        framePreset: null,
         createdAt: now,
         updatedAt: now,
       };
@@ -1502,6 +1679,18 @@ function SpaceEditorContent({ id }: { id: string }) {
         imagePxWidth: pendingArtwork.imagePxWidth,
         imagePxHeight: pendingArtwork.imagePxHeight,
         workForm: pendingArtwork.workForm,
+        // Phase 2 — the picker doesn't carry cutout metadata yet
+        // (it's derived from `artwork_images` at load time). After
+        // the auto-fire Track 1 upload / manual CTA, the space
+        // reloads via `load()` and the fresh thumb picks up the
+        // sibling rows. Seed as null so the renderer falls back
+        // to `imageUrl` until the reload lands.
+        cutoutImageUrl: null,
+        cutoutImagePxWidth: null,
+        cutoutImagePxHeight: null,
+        cutoutAlphaImageUrl: null,
+        cutoutAlphaImagePxWidth: null,
+        cutoutAlphaImagePxHeight: null,
       };
       artworks.set(pendingArtwork.id, thumb);
       setState({
@@ -2225,47 +2414,65 @@ function SpaceEditorContent({ id }: { id: string }) {
               {/*
                 Placement overlays.
 
-                P1 render-quality (2026-08-19) — three visual fixes
-                folded into the overlay `<div>` + `<img>`:
+                Display Simulation Phase 2 (2026-08-20) — the hairline
+                outline + inline drop-shadow added in release 27 are
+                replaced by a shared mount stack (`buildMountLayers`).
+                Every placement now renders as:
+                  outer wrapper  → frame material + directional cast
+                                   shadow + mounting lift shadow
+                    matte div    → optional white matte (thin_matte)
+                      image well → transparent well (composites the
+                                   cutout/alpha PNG onto the wall)
+                        <img>    → `object-contain`, so the physical
+                                   `widthCm × heightCm` rectangle
+                                   never distorts the source pixels.
 
-                  1. `object-contain` (was `object-cover`). The
-                     placement rectangle is derived from the physical
-                     `widthCm × heightCm`; forcing the image to fill
-                     that rectangle stretched/cropped the picture
-                     whenever the source photo's aspect didn't match
-                     (the "정사각형이 살짝 가로로 늘어남" symptom).
-                     Contain letterboxes inside the rect so pixels
-                     never distort — trading tiny transparent
-                     margins for a faithful render.
-                  2. Drop-shadow + subtle border. The old canvas
-                     rendered images as flat stickers on the wall,
-                     which reads badly for uploads that carry
-                     background padding around the painting. A soft
-                     cast shadow ("mounted, casts a shadow") plus a
-                     hairline outline gives the eye a clear "framed
-                     object on wall" affordance even before we ship
-                     Photoroom cutouts.
-                  3. Inset highlight on the top edge. A single 1 px
-                     white line at `inset 0 1px 0` mimics a picture's
-                     top-facing bevel picking up ambient light.
-                     Combined with the shadow this pushes perceived
-                     depth from ~0 to ~2 mm — enough for the eye to
-                     stop reading the placement as "on the wall's
-                     surface" and start reading it as "hanging in
-                     front of the wall."
+                Selection ring is folded into the outer wrapper's
+                outline so it survives every frame preset without
+                fighting the drop-shadow filter.
               */}
               {rendered.map((rp) => {
                 const isSelected = rp.placement.id === selectedId;
                 const isDragging = rp.placement.id === dragPlacementId;
                 const surface = rp.surface;
                 if (!surface) return null;
-                // Selection ring is a strong dark outline; unselected
-                // placements get the soft mount stack. Selection wins
-                // over the mount shadow so the affordance for "which
-                // placement am I editing" stays unambiguous.
-                const mountBoxShadow = isSelected
-                  ? "0 0 0 2px rgba(15,23,42,0.95), 0 2px 6px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.12)"
-                  : "0 2px 6px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.18)";
+                // `pxPerCm` — the physical→display scale for THIS
+                // placement's rendered rect. Frame padding is stored
+                // in cm so we can keep 3 cm reading as 3 cm at every
+                // resolution / device. `widthCm` collapses to 0 when
+                // both the placement override and artwork's canonical
+                // dimensions are null — the fallback branch skips
+                // frame padding entirely (framePx = 0).
+                const placementWidthCm = rp.placement.widthCm ?? 0;
+                const pxPerCm =
+                  placementWidthCm > 0
+                    ? rp.css.widthPx / placementWidthCm
+                    : 0;
+                const framePreset = resolveFramePreset(
+                  rp.placement.framePreset,
+                );
+                const light = readLightDirection(surface.pose);
+                const layers = buildMountLayers({
+                  preset: framePreset,
+                  pxPerCm,
+                  lightDirection: light,
+                  selected: isSelected,
+                  resolvedImageSource: rp.resolvedImageSource,
+                });
+                const imgNode = rp.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={rp.imageUrl}
+                    alt={rp.artwork.title}
+                    className="pointer-events-none max-h-full max-w-full select-none object-contain"
+                    style={{ width: "100%", height: "100%" }}
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-white text-[10px] text-zinc-400">
+                    {rp.artwork.title}
+                  </div>
+                );
                 return (
                   <div
                     key={rp.placement.id}
@@ -2289,27 +2496,15 @@ function SpaceEditorContent({ id }: { id: string }) {
                       zIndex: rp.css.zIndex + 1,
                       touchAction: "none",
                       cursor: isDragging ? "grabbing" : "grab",
-                      // Hairline border (unselected only — the
-                      // selection ring already draws its own edge).
-                      outline: isSelected
-                        ? "none"
-                        : "1px solid rgba(0,0,0,0.10)",
-                      outlineOffset: 0,
-                      boxShadow: mountBoxShadow,
+                      ...layers.outer,
                     }}
                   >
-                    {rp.artwork.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={rp.artwork.imageUrl}
-                        alt={rp.artwork.title}
-                        className="pointer-events-none h-full w-full select-none object-contain"
-                        draggable={false}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-white text-[10px] text-zinc-400">
-                        {rp.artwork.title}
+                    {layers.matte ? (
+                      <div style={layers.matte}>
+                        <div style={layers.imageWell}>{imgNode}</div>
                       </div>
+                    ) : (
+                      <div style={layers.imageWell}>{imgNode}</div>
                     )}
                   </div>
                 );
@@ -2619,17 +2814,45 @@ function SpaceEditorContent({ id }: { id: string }) {
                 // work. Placement dims are RLS-scoped to space
                 // owner, so this stays a safe local edit.
                 const artwork = state?.artworks.get(selected.artworkId) ?? null;
-                const mismatch = artwork
-                  ? computeAspectMismatch(
-                      artwork.imagePxWidth,
-                      artwork.imagePxHeight,
-                      selected.widthCm,
-                      selected.heightCm,
-                    )
-                  : null;
+                // Phase 2 (2026-08-20) — pick the strongest image
+                // source available for this artwork; the resolved
+                // source drives the aspect-mismatch suppression and
+                // the cutout CTA visibility below.
+                const hasAlphaCutout = Boolean(artwork?.cutoutAlphaImageUrl);
+                const hasBboxCutout = Boolean(artwork?.cutoutImageUrl);
+                const resolvedSource: "primary" | "cutout" | "cutout_alpha" =
+                  hasAlphaCutout
+                    ? "cutout_alpha"
+                    : hasBboxCutout
+                      ? "cutout"
+                      : "primary";
+                // Fold the resolved-source signal into the aspect
+                // mismatch check. When a cutout row exists, the
+                // renderer already draws the cropped painting at
+                // exactly the placement aspect — the "padding" that
+                // the warning was designed to surface no longer
+                // exists, so showing it would confuse the user.
+                const mismatch =
+                  artwork && resolvedSource === "primary"
+                    ? computeAspectMismatch(
+                        artwork.imagePxWidth,
+                        artwork.imagePxHeight,
+                        selected.widthCm,
+                        selected.heightCm,
+                      )
+                    : null;
                 const showMismatch =
                   mismatch != null &&
                   mismatch.delta >= ASPECT_MISMATCH_THRESHOLD;
+                const currentFramePreset = resolveFramePreset(
+                  selected.framePreset,
+                );
+                const bboxBusy =
+                  cutoutBusy?.artworkId === selected.artworkId &&
+                  cutoutBusy.track === "bbox";
+                const alphaBusy =
+                  cutoutBusy?.artworkId === selected.artworkId &&
+                  cutoutBusy.track === "alpha";
                 const applyFitToImage = (axis: "long" | "short") => {
                   if (
                     !mismatch ||
@@ -2813,6 +3036,118 @@ function SpaceEditorContent({ id }: { id: string }) {
                         </span>
                       </div>
                     </div>
+                    {/*
+                      Frame preset picker (Phase 2 mounting realism).
+                      Segmented control with a swatch per preset so
+                      users can preview "matte / black / wood /
+                      canvas" without leaving the inspector. The
+                      persistence flow reuses the debounced placement
+                      upsert path — same as widthCm / heightCm — so
+                      picks land in `space_placements.frame_preset`
+                      within ~400 ms of the click.
+                    */}
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-zinc-500">
+                        {t("simulation.inspector.frame.title")}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {FRAME_PRESETS.map((preset) => {
+                          const active = currentFramePreset === preset;
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() =>
+                                mutatePlacement(selected.id, {
+                                  framePreset: preset,
+                                })
+                              }
+                              className={[
+                                "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                                active
+                                  ? "border-zinc-900 bg-zinc-900 text-white"
+                                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50",
+                              ].join(" ")}
+                              aria-pressed={active}
+                              title={t(
+                                `simulation.inspector.frame.preset.${preset}`,
+                              )}
+                            >
+                              <FramePresetSwatch preset={preset} />
+                              <span>
+                                {t(
+                                  `simulation.inspector.frame.preset.${preset}`,
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-zinc-500">
+                        {t("simulation.inspector.frame.hint")}
+                      </p>
+                    </div>
+                    {/*
+                      Cutout CTAs (Phase 2 painting isolation).
+                      Track 1 (bbox crop) is always visible when the
+                      artwork has no bbox cutout yet — free, one-shot,
+                      no gating. Track 2 (Photoroom alpha) is labelled
+                      "Pro" and shows a "Beta 무료 사용 가능" hint
+                      while `PLAN_FEATURE_MATRIX` is unlocked for all
+                      plans. Both re-fetch the space on success so
+                      the renderer picks the new sibling row.
+                    */}
+                    {artwork?.imageUrl && (
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-zinc-500">
+                          {t("simulation.inspector.cutout.title")}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {!hasBboxCutout && !hasAlphaCutout && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleRunBboxCrop(selected.artworkId)
+                              }
+                              disabled={bboxBusy || Boolean(cutoutBusy)}
+                              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                            >
+                              {bboxBusy
+                                ? t("simulation.cutout.bbox.running")
+                                : t("simulation.cutout.bbox.cta")}
+                            </button>
+                          )}
+                          {!hasAlphaCutout && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleRunPhotoroomCutout(
+                                  selected.artworkId,
+                                )
+                              }
+                              disabled={alphaBusy || Boolean(cutoutBusy)}
+                              className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                            >
+                              {alphaBusy
+                                ? t("simulation.cutout.alpha.running")
+                                : t("simulation.cutout.alpha.cta")}
+                            </button>
+                          )}
+                        </div>
+                        {(hasBboxCutout || hasAlphaCutout) && (
+                          <p className="mt-1.5 text-[11px] text-emerald-700">
+                            {hasAlphaCutout
+                              ? t("simulation.cutout.applied.alpha")
+                              : t("simulation.cutout.applied.bbox")}
+                          </p>
+                        )}
+                        {!hasAlphaCutout && (
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            {t("simulation.cutout.alpha.betaHint")}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => void handleDeleteSelected()}

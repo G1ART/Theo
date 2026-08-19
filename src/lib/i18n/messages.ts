@@ -3966,6 +3966,51 @@ export const messages = {
     "simulation.inspector.aspectMismatch.keepLong": "Keep long side",
     "simulation.inspector.aspectMismatch.keepShort": "Keep short side",
 
+    // Display Simulation Phase 2 (2026-08-20) — mounting realism.
+    // The picker exposes five presets; each maps to a nested CSS
+    // stack in `buildMountLayers`. Copy stays terse because it
+    // shares an inspector row with the aspect-mismatch banner and
+    // dimensions inputs.
+    "simulation.inspector.frame.title": "Frame",
+    "simulation.inspector.frame.hint":
+      "Add a mount around the painting for a realistic exhibition feel.",
+    "simulation.inspector.frame.preset.none": "None",
+    "simulation.inspector.frame.preset.matte_white_thin": "Matte (white)",
+    "simulation.inspector.frame.preset.frame_black": "Black frame",
+    "simulation.inspector.frame.preset.frame_wood": "Wood frame",
+    "simulation.inspector.frame.preset.canvas_edge": "Canvas edge",
+
+    // Painting isolation CTAs — Track 1 (free) removes the padding
+    // around the painting via AI; Track 2 (Photoroom, Pro-labelled)
+    // creates a transparent PNG that composites directly on the wall.
+    "simulation.inspector.cutout.title": "Painting isolation",
+    "simulation.cutout.bbox.cta": "Auto-remove padding (AI)",
+    "simulation.cutout.bbox.running": "Detecting painting…",
+    "simulation.cutout.bbox.done": "Padding removed",
+    "simulation.cutout.bbox.alreadyTight":
+      "This photo is already tight around the painting.",
+    "simulation.cutout.bbox.lowConfidence":
+      "AI couldn't reliably find the painting edges. Try a clearer photo.",
+    "simulation.cutout.bbox.failed":
+      "Auto-crop didn't finish. The original stays in place.",
+    "simulation.cutout.alpha.cta": "Advanced cutout (Pro)",
+    "simulation.cutout.alpha.running": "Cutting out background…",
+    "simulation.cutout.alpha.done": "Advanced cutout applied",
+    "simulation.cutout.alpha.notConfigured":
+      "Advanced cutout isn't configured on this server yet.",
+    "simulation.cutout.alpha.notEntitled":
+      "Advanced cutout will require a Pro plan after beta.",
+    "simulation.cutout.alpha.capReached":
+      "Advanced cutout is temporarily rate-limited. Try again shortly.",
+    "simulation.cutout.alpha.failed":
+      "Advanced cutout didn't finish. The original stays in place.",
+    "simulation.cutout.alpha.betaHint":
+      "Beta — free to use for now.",
+    "simulation.cutout.applied.bbox":
+      "Auto-cropped painting is in use.",
+    "simulation.cutout.applied.alpha":
+      "Advanced transparent cutout is in use.",
+
     "simulation.wall.title": "Wall calibration",
     "simulation.wall.advancedTitle": "Precise scale (advanced)",
     "simulation.wall.advancedHint":
@@ -8051,6 +8096,49 @@ export const messages = {
       "실제 {placementRatio} vs. 사진 {imageRatio} ({delta}% 차이)",
     "simulation.inspector.aspectMismatch.keepLong": "긴 축 유지",
     "simulation.inspector.aspectMismatch.keepShort": "짧은 축 유지",
+
+    // Display Simulation Phase 2 (2026-08-20) — 마운팅 리얼리즘.
+    // 5개 프레임 프리셋 + 두 트랙의 그림 분리(cutout) CTA.
+    // 인스펙터 한 줄에 들어가야 해서 카피는 짧게 유지한다.
+    "simulation.inspector.frame.title": "프레임",
+    "simulation.inspector.frame.hint":
+      "그림 주변에 마운트를 추가해 실제 전시 같은 느낌을 낼 수 있어요.",
+    "simulation.inspector.frame.preset.none": "없음",
+    "simulation.inspector.frame.preset.matte_white_thin": "흰 매트",
+    "simulation.inspector.frame.preset.frame_black": "블랙 프레임",
+    "simulation.inspector.frame.preset.frame_wood": "우드 프레임",
+    "simulation.inspector.frame.preset.canvas_edge": "캔버스 에지",
+
+    // 그림 분리(cutout) CTA — Track 1(무료): AI 로 그림 주변 여백을
+    // 자동 감지·크롭. Track 2(Pro 표기, 베타 무제한): Photoroom 으로
+    // 투명 PNG 를 만들어 벽에 자연스럽게 올린다.
+    "simulation.inspector.cutout.title": "그림 분리",
+    "simulation.cutout.bbox.cta": "여백 자동 제거 (AI)",
+    "simulation.cutout.bbox.running": "그림 영역을 감지 중이에요…",
+    "simulation.cutout.bbox.done": "여백이 정리됐어요",
+    "simulation.cutout.bbox.alreadyTight":
+      "이 사진은 이미 그림에 딱 맞게 잘려 있어요.",
+    "simulation.cutout.bbox.lowConfidence":
+      "AI 가 그림 경계를 정확히 잡지 못했어요. 좀 더 선명한 사진으로 다시 시도해 보세요.",
+    "simulation.cutout.bbox.failed":
+      "자동 크롭을 마치지 못했어요. 원본은 그대로 유지됩니다.",
+    "simulation.cutout.alpha.cta": "고급 배경 분리 (Pro)",
+    "simulation.cutout.alpha.running": "배경을 분리 중이에요…",
+    "simulation.cutout.alpha.done": "고급 배경 분리가 적용됐어요",
+    "simulation.cutout.alpha.notConfigured":
+      "이 서버에는 고급 배경 분리가 아직 설정되어 있지 않아요.",
+    "simulation.cutout.alpha.notEntitled":
+      "베타 이후에는 고급 배경 분리에 Pro 플랜이 필요해요.",
+    "simulation.cutout.alpha.capReached":
+      "고급 배경 분리 사용량이 잠시 제한됐어요. 잠시 후 다시 시도해 주세요.",
+    "simulation.cutout.alpha.failed":
+      "고급 배경 분리를 마치지 못했어요. 원본은 그대로 유지됩니다.",
+    "simulation.cutout.alpha.betaHint":
+      "베타 — 지금은 무료로 쓸 수 있어요.",
+    "simulation.cutout.applied.bbox":
+      "여백 없이 자동 크롭된 그림이 표시되고 있어요.",
+    "simulation.cutout.applied.alpha":
+      "고급 투명 배경 분리가 적용된 그림이 표시되고 있어요.",
 
     // P1 (2026-08-19) — 측정 기반 스케일 보정 (AI + 수동).
     // 사진을 처음 올렸을 때, 사용자 설정이 켜져 있고 아직 보정되지

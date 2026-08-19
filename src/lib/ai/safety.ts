@@ -37,6 +37,7 @@ const ALLOWED_FEATURES: Readonly<Record<AiFeatureKey, true>> = Object.freeze({
   "space.calibrate": true,
   "space.wall_detect": true,
   artwork_quality_gate: true,
+  artwork_painting_bbox: true,
 });
 
 export function assertSafePrompt(feature: AiFeatureKey): void {

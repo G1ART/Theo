@@ -141,6 +141,20 @@ const PUBLIC_ARTWORK_SELECT = `
 `;
 
 /**
+ * Display Simulation Phase 2 (2026-08-20) — which `view_type` rows
+ * the renderer wants. The DB check constraint allows more values
+ * (`detail`, `angle`, `in_situ`, `other`) but those are UI-only
+ * variants for the artwork detail carousel; the simulation renderer
+ * never uses them, so we filter client-side to keep the payload small
+ * and the row-picker unambiguous.
+ */
+const RENDERER_VIEW_TYPES = new Set<string>([
+  "wall_mounted",
+  "cutout",
+  "cutout_alpha",
+]);
+
+/**
  * Owner-side artwork columns — same shape as above (we do NOT read
  * pricing / claims / story here even for the owner, because the
  * renderer just needs a thumbnail). Kept as a separate constant so we
@@ -176,39 +190,83 @@ type RawArtworkRow = {
     | null;
 };
 
+type ArtworkImageRow = NonNullable<RawArtworkRow["artwork_images"]>[number];
+
+function safePx(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+}
+
 /**
- * Pick the first (`sort_order`-lowest) image row. Returns `null` when
- * the artwork has no images. We deliberately don't filter by
- * `view_type` — legacy rows default to `wall_mounted` and the
- * simulation is happy to render whatever cover the artist chose.
+ * Pick the primary display row (`view_type='wall_mounted'` or
+ * legacy default) plus, when present, the Phase 2 cutout sibling
+ * rows. We filter by `RENDERER_VIEW_TYPES` so a detail crop or
+ * in-situ shot never accidentally shows up as the placement image.
+ * Returns `null` for each slot when no matching row exists.
  */
-function firstImage(
-  row: RawArtworkRow,
-): NonNullable<RawArtworkRow["artwork_images"]>[number] | null {
-  const imgs = Array.isArray(row.artwork_images) ? [...row.artwork_images] : [];
-  imgs.sort((a, b) => (a?.sort_order ?? 0) - (b?.sort_order ?? 0));
-  return imgs[0] ?? null;
+function pickRendererImages(row: RawArtworkRow): {
+  primary: ArtworkImageRow | null;
+  cutout: ArtworkImageRow | null;
+  cutoutAlpha: ArtworkImageRow | null;
+} {
+  const imgs = Array.isArray(row.artwork_images)
+    ? row.artwork_images.filter((r): r is ArtworkImageRow => !!r)
+    : [];
+  const sorted = [...imgs].sort(
+    (a, b) => (a?.sort_order ?? 0) - (b?.sort_order ?? 0),
+  );
+  let primary: ArtworkImageRow | null = null;
+  let cutout: ArtworkImageRow | null = null;
+  let cutoutAlpha: ArtworkImageRow | null = null;
+  for (const r of sorted) {
+    const vt = typeof r.view_type === "string" ? r.view_type : null;
+    if (vt === "cutout_alpha") {
+      if (!cutoutAlpha) cutoutAlpha = r;
+    } else if (vt === "cutout") {
+      if (!cutout) cutout = r;
+    } else if (vt == null || RENDERER_VIEW_TYPES.has(vt) || vt === "wall_mounted") {
+      if (!primary) primary = r;
+    }
+  }
+  // If no explicitly `wall_mounted` row exists (very old data), fall
+  // back to the first sort_order row so the placement still renders.
+  if (!primary && sorted.length > 0) {
+    const firstNonCutout = sorted.find(
+      (r) => r.view_type !== "cutout" && r.view_type !== "cutout_alpha",
+    );
+    primary = firstNonCutout ?? sorted[0] ?? null;
+  }
+  return { primary, cutout, cutoutAlpha };
 }
 
 function rowToArtworkThumb(
   row: RawArtworkRow,
   locale: Locale,
 ): ArtworkThumbForScene {
-  const img = firstImage(row);
-  const path = img?.storage_path ?? null;
-  const pxW = img?.width;
-  const pxH = img?.height;
+  const picked = pickRendererImages(row);
+  const primaryPath = picked.primary?.storage_path ?? null;
+  const cutoutPath = picked.cutout?.storage_path ?? null;
+  const cutoutAlphaPath = picked.cutoutAlpha?.storage_path ?? null;
   return {
     id: row.id,
     title: pickLocalizedArtworkTitle(row, locale),
-    imageUrl: path ? getArtworkImageUrl(path, "medium") : null,
+    imageUrl: primaryPath ? getArtworkImageUrl(primaryPath, "medium") : null,
     widthCm: row.width_cm,
     heightCm: row.height_cm,
     depthCm: row.depth_cm,
-    imagePxWidth:
-      typeof pxW === "number" && Number.isFinite(pxW) && pxW > 0 ? pxW : null,
-    imagePxHeight:
-      typeof pxH === "number" && Number.isFinite(pxH) && pxH > 0 ? pxH : null,
+    imagePxWidth: safePx(picked.primary?.width),
+    imagePxHeight: safePx(picked.primary?.height),
+    // Phase 2 (2026-08-20) — additive cutout URLs. Renderer prefers
+    // cutout_alpha > cutout > primary; consumers can also branch on
+    // these to suppress warnings that only apply to the padded
+    // primary (e.g. the aspect-mismatch banner).
+    cutoutImageUrl: cutoutPath ? getArtworkImageUrl(cutoutPath, "medium") : null,
+    cutoutImagePxWidth: safePx(picked.cutout?.width),
+    cutoutImagePxHeight: safePx(picked.cutout?.height),
+    cutoutAlphaImageUrl: cutoutAlphaPath
+      ? getArtworkImageUrl(cutoutAlphaPath, "medium")
+      : null,
+    cutoutAlphaImagePxWidth: safePx(picked.cutoutAlpha?.width),
+    cutoutAlphaImagePxHeight: safePx(picked.cutoutAlpha?.height),
     workForm: row.work_form ?? "flat_2d",
   };
 }

@@ -42,6 +42,18 @@ export const PLACEMENT_FALLBACK_WIDTH_CM = 50;
 export const PLACEMENT_FALLBACK_HEIGHT_CM = 70;
 
 /**
+ * Display Simulation Phase 2 (2026-08-20) — which image the renderer
+ * chose for this placement. Consumers (the aspect-mismatch banner,
+ * mount-affordance chrome) branch on this so a Track 2 cutout_alpha
+ * doesn't get a misleading warning about padding vs. the physical
+ * aspect.
+ */
+export type ResolvedImageSource =
+  | "primary"
+  | "cutout"
+  | "cutout_alpha";
+
+/**
  * Per-placement draw record. `css.zIndex` mirrors `placement.zOrder` so
  * DOM overlays stack in the same order the DB row list is drawn.
  */
@@ -49,6 +61,28 @@ export type RenderedPlacement = {
   placement: ScenePlacement;
   artwork: ArtworkThumbForScene;
   surface: SceneSurface | null;
+  /**
+   * URL the renderer actually chose (cutout_alpha > cutout > primary).
+   * Null when the artwork has no image row at all — the placement
+   * falls through to the "no image" tile.
+   */
+  imageUrl: string | null;
+  /**
+   * Which of the three image sources the URL came from — lets the
+   * caller decide when to suppress the aspect-mismatch warning
+   * (cutouts have exact aspect by construction) and when to render
+   * a transparent-friendly mount stack (`cutout_alpha`).
+   */
+  resolvedImageSource: ResolvedImageSource;
+  /**
+   * Pixel dims of the *resolved* image (from the cutout row when
+   * that was picked, from the primary row otherwise). Consumers can
+   * still fall back to `artwork.imagePxWidth/Height` for the
+   * primary — kept separate so a bug in the cutout row's dim
+   * probe doesn't leak into unrelated math.
+   */
+  resolvedImagePxWidth: number | null;
+  resolvedImagePxHeight: number | null;
   css: {
     matrix3d: string;
     widthPx: number;
@@ -123,10 +157,34 @@ export function renderScene2D(
       surface,
       imagePxSize,
     );
+    // Phase 2 (2026-08-20) — resolve the image source. cutout_alpha
+    // wins because a transparent PNG lets the wall photo show through
+    // for the "real exhibition" look. cutout (plain crop) is second
+    // choice — same aspect but keeps whatever background color the
+    // cutout was rendered on. Primary is the fallback.
+    let resolvedImageSource: ResolvedImageSource = "primary";
+    let imageUrl: string | null = artwork.imageUrl;
+    let resolvedImagePxWidth = artwork.imagePxWidth;
+    let resolvedImagePxHeight = artwork.imagePxHeight;
+    if (artwork.cutoutAlphaImageUrl) {
+      resolvedImageSource = "cutout_alpha";
+      imageUrl = artwork.cutoutAlphaImageUrl;
+      resolvedImagePxWidth = artwork.cutoutAlphaImagePxWidth;
+      resolvedImagePxHeight = artwork.cutoutAlphaImagePxHeight;
+    } else if (artwork.cutoutImageUrl) {
+      resolvedImageSource = "cutout";
+      imageUrl = artwork.cutoutImageUrl;
+      resolvedImagePxWidth = artwork.cutoutImagePxWidth;
+      resolvedImagePxHeight = artwork.cutoutImagePxHeight;
+    }
     out.push({
       placement: effectivePlacement,
       artwork,
       surface,
+      imageUrl,
+      resolvedImageSource,
+      resolvedImagePxWidth,
+      resolvedImagePxHeight,
       css: {
         matrix3d: css.matrix3d,
         widthPx: css.widthPx,

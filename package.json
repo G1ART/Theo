@@ -66,6 +66,7 @@
     "test:image-enhance-adaptive": "tsx src/lib/image/enhancement/__tests__/adaptive.test.ts",
     "test:image-enhance-keystone-regression": "tsx src/lib/image/enhancement/__tests__/keystoneRegression.test.ts",
     "test:bulk-upload-regression": "tsx src/lib/supabase/__tests__/bulkUpload.regression.test.ts",
+    "test:artwork-cutout-alpha-route": "tsx tests/artwork-cutout-alpha-route.test.ts",
     "publish:theo": "tsx scripts/theo-board-publish.ts"
   },
   "dependencies": {

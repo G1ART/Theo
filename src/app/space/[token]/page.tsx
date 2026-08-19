@@ -36,6 +36,11 @@ import { useT } from "@/lib/i18n/useT";
 import { getSpaceByShareToken, type SpaceScene } from "@/lib/supabase/spaces";
 import { renderScene2D } from "@/lib/simulation/renderer2d";
 import { spacePhotoUrl } from "@/components/simulation/spacePhotoUrl";
+import {
+  buildMountLayers,
+  readLightDirection,
+  resolveFramePreset,
+} from "@/lib/simulation/mounting";
 
 export default function SharedSpacePage() {
   const params = useParams();
@@ -133,41 +138,60 @@ export default function SharedSpacePage() {
           </div>
         )}
         {/*
-          Mirrors the editor's overlay style (P1 render-quality
-          patch, 2026-08-19): `object-contain` + mounting shadow
-          stack + hairline outline + top highlight so shared views
-          also render with faithful aspect and a "hanging object"
-          affordance, not the previous flat-sticker look.
+          Phase 2 (2026-08-20) — share view mirrors the editor's
+          mount stack (`buildMountLayers`). Read-only: no selection
+          ring, no CTAs, but the same frame preset / directional
+          shadow / mounting depth so the shared preview matches
+          exactly what the owner sees.
         */}
-        {rendered.map((rp) => (
-          <div
-            key={rp.placement.id}
-            aria-hidden
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              width: `${rp.css.widthPx}px`,
-              height: `${rp.css.heightPx}px`,
-              transformOrigin: "0 0",
-              transform: rp.css.matrix3d,
-              zIndex: rp.css.zIndex + 1,
-              outline: "1px solid rgba(0,0,0,0.10)",
-              boxShadow:
-                "0 2px 6px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.18)",
-            }}
-          >
-            {rp.artwork.imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={rp.artwork.imageUrl}
-                alt={rp.artwork.title}
-                className="pointer-events-none h-full w-full select-none object-contain"
-                draggable={false}
-              />
-            )}
-          </div>
-        ))}
+        {rendered.map((rp) => {
+          const surface = rp.surface;
+          const widthCm = rp.placement.widthCm ?? 0;
+          const pxPerCm = widthCm > 0 ? rp.css.widthPx / widthCm : 0;
+          const preset = resolveFramePreset(rp.placement.framePreset);
+          const light = readLightDirection(surface?.pose);
+          const layers = buildMountLayers({
+            preset,
+            pxPerCm,
+            lightDirection: light,
+            resolvedImageSource: rp.resolvedImageSource,
+          });
+          const imgNode = rp.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={rp.imageUrl}
+              alt={rp.artwork.title}
+              className="pointer-events-none max-h-full max-w-full select-none object-contain"
+              style={{ width: "100%", height: "100%" }}
+              draggable={false}
+            />
+          ) : null;
+          return (
+            <div
+              key={rp.placement.id}
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: `${rp.css.widthPx}px`,
+                height: `${rp.css.heightPx}px`,
+                transformOrigin: "0 0",
+                transform: rp.css.matrix3d,
+                zIndex: rp.css.zIndex + 1,
+                ...layers.outer,
+              }}
+            >
+              {layers.matte ? (
+                <div style={layers.matte}>
+                  <div style={layers.imageWell}>{imgNode}</div>
+                </div>
+              ) : (
+                <div style={layers.imageWell}>{imgNode}</div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <footer className="mt-6 border-t border-zinc-100 pt-3 text-center text-xs text-zinc-400">
         <Link href="/" className="hover:text-zinc-700">

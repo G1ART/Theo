@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 import type {
   AiDegradation,
   AiFeatureKey,
+  ArtworkPaintingBboxResult,
   ArtworkQualityGateResult,
   BioDraftResult,
   BoardPitchPackResult,
@@ -40,6 +41,7 @@ const FEATURE_TO_PATH: Record<AiFeatureKey, string> = {
   "space.calibrate": "/api/ai/space-calibrate",
   "space.wall_detect": "/api/ai/space-wall-detect",
   artwork_quality_gate: "/api/ai/artwork-quality-gate",
+  artwork_painting_bbox: "/api/ai/artwork-painting-bbox",
 };
 
 export type CallAiOptions = {
@@ -310,6 +312,29 @@ export const aiApi = {
         reshootAdviceKo: "",
         reshootAdviceEn: "",
         scores: { sharpness: 0.5, glare: 0, exposure: 0.5, framing: 0.5 },
+      },
+      opts,
+    ),
+  /**
+   * 2026-08-20 (Display Simulation Phase 2, Track 1) — vision-based
+   * painting bounding-box detection. Body: `{ imageBase64, mime,
+   * imagePxWidth, imagePxHeight }`. Fallback is a "full image / not
+   * confident" shape so callers can always check `alreadyTight ||
+   * confidence < 0.7` and skip the crop without a special degraded
+   * branch — the original upload stays as the canonical image.
+   */
+  artworkPaintingBbox: (
+    body: Record<string, unknown>,
+    opts?: CallAiOptions,
+  ) =>
+    callAi<ArtworkPaintingBboxResult>(
+      "artwork_painting_bbox",
+      body,
+      {
+        bbox: { x: 0, y: 0, width: 1, height: 1 },
+        confidence: 0,
+        alreadyTight: true,
+        hasVisibleFrame: false,
       },
       opts,
     ),

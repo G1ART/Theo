@@ -9,6 +9,7 @@ import {
   createDraftArtwork,
   deleteArtwork,
   deleteDraftArtworks,
+  getStorageUrl,
   listMyDraftArtworks,
   publishArtworks,
   publishArtworksWithProvenance,
@@ -1328,6 +1329,30 @@ export default function BulkUploadPage() {
         if (attachErr) throw attachErr;
         uploadedIds.push(artworkId);
         setUploadSucceeded((n) => n + 1);
+        // Display Simulation Phase 2 (2026-08-20) — Track 1 auto-fire.
+        // Fire-and-forget: request an AI bounding-box crop for the
+        // freshly-uploaded artwork so future placements in a space
+        // render tight to the painting. Failure paths (unauthorized
+        // / low confidence / already tight) all silently no-op —
+        // the primary image stays as the canonical row so nothing
+        // in the bulk upload flow ever waits on this. Import kept
+        // dynamic so the bundle for users who never place their
+        // work in a space doesn't pay the cost.
+        try {
+          const displayPath = uploadResult.displayPath;
+          const bboxArtworkId = artworkId;
+          void import("@/lib/simulation/cutoutClient").then(
+            ({ runVisionBboxCrop }) => {
+              const displayUrl = getStorageUrl(displayPath);
+              return runVisionBboxCrop({
+                artworkId: bboxArtworkId,
+                imageUrl: displayUrl,
+              }).catch(() => undefined);
+            },
+          );
+        } catch {
+          // best-effort — never block the bulk publish flow
+        }
         // 2026-08-07 — Publish-time `.completed` emit. Semantic split
         // from the preview-time `.previewed` emit above; only fires
         // for rows that actually shipped an approved enhancement so

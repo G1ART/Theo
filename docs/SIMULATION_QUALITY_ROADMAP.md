@@ -1,6 +1,6 @@
 # Display / Hang Simulation — Render Quality Roadmap
 
-_Living design note. Last updated: 2026-08-19 (P1 render-quality patch)._
+_Living design note. Last updated: 2026-08-19 (Phase 2 painting isolation + mounting realism)._
 
 ## Purpose
 
@@ -81,7 +81,58 @@ two problems at once:
 - [x] `artwork_images.width/height` piped through
       `ArtworkThumbForScene` (both owner + share paths).
 - [x] Aspect-mismatch inspector warning + snap-to-image-aspect action.
-- [x] CSS mounting affordance (drop-shadow, border, top highlight).
+- [x] CSS mounting affordance (drop-shadow, border, top highlight) —
+      *superseded 2026-08-19 (Phase 2)* by the shared `buildMountLayers`
+      stack (see below). The hairline outline is removed because it
+      read as a double frame when the source photo already carried
+      padding around the painting.
+
+### Phase 2 (shipped 2026-08-19)
+
+Painting isolation (Phase A, both tracks) + realistic mounting
+(Phase B, full scope). See HANDOFF 2026-08-19 (29) for the full
+change list.
+
+- [x] **Track 1** — `POST /api/ai/artwork-painting-bbox` (`gpt-4o-mini`,
+      `detail:"high"`). Client-side canvas crop + `attachArtworkImage`
+      as `view_type='cutout'`. Free, no gating. Auto-fires from bulk
+      upload after `attachArtworkImage` succeeds; also exposed as
+      "여백 자동 제거 (AI)" CTA in `SpaceEditor` inspector for legacy
+      artworks.
+- [x] **Track 2** — `POST /api/ai/artwork-cutout-alpha` (Photoroom
+      v1 segment). Transparent PNG stored as
+      `view_type='cutout_alpha'`. Entitlement
+      `simulation.premium.cutout` — beta-open to every plan (see
+      `PLAN_FEATURE_MATRIX` comment `BETA_UNLIMITED`). CTA labelled
+      "고급 배경 분리 (Pro)" with "Beta — 지금은 무료" hint.
+      Env: `PHOTOROOM_API_KEY`; unset → route returns 501.
+- [x] **Renderer preference** — `renderer2d.ts` now returns
+      `imageUrl / resolvedImageSource / resolvedImagePxWidth /
+      resolvedImagePxHeight` and prefers
+      `cutout_alpha > cutout > primary`. Aspect-mismatch banner
+      auto-suppresses when `resolvedImageSource !== 'primary'`.
+- [x] **Frame presets** — nullable `space_placements.frame_preset`
+      column with 5 values: `none / matte_white_thin / frame_black /
+      frame_wood / canvas_edge`. Inspector segmented-control picker
+      with per-preset swatches; persists via the existing debounced
+      `upsertPlacements` path.
+- [x] **Directional shadow** — vision `space.wall_detect` now
+      persists `lightDirection` to `space_surfaces.pose` on cleanup
+      success. `frameOuterShadowFilter(light)` renders a directional
+      CSS `filter: drop-shadow(...)` on the frame wrapper — 12–16 px
+      blur, ~15 % opacity, direction flipped so light-from-top-left
+      produces shadow-to-bottom-right.
+- [x] **Mounting depth** — secondary tighter `drop-shadow(0 2px 3px
+      rgba(0,0,0,0.24))` stacked under the primary cast so every
+      preset reads as 2–4 mm lifted off the wall.
+- [x] **Share view parity** — `/space/[token]` uses the same
+      `buildMountLayers` helper so viewers see exactly what the owner
+      sees.
+- [x] **Public share RPC** — migration
+      `20260820000000_space_share_rpc_cutouts.sql` widens the
+      `artwork_images.view_type` whitelist and updates
+      `get_space_by_share_token` to include `cutout` / `cutout_alpha`
+      rows.
 
 ### Next: Photoroom cutout pipeline
 
@@ -167,17 +218,23 @@ support).
 
 ### Deferred: 3D-look rendering (frame, lighting, shadow)
 
-Not scoped for the P1 quality patch. Depends on the P2 parametric
-3D renderer track. Notes:
+_Superseded 2026-08-19 (Phase 2)_ for the CSS-achievable pieces
+(frame chrome + directional shadow). What is still deferred:
 
-- **Frame chrome**: pick 3–5 preset frame styles (thin metal, wide
-  wood, floater, none) and render as CSS box-shadow / border stacks
-  around the placement. Owner-selected per-placement.
-- **Directional shadow**: derive light direction from the room
-  photo (vision call: "where is the primary light source?") and
-  offset the placement's shadow accordingly.
-- **Ambient / bounce**: probably overkill in DOM; belongs in the
-  parametric 3D path where we have real geometry.
+- **Ambient / bounce lighting**: belongs in the parametric 3D path
+  where we have real geometry.
+- **Ambient light matching**: sample the wall's median RGB from
+  the room photo and tint the frame accordingly, so a warm-tungsten
+  room doesn't render a jarring cool-white matte. Cheap DOM/CSS
+  extension; wait for user feedback on whether the current fixed
+  matte reads well enough.
+- **Multi-artwork layout helpers**: eye-level guides already exist;
+  next up = "auto-align to salon-hang grid" and "space equally"
+  bulk actions in the inspector.
+- **WebXR AR preview**: "see this space on my wall" via device AR.
+  Requires camera permission handoff + a WebXR anchor.
+- **NeRF / Gaussian Splatting**: alternative to the parametric 3D
+  path; explore when we have real user demand.
 
 ## Non-goals
 
@@ -195,14 +252,36 @@ Not scoped for the P1 quality patch. Depends on the P2 parametric
 ## Related code
 
 - `src/components/simulation/SpaceEditor.tsx` — placement overlay
-  CSS (`object-contain`, mount stack) and inspector aspect
-  mismatch card.
-- `src/lib/simulation/scene.ts` — `ArtworkThumbForScene` (carries
-  `imagePxWidth/imagePxHeight`).
+  CSS (`object-contain`, mount stack via `buildMountLayers`) and
+  inspector aspect-mismatch card + frame preset picker + cutout
+  CTAs.
+- `src/app/space/[token]/page.tsx` — share view; same
+  `buildMountLayers` stack, read-only.
+- `src/lib/simulation/mounting.ts` — shared frame + directional
+  shadow + mount depth helpers (Phase 2).
+- `src/lib/simulation/scene.ts` — `ArtworkThumbForScene` carries
+  `imagePxWidth/imagePxHeight` + Phase 2 cutout URL/dim fields;
+  `ScenePlacement.framePreset`.
+- `src/lib/simulation/renderer2d.ts` — image source preference
+  (`cutout_alpha > cutout > primary`) + `resolvedImageSource` flag
+  consumers use to suppress the aspect-mismatch banner.
+- `src/lib/simulation/cutoutClient.ts` — client glue for both
+  Track 1 (Vision bbox → canvas crop → upload) and Track 2
+  (Photoroom proxy) cutout pipelines.
 - `src/lib/supabase/spaces.ts` — `PUBLIC_ARTWORK_SELECT` +
-  `rowToArtworkThumb` mapping.
+  `pickRendererImages` + `rowToArtworkThumb` mapping (returns
+  primary + cutout + cutout_alpha URLs).
+- `src/app/api/ai/artwork-painting-bbox/route.ts` — Track 1 Vision
+  bbox route.
+- `src/app/api/ai/artwork-cutout-alpha/route.ts` — Track 2
+  Photoroom proxy route (`PHOTOROOM_API_KEY`).
 - `supabase/migrations/20260819050000_space_share_rpc_image_dims.sql`
-  — share RPC returns image pixel dims.
+  — share RPC returns image pixel dims (P1 fix).
+- `supabase/migrations/20260820000000_space_share_rpc_cutouts.sql`
+  — Phase 2: extend `artwork_images.view_type` enum with `cutout` /
+  `cutout_alpha` + share RPC returns them.
+- `supabase/migrations/20260820010000_space_placements_frame.sql`
+  — Phase 2: `space_placements.frame_preset` nullable text column.
 
 ## Threshold tuning log
 

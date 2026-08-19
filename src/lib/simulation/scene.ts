@@ -57,6 +57,27 @@ export type SpaceKind = "room_photo_2d" | "parametric_3d";
 export type SpaceUnit = "cm" | "in";
 
 /**
+ * Display Simulation Phase 2 (2026-08-20) — per-placement frame
+ * preset. `null` in the DB means "use platform default" (currently
+ * treated as `"none"` by the renderer). Enum values mirror the DB
+ * check constraint on `space_placements.frame_preset`.
+ */
+export type FramePreset =
+  | "none"
+  | "matte_white_thin"
+  | "frame_black"
+  | "frame_wood"
+  | "canvas_edge";
+
+export const FRAME_PRESETS: readonly FramePreset[] = [
+  "none",
+  "matte_white_thin",
+  "frame_black",
+  "frame_wood",
+  "canvas_edge",
+];
+
+/**
  * Surface role — mirrors `space_surfaces.role`. The P1 room-photo
  * flow always seeds a single `wall`; other roles are reserved for
  * the 3D renderer.
@@ -81,6 +102,12 @@ export type ScenePlacement = {
   heightCm: number | null;
   depthCm: number | null;
   zOrder: number;
+  /**
+   * Display Simulation Phase 2 (2026-08-20) — per-placement mounting
+   * frame preset. `null` means "platform default" (currently rendered
+   * as `"none"`). Mirrors `space_placements.frame_preset`.
+   */
+  framePreset: FramePreset | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -185,6 +212,8 @@ export type ScenePlacementInsert = {
   heightCm?: number | null;
   depthCm?: number | null;
   zOrder?: number;
+  /** Phase 2 (2026-08-20). Explicit `null` clears back to platform default. */
+  framePreset?: FramePreset | null;
 };
 
 /** Partial patch for a `space_placements` row. */
@@ -235,6 +264,27 @@ export type ArtworkThumbForScene = {
    */
   imagePxWidth: number | null;
   imagePxHeight: number | null;
+  /**
+   * Display Simulation Phase 2 (2026-08-20) — Track 1 result. URL of
+   * the `view_type='cutout'` sibling image (Vision-bbox-cropped
+   * JPEG/WebP). Null when the artwork has no cutout row yet. The
+   * renderer prefers this over `imageUrl` because a cutout removes
+   * the wall / matte / frame padding that inflates one axis and
+   * makes portraits read as squares inside the placement rect.
+   */
+  cutoutImageUrl: string | null;
+  cutoutImagePxWidth: number | null;
+  cutoutImagePxHeight: number | null;
+  /**
+   * Display Simulation Phase 2 (2026-08-20) — Track 2 result. URL of
+   * the `view_type='cutout_alpha'` sibling image (Photoroom
+   * transparent PNG). Null when Track 2 hasn't run. Preferred over
+   * `cutoutImageUrl` because the alpha channel lets the wall photo
+   * show through, delivering the strongest "real exhibition" look.
+   */
+  cutoutAlphaImageUrl: string | null;
+  cutoutAlphaImagePxWidth: number | null;
+  cutoutAlphaImagePxHeight: number | null;
   /** Dimensionality bucket used to decide which renderer path applies. */
   workForm:
     | "flat_2d"
@@ -291,6 +341,14 @@ function toBool(v: unknown, fallback = false): boolean {
   return typeof v === "boolean" ? v : fallback;
 }
 
+function toFramePreset(v: unknown): FramePreset | null {
+  if (v == null) return null;
+  if (typeof v !== "string") return null;
+  return (FRAME_PRESETS as readonly string[]).includes(v)
+    ? (v as FramePreset)
+    : null;
+}
+
 /** Map a snake_case `space_placements` row to `ScenePlacement`. */
 export function rowToScenePlacement(row: Record<string, unknown>): ScenePlacement {
   return {
@@ -308,6 +366,7 @@ export function rowToScenePlacement(row: Record<string, unknown>): ScenePlacemen
     heightCm: toNullableNum(row.height_cm),
     depthCm: toNullableNum(row.depth_cm),
     zOrder: Math.trunc(toNum(row.z_order)),
+    framePreset: toFramePreset(row.frame_preset),
     createdAt: toStr(row.created_at),
     updatedAt: toStr(row.updated_at),
   };
@@ -476,6 +535,7 @@ export function scenePlacementInsertToRow(
   put(row, "height_cm", input.heightCm);
   put(row, "depth_cm", input.depthCm);
   put(row, "z_order", input.zOrder);
+  put(row, "frame_preset", input.framePreset);
   return row;
 }
 
@@ -691,6 +751,7 @@ export const ScenePlacementSchema: SceneSchema<ScenePlacement> = makeSchema(
     const zOrder = Math.trunc(
       checkNum(raw.zOrder ?? raw.z_order, "zOrder", issues, 0),
     );
+    const framePreset = toFramePreset(raw.framePreset ?? raw.frame_preset);
     const createdAt = checkStr(raw.createdAt ?? raw.created_at, "createdAt", issues);
     const updatedAt = checkStr(raw.updatedAt ?? raw.updated_at, "updatedAt", issues);
     if (issues.length > 0) return null;
@@ -709,6 +770,7 @@ export const ScenePlacementSchema: SceneSchema<ScenePlacement> = makeSchema(
       heightCm,
       depthCm,
       zOrder,
+      framePreset,
       createdAt,
       updatedAt,
     };
@@ -1009,6 +1071,9 @@ export const ScenePlacementInsertSchema: SceneSchema<ScenePlacementInsert> = mak
     if (raw.zOrder !== undefined) {
       out.zOrder = Math.trunc(checkNum(raw.zOrder, "zOrder", issues, 0));
     }
+    if (raw.framePreset !== undefined) {
+      out.framePreset = toFramePreset(raw.framePreset);
+    }
     if (issues.length > 0) return null;
     return out;
   },
@@ -1040,6 +1105,9 @@ export const ScenePlacementUpdateSchema: SceneSchema<ScenePlacementUpdate> = mak
     if (raw.depthCm !== undefined) out.depthCm = raw.depthCm as number | null;
     if (raw.zOrder !== undefined) {
       out.zOrder = Math.trunc(checkNum(raw.zOrder, "zOrder", issues, 0));
+    }
+    if (raw.framePreset !== undefined) {
+      out.framePreset = toFramePreset(raw.framePreset);
     }
     if (issues.length > 0) return null;
     return out;

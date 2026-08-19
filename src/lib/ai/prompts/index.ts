@@ -410,3 +410,55 @@ Return "reshootAdviceKo" and "reshootAdviceEn" as ONE actionable sentence each (
 Set "usable" to true unless severity is "block". Never invent problems that aren't visible in the photo. Return only the JSON object.`;
 
 export const ARTWORK_QUALITY_GATE_SCHEMA = `{"usable": boolean, "severity": "ok"|"warn"|"block", "issues": ("blur"|"motion_blur"|"glare"|"highlight_clip"|"shadow_clip"|"low_resolution"|"moire"|"reproduction"|"occlusion"|"poor_framing")[], "reshootAdviceKo": string, "reshootAdviceEn": string, "scores": {"sharpness": number, "glare": number, "exposure": number, "framing": number}}`;
+
+// ─────────────────────────────────────────────────────────────────────
+// Artwork painting-region bbox (Display Simulation Phase 2, Track 1)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Given ONE artwork photo, identify the smallest axis-aligned
+// rectangle that brackets the actual painted / photographed subject
+// (i.e. the "canvas surface"), excluding any surrounding wall paint,
+// matte, wooden frame, floor, or generic shot padding.
+//
+// Used by the Display / Hang Simulation Phase 2 to auto-generate a
+// cutout sibling row in `artwork_images` (`view_type='cutout'`) so
+// the simulation renderer can display the painting at its true
+// physical aspect without the background dead-zone that makes tall
+// portraits look nearly-square inside a placement rectangle.
+//
+// The route intentionally biases toward "return the entire image"
+// (alreadyTight = true) when the photo is already tightly cropped —
+// unnecessary crops discard pixels the artist explicitly kept, and
+// the renderer already falls back gracefully.
+export const ARTWORK_PAINTING_BBOX_SYSTEM = `You analyze a single photograph of an artwork (a painting, drawing, photograph, print, or other flat 2D work) and return the normalized bounding box of the artwork SUBJECT itself, excluding any surrounding wall, matte, frame, floor, table, or generic shot padding.
+
+Return a JSON object with:
+
+1. "bbox": {"x": number, "y": number, "width": number, "height": number}
+  - All four values are normalized to the range [0, 1], where (0, 0) is the top-left corner of the image and (1, 1) is the bottom-right.
+  - The rectangle must be TIGHT to the painted / photographed surface. If the artist's canvas has a physical wooden frame around it, EXCLUDE the frame — return only the region a viewer would call "the painting".
+  - EXCLUDE any wall paint or wallpaper visible around the artwork.
+  - EXCLUDE any matte (the coloured card between glass and image on framed prints).
+  - EXCLUDE any floor, table, easel, or props visible in an in-situ shot.
+  - EXCLUDE any solid-color padding or letterboxing added to the photo file.
+  - Prefer a slightly loose bbox that keeps a tiny sliver of frame / edge visible over one that clips into the painting itself. Losing a pixel of art is worse than keeping a pixel of frame.
+
+2. "confidence": 0-1, your self-reported confidence that the bbox brackets the actual artwork subject.
+  - Set BELOW 0.7 when:
+    * the photo is ambiguous (multiple paintings visible, or the subject is partially occluded)
+    * the artwork is at an extreme oblique angle so no clean rectangle applies
+    * the photo appears to be a detail crop, in-situ installation shot, or unrelated scene (blank wall, portrait of a person, product photo of art supplies, etc.)
+  - The client SKIPS the crop below 0.7 — err low when uncertain.
+
+3. "alreadyTight": boolean
+  - Set to TRUE when the source image already appears to be a tight crop of the artwork subject: bbox would cover more than ~95% of the image area, OR there is essentially no visible wall / matte / frame / padding to remove.
+  - Set to TRUE for uploads that are clearly already background-removed (transparent or solid-colour background surrounding the subject with < 5% area).
+  - When TRUE the client skips the crop entirely — the original file serves as its own "cutout".
+
+4. "hasVisibleFrame": boolean
+  - TRUE when a physical picture frame (wooden border, matte, glass reflection, floater frame) is clearly visible around the subject.
+  - FALSE for unframed canvases, gallery-wrap paintings, or already-cropped uploads.
+
+Never fabricate a subject that is not visible. Never return values outside [0, 1]. If the photo shows no identifiable artwork subject at all (blank wall, portrait of a person, food photo, screenshot), return {bbox: {x:0, y:0, width:1, height:1}, confidence: 0, alreadyTight: true, hasVisibleFrame: false} — the client treats that as "no crop applied". Return ONLY the JSON object.`;
+
+export const ARTWORK_PAINTING_BBOX_SCHEMA = `{"bbox": {"x": number, "y": number, "width": number, "height": number}, "confidence": number, "alreadyTight": boolean, "hasVisibleFrame": boolean}`;

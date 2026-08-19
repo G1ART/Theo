@@ -46,6 +46,76 @@ Last updated: 2026-08-19
 - `src/lib/auth/passwordPolicy.ts` 신설 (12자 + strength meter, HIBP 는 Phase 5 활성).
 - 스펙 §11 이 완전한 참조 (컬럼 semantics, wizard draft 스키마, 카피 KO/EN 초안).
 
+## 2026-08-19 (29) — 시뮬 Phase 2: painting 분리(AI 2트랙) + 프레임 5종 + 방향성 그림자 · 마운트 depth
+
+> Supabase SQL 적용 필요 (Dashboard SQL Editor 에서 수동 실행):
+>   - `supabase/migrations/20260820000000_space_share_rpc_cutouts.sql` — `artwork_images.view_type` 화이트리스트에 `cutout` / `cutout_alpha` 추가 + `get_space_by_share_token` RPC 가 cutout 행 포함. 함수 1개라 통짜 paste OK.
+>   - `supabase/migrations/20260820010000_space_placements_frame.sql` — `space_placements.frame_preset text` nullable 컬럼 + check constraint. plpgsql 함수 없음, 통짜 paste OK.
+>
+> **환경 변수 추가 (필수 콜아웃):** `PHOTOROOM_API_KEY` — Vercel 에 추가 필요 (Track 2 "고급 배경 분리" 라우트가 미설정 시 501 반환하며 UI 는 fallback 메시지 표시). Track 1 (무료 Vision bbox 크롭) 은 영향 없음. `.env.example` 및 `docs/03_RUNBOOK.md` 갱신 완료.
+
+### 배경
+릴리즈 27 (aspect + 마운트 hairline) 이후 사용자 리포트: (a) 세로 121.9×106.7 초상화의 padding 이 letterbox 안에 그대로 표시 → "찌부·왜곡"으로 오독, (b) hairline outline 이 padding 위에 겹쳐 "이중 액자"로 보임, (c) 전체 지각이 "실제 전시" 느낌과 거리 있음.
+
+### 결정 사항 (사용자 confirm)
+1. **Phase A (그림 분리) 2트랙 병렬**: Track 1 = OpenAI Vision bbox 자동 크롭 (무료 · default), Track 2 = Photoroom 투명 PNG (Pro 표기 · 베타 무제한).
+2. **Phase B (마운팅 리얼리즘) 풀 스코프**: 프레임 프리셋 5종 + 방향성 그림자 + mounting depth.
+3. **베타 gating**: 모두 unlocked. `PLAN_FEATURE_MATRIX` 주석에 post-beta 정책 명시. 사용자 대상 paywall 노출 없음.
+
+### 변경 (신규 5 파일 + 수정 11 파일 + 마이그레이션 2)
+
+**신규 파일:**
+- `supabase/migrations/20260820000000_space_share_rpc_cutouts.sql`
+- `supabase/migrations/20260820010000_space_placements_frame.sql`
+- `src/app/api/ai/artwork-painting-bbox/route.ts` — Track 1 Vision bbox 라우트. `gpt-4o-mini` + `detail:"high"`. `handleAiRoute` 재사용, entitlement=`simulation.2d`, metering key `ai.artwork_painting_bbox.detected`. `normalizeResult` 로 bbox clamp / `alreadyTight` belt-and-suspenders / degenerate bbox 방어.
+- `src/app/api/ai/artwork-cutout-alpha/route.ts` — Track 2 Photoroom v1 segment 라우트. 미키 시 501 + `{degraded:true, reason:"no_key"}`. entitlement=`simulation.premium.cutout`, metering key `ai.artwork_cutout_alpha.generated`. RLS-scoped owner check → Photoroom → storage upload → `artwork_images` insert (`view_type='cutout_alpha'`). `probePngDimensions` 로 IHDR 파싱 → width/height 저장.
+- `src/lib/simulation/mounting.ts` — CSS-only 마운트 스택 헬퍼. `buildMountLayers({preset, pxPerCm, lightDirection, selected, resolvedImageSource})` → 3-layer 스타일 백. `WOOD_GRAIN_SVG` 인라인 data-URI. `frameOuterShadowFilter(light)` = 방향성 drop-shadow 2단 (cast + lift). `readLightDirection(pose)` = 방어적 파싱.
+- `src/lib/simulation/cutoutClient.ts` — 클라이언트 글루. `runVisionBboxCrop({artworkId, imageUrl})` = 원본 fetch → base64 → Vision → canvas 크롭 → storage upload → `attachArtworkImage(viewType='cutout')`. 실패 모두 `{applied:false, reason}` 로 붕괴 (throw 없음). `runPhotoroomCutout({artworkId})` = 서버 라우트 POST, HTTP status → reason 매핑.
+- `tests/artwork-cutout-alpha-route.test.ts` + `test:artwork-cutout-alpha-route` npm 스크립트 — 미키 시 501/`no_key` 계약 검증.
+
+**수정 파일 (요약):**
+- `src/lib/ai/types.ts` — `artwork_painting_bbox` AiFeatureKey + `ArtworkPaintingBboxResult` 타입.
+- `src/lib/ai/browser.ts` — `FEATURE_TO_PATH` + `aiApi.artworkPaintingBbox` 타입 shortcut (fallback = full-frame / alreadyTight).
+- `src/lib/ai/safety.ts` — `ALLOWED_AI_FEATURES` 에 추가.
+- `src/lib/ai/prompts/index.ts` — `ARTWORK_PAINTING_BBOX_SYSTEM` + `_SCHEMA`.
+- `src/lib/metering/{usageKeys,types}.ts` — `AI_ARTWORK_PAINTING_BBOX_DETECTED` / `AI_ARTWORK_CUTOUT_ALPHA_GENERATED`. `artwork_painting_bbox` → entitlement `simulation.2d`.
+- `src/lib/entitlements/{featureKeys,planMatrix}.ts` — `simulation.premium.cutout` 등록. 모든 plan `true` + `// BETA_UNLIMITED — post-beta: free=false, pro=true, studio=true` 주석.
+- `src/lib/simulation/scene.ts` — `FramePreset` union + `FRAME_PRESETS` 배열. `ScenePlacement.framePreset: FramePreset|null`. `ArtworkThumbForScene` 에 `cutoutImageUrl / cutoutImagePxWidth / cutoutImagePxHeight / cutoutAlphaImageUrl / cutoutAlphaImagePxWidth / cutoutAlphaImagePxHeight` 6개 nullable 필드. row 매퍼 (`rowToScenePlacement`) + schema (`ScenePlacementInsert/UpdateSchema`) 가 `frame_preset` 왕복 처리.
+- `src/lib/simulation/renderer2d.ts` — `ResolvedImageSource` union (`primary`/`cutout`/`cutout_alpha`). `RenderedPlacement` 에 `imageUrl / resolvedImageSource / resolvedImagePxWidth / resolvedImagePxHeight`. 소스 우선순위 = `cutoutAlphaImageUrl > cutoutImageUrl > imageUrl`.
+- `src/lib/supabase/spaces.ts` — `firstImage` → `pickRendererImages` 로 확장 (primary/cutout/cutout_alpha 분리). `rowToArtworkThumb` 가 6개 cutout 필드 채움. `RENDERER_VIEW_TYPES` set 으로 필터 명시.
+- `src/components/simulation/SpaceEditor.tsx` — hairline outline 제거. 오버레이 렌더가 `buildMountLayers` 로 3-layer 스택 그림. `handleRunBboxCrop` / `handleRunPhotoroomCutout` 콜백. 인스펙터에 **프레임 프리셋 세그멘티드 컨트롤** (5개 스와치) + **cutout CTA 2개** (`여백 자동 제거 (AI)` / `고급 배경 분리 (Pro)` + `Beta — 지금은 무료` 힌트). aspect-mismatch 배지는 `resolvedSource !== 'primary'` 시 자동 억제. wall-cleanup 성공 시 `res.lightDirection` 을 primary surface `pose.lightDirection` 에 merge-persist (renderer 방향성 그림자용). `flushPlacements` upsert 페이로드에 `framePreset` 포함. `handleCanvasTap` provisional placement 가 `framePreset:null` seed + 6개 cutout 필드 null seed.
+- `src/app/space/[token]/page.tsx` — 공유 뷰도 동일 `buildMountLayers` 사용. read-only (selection ring 없음).
+- `src/app/upload/bulk/page.tsx` — `attachArtworkImage` 성공 후 fire-and-forget Track 1 (dynamic import). 실패 = silent no-op.
+- `src/lib/i18n/messages.ts` — 새 키 KO/EN 병렬: `simulation.inspector.frame.{title,hint,preset.*}` (5개 프리셋 라벨) · `simulation.inspector.cutout.title` · `simulation.cutout.bbox.{cta,running,done,alreadyTight,lowConfidence,failed}` · `simulation.cutout.alpha.{cta,running,done,notConfigured,notEntitled,capReached,failed,betaHint}` · `simulation.cutout.applied.{bbox,alpha}`.
+- `.env.example` — `PHOTOROOM_API_KEY` 주석 확장 (Phase 2 Track 2 명시).
+- `docs/03_RUNBOOK.md` — `PHOTOROOM_API_KEY` 두 곳 갱신 (로컬 Env 리스트 + 상세 섹션).
+- `docs/SIMULATION_QUALITY_ROADMAP.md` — Phase A/B 완료 표기 + 다음 페이즈 (ambient light 매칭, multi-artwork helpers, WebXR AR, NeRF/Gaussian Splatting) 승격.
+
+### Photoroom 결정 사항
+- **Endpoint**: `https://sdk.photoroom.com/v1/segment` (v1). `x-api-key` 헤더, multipart/form-data (`image_file` + `format=png`). `accept: image/png` 로 알파 채널 유지.
+- **Timeout**: 25 초. 25s 초과 시 504 + `provider_timeout`.
+- **Auth 실패**: 502 + `provider_unauthorized`. **429**: 429 + `provider_rate_limited`. **415**: 415 + `unsupported_format`.
+- **비용 가드**: `cutout_alpha` 행이 이미 있으면 `alreadyExists:true` 로 200 리턴 (Photoroom 재호출 안 함). 재생성 필요 시 사용자가 기존 행을 삭제해야 함 (다음 페이즈).
+- **Node TS lib 이슈**: `new Blob([Uint8Array])` 가 strict `BlobPart` 시그니처에 안 맞아 `.buffer.slice(...) as ArrayBuffer` 로 coerce.
+
+### 검증
+- `npx tsc --noEmit` — **exit 0**, 0 errors.
+- `npx tsx tests/artwork-cutout-alpha-route.test.ts` — **PASS** (`no_key` 계약).
+- 매뉴얼 트레이스:
+ - 프레임 5종 → 각 프리셋 스와치 → 선택 → 인스펙터 인스턴트 반영 → 400ms 후 debounce upsert → `space_placements.frame_preset` 컬럼 반영 ✔
+ - 방향성 그림자: `pose.lightDirection = 'top_left'` → 오버레이 filter `drop-shadow(6px 6px 14px …)` 방향 맞음 ✔
+ - Mount depth: 모든 프리셋에 secondary 2px 3px blur 24% alpha 리프트 그림자 스택 ✔
+ - Aspect 배지 억제: cutout/cutout_alpha 행 있는 artwork 는 aspect 경고 자동 hide (`resolvedSource !== 'primary'` 브랜치) ✔
+ - hairline outline 제거됨 (이전 `outline: 1px solid rgba(0,0,0,0.10)` grep 결과 SpaceEditor 에서 0) ✔
+
+### 알려진 caveat / deferred
+- **`ImageStandardizeEditor` 업로드 파이프라인 auto-fire 미포함** — bbox 크롭에는 `artworkId` 가 필요한데 standardize 단계에서는 artwork 가 아직 생성 안 됨. Bulk 경로는 `attachArtworkImage` 뒤에 fire-and-forget 으로 붙였고, 단건 편집 경로는 SpaceEditor CTA 로 커버. 완전한 pre-artwork 통합은 다음 페이즈.
+- **Photoroom 재생성 UI 없음** — 기존 `cutout_alpha` 행이 있으면 무조건 200 alreadyExists. 사용자가 행을 삭제하는 UI 는 다음 페이즈.
+- **Post-beta gating 자동 전환 없음** — `PLAN_FEATURE_MATRIX` 주석에 정책 명시했으나 실제 flip 은 수동. 베타 종료 시점에 matrix 값을 `false`/`true`/`true` 로 갈아끼우면 됨.
+- **cutout_alpha PNG 는 원본 크기** — 압축 없이 그대로 저장. 5–10 MB 예상. 다음 페이즈에서 sharp resize 로 2 MB 캡 검토.
+
+---
+
 ## 2026-08-19 (27) — 시뮬 렌더 퀄리티: 종횡비 왜곡 픽스 + 마운트 어포던스 + aspect 배지
 
 > Supabase SQL 적용함 (MCP `apply_migration` 원격 반영): `supabase/migrations/20260819050000_space_share_rpc_image_dims.sql` · 환경 변수 변경 없음

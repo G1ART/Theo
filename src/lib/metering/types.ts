@@ -39,6 +39,14 @@ export type UsageEventKey =
   // photo; degraded verdicts skip the meter and only leave an
   // `ai_events` row for diagnostics.
   | "ai.artwork_quality_gate.evaluated"
+  // Display Simulation Phase 2 — Track 1 (2026-08-20). Painting bbox
+  // detection meter; counts detections (not crops — client may skip
+  // when confidence < 0.7 or `alreadyTight === true`).
+  | "ai.artwork_painting_bbox.detected"
+  // Display Simulation Phase 2 — Track 2 (2026-08-20). Photoroom
+  // background-removal completions. Fires when a `cutout_alpha`
+  // sibling row lands in `artwork_images`.
+  | "ai.artwork_cutout_alpha.generated"
   | "ai.accepted"
   // Boards / shortlists
   | "board.created"

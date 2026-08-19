@@ -45,6 +45,23 @@ export const USAGE_KEYS = {
    * `handleAiRoute` for diagnostics but don't touch this meter.
    */
   AI_ARTWORK_QUALITY_GATE_EVALUATED: "ai.artwork_quality_gate.evaluated",
+  /**
+   * Display Simulation Phase 2 — Track 1 (2026-08-20). Fired once per
+   * successful (non-degraded) vision-bbox verdict on an artwork
+   * upload OR on-demand SpaceEditor "여백 자동 제거" click. Metadata
+   * carries `{ confidence, already_tight, has_visible_frame, source
+   * }` so the beta dashboard can slice how often the auto-crop
+   * actually fires vs skips (e.g. already-tight in-situ shots).
+   */
+  AI_ARTWORK_PAINTING_BBOX_DETECTED: "ai.artwork_painting_bbox.detected",
+  /**
+   * Display Simulation Phase 2 — Track 2 (2026-08-20). Fired when the
+   * Photoroom cutout route successfully produced a transparent PNG
+   * and wrote a `view_type='cutout_alpha'` sibling row. Distinct from
+   * `ai.image_enhance.*` (which covers the image-enhance beta with
+   * its own metering shape).
+   */
+  AI_ARTWORK_CUTOUT_ALPHA_GENERATED: "ai.artwork_cutout_alpha.generated",
   AI_IMAGE_ENHANCE_REQUESTED: "ai.image_enhance.requested",
   /**
    * Fires when the enhancement pipeline (local flat OR photoroom hybrid)
@@ -147,6 +164,14 @@ export const AI_FEATURE_TO_METER_KEY: Record<string, string> = {
    * downstream, so this key stays isolated to the pre-flight step.
    */
   artwork_quality_gate: USAGE_KEYS.AI_ARTWORK_QUALITY_GATE_EVALUATED,
+  /**
+   * Phase 2 — Track 1 (2026-08-20). Painting-region bbox detection
+   * for the simulation cutout pipeline. Fires per successful vision
+   * verdict; the client may still skip the crop when confidence < 0.7
+   * or `alreadyTight === true`, so this meter counts DETECTIONS not
+   * CROPS. Reuses the shared soft cap via `handleAiRoute`.
+   */
+  artwork_painting_bbox: USAGE_KEYS.AI_ARTWORK_PAINTING_BBOX_DETECTED,
 };
 
 /** Maps a canonical AI feature key to the entitlement feature key that
@@ -185,4 +210,14 @@ export const AI_FEATURE_TO_ENTITLEMENT_KEY: Record<string, string> = {
    * cleanup pass; users blocked by the resolver never spend a token.
    */
   "space.wall_detect": "simulation.2d",
+  /**
+   * Phase 2 — Track 1 (2026-08-20). Painting-bbox detection fires
+   * both during artwork upload (where the caller may not own a
+   * space yet) and on the SpaceEditor "여백 자동 제거" CTA. The
+   * entitlement gate is intentionally `simulation.2d` (open to every
+   * plan during beta) so the auto-crop never blocks a legitimate
+   * upload — worst case the crop simply doesn't get generated and
+   * the renderer keeps rendering the primary image.
+   */
+  artwork_painting_bbox: "simulation.2d",
 };

@@ -258,7 +258,18 @@ export type AiFeatureKey =
    * 등) 하면 조용히 통과시킨다 — AI 인프라 장애가 정상 업로드를 막지
    * 않도록. entitlement 없음, 소프트캡만 공유.
    */
-  | "artwork_quality_gate";
+  | "artwork_quality_gate"
+  /**
+   * 2026-08-20 (Display Simulation Phase 2, Track 1) — 업로드된 작품
+   * 사진 내부에서 실제 페인팅 / 사진 영역의 정규화 bbox 를 vision LLM
+   * 으로 감지한다. 벽, 매트, 프레임, 촬영 여백을 제외한 가장 큰 사각형만
+   * 반환. 클라이언트는 결과를 canvas 로 크롭해 `artwork_images` 의
+   * `view_type='cutout'` sibling row 로 저장하고, 시뮬레이션 렌더러는
+   * cutout 을 우선 사용한다. 원본은 절대 대체하지 않고 sibling 으로만
+   * 붙는다. 이미 `alreadyTight: true` 이면 renderer 는 기존 primary 를
+   * 그대로 쓴다.
+   */
+  | "artwork_painting_bbox";
 
 /**
  * QA 2026-07-28 (Track C) — 번역 draft 결과. 짧은 필드(title, medium,
@@ -540,4 +551,43 @@ export type ArtworkQualityGateResult = AiDegradation & {
     /** 0-1, higher = better framing. */
     framing: number;
   };
+};
+
+/**
+ * Display Simulation Phase 2 — Track 1 (2026-08-20)
+ *
+ * Painting-region bbox inside an uploaded artwork photo. The upload
+ * pipeline (or the SpaceEditor "여백 자동 제거" CTA) sends a single
+ * image to the vision route. The response describes the largest
+ * physical painting / photograph subject and lets the client crop it
+ * out into a sibling `artwork_images` row (`view_type='cutout'`)
+ * without touching the original upload.
+ *
+ * Contract:
+ *   • `bbox` is a normalized rectangle in [0, 1] × [0, 1], origin at
+ *     the image's top-left. Client validation clamps out-of-range
+ *     values before the crop runs.
+ *   • `confidence` is the model's self-reported certainty that the
+ *     bbox brackets the actual artwork subject. Clients should skip
+ *     the crop below ~0.7 to avoid mangling in-situ shots the model
+ *     misread.
+ *   • `alreadyTight === true` signals the source image already
+ *     appears to be a tight crop of the subject (bbox covers > 95%
+ *     of the image). Clients skip the crop in that case — the
+ *     original serves as its own "cutout".
+ *   • `hasVisibleFrame` reports whether a picture frame (matte, wood
+ *     border, glass reflection) is visible around the subject. Used
+ *     by future passes and by the "고급 배경 분리" upsell copy.
+ *
+ * Fallback shape: `{ bbox: {x:0,y:0,width:1,height:1}, confidence:
+ * 0, alreadyTight: true, hasVisibleFrame: false }` — every consumer
+ * short-circuits on `alreadyTight` or `confidence < 0.7`, so a
+ * degraded / no-key response is guaranteed to preserve the primary
+ * image as-is.
+ */
+export type ArtworkPaintingBboxResult = AiDegradation & {
+  bbox: { x: number; y: number; width: number; height: number };
+  confidence: number;
+  alreadyTight: boolean;
+  hasVisibleFrame: boolean;
 };

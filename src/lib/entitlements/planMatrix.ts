@@ -101,6 +101,18 @@ export const PLAN_FEATURE_MATRIX: Record<FeatureKey, PlanKey[]> = {
   "simulation.2d": ["free", "artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
   "simulation.2d.export": ["artist_pro", "discovery_pro", "hybrid_pro", "gallery_workspace"],
   "simulation.3d": ["hybrid_pro", "gallery_workspace"],
+  // Display Simulation Phase 2 — Track 2 (Photoroom advanced cutout).
+  // BETA_UNLIMITED — post-beta: free = false, artist_pro = true,
+  // discovery_pro = true, hybrid_pro = true, gallery_workspace = true.
+  // The UI already marks the button "Pro" so users get an expectation
+  // consistent with the eventual pricing without a paywall today.
+  "simulation.premium.cutout": [
+    "free",
+    "artist_pro",
+    "discovery_pro",
+    "hybrid_pro",
+    "gallery_workspace",
+  ],
 };
 
 export type QuotaRule = {
