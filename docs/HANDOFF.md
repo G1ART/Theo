@@ -2,6 +2,38 @@
 
 Last updated: 2026-08-18
 
+## 2026-08-18 (25) — Artwork 스키마 감사·로드맵 (문서 only)
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음 · 코드/스키마 변경 없음
+
+### 배경
+사용자가 시뮬 편집기 배치 픽스 (24) 과정에서 "작품 크기 백엔드가 이렇게 방치돼 있었는데 데이터 더 쌓이기 전에 전반적으로 손봐야 하지 않냐" 는 전략적 질문. 실측 감사 후 3-Tier 로드맵으로 정리.
+
+### `docs/ARTWORK_SCHEMA_ROADMAP.md` (877줄) 신설
+
+**핵심 발견 (실측)**:
+- 355행 / 36컬럼 / enum 4개. `title + artist_id` 외 실질 필수 없음.
+- 348 public 100% 가 `width_cm=null`, 355행 전부 `work_form='flat_2d'` (기본값 그대로 방치).
+- `medium` 103 distinct free text, `size` 187 distinct — 필터 불가.
+- `pricing_mode` default `fixed` 인데 실제 269 inquire vs 86 fixed. 라벨 `inquire` vs code 상 `inquiry` 오타 시 조용히 실패.
+- 이미지 99%가 1장, `artwork_embeddings` 0행, `website_import_provenance` 0행, `unlisted/private` 0행.
+- `dims_confirmed_at` writer 없음, 업로드 위저드가 `work_form/width/height/depth` 인풋 자체가 없음.
+
+**3-Tier 로드맵** (총 M + M-L + L ≈ 분기 스코프):
+- **Tier 1 (이번 스프린트)**: (a) 진행 중 `size` 파서 재활용 + 백필 완료 후 시뮬 fallback 제거, (b) `work_form` default null 로 되돌리고 위저드에 "평면인가요?" 프롬프트 추가 (사용자 결정: 앞당김), (c) 위저드에 구조화 dims 인풋 추가 (soft-required + "나중에 채울게요" 링크, 사용자 결정), (d) `dims_confirmed_at` 활성.
+- **Tier 2 (1개월)**: `medium` → `surface + technique + medium_notes_ko/en` 3분할, edition/framed/weight/installation_notes 신설, 필터 wire + 위저드 필수 확대. Materials taxonomy 30-50개 초안은 Getty AAT + Tate Media Types 기준 (사용자 결정).
+- **Tier 3 (분기)**: `artwork_materials` M2M, `year_start/end + series_title`, free-text `size/medium` deprecate, provenance chain 스핀아웃 (`docs/PROVENANCE_CHAIN_AUDIT.md`).
+
+**스테이크홀더 결정 확정 (3개)**:
+1. `work_form` 이번 스프린트에 default null + 위저드 프롬프트 앞당김.
+2. 위저드 확장 스타일: soft-required + skip 링크.
+3. Materials 시드: AI 큐레이션 (Getty AAT + Tate 기준) → 사용자 리뷰.
+
+**나머지 7개 컨펌 항목**: 로드맵 § 8 참고. 스테이크홀더 판단 이후 순차 진행.
+
+### Verified
+- 문서 only, 코드/스키마 무손. tsc/lint 무영향.
+
 ## 2026-08-18 (24) — 시뮬 편집기 P1 hot-fix ③: 배치·클린업·선택 피드백 3-이슈 근원 픽스
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
