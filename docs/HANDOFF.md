@@ -1,6 +1,50 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
+
+## 2026-08-19 (26) — Artwork 크기 파서 재활용 + backfill + 시뮬 편집기 폴백 propagate
+
+> Supabase SQL 적용함 (MCP `apply_migration` 원격 반영): `supabase/migrations/20260819040000_backfill_artwork_dims_from_size.sql` · 환경 변수 변경 없음
+
+### 배경
+사용자가 "달항아리…담다 (91×91cm)" 를 시뮬 편집기에 걸었더니 실제 사이즈 대신 50×70 fallback 이 적용됨. 감사 결과 348 public artwork 100% 가 `width_cm=null`. Chunk A (2026-08-17) 에서 구조화 컬럼만 추가하고 legacy backfill 은 안 됐던 상태. `parseSizeWithUnit` 파서는 이미 훌륭히 존재했으나 display 전용으로만 쓰였음.
+
+### 변경 (7파일 + 1 마이그레이션)
+
+- **`src/lib/size/format.ts`** — `parseSizeToDimensionsCm(size, storedUnit)` 신설. 기존 `parseSizeWithUnit` 를 wrapper 로 재활용. 호(F/P/M/S) 정확 매핑, inch/cm/스마트 따옴표 마커, Unicode ×, WxHxD depth 추출. `storedUnit` 우선 → detected → `null` (bare + null 이면 저장 안 함).
+- **`src/lib/size/format.test.ts`** — `node:test` + `tsx --test` 로 18 케이스. cm/inch/hosu/depth/ambiguous edge cases + 방어 (negative/zero 거부).
+- **`package.json`** — `test:size-parse` npm 스크립트 추가.
+- **`scripts/backfill-artwork-dims.ts`** — 재사용 도구. 향후 legacy 유입 시 동일 파서 호출.
+- **`supabase/migrations/20260819040000_backfill_artwork_dims_from_size.sql`** — 로컬 파서 실행 결과를 단일 `UPDATE … FROM (VALUES …)` 로 담음. `where width_cm is null` 가드로 idempotent. MCP 원격 반영 완료.
+- **`src/lib/supabase/artworks.ts`** — `updateArtworkDimsIfMissing(artworkId, {widthCm, heightCm, depthCm})` 신설. `coalesce` 로 기존 값 보존, RLS 소유자만 UPDATE (viewer 는 silent 실패). `dims_confirmed_at` 은 건드리지 않음.
+- **`src/components/simulation/SpaceEditor.tsx::handleCanvasTap`** — `pendingArtwork.widthCm==null` 이면 `parseSizeToDimensionsCm(size, sizeUnit)` 재시도. 성공 시 실측으로 배치 + 백그라운드 propagate. 실패 시 (24) 의 50×70 fallback. Toast: `simulation.editor.parsedSizeApplied` — "실제 치수 91×91cm 로 걸었어요".
+- **`src/components/simulation/ArtworkPickerSheet.tsx`** — pick 시 `size, size_unit` 도 함께 전달.
+- **`src/lib/i18n/messages.ts`** — `simulation.editor.parsedSizeApplied` KO/EN `{width}`/`{height}` interpolation.
+
+### Backfill 검증 (before → after)
+- 전체 `width_cm IS NULL`: **355 → 83** (272 채움)
+- Public `width_cm IS NULL`: **348 → 76**
+- `dims_confirmed_at != null`: 0 → 0 (auto-parsed 표식 유지 ✓)
+- 표본 실측:
+ - **달항아리…담다** ("91 X 91cm") → 91×91 cm ✔
+ - **Naked Flower A/B/C** ("24 × 30 in") → 60.96×76.2 cm ✔
+ - **SOFT MASS II** (WxHxD inch) → 20.32×25.4×7.62 cm ✔ (3D)
+ - **30F** (hosu typed) → 92×73 cm ✔ (파서 hosu 테이블 정확)
+ - **30호** (F 없음) → NULL ✔ (안전 스킵, 사용자 컨펌 대상)
+
+### 남은 unparseable 76 public 로우
+`size` 자체가 empty (41) 이거나 "변수", "Variable" 같은 문구 (35). 배치 시점에 재파싱 → 실패 → 50×70 fallback 이 잡음. 회귀 없음.
+
+### 검증
+- `npx tsc --noEmit` — exit 0.
+- `npm run test:size-parse` — 18/18 pass.
+- `ReadLints` 8파일 — 0 errors.
+- Migration idempotency 재실행 — `rows_touched = 0` 확인.
+
+### Deferred
+- **인스펙터 auto-detected 마커 (bonus)**: 소유자에게 "치수 자동 감지 · 실측 저장" CTA. scene 로더 확장 + session userId + confirm helper 가 필요해 별도 이슈로. 로드맵 Tier 1 `dims_confirmed_at 활성` 스토리에 편입.
+- **"30호"/"100호" 2 로우**: F/P/M/S 접두어 없이는 안전 스킵. 사용자 확인 필요 (F 로 가정하면 오정보). 로드맵 Tier 1 에서 위저드 재확인 시 함께.
+- **시뮬 편집기 50×70 fallback 제거**: 76 unparseable 이 아직 있어 지금은 유지. Tier 1 위저드 확장으로 신규 업로드가 반드시 dims 를 갖게 되면 제거 가능.
 
 ## 2026-08-18 (25) — Artwork 스키마 감사·로드맵 (문서 only)
 

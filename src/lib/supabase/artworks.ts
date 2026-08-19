@@ -1700,6 +1700,51 @@ export async function updateArtwork(
   return { error };
 }
 
+/**
+ * P1 (2026-08-19) — Best-effort propagation of parser-recovered
+ * dimensions back onto the `artworks` row so the next placement (and
+ * every other consumer) reads the structured values directly.
+ *
+ * Behavior:
+ *   • Writes width/height/depth via COALESCE at the DB layer (through
+ *     the RLS-friendly `.is("width_cm", null)` guard) so we never
+ *     clobber a genuine value even in a race.
+ *   • `dims_confirmed_at` stays untouched — this write is an auto-parse
+ *     result, not owner confirmation. The inspector surfaces the
+ *     "confirm exact size" affordance separately.
+ *   • Failure is expected when the caller doesn't own the artwork
+ *     (RLS blocks the UPDATE); we swallow the error and return
+ *     `{ ok: false }` so SpaceEditor can keep its placement without
+ *     surfacing a scary toast to a viewer of someone else's work.
+ */
+export async function updateArtworkDimsIfMissing(
+  artworkId: string,
+  dims: { widthCm: number; heightCm: number; depthCm?: number | null }
+): Promise<{ ok: boolean }> {
+  if (!artworkId) return { ok: false };
+  if (
+    !Number.isFinite(dims.widthCm) ||
+    !Number.isFinite(dims.heightCm) ||
+    dims.widthCm <= 0 ||
+    dims.heightCm <= 0
+  ) {
+    return { ok: false };
+  }
+  const payload: Record<string, number> = {
+    width_cm: dims.widthCm,
+    height_cm: dims.heightCm,
+  };
+  if (dims.depthCm != null && Number.isFinite(dims.depthCm) && dims.depthCm > 0) {
+    payload.depth_cm = dims.depthCm;
+  }
+  const { error } = await supabase
+    .from("artworks")
+    .update(payload)
+    .eq("id", artworkId)
+    .is("width_cm", null);
+  return { ok: !error };
+}
+
 export async function listMyDraftArtworks(
   options: { limit?: number; forProfileId?: string | null } = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {

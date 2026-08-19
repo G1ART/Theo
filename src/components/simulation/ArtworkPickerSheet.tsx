@@ -45,6 +45,8 @@ const PICKER_SELECT = `
   width_cm,
   height_cm,
   depth_cm,
+  size,
+  size_unit,
   visibility,
   artwork_images(storage_path, sort_order)
 `;
@@ -59,6 +61,11 @@ type PickerArtwork = {
   widthCm: number | null;
   heightCm: number | null;
   depthCm: number | null;
+  /** Free-form legacy size (nullable). Kept so the SpaceEditor can
+   *  re-parse when the structured columns are still empty for legacy
+   *  rows the backfill migration couldn't resolve. */
+  size: string | null;
+  sizeUnit: "cm" | "in" | null;
   workForm:
     | "flat_2d"
     | "relief"
@@ -93,6 +100,8 @@ type RawPickerRow = {
   width_cm: number | null;
   height_cm: number | null;
   depth_cm: number | null;
+  size: string | null;
+  size_unit: "cm" | "in" | null;
   visibility: string | null;
   artwork_images:
     | { storage_path: string | null; sort_order: number | null }[]
@@ -122,6 +131,8 @@ function normalizeRow(row: RawPickerRow, locale: Locale): PickerArtwork {
     widthCm: row.width_cm,
     heightCm: row.height_cm,
     depthCm: row.depth_cm,
+    size: row.size,
+    sizeUnit: row.size_unit,
     workForm,
   };
 }

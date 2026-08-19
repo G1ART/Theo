@@ -56,6 +56,8 @@ import {
   upsertPlacements,
   type SpaceScene,
 } from "@/lib/supabase/spaces";
+import { updateArtworkDimsIfMissing } from "@/lib/supabase/artworks";
+import { parseSizeToDimensionsCm } from "@/lib/size/format";
 import {
   replaceSpacePhotoWithCleaned,
   uploadSpacePhoto,
@@ -1338,23 +1340,45 @@ function SpaceEditorContent({ id }: { id: string }) {
       const { xCm: rawX, yCm: rawY } = imagePxToWallCm(xImg, yImg, surface);
       const now = new Date().toISOString();
       // Legacy artworks (uploaded before the dimensions gate) still
-      // have null width_cm/height_cm. Without a fallback the placement
-      // row round-trips through the renderer's null-drop filter and
-      // vanishes — the "0.1초 flash → 사라짐" P1 bug. Substitute a
-      // sensible A2-portrait default so every new placement carries
-      // concrete cm dimensions the inspector can render against, and
-      // toast the user so they know the default was picked.
+      // have null width_cm/height_cm even after the 2026-08-19 backfill
+      // migration (rows the parser couldn't resolve — "Variable size",
+      // bare "91*72.2" with no size_unit, "30호", etc.). Attempt one
+      // more parse here against the free-form `size` string; if that
+      // fails, fall through to the 50 × 70 hot-fix default so the
+      // placement stays visible (renderer's null-drop filter would
+      // otherwise vanish the row — the "0.1초 flash → 사라짐" P1 bug).
+      let placementWidthCm: number;
+      let placementHeightCm: number;
+      let placementDepthCm: number | null | undefined = pendingArtwork.depthCm;
+      let recoveredDims: {
+        widthCm: number;
+        heightCm: number;
+        depthCm?: number;
+      } | null = null;
       const artworkHasDims =
         pendingArtwork.widthCm != null &&
         pendingArtwork.widthCm > 0 &&
         pendingArtwork.heightCm != null &&
         pendingArtwork.heightCm > 0;
-      const placementWidthCm = artworkHasDims
-        ? pendingArtwork.widthCm
-        : PLACEMENT_FALLBACK_WIDTH_CM;
-      const placementHeightCm = artworkHasDims
-        ? pendingArtwork.heightCm
-        : PLACEMENT_FALLBACK_HEIGHT_CM;
+      if (artworkHasDims) {
+        placementWidthCm = pendingArtwork.widthCm as number;
+        placementHeightCm = pendingArtwork.heightCm as number;
+      } else {
+        recoveredDims = parseSizeToDimensionsCm(
+          pendingArtwork.size,
+          pendingArtwork.sizeUnit,
+        );
+        if (recoveredDims) {
+          placementWidthCm = recoveredDims.widthCm;
+          placementHeightCm = recoveredDims.heightCm;
+          if (recoveredDims.depthCm != null) {
+            placementDepthCm = recoveredDims.depthCm;
+          }
+        } else {
+          placementWidthCm = PLACEMENT_FALLBACK_WIDTH_CM;
+          placementHeightCm = PLACEMENT_FALLBACK_HEIGHT_CM;
+        }
+      }
       const provisional: ScenePlacement = {
         id: tempId(),
         spaceId: state.space.id,
@@ -1368,7 +1392,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         rotZDeg: 0,
         widthCm: placementWidthCm,
         heightCm: placementHeightCm,
-        depthCm: pendingArtwork.depthCm,
+        depthCm: placementDepthCm,
         zOrder: state.space.placements.length,
         createdAt: now,
         updatedAt: now,
@@ -1391,9 +1415,19 @@ function SpaceEditorContent({ id }: { id: string }) {
         id: pendingArtwork.id,
         title: pendingArtwork.title,
         imageUrl: pendingArtwork.imageUrl,
-        widthCm: pendingArtwork.widthCm,
-        heightCm: pendingArtwork.heightCm,
-        depthCm: pendingArtwork.depthCm,
+        // When we recovered dims from the free-form `size` treat them
+        // as the artwork's canonical values on the scene so the
+        // inspector and renderer stop routing through the fallback.
+        widthCm: recoveredDims
+          ? recoveredDims.widthCm
+          : pendingArtwork.widthCm,
+        heightCm: recoveredDims
+          ? recoveredDims.heightCm
+          : pendingArtwork.heightCm,
+        depthCm:
+          recoveredDims?.depthCm != null
+            ? recoveredDims.depthCm
+            : pendingArtwork.depthCm,
         workForm: pendingArtwork.workForm,
       };
       artworks.set(pendingArtwork.id, thumb);
@@ -1407,10 +1441,25 @@ function SpaceEditorContent({ id }: { id: string }) {
       dirtyPlacements.current.set(nextPlacement.id, nextPlacement);
       setSelectedId(nextPlacement.id);
       setPendingArtwork(null);
-      // Surface the fallback so the user knows to correct the size —
-      // silent placement at the wrong scale is more confusing than a
-      // gentle "here's a placeholder, tune it in the inspector" nudge.
-      if (!artworkHasDims) {
+      if (!artworkHasDims && recoveredDims) {
+        // We recovered structured dims from the legacy `size` string.
+        // Confirm the placement with the collector so they know we
+        // used the artist's actual size rather than the 50×70 default,
+        // and best-effort propagate the parsed dims back onto the
+        // artwork row. RLS blocks non-owners — silent-fail is fine
+        // (the placement itself is already correct on this canvas).
+        const wRound = Math.round(recoveredDims.widthCm);
+        const hRound = Math.round(recoveredDims.heightCm);
+        setToast(
+          t("simulation.editor.parsedSizeApplied")
+            .replace("{width}", String(wRound))
+            .replace("{height}", String(hRound)),
+        );
+        void updateArtworkDimsIfMissing(pendingArtwork.id, recoveredDims);
+      } else if (!artworkHasDims) {
+        // Surface the fallback so the user knows to correct the size —
+        // silent placement at the wrong scale is more confusing than a
+        // gentle "here's a placeholder, tune it in the inspector" nudge.
         setToast(t("simulation.editor.fallbackSizeApplied"));
       }
       scheduleFlush();

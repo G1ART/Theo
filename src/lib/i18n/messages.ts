@@ -3931,6 +3931,12 @@ export const messages = {
     // inputs let the collector correct the size.
     "simulation.editor.fallbackSizeApplied":
       "Real size wasn't set — showing at 50 × 70 cm. Adjust in the inspector.",
+    // P1 (2026-08-19) — Fires when the picked artwork has no structured
+    // dims but the parser recovered them from the free-form `size`
+    // string (e.g. legacy "91 X 91cm"). We placed at the real size and
+    // best-effort propagated back to the artwork row.
+    "simulation.editor.parsedSizeApplied":
+      "Placed at the actual size {width} × {height} cm.",
 
     "simulation.inspector.selection": "Selected work",
     "simulation.inspector.dimensions": "Dimensions",
@@ -7998,6 +8004,11 @@ export const messages = {
     // 조정 가능한 50 × 70 cm 임시값으로 배치한다.
     "simulation.editor.fallbackSizeApplied":
       "실제 크기 정보가 없어 임시로 50 × 70 cm 로 걸었어요. 인스펙터에서 수정하세요.",
+    // P1 (2026-08-19) — 구조화된 치수가 없지만 파서가 자유 텍스트
+    // `size` 로부터 실측을 복구한 경우 뜨는 토스트. 배치는 실측 크기로
+    // 반영되고, 소유자라면 백그라운드로 artworks 로우에 propagate 된다.
+    "simulation.editor.parsedSizeApplied":
+      "실제 크기 {width} × {height} cm 로 걸었어요.",
 
     "simulation.inspector.selection": "선택한 작품",
     "simulation.inspector.dimensions": "크기",

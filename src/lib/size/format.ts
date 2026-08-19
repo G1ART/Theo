@@ -218,3 +218,113 @@ export function parseSize(size: string): ParsedSize | null {
   const parsed = parseSizeWithUnit(size);
   return parsed ? parsed.parsed : null;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// 2026-08-19 (P1) — Structured-dimension helper for the simulation
+// backfill and client fallback.
+//
+// The simulator (Chunk C) reads `artworks.width_cm/height_cm/depth_cm`
+// directly. Legacy rows have only the free-form `size` column filled —
+// 348 public artworks with `width_cm IS NULL` at the time of writing.
+// Rather than a fresh parser we lean on `parseSizeWithUnit` above, which
+// already covers hosu (F/P/M/S), inch/cm markers, `x/×/*` separators,
+// and bare numbers. This wrapper collapses the parser output into just
+// the three canonical cm dimensions the DB and the SpaceEditor speak.
+//
+// Rules:
+//   • storedUnit (from `size_unit` column) wins over any marker in text.
+//   • When neither storedUnit nor text unit is available we return null:
+//     saving bare "91×72.2" as cm-guess would sometimes be wrong, and
+//     the wrong number in a to-scale renderer is worse than a fallback.
+//   • Hosu-typed strings ("30F …") stay cm; depth is not extracted for
+//     hosu because the third number (if any) is dimensions from parens.
+//   • Depth is only pulled from a WxHxD pattern in the raw string when
+//     no hosu was matched.
+//   • Smart quotes (") are normalized to straight (") so patterns like
+//     "36" x 36"" resolve to inches instead of degrading to bare.
+// ─────────────────────────────────────────────────────────────────────
+
+const DEPTH_RE =
+  /(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i;
+
+/** Normalize typography that our existing regexes miss so the shared
+ *  `parseSizeWithUnit` can still classify. Idempotent. */
+function normalizeSizeText(raw: string): string {
+  return raw.replace(/[\u201C\u201D]/g, '"');
+}
+
+export type ArtworkDimensionsCm = {
+  widthCm: number;
+  heightCm: number;
+  depthCm?: number;
+};
+
+/**
+ * Extract structured `width/height/depth_cm` from a free-form size
+ * string. Returns `null` when the numbers are present but the unit is
+ * ambiguous (bare numbers + no `size_unit`), or when no numeric
+ * dimensions can be recovered (e.g. "Variable size", "30호" without F).
+ *
+ * @param size       Free-form user string (the `size` column).
+ * @param storedUnit `size_unit` column value ("cm" | "in" | null).
+ */
+export function parseSizeToDimensionsCm(
+  size: string | null | undefined,
+  storedUnit?: SizeUnit | null
+): ArtworkDimensionsCm | null {
+  if (!size) return null;
+  const raw = normalizeSizeText(size.trim());
+  if (!raw) return null;
+
+  const parsed = parseSizeWithUnit(raw);
+  if (!parsed) return null;
+
+  const { widthCm: pw, heightCm: ph, hosuNumber } = parsed.parsed;
+  const detectedUnit = parsed.unit;
+  const effectiveUnit: SizeUnit | null = storedUnit ?? detectedUnit;
+
+  // Hosu-typed strings are cm-anchored regardless of storedUnit — the
+  // hosu table itself is a cm standard. Skip depth: the third number
+  // inside "30F (92 x 73 cm)" is width/height, not depth.
+  if (hosuNumber != null) {
+    return { widthCm: pw, heightCm: ph };
+  }
+
+  // Bare numbers + no storedUnit → ambiguous; do not guess. The
+  // to-scale renderer's confidence is worth more than the row count.
+  if (effectiveUnit == null) return null;
+
+  // If the parser already inch-normalized the numbers (text had ", inch,
+  // etc.) they are already cm. Otherwise apply the effective unit.
+  let widthCm: number;
+  let heightCm: number;
+  if (detectedUnit === "in") {
+    widthCm = pw;
+    heightCm = ph;
+  } else if (detectedUnit === "cm") {
+    widthCm = pw;
+    heightCm = ph;
+  } else {
+    // detectedUnit == null → pw/ph are raw numbers.
+    widthCm = effectiveUnit === "in" ? pw * 2.54 : pw;
+    heightCm = effectiveUnit === "in" ? ph * 2.54 : ph;
+  }
+
+  if (!Number.isFinite(widthCm) || !Number.isFinite(heightCm)) return null;
+  if (widthCm <= 0 || heightCm <= 0) return null;
+
+  // Depth is a bonus for the (rare) WxHxD strings — e.g. "10 x 3 x 2.5"
+  // (inches, from the DB audit). Skipped for hosu (handled above).
+  const depthMatch = raw.match(DEPTH_RE);
+  let depthCm: number | undefined;
+  if (depthMatch) {
+    const d = parseFloat(depthMatch[3]);
+    if (Number.isFinite(d) && d > 0) {
+      depthCm = effectiveUnit === "in" ? d * 2.54 : d;
+    }
+  }
+
+  return depthCm != null
+    ? { widthCm, heightCm, depthCm }
+    : { widthCm, heightCm };
+}
