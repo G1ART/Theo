@@ -339,9 +339,11 @@ export const SPACE_CALIBRATE_SCHEMA = `{"candidates": [{"id": string, "kind": "w
 // that swallows them.
 export const SPACE_WALL_DETECT_SYSTEM = `You analyze a single room photograph to identify the primary wall surface where a person would hang art. Return one JSON object with:
 
-1. "wallPolygon": normalized 0-1 image coordinates ({0,0} top-left, {1,1} bottom-right) of the largest visible flat wall segment — typically the wall facing the camera. Return 4-8 vertices in CLOCKWISE order starting from the top-left of the wall. EXCLUDE from the polygon: windows, doors, framed art already on the wall, mirrors, and any furniture in front of the wall. Wrapping the polygon AROUND foreground occluders (sofa, plant, lamp) is acceptable and encouraged — the client uses a feathered mask so small inaccuracies at the wall/occluder boundary are hidden. Return an empty array (fewer than 3 vertices) when the photo shows no clear wall (outdoor scene, extreme close-up, floor-only view).
+1. "wallPolygon": normalized 0-1 image coordinates ({0,0} top-left, {1,1} bottom-right) of the largest visible flat wall segment — typically the wall facing the camera. Return 4-8 vertices in CLOCKWISE order starting from the top-left of the wall. EXCLUDE from the polygon: physical window OPENINGS (glass and frame), doors, framed art already on the wall, mirrors, and any furniture in front of the wall. Wrapping the polygon AROUND foreground occluders (sofa, plant, lamp) is acceptable and encouraged — the client uses a feathered mask so small inaccuracies at the wall/occluder boundary are hidden. Return an empty array (fewer than 3 vertices) when the photo shows no clear wall (outdoor scene, extreme close-up, floor-only view).
 
-2. "wallMedianRgb": the dominant paint color of the wall as [R, G, B] with each channel 0-255. Sample the typical neutral wall tone — ignore obvious shadows / highlights / cast light on the wall. When the wall is white/off-white with warm sunlight cast across it, report the neutral off-white value, not the warm tint.
+  CRITICAL — direct sunlight patches ARE part of the wall: when strong direct sun casts a bright rectangular patch onto the paint (e.g. window light hitting the wall to the side or below the window frame), that patch is STILL wall paint under a lighting artefact and MUST be INSIDE the polygon so the cleanup pass can flatten it. Do NOT trace around a sunlit region — trace around the physical window opening only. Same rule for lamp hot-spots, projector spill, or any cast-light patch that lands on the paint. The cleanup pipeline was built specifically to remove these lighting artefacts; excluding them defeats the whole feature.
+
+2. "wallMedianRgb": the dominant paint color of the wall as [R, G, B] with each channel 0-255. Sample the typical neutral wall tone — ignore obvious shadows / highlights / cast light on the wall. When the wall is white/off-white with warm sunlight cast across it, report the neutral off-white value from the SHADED portion, not the warm sunlit tint.
 
 3. "wallColorName": 1-3 word English label for the paint color (e.g. "off-white", "warm beige", "light gray", "sage green"). Never include quotes or punctuation.
 
@@ -350,7 +352,7 @@ export const SPACE_WALL_DETECT_SYSTEM = `You analyze a single room photograph to
   - the wall is heavily cluttered (>50% covered by furniture / art / windows)
   - the room is outdoor / open-plan without a clean target wall
   - the wall is at an extreme oblique angle (>60° from camera)
-  A confidence below 0.4 means the client will skip cleanup entirely — err on the low side when uncertain.
+  A confidence below 0.4 means the client will skip cleanup entirely — err on the low side when uncertain, but do NOT lower confidence just because the wall has strong lighting variance (that is exactly what cleanup fixes).
 
 5. "lightDirection": rough direction of the dominant natural or artificial light hitting the wall, based on shadow patterns. One of: "top" | "top_left" | "left" | "bottom_left" | "bottom" | "bottom_right" | "right" | "top_right" | "diffuse" | "unknown". Use "diffuse" when lighting is broadly even across the wall.
 

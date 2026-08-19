@@ -3934,14 +3934,19 @@ export const messages = {
     "simulation.inspector.unit": "Units",
     "simulation.inspector.unit.cm": "cm",
     "simulation.inspector.unit.in": "in",
+    "simulation.inspector.unitHint":
+      "Choose how room dimensions display. Artwork sizes keep the cm/in family of your choice.",
     "simulation.inspector.selectHint": "Tap a work on the wall to edit it.",
 
     "simulation.wall.title": "Wall calibration",
     "simulation.wall.advancedTitle": "Precise scale (advanced)",
     "simulation.wall.advancedHint":
       "Enter wall width to render artworks at true scale.",
-    "simulation.wall.widthCm": "Wall width (cm)",
-    "simulation.wall.heightCm": "Wall height (cm)",
+    // 2026-08-19 (hot-fix): unit is now a runtime label (m/cm/in/ft)
+    // so the copy stays neutral and the render appends " (m)" etc.
+    // Old *.widthCm/*.heightCm keys removed — no other callers.
+    "simulation.wall.width": "Wall width",
+    "simulation.wall.height": "Wall height",
     "simulation.wall.editCorners": "Adjust photo corners",
     "simulation.wall.closeCorners": "Done",
     "simulation.wall.cornersHint":
@@ -3960,11 +3965,12 @@ export const messages = {
     "simulation.calibrate.manual": "Measure manually",
     "simulation.calibrate.later": "Later",
     "simulation.calibrate.applied": "Scale applied",
-    "simulation.calibrate.rangeHint": "Usually {min}-{max}cm",
+    "simulation.calibrate.rangeHint": "Usually {min}-{max} {unit}",
     "simulation.calibrate.manualHint":
-      "Tap two points on the photo and enter the real distance",
+      "Tap two points on the photo, then enter the real distance",
     "simulation.calibrate.manualDistanceLabel":
-      "How long is this distance in real life?",
+      "Real distance:",
+    "simulation.calibrate.manualRetry": "Re-measure",
     "simulation.calibrate.settingsSectionTitle": "Simulation",
     "simulation.calibrate.settingsSectionHint":
       "How the hanging simulation behaves when you upload a room photo.",
@@ -3987,6 +3993,9 @@ export const messages = {
     // the advanced accordion.
     "simulation.wallCleanup.processing": "AI is tidying up the wall…",
     "simulation.wallCleanup.done": "Wall tidied up",
+    "simulation.wallCleanup.retry": "Retry wall cleanup",
+    "simulation.wallCleanup.skipped":
+      "AI couldn't find a clean wall to tidy. The photo is unchanged.",
     "simulation.wallCleanup.useOriginal.label":
       "Use original photo without cleanup",
     "simulation.wallCleanup.useOriginal.hint":
@@ -4065,6 +4074,19 @@ export const messages = {
     "enhancement.quality.issue.reproduction": "Screen or reproduction",
     "enhancement.quality.issue.occlusion": "Occlusion",
     "enhancement.quality.issue.poor_framing": "Poor framing",
+
+    // ── 2026-08-18 — /my/spaces card overflow menu + delete confirm.
+    // Kept under a fresh `spaces.*` namespace (siblings of
+    // `simulation.*`) so the two evolving feature slices don't
+    // cross-collide in future edits.
+    "spaces.list.menu.open": "More actions",
+    "spaces.list.menu.edit": "Edit",
+    "spaces.list.menu.delete": "Delete",
+    "spaces.delete.confirm.title": "Delete this space?",
+    "spaces.delete.confirm.body":
+      "The room photo, placements, and share link will be removed. Anyone with the share link will lose access immediately.",
+    "spaces.delete.success": "Space deleted",
+    "spaces.delete.failed": "Couldn't delete the space. Please try again.",
   },
   ko: {
     "nav.feed": "피드",
@@ -7949,6 +7971,8 @@ export const messages = {
     "simulation.inspector.unit": "단위",
     "simulation.inspector.unit.cm": "cm",
     "simulation.inspector.unit.in": "in",
+    "simulation.inspector.unitHint":
+      "방·벽 치수 표기에 쓸 단위를 골라주세요. 작품 크기는 cm/in 계열을 그대로 유지합니다.",
     "simulation.inspector.selectHint": "벽에 걸린 작품을 눌러 편집해 보세요.",
 
     // P1 (2026-08-19) — 측정 기반 스케일 보정 (AI + 수동).
@@ -7963,11 +7987,12 @@ export const messages = {
     "simulation.calibrate.manual": "직접 재기",
     "simulation.calibrate.later": "나중에",
     "simulation.calibrate.applied": "스케일이 적용됐어요",
-    "simulation.calibrate.rangeHint": "보통 {min}-{max}cm",
+    "simulation.calibrate.rangeHint": "보통 {min}-{max} {unit}",
     "simulation.calibrate.manualHint":
-      "사진에서 두 점을 찍어 실제 거리를 알려주세요",
+      "사진에서 두 점을 찍고, 실제 거리를 아래에 입력해 주세요",
     "simulation.calibrate.manualDistanceLabel":
-      "이 거리가 실제로 얼마인가요?",
+      "실제 거리:",
+    "simulation.calibrate.manualRetry": "다시 재기",
     "simulation.calibrate.settingsSectionTitle": "시뮬레이션",
     "simulation.calibrate.settingsSectionHint":
       "방 사진을 올렸을 때 걸어보기 시뮬레이션이 어떻게 동작할지 설정해요.",
@@ -7988,6 +8013,9 @@ export const messages = {
     // "정확한 스케일 (고급)" 아코디언 안의 원본 되돌리기 토글뿐.
     "simulation.wallCleanup.processing": "AI가 벽을 정돈하고 있어요…",
     "simulation.wallCleanup.done": "벽이 정돈됐어요",
+    "simulation.wallCleanup.retry": "벽 정돈 다시 실행",
+    "simulation.wallCleanup.skipped":
+      "AI가 정돈할 벽 영역을 못 찾았어요. 사진은 그대로 유지됩니다.",
     "simulation.wallCleanup.useOriginal.label":
       "정돈 없이 원본 사진 사용",
     "simulation.wallCleanup.useOriginal.hint":
@@ -7997,8 +8025,10 @@ export const messages = {
     "simulation.wall.advancedTitle": "정확한 스케일 (고급)",
     "simulation.wall.advancedHint":
       "벽 폭을 입력하면 작품이 실제 비율로 표시됩니다.",
-    "simulation.wall.widthCm": "벽 가로 (cm)",
-    "simulation.wall.heightCm": "벽 세로 (cm)",
+    // 2026-08-19 (hot-fix): 벽 치수 라벨을 단위 중립 문구로 바꾸고,
+    // 표시 단위(m/cm/in/ft)는 코드에서 라벨 옆에 붙인다.
+    "simulation.wall.width": "벽 가로",
+    "simulation.wall.height": "벽 세로",
     "simulation.wall.editCorners": "사진 모서리 조정",
     "simulation.wall.closeCorners": "완료",
     "simulation.wall.cornersHint":
@@ -8077,6 +8107,16 @@ export const messages = {
     "enhancement.quality.issue.reproduction": "스크린/복제 촬영",
     "enhancement.quality.issue.occlusion": "가려짐",
     "enhancement.quality.issue.poor_framing": "구도 문제",
+
+    // ── 2026-08-18 — /my/spaces 카드 오버플로우 메뉴 + 삭제 확인 문구.
+    "spaces.list.menu.open": "추가 작업",
+    "spaces.list.menu.edit": "수정",
+    "spaces.list.menu.delete": "삭제",
+    "spaces.delete.confirm.title": "이 공간을 삭제할까요?",
+    "spaces.delete.confirm.body":
+      "공간 사진과 배치, 공유 링크가 모두 사라져요. 공유 링크를 가진 다른 사람도 즉시 접근할 수 없게 돼요.",
+    "spaces.delete.success": "공간을 삭제했어요",
+    "spaces.delete.failed": "공간을 삭제하지 못했어요. 다시 시도해 주세요.",
   },
 } as const;
 

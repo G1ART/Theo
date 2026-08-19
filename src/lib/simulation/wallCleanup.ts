@@ -57,11 +57,28 @@ const FEATHER_FRAC = 0.02;
 const LOWFREQ_BLUR_FRAC = 0.1;
 /** Downsample factor for the low-frequency map — 1/8 native resolution. */
 const LOWFREQ_DOWNSCALE = 8;
-/** Correction ratio clamp — prevents blowing out or crushing pixels. */
-const K_MIN = 0.7;
-const K_MAX = 1.5;
-/** Blend weight applied inside the mask (attenuated further by feather). */
-const BLEND_STRENGTH = 0.75;
+/**
+ * Correction ratio clamp — prevents blowing out or crushing pixels.
+ *
+ * 2026-08-19 loosening (P1 hot-fix): the initial `[0.7, 1.5]` window
+ * couldn't visibly attenuate direct-sunlight patches (typical luma
+ * ratio 3-5×); a K_MIN of 0.7 only dimmed a hot pixel by 30 % — the
+ * sunlit rectangle stayed obvious in the "after" photo. Widening to
+ * `[0.5, 1.8]` roughly doubles the correction headroom in both
+ * directions while still preventing full pixel wipe-out (which
+ * would look like painted-over patches).
+ */
+const K_MIN = 0.5;
+const K_MAX = 1.8;
+/**
+ * Blend weight applied inside the mask (attenuated further by feather).
+ *
+ * Raised from 0.75 → 0.85 alongside the K widening — the mask alpha
+ * still tapers to 0 at the polygon boundary via the feathered
+ * gaussian, so this doesn't create seams; it just pushes the
+ * fully-inside pixels closer to the flattened target.
+ */
+const BLEND_STRENGTH = 0.85;
 /** Chroma pull weight toward `wallMedianRgb` when applied. */
 const CHROMA_STRENGTH = 0.2;
 /** Chroma pull skipped when wall saturation exceeds this threshold. */

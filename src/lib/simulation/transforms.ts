@@ -96,17 +96,30 @@ function distance(a: Point2, b: Point2): number {
  * "wrongly stretched" — this scale is just what we need to size the
  * placement's local surface-pixel rectangle before projection.
  *
- * Returns `1` (a defensive fallback) when the surface has no
- * `widthCm` or `photoCorners` yet — that keeps the pipeline running
- * during the calibration UX in Chunk C, and every downstream
- * consumer produces a sensible (albeit uncalibrated) rectangle.
+ * When `photoCorners` is unset but `widthCm` IS set (typical for
+ * AI-calibrated / manually-measured spaces that never opened the
+ * advanced corner picker), we fall through to the "whole photo =
+ * wall" mapping (`imgW / widthCm`). This matches the assumption
+ * baked into `handleApplyCalibrateCandidate` /
+ * `handleApplyManualMeasure` — both derive `wallWidthCm =
+ * nativeImgW / pxPerCmNative`, i.e. they *define* the wall as
+ * spanning the entire photo. Without this fallback the placement
+ * renderer only worked for spaces where the user manually opened
+ * the corner picker; AI-only calibrations left `photoCorners` null,
+ * `surfaceLocalToImageHomography` returned null, and every
+ * placement fell back to the (0, 0) identity overlay — the "artwork
+ * doesn't overlay" symptom from the P1 bug report.
+ *
+ * Returns `1` (a defensive fallback) when the surface has neither
+ * `widthCm` nor `photoCorners` yet — that keeps the pipeline running
+ * during the pre-calibration UX and every downstream consumer
+ * produces a sensible (albeit uncalibrated) rectangle.
  */
 export function computeSurfacePxScale(
   surface: SceneSurface,
   imagePxSize: ImagePxSize,
 ): number {
   if (
-    !surface.photoCorners ||
     surface.widthCm == null ||
     !Number.isFinite(surface.widthCm) ||
     surface.widthCm <= 0 ||
@@ -115,10 +128,19 @@ export function computeSurfacePxScale(
   ) {
     return 1;
   }
-  const { tl, tr } = photoCornersToPx(surface.photoCorners, imagePxSize);
-  const topEdgePx = distance(tl, tr);
-  if (!Number.isFinite(topEdgePx) || topEdgePx <= 0) return 1;
-  const pxPerCm = topEdgePx / surface.widthCm;
+  if (surface.photoCorners) {
+    const { tl, tr } = photoCornersToPx(surface.photoCorners, imagePxSize);
+    const topEdgePx = distance(tl, tr);
+    if (Number.isFinite(topEdgePx) && topEdgePx > 0) {
+      const pxPerCm = topEdgePx / surface.widthCm;
+      if (Number.isFinite(pxPerCm) && pxPerCm > 0) return pxPerCm;
+    }
+  }
+  // No calibrated corners — assume the whole photo represents the
+  // wall (matches AI calibrate + manual measure math). Placements
+  // land at real-world scale even before the advanced corner picker
+  // is opened.
+  const pxPerCm = imagePxSize.w / surface.widthCm;
   return Number.isFinite(pxPerCm) && pxPerCm > 0 ? pxPerCm : 1;
 }
 
@@ -151,6 +173,12 @@ export function computeSurfaceLocalPx(
     const avgH = (leftH + rightH) / 2;
     const avgW = (topW + bottomW) / 2;
     heightPx = avgW > 0 ? widthPx * (avgH / avgW) : widthPx;
+  } else if (imagePxSize.w > 0 && imagePxSize.h > 0) {
+    // No corners AND no heightCm — match the rendered image's
+    // aspect ratio so placements laid on the "whole photo = wall"
+    // pxPerCm above project onto a rectangle that lines up with the
+    // <img> element (not a square).
+    heightPx = widthPx * (imagePxSize.h / imagePxSize.w);
   } else {
     heightPx = widthPx;
   }
@@ -164,17 +192,29 @@ export function computeSurfaceLocalPx(
  * (origin at top-left, x → right, y → down, extent
  * `surfaceWidthPx × surfaceHeightPx`) to image pixel space.
  *
- * Returns `null` when the surface has no `photoCorners` or the local
- * dimensions are degenerate. Callers should fall back to an
- * axis-aligned placement in that case.
+ * When `photoCorners` is set → maps to the user-picked quad.
+ * When `photoCorners` is unset but `widthCm` IS set → maps to the
+ * whole-photo axis-aligned quad. This matches the assumption baked
+ * into AI calibrate / manual measure: both derive `widthCm` from
+ * the full native photo dimensions, i.e. the wall is defined to
+ * span the entire image. Without this branch, AI-calibrated spaces
+ * (which never set `photoCorners`) fell back to identity + (0, 0)
+ * on every placement — the "artwork not overlaying" symptom.
+ *
+ * Returns `null` only when we have no calibration data at all
+ * (widthCm null AND photoCorners null) or the local dimensions are
+ * degenerate. Callers should fall back to an axis-aligned placement
+ * in that case.
  */
 export function surfaceLocalToImageHomography(
   surface: SceneSurface,
   imagePxSize: ImagePxSize,
 ): Homography | null {
-  if (!surface.photoCorners || imagePxSize.w <= 0 || imagePxSize.h <= 0) {
-    return null;
-  }
+  if (imagePxSize.w <= 0 || imagePxSize.h <= 0) return null;
+  // Require SOME calibration data — otherwise placements have no
+  // sensible mapping and the renderer's existing null branch keeps
+  // them hidden (matches the pre-calibration UX).
+  if (surface.widthCm == null && !surface.photoCorners) return null;
   const local = computeSurfaceLocalPx(surface, imagePxSize);
   if (local.widthPx <= 0 || local.heightPx <= 0) return null;
   const src: [Point2, Point2, Point2, Point2] = [
@@ -183,8 +223,20 @@ export function surfaceLocalToImageHomography(
     [local.widthPx, local.heightPx],
     [0, local.heightPx],
   ];
-  const { tl, tr, br, bl } = photoCornersToPx(surface.photoCorners, imagePxSize);
-  return solveHomography(src, [tl, tr, br, bl]);
+  let dst: [Point2, Point2, Point2, Point2];
+  if (surface.photoCorners) {
+    const { tl, tr, br, bl } = photoCornersToPx(surface.photoCorners, imagePxSize);
+    dst = [tl, tr, br, bl];
+  } else {
+    // Full-photo axis-aligned quad — see JSDoc.
+    dst = [
+      [0, 0],
+      [imagePxSize.w, 0],
+      [imagePxSize.w, imagePxSize.h],
+      [0, imagePxSize.h],
+    ];
+  }
+  return solveHomography(src, dst);
 }
 
 // ─── Placement rectangles ───────────────────────────────────────────

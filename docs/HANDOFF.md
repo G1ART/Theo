@@ -2,6 +2,100 @@
 
 Last updated: 2026-08-18
 
+## 2026-08-18 (23) — 시뮬 편집기 P1 hot-fix ②: 4-이슈 근원 픽스
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 사용자 리포트 (요약)
+1. 벽 클린업 시각 효과가 사실상 없음 (창가 직사광이 그대로 남음).
+2. **작품 tap-to-place 가 여전히 안 됨** — (19) 백필 이후에도 지속.
+3. 벽 크기 단위가 `cm | in` 만 있어 방 스케일 표현이 부자연스러움.
+4. Tap-to-measure 오버레이 인풋에 단위 라벨 없음 + 빈 캔버스 힌트와 겹침.
+
+### 근원 감사
+
+#### 이슈 2 — **신규 발견 잠재 결함** (가장 중요)
+`src/lib/simulation/transforms.ts::surfaceLocalToImageHomography()` 가 `photoCorners == null` 이면 무조건 `null` 반환. `computeSurfacePxScale()` 도 `pxPerCm = 0`. → `renderer2d` 가 모든 placement 를 (0,0) identity 로 렌더하거나 skip. AI/수동 캘리브레이션은 `widthCm/heightCm` 만 세팅하고 `photoCorners` 는 세팅 안 하므로 (사용자 UX 는 "사진 전체 = 벽" 이 전제) **캘리브레이션 완료 후에도 placement 가 화면에 안 나옴**. (19) backfill 로 서페이스 시드 문제는 해소됐지만 이 transforms 결함이 배후에 잠재하고 있었음. tap 핸들러 자체는 정상 — 렌더 계층이 소리 없이 무너지고 있었음.
+
+#### 이슈 1 — 3 겹 원인
+- A. **기존 스페이스는 자동 클린업이 절대 실행 안 됨** — (21) 은 `handleUploadPhoto` 훅에만 클린업을 걸었음. 릴리즈 이전 스페이스는 영원히 원본 그대로.
+- B. **Luma clamp 가 강한 햇빛을 잘라냄** — `K_MIN=0.7`, `K_MAX=1.5` 는 창가 직사광 (ratio 2~4배) 을 다 잘라 시각 효과가 미미. `BLEND_STRENGTH=0.75` 로 원본 25% 가 그대로 섞임.
+- C. **AI 가 sunlit 영역을 폴리곤 밖으로 밀어냄** — 프롬프트가 "windows must be excluded" 만 있고 "sunlit patches ON the wall are STILL wall" 을 명시 안 함. GPT-4o-mini 가 밝은 사각형을 창문으로 오해해 잘라내는 확률 높음.
+
+#### 이슈 3 · 4
+- Unit toggle 이 `cm | in` 2-way 세그먼트, `space.unit` DB 필드 (cm/in enum) 와 직접 매핑. 방 단위 (m/ft) 자체가 존재하지 않음.
+- Measure 팝업이 SVG `<foreignObject>` 로 두 점 중점에 렌더 → 캔버스 중앙 하단 힌트와 겹침. 인풋 옆 unit 라벨 없음. 초록 점 shadow 없음.
+
+### 변경 (5파일)
+
+- **`src/lib/simulation/transforms.ts`** — 이슈 2 근원 픽스:
+ - `computeSurfacePxScale()`: `photoCorners` null + `widthCm > 0` 이면 `pxPerCm = photoWidth / widthCm` fallback.
+ - `surfaceLocalToImageHomography()`: `photoCorners` null 이면 사진 전체를 axis-aligned quad `[[0,0],[w,0],[w,h],[0,h]]` dst 로 합성해 유효한 3×3 반환.
+ - DB 스키마·데이터 변경 없음. **이 변경 하나로 캘리브레이션 후 tap-to-place 가 정상 렌더됨.**
+
+- **`src/lib/simulation/wallCleanup.ts`** — 이슈 1B: `K_MIN 0.7→0.5`, `K_MAX 1.5→1.8`, `BLEND_STRENGTH 0.75→0.85`. Dev-only `console.log` 진입/종료 로그 추가.
+
+- **`src/lib/ai/prompts/index.ts`** — 이슈 1C: `SPACE_WALL_DETECT_SYSTEM` 에 "sunlit patches, cast shadows, and lamp hot-spots ON the wall surface itself MUST be included in `wallPolygon` — these are lighting artifacts to be cleaned up, not exclusions." 명시. 기존 exclusion (창문/문/가구/천장) 유지.
+
+- **`src/components/simulation/SpaceEditor.tsx`** — 이슈 1A · 3 · 4:
+ - **이슈 1A**: `autoWallCleanupFiredRef` 세션 가드 + `useEffect` mount 자동 재트리거 (`photoStoragePath` 가 `photo_cleaned.jpg` 로 끝나지 않으면 실행). `runWallCleanupFromCurrentPhoto()` 신설 — storage fetch → File → 기존 `runWallCleanup` 파이프라인. "정확한 스케일 (고급)" 아코디언에 "벽 정돈 다시 실행" 수동 버튼.
+ - **이슈 3**: 4-way unit toggle `m | cm | in | ft`. `DISPLAY_UNIT_TO_CM_FACTOR = { m:100, cm:1, in:2.54, ft:30.48 }`. `localStorage.abstract:spaceEditor:displayUnit` 로 브라우저별 기억. DB `space.unit` 은 metric/imperial family 로만 자동 동기화 (m→cm, ft→in) — placement 인스펙터는 무영향. 벽 인풋·자동 감지 카드·측정 인풋 모두 선택 단위 표시.
+ - **이슈 4**: `<foreignObject>` 팝업 삭제 → 캔버스 상단 sticky 배너로 이동 (`absolute top-2 left-2 right-2`). 인풋 옆 unit 라벨. `[적용] [다시 재기] [취소]` 3버튼. Measure 모드 활성 시 empty-canvas 힌트 조건부 숨김. SVG 점 `r=9`, `strokeWidth=2.5`, `drop-shadow(0 0 4px rgba(0,0,0,0.5))` + 라벨 "1"/"2" 흰색.
+
+- **`src/lib/i18n/messages.ts`** — namespace `simulation.wall.*` / `simulation.wallCleanup.*` / `simulation.calibrate.*` 갱신 (라벨은 컴포넌트에서 `({unit})` 부착). `rangeHint` 에 `{unit}` 플레이스홀더. KO/EN 양쪽.
+
+### 검증
+- `npx tsc --noEmit` — exit 0. `ReadLints` on 8파일 — 0 errors.
+- 매뉴얼 트레이스:
+ - 이슈 2: tap → 시트 → 선택 → `placementCmFromImagePoint` → `pxPerCm = photoW/widthCm` (photoCorners null 안전) → `upsertPlacements` → `renderScene2D` → `surfaceLocalToImageHomography` 유효 3×3 → 렌더 ✔
+ - 이슈 1: mount → ref 확인 → `runWallCleanupFromCurrentPhoto` → AI → cleanup (K clamp `[0.5,1.8]`, blend `0.85`) → `replaceSpacePhotoWithCleaned` → `photoStoragePath` 갱신 → 재실행 자동 스킵 ✔
+ - 이슈 3: `m` 선택 → widthCm 350 → 표시 "3.50 m" / 감지 332.85cm → 표시 "3.33 m" ✔
+ - 이슈 4: measure 모드 → 힌트 숨김 + 배너 노출 → "0.85 m" 입력 → 85cm 로 저장 ✔
+
+### 알려진 caveat
+- **AI 벽 감지의 실제 응답 로그 없음**: 프롬프트 강화가 실제로 sunlit 영역을 폴리곤에 포함시키는지는 프로덕션 결과 관찰 필요. clamp/blend 완화 만으로도 시각 개선은 나와야 함.
+- **`space.unit` 스키마는 cm/in enum 유지**: `m/ft` 는 UI 전용. 향후 인스펙터도 4-way 로 통일하려면 별도 스토리 필요.
+- **`autoWallCleanupFiredRef` 는 세션 스코프**: 새로고침 시 재시도되지만 `photoStoragePath` suffix 로 스킵되므로 무한 루프 없음. 단, confidence<0.4 로 조용히 스킵되는 케이스는 매 mount AI 호출 반복 가능 — cost 모니터링 필요.
+
+## 2026-08-18 (22) — 스페이스 삭제 + 베타 무제한 슬롯
+
+> Supabase SQL 적용함 (MCP `apply_migration` 원격 반영): `supabase/migrations/20260819030000_beta_unlimited_simulation_quotas.sql` · 환경 변수 변경 없음
+
+### 배경
+- 사용자 지적: 무료 슬롯 2개 상태에서 확인 완료한 space 를 지울 방법이 없어 사용자가 좁은 공간에 갇힘. **삭제 UX 추가** 필요.
+- 베타 기간엔 전원 풀 유료 기능 접근 가능 (`BETA_ALL_PAID=true`) 이지만 quota 값은 여전히 유한 → **quota 상한도 열어야** 무제한 체감 가능. 나중 원복이 쉽도록 **구조적으로 준비**.
+
+### 변경 (5파일)
+
+#### 삭제 UX
+- **`src/components/simulation/SpaceCardMenu.tsx`** (신규): 카드 우상단 `⋯` 트리거 + 위쪽으로 열리는 팝오버 (카드 `overflow-hidden` 이라 아래로 열면 잘림). 아이템: `Edit` (Link), `Delete` (destructive `text-red-600`). Outside-click/Escape/아이템 클릭 시 자동 닫힘.
+- **`src/app/my/spaces/page.tsx`**:
+ - 카드 액션 행 `[Share] [Edit]` → `[Share] [⋯]` (Edit 은 오버플로우 메뉴 안으로 이동).
+ - `pendingDeleteId` / `deleting` state + `handleConfirmDelete` (shortlist 패턴). 낙관적 remove → `deleteSpace()` → 실패 시 snapshot 롤백 + 에러 토스트. 성공 시 `featureAccess.refresh()` + 성공 토스트.
+ - `ConfirmActionDialog` (`tone="destructive"`) 재사용.
+ - `counterText` unlimited 분기에서 `quota.used` → `spaces.length` 로 전환 (즉시 반영).
+- **`src/lib/i18n/messages.ts`**: 새 namespace `spaces.list.menu.*` + `spaces.delete.*` KO/EN 8키씩. 파일 하단 (`enhancement.*` 뒤) 에 배치 — 병렬 워커의 `simulation.*` 편집 영역과 물리적으로 분리해 merge 안전.
+
+#### 베타 무제한 슬롯 (옵션 A: 매트릭스 값 상향, 배너로 원복 값 보존)
+- **`src/lib/entitlements/planMatrix.ts`**: `simulation.2d`, `simulation.2d.export`, `simulation.3d` 세 quota 를 **모든 플랜 `limit: null`** (=Infinity). 매트릭스 위에 `BETA_UNLIMITED` SECTION 배너 + TODO 표로 원본 값을 정확히 보존. `count_event_keys` / `windowDays` 는 그대로 유지 → `recordUsageEvent` 는 계속 실 사용량을 축적하므로 원복 시점의 baseline 데이터가 살아 있음.
+- **`supabase/migrations/20260819030000_beta_unlimited_simulation_quotas.sql`** (신규): 파일 헤더에 완전한 rollback SQL (플랜별 원본 값 UPDATE 11줄) 을 주석으로 preserve. 본문은 `update plan_quota_matrix set quota_limit = null where feature_key in (...)` 단일 statement. MCP `apply_migration` 로 원격 반영 완료.
+
+### 원복 인스트럭션 (post-beta)
+1. **코드**: `planMatrix.ts` 의 `BETA_UNLIMITED` 배너 안 TODO 표 그대로 quota 값 복원.
+ - `simulation.2d`: free=2, artist_pro=5, discovery_pro=5, hybrid_pro=20, gallery_workspace=null
+ - `simulation.2d.export`: artist_pro=5, discovery_pro=20, hybrid_pro=50, gallery_workspace=null
+ - `simulation.3d`: hybrid_pro=30, gallery_workspace=null
+2. **베타 스위치**: `src/lib/entitlements/betaOverrides.ts` 의 `BETA_ALL_PAID = false` (또는 env driven).
+3. **DB**: `20260819030000_beta_unlimited_simulation_quotas.sql` 파일 헤더의 "Post-beta ROLLBACK" 주석 블록 (11개 UPDATE) 을 SQL Editor 에 붙여넣어 실행.
+4. **⚠️ 카운팅 버그 선행 해결 필수**: `deleteSpace` 는 soft delete (`is_active=false`), quota 는 `simulation.space.created` 이벤트 SUM. **베타 종료 후 무료 2슬롯 상태에서 "지웠는데 슬롯 안 생김"** 이 발생. 원복 전에 아래 중 하나 반드시 처리:
+ - (a) `usage_events` 에 owner DELETE policy + `deleteSpace` 에서 매칭 이벤트 삭제.
+ - (b) 카운터를 `spaces where is_active=true` 실 활성 로우 수로 전환 (더 단순).
+
+### Verified
+- `npx tsc --noEmit` — exit 0. `ReadLints` — 0 errors.
+- `plan_quota_matrix` 재조회: 3 feature × 11 rows 모두 `quota_limit = null` 확인.
+- 매뉴얼 트레이스: 삭제 → 리스트 즉시 제거 + 토스트 / 실패 시 롤백 / 3개 이상 생성 코드 경로 `assertEntitlementOrThrow` 통과.
+
 ## 2026-08-18 (21) — Vision AI ③ 업로드 시 자동 벽 클린업 (`space.wall_detect`)
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음 (`OPENAI_API_KEY` 만 필요, 없으면 조용히 스킵)

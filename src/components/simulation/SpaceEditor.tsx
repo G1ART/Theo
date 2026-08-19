@@ -103,6 +103,80 @@ const PERSIST_DEBOUNCE_MS = 400;
 const FALLBACK_WALL_WIDTH_CM = 400;
 const FALLBACK_WALL_HEIGHT_CM = 260;
 
+// ─────────────────────────────────────────────────────────────────────
+// P1 (2026-08-19 hot-fix) — Display-unit ("cm | in | m | ft") helpers.
+//
+// The persisted `spaces.unit` column stays a "cm" | "in" family flag
+// (schema-frozen for the P1 milestone). But the editor's wall-size
+// affordance and manual-measure input display in a wider 4-way unit
+// set, because room dimensions are conventionally talked about in
+// metres / feet — 332 cm is a mouthful compared to 3.33 m. Storage
+// remains cm; only the display converts.
+//
+// Selection is remembered per-browser via localStorage, not per-space
+// — a user who thinks in metres tends to think in metres across every
+// space they open.
+// ─────────────────────────────────────────────────────────────────────
+
+type DisplayUnit = "m" | "cm" | "in" | "ft";
+
+/** Multiply "in display unit" × factor → cm. Divide cm ÷ factor → display. */
+const DISPLAY_UNIT_FACTOR: Record<DisplayUnit, number> = {
+  m: 100,
+  cm: 1,
+  in: 2.54,
+  ft: 30.48,
+};
+
+/** Decimal places to show for each unit — chosen so a 3 m wall reads
+ *  "3.00 m" but an 8-foot ceiling reads "2.44 m" without absurd zeros. */
+const DISPLAY_UNIT_DECIMALS: Record<DisplayUnit, number> = {
+  m: 2,
+  cm: 1,
+  in: 1,
+  ft: 2,
+};
+
+const DISPLAY_UNIT_ORDER: readonly DisplayUnit[] = ["m", "cm", "in", "ft"];
+
+const DISPLAY_UNIT_LS_KEY = "abstract:sim:wall-unit";
+
+function cmToDisplayNumber(cm: number, unit: DisplayUnit): number {
+  return cm / DISPLAY_UNIT_FACTOR[unit];
+}
+
+function displayNumberToCm(value: number, unit: DisplayUnit): number {
+  return value * DISPLAY_UNIT_FACTOR[unit];
+}
+
+/** Rounded display string (e.g. 332.85 cm → "3.33" for unit "m"). */
+function formatCmForUnit(cm: number, unit: DisplayUnit): string {
+  const v = cmToDisplayNumber(cm, unit);
+  return v.toFixed(DISPLAY_UNIT_DECIMALS[unit]);
+}
+
+/**
+ * "cm" / "in" family for the DB-level `spaces.unit` column. Metric
+ * → "cm", imperial → "in" — that column keeps its existing meaning
+ * as a placement-inspector affordance (artwork sizes are still
+ * conventionally cm/in, never m/ft) so the persisted value stays
+ * useful even when the display unit is m or ft.
+ */
+function displayUnitToSpaceUnit(unit: DisplayUnit): "cm" | "in" {
+  return unit === "in" || unit === "ft" ? "in" : "cm";
+}
+
+function readInitialDisplayUnit(fallback: DisplayUnit): DisplayUnit {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const v = window.localStorage.getItem(DISPLAY_UNIT_LS_KEY);
+    if (v === "m" || v === "cm" || v === "in" || v === "ft") return v;
+  } catch {
+    /* private mode / disabled — fall back to prop default */
+  }
+  return fallback;
+}
+
 /** Ephemeral placement id used before we've persisted a new one. */
 function tempId(): string {
   return `tmp_${Math.random().toString(36).slice(2, 10)}`;
@@ -231,6 +305,19 @@ function SpaceEditorContent({ id }: { id: string }) {
   // we never re-fire on re-renders / state churn; the load-triggered
   // reset ensures navigating to a different space still fires once.
   const autoCalibrateFiredRef = useRef<string | null>(null);
+  // Same idea for wall-cleanup: kicks in on spaces uploaded before
+  // d5775f7 (cleanup feature landed) OR when cleanup was silently
+  // skipped on the first upload. Keyed by space id so navigating
+  // between spaces still fires once per space per session.
+  const autoWallCleanupFiredRef = useRef<string | null>(null);
+
+  // Display unit (m | cm | in | ft) — UI-only, localStorage-backed.
+  // Read defers until after we know `state.space.unit` so the metric/
+  // imperial family of a saved space is respected when localStorage
+  // is empty. See `useEffect` below.
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>("cm");
+  const displayUnitInitialisedRef = useRef(false);
+  const [wallCleanupBusy, setWallCleanupBusy] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -817,6 +904,15 @@ function SpaceEditorContent({ id }: { id: string }) {
         }
         await load();
         setToast(t("simulation.wallCleanup.done"));
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] wall cleanup applied", {
+            spaceId: input.spaceId,
+            maskCoverage: cleanup.maskCoverage,
+            confidence: res.confidence,
+            lightDirection: res.lightDirection,
+            polygonPoints: res.wallPolygon.length,
+          });
+        }
         // Wrap the cleaned Blob as a File so the downstream calibrator
         // can process it with the same runAiCalibration path used for
         // fresh uploads. The `name` is arbitrary — the vision route
@@ -838,6 +934,103 @@ function SpaceEditorContent({ id }: { id: string }) {
     [load, t],
   );
 
+  /**
+   * P1 (2026-08-19 hot-fix) — Re-fire the wall-cleanup pipeline for
+   * a space whose photo is already on disk. Two callers:
+   *
+   *   1. Auto-fire useEffect on mount, when the space has a photo
+   *      but no cleaned variant yet. Covers users who uploaded before
+   *      d5775f7 landed AND uploads whose cleanup silently skipped
+   *      (low confidence / degraded polygon / coverage guard).
+   *   2. Manual "벽 정돈 다시 실행" button in the advanced accordion.
+   *
+   * We prefer the ORIGINAL storage path (`photo_original.<ext>`) as
+   * the source blob so we never process an already-cleaned image
+   * twice. Falls back to the display copy when the original wasn't
+   * kept (rare — every `uploadSpacePhoto` since c1333e6 saves both).
+   */
+  const runWallCleanupFromCurrentPhoto = useCallback(
+    async (mode: "auto" | "manual"): Promise<{ applied: boolean }> => {
+      if (!state) return { applied: false };
+      // Prefer original; fall back to display copy when it's missing.
+      const path =
+        state.space.photoOriginalStoragePath ?? state.space.photoStoragePath;
+      const url = spacePhotoUrl(path);
+      if (!url) return { applied: false };
+      const pxW = state.space.photoWidthPx ?? 0;
+      const pxH = state.space.photoHeightPx ?? 0;
+      if (pxW <= 0 || pxH <= 0) return { applied: false };
+      setWallCleanupBusy(true);
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) return { applied: false };
+        const blob = await resp.blob();
+        // Storage sets content-type per the upload; the vision route
+        // only accepts JPEG / PNG / WebP so coerce anything unusual
+        // (e.g. HEIC saved as octet-stream) to webp which is the
+        // universally-supported display copy encoding.
+        let mime = blob.type || "image/webp";
+        if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) {
+          mime = "image/webp";
+        }
+        const file = new File([blob], "space-photo", { type: mime });
+        const result = await runWallCleanup({
+          file,
+          imagePxWidth: pxW,
+          imagePxHeight: pxH,
+          spaceId: state.space.id,
+        });
+        if (mode === "manual" && !result.applied) {
+          // Manual button — always surface SOME feedback so the user
+          // knows the button fired. `runWallCleanup` clears the toast
+          // on skip (which is intentional for the silent upload path).
+          setToast(t("simulation.wallCleanup.skipped"));
+        }
+        return { applied: result.applied };
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] wall cleanup retrigger failed", err);
+        }
+        if (mode === "manual") {
+          setToast(t("simulation.wallCleanup.skipped"));
+        }
+        return { applied: false };
+      } finally {
+        setWallCleanupBusy(false);
+      }
+    },
+    [state, runWallCleanup, t],
+  );
+
+  const handleManualWallCleanupRetry = useCallback(async () => {
+    if (wallCleanupBusy) return;
+    await runWallCleanupFromCurrentPhoto("manual");
+  }, [wallCleanupBusy, runWallCleanupFromCurrentPhoto]);
+
+  // Auto-fire wall cleanup on mount for spaces whose current display
+  // photo has NOT been cleaned yet. Marker: photoStoragePath ends
+  // with the `photo_cleaned.jpg` suffix (`replaceSpacePhotoWithCleaned`
+  // writes exactly this path). No marker → cleanup either never ran
+  // (pre-d5775f7 upload) or silently skipped. We re-attempt once per
+  // space per session so a truly un-cleanable photo doesn't loop.
+  //
+  // Guards (all must hold):
+  //   • space has a photo (path + non-zero native dims)
+  //   • current display path is NOT already a cleaned variant
+  //   • cleanup isn't already running (upload path)
+  //   • auto-retrigger hasn't fired for this space id yet
+  useEffect(() => {
+    if (!state) return;
+    if (uploadBusy) return;
+    if (wallCleanupBusy) return;
+    if (!state.space.photoStoragePath) return;
+    if (!state.space.photoWidthPx || !state.space.photoHeightPx) return;
+    if (state.space.photoStoragePath.endsWith("/photo_cleaned.jpg")) return;
+    if (autoWallCleanupFiredRef.current === state.space.id) return;
+    autoWallCleanupFiredRef.current = state.space.id;
+    void runWallCleanupFromCurrentPhoto("auto");
+  }, [state, uploadBusy, wallCleanupBusy, runWallCleanupFromCurrentPhoto]);
+
   const handleUploadPhoto = useCallback(
     async (file: File) => {
       if (!state) return;
@@ -850,6 +1043,10 @@ function SpaceEditorContent({ id }: { id: string }) {
         state.space.surfaces[0]?.photoCorners,
       );
       const hadWallDims = Boolean(state.space.surfaces[0]?.widthCm);
+      // Both auto-effects are keyed by space id — mark them as
+      // "handled by the upload path" so the load() below doesn't
+      // race them into firing a redundant second pass.
+      autoWallCleanupFiredRef.current = state.space.id;
       setUploadBusy(true);
       try {
         const upload = await uploadSpacePhoto(state.space.id, file);
@@ -967,16 +1164,40 @@ function SpaceEditorContent({ id }: { id: string }) {
     }
   }, [state, selectedId, pushHistory, applyPlacements]);
 
-  const handleUnit = useCallback(
-    async (unit: "cm" | "in") => {
-      if (!state || state.space.unit === unit) return;
+  const handleDisplayUnit = useCallback(
+    async (unit: DisplayUnit) => {
+      setDisplayUnit(unit);
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(DISPLAY_UNIT_LS_KEY, unit);
+        } catch {
+          /* localStorage disabled — best-effort */
+        }
+      }
+      if (!state) return;
+      // Persist the "cm | in" family flag on the space so the placement
+      // inspector (which stays in cm/in for artwork sizes) picks the
+      // matching column back up on next load.
+      const family = displayUnitToSpaceUnit(unit);
+      if (state.space.unit === family) return;
       setState((prev) =>
-        prev ? { ...prev, space: { ...prev.space, unit } } : prev,
+        prev ? { ...prev, space: { ...prev.space, unit: family } } : prev,
       );
-      await updateSpace(state.space.id, { unit });
+      await updateSpace(state.space.id, { unit: family });
     },
     [state],
   );
+
+  // Hydrate `displayUnit` on first load — prefer localStorage, then
+  // fall back to the space's persisted cm/in family so a saved
+  // "imperial" space defaults to "in" (not "cm") for a fresh browser.
+  useEffect(() => {
+    if (displayUnitInitialisedRef.current) return;
+    if (!state) return;
+    const fallback: DisplayUnit = state.space.unit === "in" ? "in" : "cm";
+    setDisplayUnit(readInitialDisplayUnit(fallback));
+    displayUnitInitialisedRef.current = true;
+  }, [state]);
 
   /**
    * Picking an artwork no longer auto-places it — we defer placement
@@ -1166,8 +1387,8 @@ function SpaceEditorContent({ id }: { id: string }) {
     if (!candidate) return;
     const rawInput = parseFloat(calibrateInputCm);
     if (!Number.isFinite(rawInput) || rawInput <= 0) return;
-    // Respect the current display unit — user may be typing inches.
-    const cm = state.space.unit === "in" ? rawInput * 2.54 : rawInput;
+    // Respect the current display unit — user may be typing m/cm/in/ft.
+    const cm = displayNumberToCm(rawInput, displayUnit);
     const nativeW = state.space.photoWidthPx ?? 0;
     const nativeH = state.space.photoHeightPx ?? 0;
     if (nativeW <= 0 || nativeH <= 0) return;
@@ -1207,6 +1428,7 @@ function SpaceEditorContent({ id }: { id: string }) {
     calibrateCandidates,
     calibrateIdx,
     calibrateInputCm,
+    displayUnit,
     t,
   ]);
 
@@ -1251,7 +1473,10 @@ function SpaceEditorContent({ id }: { id: string }) {
     if (measureState.phase !== "input") return;
     const raw = parseFloat(measureInputCm);
     if (!Number.isFinite(raw) || raw <= 0) return;
-    const cm = state.space.unit === "in" ? raw * 2.54 : raw;
+    // Manual measure honors the wider display unit set — a user
+    // measuring "3.3 m" between two points on the photo is far more
+    // natural than typing "330 cm".
+    const cm = displayNumberToCm(raw, displayUnit);
     const dxCss = measureState.pointB.x - measureState.pointA.x;
     const dyCss = measureState.pointB.y - measureState.pointA.y;
     const pxDistanceCss = Math.sqrt(dxCss * dxCss + dyCss * dyCss);
@@ -1288,7 +1513,15 @@ function SpaceEditorContent({ id }: { id: string }) {
     setMeasureState({ phase: "idle" });
     setMeasureInputCm("");
     setToast(t("simulation.calibrate.applied"));
-  }, [state, primarySurface, measureState, measureInputCm, imageBox.w, t]);
+  }, [
+    state,
+    primarySurface,
+    measureState,
+    measureInputCm,
+    imageBox.w,
+    displayUnit,
+    t,
+  ]);
 
   const handleWallDims = useCallback(
     async (patch: { widthCm?: number | null; heightCm?: number | null }) => {
@@ -1503,8 +1736,14 @@ function SpaceEditorContent({ id }: { id: string }) {
     ? placements.find((p) => p.id === selectedId) ?? null
     : null;
   const existingIds = new Set(placements.map((p) => p.artworkId));
-  const cmDisplay = space.unit === "in" ? (v: number) => v / 2.54 : (v: number) => v;
-  const unitSuffix = space.unit;
+  // Placement inspector stays in cm/in only (artwork sizes are still
+  // conventionally cm/in, not m/ft). `space.unit` is kept in sync
+  // with the metric/imperial family of `displayUnit` on toggle.
+  const sizeUnit: "cm" | "in" = space.unit === "in" ? "in" : "cm";
+  const cmDisplay = sizeUnit === "in" ? (v: number) => v / 2.54 : (v: number) => v;
+  const unitSuffix = sizeUnit;
+  const wallUnitFactor = DISPLAY_UNIT_FACTOR[displayUnit];
+  const wallUnitDecimals = DISPLAY_UNIT_DECIMALS[displayUnit];
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
@@ -1568,20 +1807,20 @@ function SpaceEditorContent({ id }: { id: string }) {
         const label = locale === "ko" ? c.label_ko : c.label_en;
         const ask = locale === "ko" ? c.ask_ko : c.ask_en;
         const midpoint = typicalMidpoint(c);
-        const rangeMin = space.unit === "in"
-          ? Math.round((c.typical_range_cm.min / 2.54) * 10) / 10
-          : c.typical_range_cm.min;
-        const rangeMax = space.unit === "in"
-          ? Math.round((c.typical_range_cm.max / 2.54) * 10) / 10
-          : c.typical_range_cm.max;
+        // Range/hint/placeholder all follow the wider display unit so
+        // a user in `m` sees "보통 1.9-2.2m" for door height, not
+        // "190-220cm" while their input row already shows "m".
+        const rangeMin = Number(
+          formatCmForUnit(c.typical_range_cm.min, displayUnit),
+        );
+        const rangeMax = Number(
+          formatCmForUnit(c.typical_range_cm.max, displayUnit),
+        );
         const rangeHint = t("simulation.calibrate.rangeHint")
           .replace("{min}", String(rangeMin))
-          .replace("{max}", String(rangeMax));
-        const placeholder = String(
-          space.unit === "in"
-            ? Math.round((midpoint / 2.54) * 10) / 10
-            : midpoint,
-        );
+          .replace("{max}", String(rangeMax))
+          .replace("{unit}", displayUnit);
+        const placeholder = formatCmForUnit(midpoint, displayUnit);
         return (
           <div
             role="dialog"
@@ -1619,7 +1858,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                   className="w-20 rounded border-0 px-1 py-0.5 text-sm outline-none focus:ring-0"
                   aria-label={ask}
                 />
-                <span className="text-xs text-zinc-500">{space.unit}</span>
+                <span className="text-xs text-zinc-500">{displayUnit}</span>
               </label>
               <span className="text-[11px] text-emerald-700">{rangeHint}</span>
               <div className="ml-auto flex flex-wrap gap-2">
@@ -1783,11 +2022,13 @@ function SpaceEditorContent({ id }: { id: string }) {
                   ))}
                 </svg>
               )}
-              {rendered.length === 0 && !pendingArtwork && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-3 mx-auto max-w-xs rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white">
-                  {t("simulation.editor.emptyCanvas")}
-                </div>
-              )}
+              {rendered.length === 0 &&
+                !pendingArtwork &&
+                measureState.phase === "idle" && (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-3 mx-auto max-w-xs rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white">
+                    {t("simulation.editor.emptyCanvas")}
+                  </div>
+                )}
               {pendingArtwork && (
                 <div
                   className="pointer-events-none absolute inset-x-0 top-3 mx-auto flex w-max max-w-[92%] items-center gap-2 rounded-full bg-zinc-900/90 px-3 py-1.5 text-xs text-white shadow-lg"
@@ -1808,28 +2049,95 @@ function SpaceEditorContent({ id }: { id: string }) {
                 </div>
               )}
 
-              {/* Manual measure — top hint chip while dropping points. */}
-              {(measureState.phase === "pointA" ||
-                measureState.phase === "pointB") && (
+              {/*
+                Manual measure — unified top-of-canvas banner. In
+                point-drop phases it just labels the mode + cancel.
+                In "input" phase we expand it into a full input row
+                (distance + unit + apply + retry + cancel) so the
+                input never hovers over the "작품을 추가하여 시작하세요"
+                empty-canvas hint or the segment midpoint on the
+                photo. The banner uses `pointer-events-none` on the
+                shell and re-enables on interactive children.
+              */}
+              {measureState.phase !== "idle" && (
                 <div
-                  className="pointer-events-none absolute inset-x-0 top-3 mx-auto flex w-max max-w-[92%] items-center gap-2 rounded-full bg-emerald-700/95 px-3 py-1.5 text-xs text-white shadow-lg"
+                  className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-col gap-2"
                   role="status"
                   aria-live="polite"
                 >
-                  <span className="truncate">
-                    📐 {t("simulation.calibrate.manualHint")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={cancelManualMeasure}
-                    className="pointer-events-auto rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-white/25"
-                  >
-                    {t("simulation.editor.cancelPlacement")}
-                  </button>
+                  <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-200 bg-white/95 px-3 py-2 text-xs text-zinc-800 shadow-lg backdrop-blur">
+                    <span className="flex items-center gap-1 font-medium text-emerald-800">
+                      📐{" "}
+                      {measureState.phase === "input"
+                        ? t("simulation.calibrate.manualDistanceLabel")
+                        : t("simulation.calibrate.manualHint")}
+                    </span>
+                    {measureState.phase === "input" && (
+                      <label className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2 py-1">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.1"
+                          min={0.01}
+                          value={measureInputCm}
+                          onChange={(e) => setMeasureInputCm(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleApplyManualMeasure();
+                            }
+                          }}
+                          className="w-20 rounded border-0 px-1 py-0.5 text-sm outline-none focus:ring-0"
+                          placeholder={
+                            displayUnit === "m"
+                              ? "1.00"
+                              : displayUnit === "ft"
+                              ? "3.00"
+                              : displayUnit === "in"
+                              ? "36.0"
+                              : "100.0"
+                          }
+                          autoFocus
+                        />
+                        <span className="text-[11px] font-medium text-zinc-500">
+                          {displayUnit}
+                        </span>
+                      </label>
+                    )}
+                    {measureState.phase === "input" && (
+                      <button
+                        type="button"
+                        onClick={() => void handleApplyManualMeasure()}
+                        disabled={!parseFloat(measureInputCm)}
+                        className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                      >
+                        {t("simulation.calibrate.apply")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={startManualMeasure}
+                      className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                    >
+                      {t("simulation.calibrate.manualRetry")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelManualMeasure}
+                      className="rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100"
+                    >
+                      {t("simulation.editor.cancelPlacement")}
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* Manual measure — dropped-point + line overlay. */}
+              {/*
+                Manual measure — dropped-point + line overlay. Dots
+                get a drop-shadow filter for readability against both
+                bright walls and dark furniture; labels 1/2 sit inside
+                each dot in white.
+              */}
               {imageBox.w > 0 &&
                 (measureState.phase === "pointB" ||
                   measureState.phase === "input") && (
@@ -1838,6 +2146,9 @@ function SpaceEditorContent({ id }: { id: string }) {
                     width={imageBox.w}
                     height={imageBox.h}
                     aria-hidden
+                    style={{
+                      filter: "drop-shadow(0 0 6px rgba(0,0,0,0.45))",
+                    }}
                   >
                     {(() => {
                       const a = measureState.pointA;
@@ -1861,17 +2172,17 @@ function SpaceEditorContent({ id }: { id: string }) {
                           <circle
                             cx={a.x}
                             cy={a.y}
-                            r={7}
-                            fill="rgba(16, 185, 129, 0.95)"
+                            r={9}
+                            fill="rgba(16, 185, 129, 0.98)"
                             stroke="white"
-                            strokeWidth={2}
+                            strokeWidth={2.5}
                           />
                           <text
                             x={a.x}
                             y={a.y + 4}
                             textAnchor="middle"
-                            fontSize={10}
-                            fontWeight={600}
+                            fontSize={11}
+                            fontWeight={700}
                             fill="white"
                           >
                             1
@@ -1881,17 +2192,17 @@ function SpaceEditorContent({ id }: { id: string }) {
                               <circle
                                 cx={b.x}
                                 cy={b.y}
-                                r={7}
-                                fill="rgba(16, 185, 129, 0.95)"
+                                r={9}
+                                fill="rgba(16, 185, 129, 0.98)"
                                 stroke="white"
-                                strokeWidth={2}
+                                strokeWidth={2.5}
                               />
                               <text
                                 x={b.x}
                                 y={b.y + 4}
                                 textAnchor="middle"
-                                fontSize={10}
-                                fontWeight={600}
+                                fontSize={11}
+                                fontWeight={700}
                                 fill="white"
                               >
                                 2
@@ -1903,65 +2214,6 @@ function SpaceEditorContent({ id }: { id: string }) {
                     })()}
                   </svg>
                 )}
-
-              {/* Manual measure — distance input popup near the segment midpoint. */}
-              {measureState.phase === "input" &&
-                imageBox.w > 0 &&
-                (() => {
-                  const midX =
-                    (measureState.pointA.x + measureState.pointB.x) / 2;
-                  const midY =
-                    (measureState.pointA.y + measureState.pointB.y) / 2;
-                  // Clamp so the popup stays fully inside the canvas
-                  // (approx 260px wide, 60px tall).
-                  const left = Math.max(
-                    12,
-                    Math.min(imageBox.w - 272, midX - 130),
-                  );
-                  const top = Math.max(
-                    12,
-                    Math.min(imageBox.h - 72, midY - 30),
-                  );
-                  return (
-                    <div
-                      className="absolute z-10 flex items-center gap-2 rounded-xl border border-emerald-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur"
-                      style={{ left, top, width: 260 }}
-                    >
-                      <label className="flex flex-1 items-center gap-2 text-xs text-zinc-700">
-                        <span className="shrink-0 font-medium">
-                          {t("simulation.calibrate.manualDistanceLabel")}
-                        </span>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          step="0.5"
-                          min={1}
-                          value={measureInputCm}
-                          onChange={(e) => setMeasureInputCm(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void handleApplyManualMeasure();
-                            }
-                          }}
-                          className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
-                          autoFocus
-                        />
-                        <span className="text-[11px] text-zinc-500">
-                          {space.unit}
-                        </span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => void handleApplyManualMeasure()}
-                        className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                        disabled={!parseFloat(measureInputCm)}
-                      >
-                        {t("simulation.calibrate.apply")}
-                      </button>
-                    </div>
-                  );
-                })()}
 
               {/* AI calibration — bbox overlay for the active candidate. */}
               {calibrateCandidates.length > 0 &&
@@ -2060,7 +2312,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                         onChange={(e) => {
                           const raw = parseFloat(e.target.value);
                           if (!Number.isFinite(raw)) return;
-                          const cm = space.unit === "in" ? raw * 2.54 : raw;
+                          const cm = sizeUnit === "in" ? raw * 2.54 : raw;
                           mutatePlacement(selected.id, { widthCm: cm });
                         }}
                         className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
@@ -2082,7 +2334,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                         onChange={(e) => {
                           const raw = parseFloat(e.target.value);
                           if (!Number.isFinite(raw)) return;
-                          const cm = space.unit === "in" ? raw * 2.54 : raw;
+                          const cm = sizeUnit === "in" ? raw * 2.54 : raw;
                           mutatePlacement(selected.id, { heightCm: cm });
                         }}
                         className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
@@ -2172,35 +2424,51 @@ function SpaceEditorContent({ id }: { id: string }) {
               {t("simulation.wall.advancedHint")}
             </p>
             <div className="mt-3 space-y-2 text-sm">
-              <label className="flex items-center justify-between">
+              <label className="flex items-center justify-between gap-2">
                 <span className="text-xs text-zinc-500">
-                  {t("simulation.wall.widthCm")}
+                  {t("simulation.wall.width")} ({displayUnit})
                 </span>
                 <input
                   type="number"
-                  step="1"
-                  value={primarySurface?.widthCm ?? ""}
+                  step={displayUnit === "m" ? "0.01" : displayUnit === "ft" ? "0.1" : "1"}
+                  value={
+                    primarySurface?.widthCm != null
+                      ? Number(
+                          (primarySurface.widthCm / wallUnitFactor).toFixed(
+                            wallUnitDecimals,
+                          ),
+                        )
+                      : ""
+                  }
                   onChange={(e) => {
                     const raw = parseFloat(e.target.value);
                     void handleWallDims({
-                      widthCm: Number.isFinite(raw) ? raw : null,
+                      widthCm: Number.isFinite(raw) ? raw * wallUnitFactor : null,
                     });
                   }}
                   className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
                 />
               </label>
-              <label className="flex items-center justify-between">
+              <label className="flex items-center justify-between gap-2">
                 <span className="text-xs text-zinc-500">
-                  {t("simulation.wall.heightCm")}
+                  {t("simulation.wall.height")} ({displayUnit})
                 </span>
                 <input
                   type="number"
-                  step="1"
-                  value={primarySurface?.heightCm ?? ""}
+                  step={displayUnit === "m" ? "0.01" : displayUnit === "ft" ? "0.1" : "1"}
+                  value={
+                    primarySurface?.heightCm != null
+                      ? Number(
+                          (primarySurface.heightCm / wallUnitFactor).toFixed(
+                            wallUnitDecimals,
+                          ),
+                        )
+                      : ""
+                  }
                   onChange={(e) => {
                     const raw = parseFloat(e.target.value);
                     void handleWallDims({
-                      heightCm: Number.isFinite(raw) ? raw : null,
+                      heightCm: Number.isFinite(raw) ? raw * wallUnitFactor : null,
                     });
                   }}
                   className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
@@ -2247,6 +2515,23 @@ function SpaceEditorContent({ id }: { id: string }) {
                           : t("simulation.calibrate.retrigger")}
                       </button>
                     )}
+                  {/*
+                    Manual "벽 정돈 다시 실행" — same shape as the AI
+                    retrigger. Always available when a photo exists
+                    (unlike calibration, cleanup is idempotent —
+                    re-running against `photo_original_storage_path`
+                    just produces a fresh cleaned copy).
+                  */}
+                  <button
+                    type="button"
+                    onClick={() => void handleManualWallCleanupRetry()}
+                    disabled={wallCleanupBusy}
+                    className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    {wallCleanupBusy
+                      ? t("simulation.wallCleanup.processing")
+                      : t("simulation.wallCleanup.retry")}
+                  </button>
                 </div>
               )}
               {/*
@@ -2293,19 +2578,22 @@ function SpaceEditorContent({ id }: { id: string }) {
             <h2 className="text-sm font-semibold text-zinc-900">
               {t("simulation.inspector.unit")}
             </h2>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {t("simulation.inspector.unitHint")}
+            </p>
             <div className="mt-2 inline-flex rounded-lg bg-zinc-100 p-1 text-xs">
-              {(["cm", "in"] as const).map((u) => (
+              {DISPLAY_UNIT_ORDER.map((u) => (
                 <button
                   key={u}
                   type="button"
-                  onClick={() => void handleUnit(u)}
+                  onClick={() => void handleDisplayUnit(u)}
                   className={`rounded-md px-3 py-1 ${
-                    space.unit === u
+                    displayUnit === u
                       ? "bg-white text-zinc-900 shadow-sm"
                       : "text-zinc-500 hover:text-zinc-800"
                   }`}
                 >
-                  {t(`simulation.inspector.unit.${u}`)}
+                  {u}
                 </button>
               ))}
             </div>

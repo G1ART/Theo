@@ -27,13 +27,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
+import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { useT } from "@/lib/i18n/useT";
-import { listMySpaces } from "@/lib/supabase/spaces";
+import { deleteSpace, listMySpaces } from "@/lib/supabase/spaces";
 import type { SceneSpace } from "@/lib/simulation/scene";
 import { useFeatureAccess } from "@/hooks/useFeatureAccess";
 import { CreateSpaceDialog } from "@/components/simulation/CreateSpaceDialog";
 import { SimulationPaywallCard } from "@/components/simulation/SimulationPaywallCard";
+import { SpaceCardMenu } from "@/components/simulation/SpaceCardMenu";
 import { spacePhotoUrl } from "@/components/simulation/spacePhotoUrl";
 
 function formatRelative(iso: string, locale: string): string {
@@ -60,6 +62,12 @@ function SpacesContent() {
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Two-phase delete state — `pendingDeleteId` opens the confirm
+  // dialog; `deleting` covers the async round-trip so the confirm
+  // button disables and the optimistic remove/rollback is atomic
+  // (mirrors `/my/shortlists` precedent).
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -97,11 +105,14 @@ function SpacesContent() {
       }
       return null;
     }
-    // `quota.limit === Infinity` in gallery_workspace; render only when finite.
+    // Unlimited (Infinity) — prefer the visible active-space count so
+    // the counter tracks deletions instead of the lifetime
+    // `simulation.space.created` event tally (they diverge because
+    // `deleteSpace` is soft — see BETA_UNLIMITED banner in planMatrix.ts).
     if (!Number.isFinite(quota.limit)) {
       return t("simulation.list.counterUnlimited").replace(
         "{used}",
-        String(quota.used),
+        String(spaces.length),
       );
     }
     return t("simulation.list.counter")
@@ -125,6 +136,32 @@ function SpacesContent() {
     },
     [featureAccess, router],
   );
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDeleteId || deleting) return;
+    setDeleting(true);
+    // Optimistic remove — snapshot first so we can restore if
+    // `deleteSpace` errors. RLS already gates this to the owner so
+    // we can call from the client without a server action.
+    const snapshot = spaces;
+    setSpaces((prev) => prev.filter((s) => s.id !== pendingDeleteId));
+    const { error } = await deleteSpace(pendingDeleteId);
+    setDeleting(false);
+    setPendingDeleteId(null);
+    if (error) {
+      setSpaces(snapshot);
+      setToast(t("spaces.delete.failed"));
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[spaces] delete failed", error);
+      }
+      return;
+    }
+    // Refresh the entitlement so the counter/quota (once we revert to
+    // finite caps post-beta) reflects the freed slot as soon as the
+    // resolver picks up the change.
+    featureAccess.refresh();
+    setToast(t("spaces.delete.success"));
+  }, [deleting, featureAccess, pendingDeleteId, spaces, t]);
 
   const handleCopyShare = useCallback(
     (id: string, token: string) => {
@@ -242,7 +279,7 @@ function SpacesContent() {
                       </p>
                     )}
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
                       onClick={() => handleCopyShare(space.id, space.shareToken)}
@@ -254,12 +291,13 @@ function SpacesContent() {
                         ? t("simulation.list.share.copied")
                         : t("simulation.list.share.copy")}
                     </button>
-                    <Link
-                      href={`/my/spaces/${space.id}`}
-                      className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                    >
-                      {t("simulation.list.edit")}
-                    </Link>
+                    <SpaceCardMenu
+                      ariaLabel={t("spaces.list.menu.open")}
+                      editHref={`/my/spaces/${space.id}`}
+                      editLabel={t("spaces.list.menu.edit")}
+                      deleteLabel={t("spaces.list.menu.delete")}
+                      onDelete={() => setPendingDeleteId(space.id)}
+                    />
                   </div>
                 </div>
               </li>
@@ -273,6 +311,20 @@ function SpacesContent() {
         onClose={() => setCreateOpen(false)}
         onCreated={handleCreated}
         paywalled={overCap}
+      />
+
+      <ConfirmActionDialog
+        open={pendingDeleteId !== null}
+        title={t("spaces.delete.confirm.title")}
+        description={t("spaces.delete.confirm.body")}
+        confirmLabel={t("spaces.list.menu.delete")}
+        cancelLabel={t("common.cancel")}
+        tone="destructive"
+        busy={deleting}
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => {
+          if (!deleting) setPendingDeleteId(null);
+        }}
       />
 
       {toast && (

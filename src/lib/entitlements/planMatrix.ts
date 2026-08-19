@@ -192,43 +192,65 @@ export const PLAN_QUOTA_MATRIX: Partial<
     hybrid_pro: { limit: 300, windowDays: 30, countEventKeys: ["connection.message_sent"] },
     gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["connection.message_sent"] },
   },
-  /**
-   * Display / Hang Simulation (P1, 2026-08-18) — LIFETIME space-creation
-   * ceiling. Counts `simulation.space.created` events (windowDays=0). Free
-   * tier gets 2 spaces to try the flow; pro tiers scale up; workspace has
-   * no ceiling. Share/export is intentionally split off onto the sub-key
-   * `simulation.2d.export` below so the (feature, plan) PK still holds one
-   * QuotaRule per entry (mirrors the `delegation.*` sub-key pattern).
-   */
+  // ────────────────────────────────────────────────────────────────
+  // BETA_UNLIMITED (2026-08-18): Display / Hang Simulation quotas are
+  // opened up for every plan during the closed beta so we can watch
+  // the space-first flow without artificial slot pressure. `limit:
+  // null` == unlimited (computeQuotaInfo returns Infinity). The
+  // `count_event_keys` are kept as-is so `usage_events` continues to
+  // accrue a faithful baseline — post-beta we can drop the null and
+  // restore the pricing-plan caps below in one edit.
+  //
+  // Mirror change: `supabase/migrations/20260819030000_beta_unlimited
+  // _simulation_quotas.sql` UPDATEs `plan_quota_matrix.quota_limit`
+  // → null for the same (plan, feature) rows so DB-driven consumers
+  // stay in sync.
+  //
+  // TODO (post-beta) — restore these exact caps here AND in the
+  // matching migration (rollback SQL is inlined at the top of the
+  // migration file):
+  //   simulation.2d              (lifetime, count `simulation.space.created`)
+  //     free              = 2
+  //     artist_pro        = 5
+  //     discovery_pro     = 5
+  //     hybrid_pro        = 20
+  //     gallery_workspace = null (unlimited)
+  //   simulation.2d.export       (monthly, count `simulation.render.exported`;
+  //                               free is not in PLAN_FEATURE_MATRIX so it
+  //                               stays blocked at the feature gate)
+  //     artist_pro        = 5
+  //     discovery_pro     = 20
+  //     hybrid_pro        = 50
+  //     gallery_workspace = null (unlimited)
+  //   simulation.3d              (monthly, count `simulation.render.exported`;
+  //                               only hybrid_pro/gallery in PLAN_FEATURE_MATRIX)
+  //     hybrid_pro        = 30
+  //     gallery_workspace = null (unlimited)
+  //
+  // Non-goal reminder: `deleteSpace` is a soft delete, so the
+  // `simulation.space.created` counter does NOT decrement when a
+  // user deletes a space. During beta this is invisible (quotas
+  // are Infinity). When we re-cap the free tier post-beta, decide
+  // whether to (a) purge the matching usage_events row from
+  // `deleteSpace` (needs a new DELETE grant on `usage_events`) or
+  // (b) switch the counter to a live row count. See the parent
+  // hand-off note dated 2026-08-18.
+  // ────────────────────────────────────────────────────────────────
   "simulation.2d": {
-    free: { limit: 2, windowDays: 0, countEventKeys: ["simulation.space.created"] },
-    artist_pro: { limit: 5, windowDays: 0, countEventKeys: ["simulation.space.created"] },
-    discovery_pro: { limit: 5, windowDays: 0, countEventKeys: ["simulation.space.created"] },
-    hybrid_pro: { limit: 20, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    free: { limit: null, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    artist_pro: { limit: null, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    discovery_pro: { limit: null, windowDays: 0, countEventKeys: ["simulation.space.created"] },
+    hybrid_pro: { limit: null, windowDays: 0, countEventKeys: ["simulation.space.created"] },
     gallery_workspace: { limit: null, windowDays: 0, countEventKeys: ["simulation.space.created"] },
   },
-  /**
-   * Display / Hang Simulation (P1, 2026-08-18) — MONTHLY share/export
-   * ceiling for the 2D room-photo renderer. Counts
-   * `simulation.render.exported` events (both share-link generation and
-   * downloadable image export). Free is intentionally omitted from
-   * `PLAN_FEATURE_MATRIX["simulation.2d.export"]` so the entitlement
-   * resolver blocks the action before this quota is even consulted.
-   */
   "simulation.2d.export": {
-    artist_pro: { limit: 5, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
-    discovery_pro: { limit: 20, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
-    hybrid_pro: { limit: 50, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    artist_pro: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    discovery_pro: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    hybrid_pro: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
     gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
   },
-  /**
-   * Display / Hang Simulation (P1, 2026-08-18) — MONTHLY render/export
-   * ceiling for the 3D parametric renderer. Counts
-   * `simulation.render.exported` events; only the two plans that
-   * unlock `simulation.3d` are enumerated.
-   */
   "simulation.3d": {
-    hybrid_pro: { limit: 30, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
+    hybrid_pro: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
     gallery_workspace: { limit: null, windowDays: 30, countEventKeys: ["simulation.render.exported"] },
   },
 };
