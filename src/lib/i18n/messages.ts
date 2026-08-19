@@ -3909,6 +3909,29 @@ export const messages = {
     "simulation.editor.saving": "Saving…",
     "simulation.editor.saved": "Saved",
     "simulation.editor.saveFailed": "Couldn't save changes.",
+    // Display Simulation Phase 3 (2026-08-19) — SavePill micro-indicator
+    // states. Replaces the full "saving…" overlay; copy stays terse so
+    // the pill reads at a glance without breaking the toolbar rhythm.
+    "simulation.save.saving": "Saving",
+    "simulation.save.saved": "Saved",
+    "simulation.save.error": "Save failed",
+    // Phase 3 (2026-08-19) — silent auto-crop hint. Fires as a
+    // low-corner toast once the background Track 1 pipeline lands a
+    // fresh `cutout` sibling row; the placement's rect also snaps to
+    // the crop's aspect via the aspect-fit rule.
+    "simulation.autocrop.tidied": "Padding trimmed automatically",
+    // Phase 3 (2026-08-19) — bulk "clean this space" toolbar button.
+    // Sits next to Share / Export; disabled if nothing needs trimming.
+    "simulation.bulkCrop.cta": "Tidy padding",
+    "simulation.bulkCrop.empty": "Everything is already tidy",
+    "simulation.bulkCrop.preview":
+      "{count} works to tidy · ~{seconds}s",
+    "simulation.bulkCrop.confirm": "Start",
+    "simulation.bulkCrop.cancel": "Cancel",
+    "simulation.bulkCrop.progress": "{done}/{total} tidied…",
+    "simulation.bulkCrop.done": "Padding tidied for {count} works",
+    "simulation.bulkCrop.failed":
+      "Some works couldn't be tidied. Try again in a moment.",
     "simulation.editor.titlePlaceholder": "Untitled space",
     "simulation.editor.share": "Share",
     "simulation.editor.share.copied": "Link copied",
@@ -8042,6 +8065,26 @@ export const messages = {
     "simulation.editor.saving": "저장 중…",
     "simulation.editor.saved": "저장됨",
     "simulation.editor.saveFailed": "변경사항을 저장하지 못했어요.",
+    // Display Simulation Phase 3 (2026-08-19) — SavePill 마이크로
+    // 인디케이터. 전체 오버레이 스피너 대신 툴바 우상단에 붙어
+    // "지금 저장 중 / 방금 저장됨" 만 조용히 알린다.
+    "simulation.save.saving": "저장 중",
+    "simulation.save.saved": "저장됨",
+    "simulation.save.error": "저장 실패",
+    // Phase 3 (2026-08-19) — 배치 직후 조용히 뛰는 Track 1 자동
+    // 크롭이 완료됐을 때 좌하단에 뜨는 마이크로 토스트.
+    "simulation.autocrop.tidied": "여백을 자동 정리했어요",
+    // Phase 3 (2026-08-19) — 툴바의 "이 공간 여백 일괄 정리" 버튼.
+    "simulation.bulkCrop.cta": "여백 일괄 정리",
+    "simulation.bulkCrop.empty": "정리할 여백이 없어요",
+    "simulation.bulkCrop.preview":
+      "{count}개 작품 정리 · 예상 소요 {seconds}초",
+    "simulation.bulkCrop.confirm": "시작",
+    "simulation.bulkCrop.cancel": "취소",
+    "simulation.bulkCrop.progress": "{done}/{total} 완료…",
+    "simulation.bulkCrop.done": "{count}개 작품의 여백을 정리했어요",
+    "simulation.bulkCrop.failed":
+      "일부 작품 여백을 정리하지 못했어요. 잠시 후 다시 시도해 주세요.",
     "simulation.editor.titlePlaceholder": "이름 없는 공간",
     "simulation.editor.share": "공유",
     "simulation.editor.share.copied": "링크 복사됨",

@@ -33,6 +33,7 @@ import {
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import type { Locale } from "@/lib/i18n/locale";
 import {
+  rowToScenePlacement,
   rowToSceneSpace,
   scenePlacementUpsertToRow,
   sceneSpaceInsertToRow,
@@ -40,6 +41,7 @@ import {
   sceneSurfaceInsertToRow,
   sceneSurfaceUpdateToRow,
   type ArtworkThumbForScene,
+  type ScenePlacement,
   type SceneSpace,
   type SceneSpaceUpdate,
   type ScenePlacementUpsert,
@@ -268,6 +270,33 @@ function rowToArtworkThumb(
     cutoutAlphaImagePxWidth: safePx(picked.cutoutAlpha?.width),
     cutoutAlphaImagePxHeight: safePx(picked.cutoutAlpha?.height),
     workForm: row.work_form ?? "flat_2d",
+  };
+}
+
+/**
+ * Phase 3 (2026-08-19) — light-weight refetch of a single artwork's
+ * scene-thumb, used after silent Track 1 auto-crop lands a new
+ * `cutout` sibling row. Replaces the ex-`await load()` full-space
+ * hydration path so the editor never blinks. Uses `OWNER_ARTWORK_SELECT`
+ * because the caller is always the space owner (RLS is enforced
+ * server-side; a non-owner never lands in this editor).
+ */
+export async function getArtworkSceneThumb(
+  artworkId: string,
+  options: LoaderOptions = {},
+): Promise<{ data: ArtworkThumbForScene | null; error: unknown }> {
+  const client = options.client ?? defaultClient;
+  const locale = options.locale ?? "en";
+  const { data, error } = await client
+    .from("artworks")
+    .select(OWNER_ARTWORK_SELECT)
+    .eq("id", artworkId)
+    .maybeSingle();
+  if (error) return { data: null, error };
+  if (!data) return { data: null, error: null };
+  return {
+    data: rowToArtworkThumb(data as unknown as RawArtworkRow, locale),
+    error: null,
   };
 }
 
@@ -732,17 +761,20 @@ export async function updateSurface(
  * (defensive), then again server-side via the `space_id = spaceId`
  * predicate on the RLS policy.
  *
- * Uses `.upsert(rows, { onConflict: 'id' })` so the round trip stays
- * a single request — same pattern PostgREST's `Prefer: resolution=
- * merge-duplicates` uses under the hood.
+ * Uses `.upsert(rows, { onConflict: 'id' }).select()` so callers get
+ * the server-materialized rows back in a single round trip. Phase 3
+ * (2026-08-19) relies on this to swap client-side `tmp_` ids for
+ * server-generated UUIDs in-place — no more full-scene re-hydrate
+ * after every drag / tap-to-place, which is what caused the "page
+ * refresh" feel.
  */
 export async function upsertPlacements(
   spaceId: string,
   placementRows: ScenePlacementUpsert[],
   options: { client?: SupabaseClient } = {},
-): Promise<{ error: unknown }> {
+): Promise<{ data: ScenePlacement[] | null; error: unknown }> {
   const client = options.client ?? defaultClient;
-  if (placementRows.length === 0) return { error: null };
+  if (placementRows.length === 0) return { data: [], error: null };
   const rows = placementRows.map((p) => {
     if (p.spaceId !== spaceId) {
       throw new Error(
@@ -751,11 +783,16 @@ export async function upsertPlacements(
     }
     return scenePlacementUpsertToRow(p);
   });
-  const { error } = await client
+  const { data, error } = await client
     .from("space_placements")
-    .upsert(rows, { onConflict: "id" });
-  if (!error) await touchSpace(client, spaceId);
-  return { error };
+    .upsert(rows, { onConflict: "id" })
+    .select();
+  if (error) return { data: null, error };
+  await touchSpace(client, spaceId);
+  const mapped = ((data ?? []) as Record<string, unknown>[]).map((r) =>
+    rowToScenePlacement(r),
+  );
+  return { data: mapped, error: null };
 }
 
 export async function deletePlacement(

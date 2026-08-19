@@ -50,6 +50,7 @@ import { AuthGate } from "@/components/AuthGate";
 import {
   deletePlacement as deletePlacementRow,
   exportSpace,
+  getArtworkSceneThumb,
   getSpaceById,
   SimulationEntitlementError,
   updateSpace,
@@ -95,6 +96,7 @@ import {
   ArtworkPickerSheet,
   type PickerArtwork,
 } from "./ArtworkPickerSheet";
+import { SavePill, type SavePillStatus } from "./SavePill";
 import { SimulationPaywallCard } from "./SimulationPaywallCard";
 import {
   applyHomography,
@@ -139,6 +141,17 @@ const FALLBACK_WALL_HEIGHT_CM = 260;
  * being noisy, drop toward 5 % if users report missed cases.
  */
 const ASPECT_MISMATCH_THRESHOLD = 0.06;
+
+/**
+ * Phase 3 (2026-08-19) — silent auto-crop failure cache. Keeps a
+ * per-artwork "don't retry until" timestamp in localStorage so a
+ * legacy work that consistently trips the low-confidence branch
+ * doesn't burn tokens on every canvas tap. 30-min TTL keeps the
+ * cache fresh enough that a user who re-uploads a better image
+ * gets a retry within a session.
+ */
+const AUTOCROP_FAILED_LS_KEY = "abstract:sim:autocrop:failed";
+const AUTOCROP_FAILED_TTL_MS = 30 * 60 * 1000;
 
 // ─────────────────────────────────────────────────────────────────────
 // P1 (2026-08-19 hot-fix) — Display-unit ("cm | in | m | ft") helpers.
@@ -401,7 +414,13 @@ function SpaceEditorContent({ id }: { id: string }) {
   const [notFound, setNotFound] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(focusId ?? null);
   const [toast, setToast] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // Phase 3 (2026-08-19) — the boolean "저장 중…" flag was replaced
+  // by the SavePill status enum below. Kept as a plain `setter-only`
+  // in case a future consumer wants a boolean; unread by default so
+  // TS's noUnusedLocals stays quiet (config permitting).
+  const [, setSaving] = useState(false);
+  const [savePillStatus, setSavePillStatus] =
+    useState<SavePillStatus>("idle");
   const [titleDraft, setTitleDraft] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingArtwork, setPendingArtwork] = useState<PickerArtwork | null>(
@@ -499,6 +518,13 @@ function SpaceEditorContent({ id }: { id: string }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyPlacements = useRef<Map<string, ScenePlacement>>(new Map());
+  // Phase 3 (2026-08-19) — auto-crop dispatcher, wired up after
+  // `runAutoCropForArtwork` is defined further down. flushPlacements
+  // triggers it via a ref so we don't cycle through the callback
+  // tree. Takes an artworkId (not a placement id) so we don't race
+  // against React's batched state commit — a placement id lookup
+  // after `setState(swap)` would still see the old tmp_ id.
+  const maybeAutoCropRef = useRef<((artworkId: string) => void) | null>(null);
   const dragRef = useRef<{
     placementId: string;
     surfaceId: string;
@@ -603,12 +629,37 @@ function SpaceEditorContent({ id }: { id: string }) {
   }, [primarySurface, imageBox]);
 
   // ── Persist ──────────────────────────────────────────────────
+  //
+  // Phase 3 (2026-08-19) — flushPlacements is now fully optimistic. We
+  // send the dirty rows to PostgREST, receive the server-materialized
+  // rows back (thanks to the new `.upsert().select()` in
+  // `upsertPlacements`), and swap our client-side `tmp_` ids for the
+  // real UUIDs in-place. No `void load()` re-hydrate at the end — the
+  // whole editor stayed frozen for ~600 ms after every action because
+  // every artwork thumb was re-downloaded and re-mounted.
+  //
+  // Race handling:
+  //   • A new tmp_ landed while we were in-flight → it stays in
+  //     `dirtyPlacements` (we cleared the map before the await) and
+  //     rides the next debounce tick.
+  //   • A row we sent got deleted locally while in-flight → we skip
+  //     the id swap for it (the server row lands orphaned; the next
+  //     flush re-syncs, and the delete already fired `deletePlacement`
+  //     directly so it's gone from the DB anyway).
+  //   • The primary key of a real-UUID row can never move, so the
+  //     swap is a no-op for updates.
   const flushPlacements = useCallback(async () => {
     if (!state) return;
     const rows = Array.from(dirtyPlacements.current.values());
     if (rows.length === 0) return;
     dirtyPlacements.current.clear();
+    // Remember which local tmp_ id maps to which artwork+surface+time
+    // signature so we can pair it back to a server row after the
+    // insert. `(artworkId, xCm, yCm, zOrder)` is unique enough within
+    // a single flush cycle; ties are broken by insertion order.
+    const tmpIds = rows.filter((r) => r.id.startsWith("tmp_")).map((r) => r.id);
     setSaving(true);
+    setSavePillStatus("saving");
     const upserts = rows.map((p) => ({
       // Only include `id` when it's a real UUID (persisted). Temp ids
       // are stripped so PostgREST generates a fresh one.
@@ -628,19 +679,22 @@ function SpaceEditorContent({ id }: { id: string }) {
       zOrder: p.zOrder,
       framePreset: p.framePreset,
     }));
-    const { error } = await upsertPlacements(state.space.id, upserts);
+    const { data: serverRows, error } = await upsertPlacements(
+      state.space.id,
+      upserts,
+    );
     setSaving(false);
     if (error) {
+      setSavePillStatus("error");
       // Roll the state back — a phantom placement that persists in
       // memory but never lands in the DB is worse than a hard failure
       // toast, because subsequent drags / flushes reference an id
       // PostgREST has never seen and the whole editor drifts. Drop
       // every temp-id placement we just tried to insert; keep updates
-      // for real-uuid rows (server state is authoritative — a reload
-      // will resync them) but clear the dirty set so we don't retry.
-      const tempIdsToDrop = new Set(
-        rows.filter((r) => r.id.startsWith("tmp_")).map((r) => r.id),
-      );
+      // for real-uuid rows (server state is authoritative — the next
+      // manual reload will resync them) but clear the dirty set so we
+      // don't retry.
+      const tempIdsToDrop = new Set(tmpIds);
       if (tempIdsToDrop.size > 0) {
         setState((prev) => {
           if (!prev) return prev;
@@ -663,9 +717,66 @@ function SpaceEditorContent({ id }: { id: string }) {
       setToast(t("simulation.editor.saveFailed"));
       return;
     }
-    // Re-hydrate to pick up server-generated ids on newly-inserted rows.
-    void load();
-  }, [state, t, load]);
+    setSavePillStatus("saved");
+    // ── Success path — swap tmp_ ids for server UUIDs in-place ──
+    if (!serverRows || serverRows.length === 0) return;
+    // Match sent tmp_ rows to returned server rows by
+    // (artworkId, xCm, yCm) — the tuple is stable across the trip
+    // and only ambiguous when the user places two identical works
+    // at the exact same coordinates in one flush window (extremely
+    // rare, and even then the wrong-order id swap still points at a
+    // valid server row for the same artwork).
+    const tmpQueueByKey = new Map<string, string[]>();
+    for (const row of rows) {
+      if (!row.id.startsWith("tmp_")) continue;
+      const key = `${row.artworkId}|${row.xCm.toFixed(2)}|${row.yCm.toFixed(2)}`;
+      const q = tmpQueueByKey.get(key) ?? [];
+      q.push(row.id);
+      tmpQueueByKey.set(key, q);
+    }
+    const idSwaps = new Map<string, string>();
+    for (const s of serverRows) {
+      // Only care about rows we actually just inserted. Update
+      // responses will match our original UUID, so skip them.
+      const key = `${s.artworkId}|${s.xCm.toFixed(2)}|${s.yCm.toFixed(2)}`;
+      const q = tmpQueueByKey.get(key);
+      if (!q || q.length === 0) continue;
+      const tmp = q.shift();
+      if (tmp) idSwaps.set(tmp, s.id);
+    }
+    if (idSwaps.size === 0) return;
+    setState((prev) => {
+      if (!prev) return prev;
+      const nextPlacements = prev.space.placements.map((p) => {
+        const swap = idSwaps.get(p.id);
+        return swap ? { ...p, id: swap } : p;
+      });
+      return { ...prev, space: { ...prev.space, placements: nextPlacements } };
+    });
+    setSelectedId((prev) => (prev && idSwaps.has(prev) ? idSwaps.get(prev)! : prev));
+    // If any of the swapped-id placements got mutated again between
+    // "start of flush" and "response", they'll still be tracked under
+    // their tmp_ key in `dirtyPlacements` — re-key those under the
+    // new UUID so the next flush updates rather than re-inserts.
+    for (const [tmp, real] of idSwaps) {
+      const stillDirty = dirtyPlacements.current.get(tmp);
+      if (stillDirty) {
+        dirtyPlacements.current.delete(tmp);
+        dirtyPlacements.current.set(real, { ...stillDirty, id: real });
+      }
+    }
+    // ── Phase 3 auto-crop hook (Part 3) — fire silent Track 1 for
+    // any newly-inserted placement whose artwork has no cutout yet.
+    // Fired by artworkId (not placement id) so the callback doesn't
+    // need to re-lookup the placement in the freshly-mutated state.
+    const artworkIdsForAutoCrop = new Set<string>();
+    for (const row of rows) {
+      if (row.id.startsWith("tmp_")) artworkIdsForAutoCrop.add(row.artworkId);
+    }
+    for (const artworkId of artworkIdsForAutoCrop) {
+      maybeAutoCropRef.current?.(artworkId);
+    }
+  }, [state, t]);
 
   const scheduleFlush = useCallback(() => {
     if (persistTimer.current) clearTimeout(persistTimer.current);
@@ -1405,6 +1516,378 @@ function SpaceEditorContent({ id }: { id: string }) {
     }
   }, [state, selectedId, pushHistory, applyPlacements]);
 
+  // ─────────────────────────────────────────────────────────────
+  // Phase 3 (2026-08-19) — auto-background Track 1 machinery.
+  //
+  // Trigger: whenever `flushPlacements` lands a fresh server row for
+  // an artwork whose `state.artworks` bag has no cutout yet. We fire
+  // Track 1 (free Vision bbox) fire-and-forget, then, on success:
+  //   1. re-fetch just that artwork's thumb (NOT the whole space —
+  //      avoids the Phase 2 "page refresh" feel);
+  //   2. patch `state.artworks` in place so the renderer picks up
+  //      the new cutout URL (`renderScene2D` already prefers
+  //      cutoutAlpha > cutout > primary);
+  //   3. snap the placement's cm rect to the cutout's aspect using
+  //      the same "keep long axis" rule the inspector's
+  //      aspect-mismatch card uses.
+  //
+  // Guardrails:
+  //   • In-flight dedupe via `autoCropInFlightRef` — shared with the
+  //     bulk cleanup path so a manual "여백 일괄 정리" click never
+  //     double-fires against a background job.
+  //   • Failure cache (`abstract:sim:autocrop:failed` in
+  //     localStorage) with a 30-min TTL so we don't burn tokens on
+  //     an artwork that consistently trips the "low confidence" or
+  //     "decode failed" branch.
+  //   • Silent: no toast on failure, `console.debug` only. Success
+  //     fires a subtle low-corner "여백 자동 정리됨" toast that sits
+  //     opposite the top-right SavePill.
+  // ─────────────────────────────────────────────────────────────
+
+  const autoCropInFlightRef = useRef<Set<string>>(new Set());
+  // Phase 3 (2026-08-19) — dedicated low-corner "여백 자동 정리됨"
+  // toast so it doesn't sit under the SavePill (top-right) or the
+  // primary bottom-center toast used for save errors / manual CTA
+  // status. Auto-fades after 2 s.
+  const [autoCropToast, setAutoCropToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!autoCropToast) return;
+    const h = setTimeout(() => setAutoCropToast(null), 2000);
+    return () => clearTimeout(h);
+  }, [autoCropToast]);
+
+  const readAutoCropFailedCache = useCallback((): Record<string, number> => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(AUTOCROP_FAILED_LS_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      const now = Date.now();
+      let mutated = false;
+      const cleaned: Record<string, number> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === "number" && v > now) cleaned[k] = v;
+        else mutated = true;
+      }
+      if (mutated) {
+        try {
+          window.localStorage.setItem(
+            AUTOCROP_FAILED_LS_KEY,
+            JSON.stringify(cleaned),
+          );
+        } catch {
+          /* quota — best-effort */
+        }
+      }
+      return cleaned;
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const writeAutoCropFailed = useCallback(
+    (artworkId: string) => {
+      if (typeof window === "undefined") return;
+      const cache = readAutoCropFailedCache();
+      cache[artworkId] = Date.now() + AUTOCROP_FAILED_TTL_MS;
+      try {
+        window.localStorage.setItem(
+          AUTOCROP_FAILED_LS_KEY,
+          JSON.stringify(cache),
+        );
+      } catch {
+        /* quota — best-effort */
+      }
+    },
+    [readAutoCropFailedCache],
+  );
+
+  /**
+   * "Keep long axis" aspect snap — mirrors
+   * `applyFitToImage("long")` in the inspector's aspect-mismatch
+   * card. Given a placement's current cm rect and a cutout's pixel
+   * aspect, returns the new cm rect that freezes the longer side
+   * and derives the shorter from the aspect. Returns null when
+   * inputs are degenerate (missing dims / non-positive aspect).
+   */
+  function snapPlacementToCutoutAspect(
+    widthCm: number | null,
+    heightCm: number | null,
+    cutoutPxW: number | null,
+    cutoutPxH: number | null,
+  ): { widthCm: number; heightCm: number } | null {
+    if (
+      widthCm == null ||
+      heightCm == null ||
+      widthCm <= 0 ||
+      heightCm <= 0 ||
+      cutoutPxW == null ||
+      cutoutPxH == null ||
+      cutoutPxW <= 0 ||
+      cutoutPxH <= 0
+    ) {
+      return null;
+    }
+    const imgAspect = cutoutPxW / cutoutPxH;
+    const widthIsLonger = widthCm >= heightCm;
+    const nextWidth = widthIsLonger ? widthCm : heightCm * imgAspect;
+    const nextHeight = widthIsLonger ? widthCm / imgAspect : heightCm;
+    if (
+      !Number.isFinite(nextWidth) ||
+      !Number.isFinite(nextHeight) ||
+      nextWidth <= 0 ||
+      nextHeight <= 0
+    ) {
+      return null;
+    }
+    return {
+      widthCm: Number(nextWidth.toFixed(2)),
+      heightCm: Number(nextHeight.toFixed(2)),
+    };
+  }
+
+  /**
+   * Refresh a single artwork's scene-thumb in `state.artworks` and,
+   * if the fresh thumb carries a new cutout, snap every placement
+   * that references it to the cutout's aspect. Used by both the
+   * silent auto-crop path and the existing manual CTAs (which used
+   * to `await load()` — Phase 3 replaces those with this lighter
+   * per-artwork refetch).
+   */
+  const refreshArtworkThumb = useCallback(
+    async (artworkId: string) => {
+      const { data: thumb } = await getArtworkSceneThumb(artworkId, { locale });
+      if (!thumb) return;
+      setState((prev) => {
+        if (!prev) return prev;
+        const nextArtworks = new Map(prev.artworks);
+        nextArtworks.set(artworkId, thumb);
+        // Aspect-snap: only when a NEW cutout arrived (i.e. we
+        // didn't already have one before this refresh). Reads the
+        // OLD map so we don't re-snap on every refresh.
+        const oldThumb = prev.artworks.get(artworkId);
+        const hadCutout = Boolean(
+          oldThumb?.cutoutImageUrl || oldThumb?.cutoutAlphaImageUrl,
+        );
+        const hasCutout = Boolean(
+          thumb.cutoutImageUrl || thumb.cutoutAlphaImageUrl,
+        );
+        if (!hadCutout && hasCutout) {
+          const cutoutPxW =
+            thumb.cutoutAlphaImagePxWidth ?? thumb.cutoutImagePxWidth ?? null;
+          const cutoutPxH =
+            thumb.cutoutAlphaImagePxHeight ?? thumb.cutoutImagePxHeight ?? null;
+          const nextPlacements = prev.space.placements.map((p) => {
+            if (p.artworkId !== artworkId) return p;
+            const snap = snapPlacementToCutoutAspect(
+              p.widthCm,
+              p.heightCm,
+              cutoutPxW,
+              cutoutPxH,
+            );
+            if (!snap) return p;
+            const next = { ...p, ...snap };
+            // Queue for the next flush so the aspect snap lands in
+            // the DB (dragging / re-selecting doesn't re-snap
+            // because the aspect will already match).
+            dirtyPlacements.current.set(next.id, next);
+            return next;
+          });
+          scheduleFlush();
+          return {
+            ...prev,
+            artworks: nextArtworks,
+            space: { ...prev.space, placements: nextPlacements },
+          };
+        }
+        return { ...prev, artworks: nextArtworks };
+      });
+    },
+    [locale, scheduleFlush],
+  );
+
+  /**
+   * Silent background Track 1 for a single artwork. No-op unless
+   * the artwork lacks BOTH cutout variants, is not currently
+   * in-flight, and is not on the 30-min failure cache. Always
+   * resolves — errors are swallowed to `console.debug`.
+   *
+   * Takes an artworkId (not a placement id) so the caller can fire
+   * it right after the flush swap without waiting for React's
+   * batched state commit — the artwork thumb map is the source of
+   * truth for "has cutout" regardless of placement id ordering.
+   */
+  const runAutoCropForArtwork = useCallback(
+    async (artworkId: string) => {
+      const s = stateRef.current;
+      if (!s) return;
+      const artwork = s.artworks.get(artworkId);
+      if (!artwork?.imageUrl) return;
+      if (artwork.cutoutImageUrl || artwork.cutoutAlphaImageUrl) return;
+      if (autoCropInFlightRef.current.has(artworkId)) return;
+      const failedCache = readAutoCropFailedCache();
+      if (failedCache[artworkId]) return;
+      autoCropInFlightRef.current.add(artworkId);
+      try {
+        const res = await runVisionBboxCrop({
+          artworkId,
+          imageUrl: artwork.imageUrl,
+        });
+        if (res.applied) {
+          await refreshArtworkThumb(artworkId);
+          setAutoCropToast(t("simulation.autocrop.tidied"));
+        } else if (
+          res.reason === "already_tight" ||
+          res.reason === "low_confidence"
+        ) {
+          // Not a "true" failure — cache anyway so we don't retry on
+          // every re-selection. `already_tight` is idempotent; the
+          // primary image will keep rendering.
+          writeAutoCropFailed(artworkId);
+        } else {
+          writeAutoCropFailed(artworkId);
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[simulation] auto-crop soft-failed", {
+              artworkId,
+              reason: res.reason,
+            });
+          }
+        }
+      } catch (err) {
+        writeAutoCropFailed(artworkId);
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] auto-crop threw", err);
+        }
+      } finally {
+        autoCropInFlightRef.current.delete(artworkId);
+      }
+    },
+    [readAutoCropFailedCache, refreshArtworkThumb, t, writeAutoCropFailed],
+  );
+
+  // Wire `flushPlacements` -> `runAutoCropForArtwork` via a ref so
+  // we don't cycle through the callback tree (flushPlacements would
+  // otherwise pull runAutoCrop into its deps → change every render →
+  // re-schedule the debounce).
+  useEffect(() => {
+    maybeAutoCropRef.current = (artworkId: string) => {
+      void runAutoCropForArtwork(artworkId);
+    };
+  }, [runAutoCropForArtwork]);
+
+  // Bulk cleanup dialog state (Part 4).
+  const [bulkCropOpen, setBulkCropOpen] = useState(false);
+  const [bulkCropRunning, setBulkCropRunning] = useState(false);
+  const [bulkCropProgress, setBulkCropProgress] = useState<{
+    done: number;
+    total: number;
+  }>({ done: 0, total: 0 });
+
+  /**
+   * Distinct artwork ids on this space that (a) have a placement,
+   * (b) have no cutout yet, and (c) are not currently on the failure
+   * cache — this is the queue the toolbar CTA will drain when the
+   * user hits "여백 일괄 정리".
+   */
+  const bulkCropCandidates = useMemo<string[]>(() => {
+    if (!state) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const failedCache = readAutoCropFailedCache();
+    for (const p of state.space.placements) {
+      const art = state.artworks.get(p.artworkId);
+      if (!art?.imageUrl) continue;
+      if (art.cutoutImageUrl || art.cutoutAlphaImageUrl) continue;
+      if (seen.has(p.artworkId)) continue;
+      if (failedCache[p.artworkId]) continue;
+      seen.add(p.artworkId);
+      out.push(p.artworkId);
+    }
+    return out;
+  }, [state, readAutoCropFailedCache]);
+
+  /**
+   * Drain the bulk-crop queue with a small parallelism (3) so we
+   * don't hammer the Vision endpoint. Skips artworks already
+   * in-flight (auto-crop). Progress state drives both the toolbar
+   * button label and the confirm dialog's live counter.
+   */
+  const runBulkCrop = useCallback(async () => {
+    const queue = bulkCropCandidates.filter(
+      (id) => !autoCropInFlightRef.current.has(id),
+    );
+    if (queue.length === 0) {
+      setBulkCropOpen(false);
+      return;
+    }
+    setBulkCropRunning(true);
+    setBulkCropProgress({ done: 0, total: queue.length });
+    let doneCount = 0;
+    let anyFailed = false;
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < queue.length) {
+        const idx = cursor++;
+        const artworkId = queue[idx];
+        if (!artworkId) continue;
+        // Feed the in-flight set so the auto-crop path doesn't
+        // duplicate work if a placement change fires mid-drain.
+        autoCropInFlightRef.current.add(artworkId);
+        try {
+          const s = stateRef.current;
+          const art = s?.artworks.get(artworkId);
+          if (!art?.imageUrl) {
+            continue;
+          }
+          const res = await runVisionBboxCrop({
+            artworkId,
+            imageUrl: art.imageUrl,
+          });
+          if (res.applied) {
+            await refreshArtworkThumb(artworkId);
+          } else if (
+            res.reason === "already_tight" ||
+            res.reason === "low_confidence"
+          ) {
+            writeAutoCropFailed(artworkId);
+          } else {
+            writeAutoCropFailed(artworkId);
+            anyFailed = true;
+          }
+        } catch (err) {
+          writeAutoCropFailed(artworkId);
+          anyFailed = true;
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[simulation] bulk-crop worker threw", err);
+          }
+        } finally {
+          autoCropInFlightRef.current.delete(artworkId);
+          doneCount += 1;
+          setBulkCropProgress({ done: doneCount, total: queue.length });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () =>
+        worker(),
+      ),
+    );
+    setBulkCropRunning(false);
+    setBulkCropOpen(false);
+    setBulkCropProgress({ done: 0, total: 0 });
+    if (anyFailed) {
+      setToast(t("simulation.bulkCrop.failed"));
+    } else {
+      setToast(
+        t("simulation.bulkCrop.done").replace(
+          "{count}",
+          String(queue.length),
+        ),
+      );
+    }
+  }, [bulkCropCandidates, refreshArtworkThumb, t, writeAutoCropFailed]);
+
   /**
    * Display Simulation Phase 2 (2026-08-20) — Track 1 auto-crop CTA.
    * Fires the free Vision bbox pipeline for the selected placement's
@@ -1418,6 +1901,9 @@ function SpaceEditorContent({ id }: { id: string }) {
       const artwork = state.artworks.get(artworkId);
       if (!artwork?.imageUrl) return;
       if (cutoutBusy) return;
+      // Phase 3: dedupe against the silent auto-crop path.
+      if (autoCropInFlightRef.current.has(artworkId)) return;
+      autoCropInFlightRef.current.add(artworkId);
       setCutoutBusy({ artworkId, track: "bbox" });
       setToast(t("simulation.cutout.bbox.running"));
       try {
@@ -1427,7 +1913,9 @@ function SpaceEditorContent({ id }: { id: string }) {
         });
         if (res.applied) {
           setToast(t("simulation.cutout.bbox.done"));
-          await load();
+          // Phase 3: refresh just this artwork instead of the whole
+          // scene — same aspect-snap path as the auto-fire.
+          await refreshArtworkThumb(artworkId);
         } else if (res.reason === "already_tight") {
           setToast(t("simulation.cutout.bbox.alreadyTight"));
         } else if (res.reason === "low_confidence") {
@@ -1436,10 +1924,11 @@ function SpaceEditorContent({ id }: { id: string }) {
           setToast(t("simulation.cutout.bbox.failed"));
         }
       } finally {
+        autoCropInFlightRef.current.delete(artworkId);
         setCutoutBusy(null);
       }
     },
-    [state, cutoutBusy, load, t],
+    [state, cutoutBusy, refreshArtworkThumb, t],
   );
 
   /**
@@ -1458,7 +1947,8 @@ function SpaceEditorContent({ id }: { id: string }) {
         const res = await runPhotoroomCutout({ artworkId });
         if (res.applied) {
           setToast(t("simulation.cutout.alpha.done"));
-          await load();
+          // Phase 3: refresh just this artwork.
+          await refreshArtworkThumb(artworkId);
         } else if (res.reason === "not_configured") {
           setToast(t("simulation.cutout.alpha.notConfigured"));
         } else if (res.reason === "not_entitled") {
@@ -1472,7 +1962,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         setCutoutBusy(null);
       }
     },
-    [state, cutoutBusy, load, t],
+    [state, cutoutBusy, refreshArtworkThumb, t],
   );
 
   const handleDisplayUnit = useCallback(
@@ -1928,9 +2418,26 @@ function SpaceEditorContent({ id }: { id: string }) {
     t,
   ]);
 
+  // Phase 3 (2026-08-19) — wall size flush is debounced (500 ms) so
+  // typing "332" into the width input doesn't fire three separate
+  // updateSurface calls / three SavePill blinks. The optimistic
+  // state.surfaces update stays immediate so the canvas responds
+  // instantly to every keystroke; only the DB round trip is
+  // coalesced.
+  const wallDimsDraftRef = useRef<{
+    widthCm?: number | null;
+    heightCm?: number | null;
+  }>({});
+  const wallDimsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const WALL_DIMS_DEBOUNCE_MS = 500;
+
   const handleWallDims = useCallback(
-    async (patch: { widthCm?: number | null; heightCm?: number | null }) => {
+    (patch: { widthCm?: number | null; heightCm?: number | null }) => {
       if (!state || !primarySurface) return;
+      const surfaceId = primarySurface.id;
+      const spaceId = state.space.id;
+      // Optimistic local update — canvas re-renders at the new
+      // wall dimensions immediately.
       setState((prev) =>
         prev
           ? {
@@ -1938,17 +2445,42 @@ function SpaceEditorContent({ id }: { id: string }) {
               space: {
                 ...prev.space,
                 surfaces: prev.space.surfaces.map((s) =>
-                  s.id === primarySurface.id ? { ...s, ...patch } : s,
+                  s.id === surfaceId ? { ...s, ...patch } : s,
                 ),
               },
             }
           : prev,
       );
-      await updateSurface(primarySurface.id, patch, {
-        spaceIdForTouch: state.space.id,
-      });
+      // Merge into the pending draft — the debounced flush sends
+      // whichever fields the user touched inside the window.
+      wallDimsDraftRef.current = {
+        ...wallDimsDraftRef.current,
+        ...patch,
+      };
+      if (wallDimsTimerRef.current) {
+        clearTimeout(wallDimsTimerRef.current);
+      }
+      setSaving(true);
+      setSavePillStatus("saving");
+      wallDimsTimerRef.current = setTimeout(() => {
+        const pending = wallDimsDraftRef.current;
+        wallDimsDraftRef.current = {};
+        wallDimsTimerRef.current = null;
+        void (async () => {
+          const { error } = await updateSurface(surfaceId, pending, {
+            spaceIdForTouch: spaceId,
+          });
+          setSaving(false);
+          if (error) {
+            setSavePillStatus("error");
+            setToast(t("simulation.editor.saveFailed"));
+          } else {
+            setSavePillStatus("saved");
+          }
+        })();
+      }, WALL_DIMS_DEBOUNCE_MS);
     },
-    [state, primarySurface],
+    [state, primarySurface, t],
   );
 
   /**
@@ -2168,13 +2700,35 @@ function SpaceEditorContent({ id }: { id: string }) {
             placeholder={t("simulation.editor.titlePlaceholder")}
             className="min-w-0 flex-1 rounded-md bg-transparent px-2 py-1 text-lg font-semibold text-zinc-900 outline-none focus:bg-zinc-50"
           />
-          {saving && (
-            <span className="text-xs text-zinc-400">
-              {t("simulation.editor.saving")}
-            </span>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/*
+            Phase 3 (2026-08-19) — subtle save-state pill.
+            Replaces the ex-"저장 중" span that hung next to the title
+            and the (also-removed) full-page pessimistic re-hydrate.
+          */}
+          <SavePill status={savePillStatus} />
+          {/*
+            Phase 3 (2026-08-19) — bulk padding cleanup CTA. Shown
+            only when at least one placement's artwork still has no
+            cutout. Handler defined near the auto-crop machinery so
+            the in-flight set stays a single source of truth.
+          */}
+          {bulkCropCandidates.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setBulkCropOpen(true)}
+              disabled={bulkCropRunning}
+              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+              title={t("simulation.bulkCrop.cta")}
+            >
+              {bulkCropRunning
+                ? t("simulation.bulkCrop.progress")
+                    .replace("{done}", String(bulkCropProgress.done))
+                    .replace("{total}", String(bulkCropProgress.total))
+                : t("simulation.bulkCrop.cta")}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleShare}
@@ -2496,6 +3050,17 @@ function SpaceEditorContent({ id }: { id: string }) {
                       zIndex: rp.css.zIndex + 1,
                       touchAction: "none",
                       cursor: isDragging ? "grabbing" : "grab",
+                      // Phase 3 (2026-08-19) — smooth transitions on
+                      // width/height/transform so aspect-snap on
+                      // cutout arrival (Track 1) is a soft resize
+                      // rather than a jump. Off during drag so the
+                      // pointer stays pixel-precise and CSS doesn't
+                      // fight the 60 fps translate; `will-change`
+                      // hints the compositor to promote the layer.
+                      willChange: isDragging ? "transform" : undefined,
+                      transition: isDragging
+                        ? "none"
+                        : "width 200ms ease-out, height 200ms ease-out, transform 120ms ease-out, outline-color 150ms ease-out",
                       ...layers.outer,
                     }}
                   >
@@ -3441,12 +4006,96 @@ function SpaceEditorContent({ id }: { id: string }) {
         existingArtworkIds={existingIds}
       />
 
+      {bulkCropOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bulk-crop-title"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !bulkCropRunning) {
+              setBulkCropOpen(false);
+            }
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3
+              id="bulk-crop-title"
+              className="text-sm font-semibold text-zinc-900"
+            >
+              {t("simulation.bulkCrop.cta")}
+            </h3>
+            <p className="mt-2 text-xs text-zinc-600">
+              {bulkCropCandidates.length === 0
+                ? t("simulation.bulkCrop.empty")
+                : t("simulation.bulkCrop.preview")
+                    .replace(
+                      "{count}",
+                      String(bulkCropCandidates.length),
+                    )
+                    /*
+                      Heuristic: ~5 s per crop end-to-end (Vision
+                      round trip + canvas + upload + attach). Divided
+                      by concurrency of 3, rounded up to keep the
+                      preview honest for small queues.
+                    */
+                    .replace(
+                      "{seconds}",
+                      String(Math.max(3, Math.ceil((bulkCropCandidates.length * 5) / 3))),
+                    )}
+            </p>
+            {bulkCropRunning && (
+              <p className="mt-2 text-[11px] text-zinc-500">
+                {t("simulation.bulkCrop.progress")
+                  .replace("{done}", String(bulkCropProgress.done))
+                  .replace("{total}", String(bulkCropProgress.total))}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkCropOpen(false)}
+                disabled={bulkCropRunning}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {t("simulation.bulkCrop.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runBulkCrop()}
+                disabled={bulkCropRunning || bulkCropCandidates.length === 0}
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {t("simulation.bulkCrop.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && (
         <div
           role="status"
           className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg"
         >
           {toast}
+        </div>
+      )}
+
+      {/*
+        Phase 3 (2026-08-19) — auto-crop confirmation toast. Placed
+        bottom-left so it doesn't collide with the top-right SavePill
+        or the bottom-center primary toast used for save errors and
+        manual CTA status.
+      */}
+      {autoCropToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 left-6 rounded-full bg-emerald-600/95 px-3 py-1.5 text-[11px] font-medium text-white shadow-md"
+        >
+          <span aria-hidden className="mr-1">✓</span>
+          {autoCropToast}
         </div>
       )}
 

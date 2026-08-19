@@ -214,11 +214,17 @@ export function buildMountLayers({
   const mattePx = Math.max(0, Math.round(geom.matteCm * pxPerCm));
   const shadow = frameOuterShadowFilter(lightDirection);
 
-  // Selection ring is a strong dark border via inset outline; the
-  // frame material renders as background beneath it so both stay
-  // visible even when the frame is thick.
+  // Phase 3 (2026-08-19) — softer, off-frame selection ring. The
+  // Phase 2 dark inline outline hugged the frame material, which
+  // fought with the drop-shadow and read as "harsh outline". A
+  // 2 px blue ring with 4 px offset floats just above the frame,
+  // reads clearly on any wall photo, and transitions smoothly
+  // when selection changes.
   const selectionRing: CSSProperties = selected
-    ? { outline: "2px solid rgba(15,23,42,0.95)", outlineOffset: 0 }
+    ? {
+        outline: "2px solid rgba(59, 130, 246, 0.6)",
+        outlineOffset: 4,
+      }
     : {};
 
   const outer: CSSProperties = {

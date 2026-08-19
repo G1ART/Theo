@@ -2,6 +2,60 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (30) — 시뮬 Phase 3: 재-hydrate 제거 + 자동 여백 정리 + SavePill
+
+> **Supabase SQL 적용 필요: 없음** (순수 클라이언트 UX/성능 패치).
+>
+> **환경 변수 변경: 없음.**
+
+### 배경
+Phase 2 실사용 QA 에서 두 이슈:
+1. **"페이지 새로고침 감"** — 배치·드래그·프레임 프리셋·벽 크기 등 모든 액션이 `SpaceEditor.tsx::flushPlacements` 뒤에 `void load()` 로 전체 씬을 재-hydrate → 500 ms debounce 뒤에 이미지들이 전부 재-mount 되며 canvas 가 짧게 얼어붙음.
+2. **Legacy 작품 세로 압축** — Naked Flower D 같은 legacy 작품은 Track 1 자동 크롭이 미실행, 인스펙터의 "여백 자동 제거 (AI)" 를 3단계로 발견해야 함.
+
+### 결정 (부모 확정)
+- **자동 크롭**: 배치 직후 조용한 백그라운드 Track 1 + 완료 시 fade 크로스페이드 + 자동 aspect 스냅.
+- **매뉴얼 fallback**: 툴바 "여백 일괄 정리" 버튼.
+- **저장 인디케이터**: 우상단 subtle SavePill (● 저장 중 / ✓ 저장됨) — iCloud/Notion 스타일.
+
+### 변경 (신규 1 파일 + 수정 3 파일)
+
+**신규 파일:**
+- `src/components/simulation/SavePill.tsx` — 우상단 마이크로 pill. 3 상태 (`saving` / `saved` / `error`) + `saved` 는 2 s 후 자동 fade. `role="status"` `aria-live="polite"`.
+
+**수정 파일:**
+- `src/lib/supabase/spaces.ts` — (1) `upsertPlacements` 시그니처가 `.upsert(...).select()` 로 리턴 rows 를 반환하도록 변경 (`Promise<{data: ScenePlacement[]|null, error: unknown}>`). (2) 신규 `getArtworkSceneThumb(artworkId)` — 단일 artwork 의 `ArtworkThumbForScene` 만 가볍게 refetch (Phase 2 의 전체 space 재-hydrate 대체용).
+- `src/lib/simulation/mounting.ts` — `buildMountLayers` 의 selection ring 을 강한 dark outline (`rgba(15,23,42,0.95)`) 에서 부드러운 offset blue outline (`rgba(59,130,246,0.6)`, `outline-offset: 4px`) 로 교체. 프레임 shadow 와 안 겹침.
+- `src/components/simulation/SpaceEditor.tsx` — 대규모 Phase 3 개편. 상세 내역:
+  - **재-hydrate 제거**: `flushPlacements` 가 서버 rows 를 `.select()` 로 받아 `(artworkId, xCm, yCm)` 튜플 매칭 → tmp_ id 를 국소 UUID 교체. `void load()` 콜 완전 제거. Race 케이스 3종 방어: 인-플라이트 중 새 tmp_ 추가 (다음 flush 사이클로 이월), 인-플라이트 중 삭제 (서버 rows 무시), 인-플라이트 중 동일 tmp_ 재-mutate (dirtyPlacements 를 real UUID 로 re-key).
+  - **SavePill 배선**: `savePillStatus` 상태 (`idle` / `saving` / `saved` / `error`) 툴바 우상단에 렌더. 기존 header 좌측 inline "저장 중" span 제거.
+  - **자동 크롭 (silent Track 1)**: `runAutoCropForArtwork(artworkId)` — flushPlacements 성공 후 newly-inserted (tmp_) placement 의 artworkId 에 대해 fire. Fire-and-forget, in-flight dedupe (`autoCropInFlightRef`), 30 min 실패 캐시 (`localStorage['abstract:sim:autocrop:failed']`). 성공 시 `refreshArtworkThumb` 로 해당 artwork thumb 만 재-fetch → `snapPlacementToCutoutAspect` (long-axis 유지 룰) 로 rect aspect 스냅 → 좌하단 "여백 자동 정리됨" 토스트.
+  - **툴바 "여백 일괄 정리" 버튼**: 미크롭 candidates 리스트업, 확인 모달 (개수·예상 시간), 병렬 3, in-flight set 공유로 자동 백그라운드 잡과 중복 방지.
+  - **CSS 트랜지션**: placement `<div>` 에 `transition: width 200ms ease-out, height 200ms ease-out, transform 120ms ease-out, outline-color 150ms ease-out` — 드래그 중에는 `transition: none` + `willChange: transform` 로 60 fps 유지. Cutout 도착 시 aspect 스냅이 부드러운 resize 로 보임.
+  - **벽 크기 debounce**: `handleWallDims` 를 500 ms debounce 로 코얼레스. Optimistic state 업데이트는 즉시, `updateSurface` 만 debounce → SavePill 이 매 keystroke 마다 깜빡이지 않음.
+  - **Manual CTA 도 lighter refetch**: 기존 `handleRunBboxCrop` / `handleRunPhotoroomCutout` 도 `await load()` → `refreshArtworkThumb(artworkId)` 로 교체. In-flight set 공유.
+- `src/lib/i18n/messages.ts` — 신규 키 (KO/EN):
+  - `simulation.save.saving` / `.saved` / `.error` — SavePill 라벨
+  - `simulation.autocrop.tidied` — 자동 크롭 성공 좌하단 토스트
+  - `simulation.bulkCrop.*` — 툴바 CTA + 모달 카피
+
+### Race Condition 방어 (수동 검증 결과)
+- **연속 tap 3개**: 첫 flush 인플라이트 중 4번째 tap → dirtyPlacements 에 새 tmp_ 추가 → 첫 flush 완료 시 idSwaps 로 3개 tmp_ → UUID 교체 완료. dirtyPlacements 에는 4번째 tmp_ 만 남음 → 다음 debounce 에서 flush. OK.
+- **tap 후 즉시 삭제**: tap 으로 tmp_ 배치 → 200 ms 후 delete (아직 500 ms debounce 전) → dirtyPlacements 에서 삭제 (`handleDeleteSelected`) 후 debounce 만료 시 flush 는 no-op (dirtyPlacements 비어있음). OK.
+- **flush 중 delete**: tap → 500 ms 후 flush 시작 (in-flight) → 도중 delete → 서버 응답 시 idSwaps 에서 그 tmp_ 는 state 에 이미 없어 map 이 no-op. OK.
+- **flush 중 drag (같은 tmp_)**: tap → flush 시작 → 인-플라이트 중 drag → dirtyPlacements 에 tmp_ 로 다시 등록 → flush 응답 시 idSwaps 에 tmp_→UUID 존재 → dirtyPlacements 재-key (tmp_ → UUID). 다음 flush 는 UPDATE 로 처리됨. OK.
+
+### 검증
+- `npx tsc --noEmit` — clean (0 errors).
+- 기존 `src/app/upload/bulk/page.tsx` 의 2개 pre-existing error 는 이번 스코프 밖 (이미 병렬 워커가 처리 완료했거나 별도 이슈).
+- `npx eslint` — 5개 pre-existing errors (react-hooks 규칙, 릴리즈 27~29 워커들이 남긴 부채) + 1 pre-existing warning. Phase 3 워커가 새로 도입한 이슈 0건.
+
+### 사인업 워커와의 파일 격리
+- `src/app/signup/**`, `src/lib/auth/**`, `src/components/auth/**`, `docs/SIGNUP_REDESIGN_SPEC.md` 미터치. Phase 1 사인업 워커가 나중에 dispatch 될 수 있음.
+
+### 다음
+- Phase 4 후보: (a) SavePill "unsaved offline" 상태 (network offline 감지), (b) auto-crop 실패 캐시 사용자 확인 다이얼로그 ("이 작품은 자동 정리에 실패했어요 — 사진을 교체하시겠어요?"), (c) 일괄 정리 모달을 popover 로 축소.
+
 ## 2026-08-19 (28) — 사인업 v2 스펙 확정 + Phase 0 (profile 컬럼 + feature flag)
 
 > Supabase SQL **실행 필요**: `supabase/migrations/20260820020000_signup_v2_profile_columns.sql` (Supabase SQL Editor 에서 수동 실행) · **환경 변수 추가**: `NEXT_PUBLIC_SIGNUP_V2` (로컬 `.env.local` + Vercel Production/Preview 모두 초기값 `false`)
