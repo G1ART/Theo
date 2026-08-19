@@ -319,6 +319,46 @@ Never fabricate objects that are not clearly visible. Never emit bboxes outside 
 export const SPACE_CALIBRATE_SCHEMA = `{"candidates": [{"id": string, "kind": "window"|"door"|"tv"|"sofa"|"table"|"bookshelf"|"counter"|"rug"|"other", "label_ko": string, "label_en": string, "bbox": {"x0": number, "y0": number, "x1": number, "y1": number}, "dimension": "width"|"height"|"diagonal"|"seat_back", "ask_ko": string, "ask_en": string, "typical_range_cm": {"min": number, "max": number}}]}`;
 
 // ─────────────────────────────────────────────────────────────────────
+// Automatic wall-region cleanup (P1, 2026-08-19)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Auto-fires immediately after a fresh room-photo upload (see
+// SpaceEditor.handleUploadPhoto → runWallCleanup). The client uses the
+// polygon as a feathered mask and flattens low-frequency luminance
+// artefacts INSIDE the wall region only; the rest of the scene
+// (furniture, floor, windows, framed art already on the wall) is left
+// pixel-identical. Confidence < 0.4 OR polygon vertex count < 3
+// short-circuits the pipeline so a bad detection never distorts the
+// upload — this is the "fail open" rule.
+//
+// The prompt intentionally treats occluders (furniture in front of the
+// wall) as objects to WRAP AROUND. Feathering hides small polygon
+// inaccuracies at the boundary; missing an occluder is the only failure
+// mode users notice, so the model is instructed to prefer a tighter
+// polygon that goes around foreground occluders over a loose polygon
+// that swallows them.
+export const SPACE_WALL_DETECT_SYSTEM = `You analyze a single room photograph to identify the primary wall surface where a person would hang art. Return one JSON object with:
+
+1. "wallPolygon": normalized 0-1 image coordinates ({0,0} top-left, {1,1} bottom-right) of the largest visible flat wall segment — typically the wall facing the camera. Return 4-8 vertices in CLOCKWISE order starting from the top-left of the wall. EXCLUDE from the polygon: windows, doors, framed art already on the wall, mirrors, and any furniture in front of the wall. Wrapping the polygon AROUND foreground occluders (sofa, plant, lamp) is acceptable and encouraged — the client uses a feathered mask so small inaccuracies at the wall/occluder boundary are hidden. Return an empty array (fewer than 3 vertices) when the photo shows no clear wall (outdoor scene, extreme close-up, floor-only view).
+
+2. "wallMedianRgb": the dominant paint color of the wall as [R, G, B] with each channel 0-255. Sample the typical neutral wall tone — ignore obvious shadows / highlights / cast light on the wall. When the wall is white/off-white with warm sunlight cast across it, report the neutral off-white value, not the warm tint.
+
+3. "wallColorName": 1-3 word English label for the paint color (e.g. "off-white", "warm beige", "light gray", "sage green"). Never include quotes or punctuation.
+
+4. "confidence": 0-1, your self-reported confidence that the polygon and color are usable. Set BELOW 0.4 when:
+  - the photo shows no clear wall
+  - the wall is heavily cluttered (>50% covered by furniture / art / windows)
+  - the room is outdoor / open-plan without a clean target wall
+  - the wall is at an extreme oblique angle (>60° from camera)
+  A confidence below 0.4 means the client will skip cleanup entirely — err on the low side when uncertain.
+
+5. "lightDirection": rough direction of the dominant natural or artificial light hitting the wall, based on shadow patterns. One of: "top" | "top_left" | "left" | "bottom_left" | "bottom" | "bottom_right" | "right" | "top_right" | "diffuse" | "unknown". Use "diffuse" when lighting is broadly even across the wall.
+
+Prefer conservative polygons: 4 vertices tracing the visible wall extent is better than an 8-vertex polygon that swallows foreground objects. Never invent walls not visible in the photo. Never return coordinates outside [0, 1]. Return ONLY the JSON object.`;
+
+export const SPACE_WALL_DETECT_SCHEMA = `{"wallPolygon": [[number, number]], "wallMedianRgb": [number, number, number], "wallColorName": string, "confidence": number, "lightDirection": "top"|"top_left"|"left"|"bottom_left"|"bottom"|"bottom_right"|"right"|"top_right"|"diffuse"|"unknown"}`;
+
+// ─────────────────────────────────────────────────────────────────────
 // Pre-flight artwork quality gate (2026-08-19)
 // ─────────────────────────────────────────────────────────────────────
 //

@@ -56,7 +56,11 @@ import {
   upsertPlacements,
   type SpaceScene,
 } from "@/lib/supabase/spaces";
-import { uploadSpacePhoto } from "@/lib/simulation/storage";
+import {
+  replaceSpacePhotoWithCleaned,
+  uploadSpacePhoto,
+} from "@/lib/simulation/storage";
+import { cleanupWallRegion } from "@/lib/simulation/wallCleanup";
 import {
   renderScene2D,
   type ArtworkThumbMap,
@@ -722,6 +726,118 @@ function SpaceEditorContent({ id }: { id: string }) {
     [state, runAiCalibration, t],
   );
 
+  /**
+   * P1 (2026-08-19) — Automatic wall-region cleanup pass.
+   *
+   * Runs BETWEEN upload and AI scale detect (`runAiCalibration`) so
+   * every downstream step — including object detection — operates on
+   * the cleaned image. The pipeline is intentionally forgiving:
+   * anything that fails silently (no vision key, low confidence,
+   * degenerate polygon, canvas throw) simply returns and the caller
+   * continues with the original photo. Users never see a "cleanup
+   * failed" error — cleanup is a "value-add" pass, not a gate.
+   *
+   * Detailed flow:
+   *   1. Prepare the vision payload (768 px longest-edge JPEG, base64).
+   *   2. Fire `POST /api/ai/space-wall-detect`.
+   *   3. If `confidence >= 0.4` AND the polygon has ≥ 3 vertices,
+   *      run `cleanupWallRegion` on the NATIVE-RES original blob.
+   *   4. Upload the cleaned blob as `photo_cleaned.jpg` and swap
+   *      `photo_storage_path` to point at it.
+   *   5. Reload the space so the editor picks up the new path
+   *      (dimensions unchanged — placements stay in place).
+   *
+   * The processing toast auto-clears on completion regardless of
+   * whether the cleanup applied — a silent skip is preferable to a
+   * lingering "still processing" spinner when the model bails.
+   */
+  const runWallCleanup = useCallback(
+    async (input: {
+      file: File;
+      imagePxWidth: number;
+      imagePxHeight: number;
+      spaceId: string;
+    }): Promise<{ applied: boolean; cleanedFile: File | null }> => {
+      if (input.imagePxWidth <= 0 || input.imagePxHeight <= 0) {
+        return { applied: false, cleanedFile: null };
+      }
+      if (
+        !["image/jpeg", "image/png", "image/webp"].includes(input.file.type)
+      ) {
+        return { applied: false, cleanedFile: null };
+      }
+      setToast(t("simulation.wallCleanup.processing"));
+      try {
+        const base64 = await fileToBase64(input.file);
+        const res = await aiApi.spaceWallDetect({
+          spaceId: input.spaceId,
+          imageBase64: base64,
+          mime: input.file.type,
+          imagePxWidth: input.imagePxWidth,
+          imagePxHeight: input.imagePxHeight,
+        });
+        if (res.confidence < 0.4 || res.wallPolygon.length < 3) {
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[simulation] wall cleanup skipped", {
+              confidence: res.confidence,
+              polygonPoints: res.wallPolygon.length,
+              degraded: res.degraded,
+              reason: res.reason,
+            });
+          }
+          setToast(null);
+          return { applied: false, cleanedFile: null };
+        }
+        const cleanup = await cleanupWallRegion({
+          originalBlob: input.file,
+          wallPolygon: res.wallPolygon,
+          wallMedianRgb: res.wallMedianRgb,
+          imageWidth: input.imagePxWidth,
+          imageHeight: input.imagePxHeight,
+        });
+        if (!cleanup.applied) {
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[simulation] wall cleanup coverage-skipped", {
+              maskCoverage: cleanup.maskCoverage,
+            });
+          }
+          setToast(null);
+          return { applied: false, cleanedFile: null };
+        }
+        const swap = await replaceSpacePhotoWithCleaned(
+          input.spaceId,
+          cleanup.cleanedBlob,
+        );
+        if (swap.error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[simulation] wall cleanup swap failed", swap.error);
+          }
+          setToast(null);
+          return { applied: false, cleanedFile: null };
+        }
+        await load();
+        setToast(t("simulation.wallCleanup.done"));
+        // Wrap the cleaned Blob as a File so the downstream calibrator
+        // can process it with the same runAiCalibration path used for
+        // fresh uploads. The `name` is arbitrary — the vision route
+        // only reads `type` + `imageBase64`.
+        const cleanedFile = new File(
+          [cleanup.cleanedBlob],
+          "space-cleaned.jpg",
+          { type: "image/jpeg" },
+        );
+        return { applied: true, cleanedFile };
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[simulation] wall cleanup failed", err);
+        }
+        setToast(null);
+        return { applied: false, cleanedFile: null };
+      }
+    },
+    [load, t],
+  );
+
   const handleUploadPhoto = useCallback(
     async (file: File) => {
       if (!state) return;
@@ -739,6 +855,26 @@ function SpaceEditorContent({ id }: { id: string }) {
         const upload = await uploadSpacePhoto(state.space.id, file);
         await load();
 
+        // Wall cleanup runs BEFORE scale detect so both the user's
+        // first look at the space AND the vision-based calibrator see
+        // the tidied photo. Cleanup is auto-fire (no toggle), fails
+        // open silently, and preserves the original at
+        // `photo_original_storage_path` for the "원본 사용" toggle.
+        //
+        // We only route the ORIGINAL File (native resolution) into
+        // cleanup — the browser's compressed WebP display copy is
+        // adequate for calibration but throws away the fidelity we
+        // want to preserve on the cleanup output. The vision route
+        // encodes its own 768 px thumbnail from `file` for detection
+        // (client-side `prepareImageForVision` isn't used here yet —
+        // the base64 payload is derived below).
+        const cleanup = await runWallCleanup({
+          file,
+          imagePxWidth: upload.widthPx,
+          imagePxHeight: upload.heightPx,
+          spaceId: state.space.id,
+        });
+
         // Guard: only trigger AI on a truly first-time upload for this
         // surface. Already-calibrated spaces (either photoCorners set
         // via the advanced corner picker OR widthCm already persisted
@@ -751,8 +887,13 @@ function SpaceEditorContent({ id }: { id: string }) {
         // doesn't double-fire against the same photo after `load()`
         // repopulates the state we just uploaded to.
         autoCalibrateFiredRef.current = state.space.id;
+        // Prefer the CLEANED variant for object detection when
+        // cleanup ran — a photo with flat, even lighting confuses the
+        // vision model less than one with harsh shadow gradients. When
+        // cleanup skipped (low confidence, degraded, coverage guard),
+        // fall back to the raw file so the calibrator still fires.
         await runAiCalibration({
-          file,
+          file: cleanup.cleanedFile ?? file,
           imagePxWidth: upload.widthPx,
           imagePxHeight: upload.heightPx,
           spaceId: state.space.id,
@@ -764,7 +905,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         setUploadBusy(false);
       }
     },
-    [state, load, t, aiCalibrationEnabled, runAiCalibration],
+    [state, load, t, aiCalibrationEnabled, runAiCalibration, runWallCleanup],
   );
 
   /**
@@ -1170,6 +1311,70 @@ function SpaceEditorContent({ id }: { id: string }) {
       });
     },
     [state, primarySurface],
+  );
+
+  /**
+   * P1 (2026-08-19) — "원본 사용 / Use original photo without cleanup"
+   * toggle. Swaps `photo_storage_path` between the untouched original
+   * (`photo_original_storage_path`) and the previously auto-cleaned
+   * variant. Both blobs share identical native dimensions (cleanup
+   * encodes at the input resolution), so existing placements stay
+   * pixel-accurate across the swap — no re-derivation needed.
+   *
+   * The toggle is only offered when BOTH variants exist and differ.
+   * Re-cleanup does NOT run here; it only fires on fresh uploads
+   * (matches the "no options at upload" directive — users can opt out
+   * of a bad cleanup, but the AUTO decision to run it is unchanged).
+   *
+   * The `swapTo` sentinel is either the concrete original path or the
+   * previously cleaned path. We derive the cleaned path from the
+   * standardized suffix (`photo_cleaned.jpg` under the same folder as
+   * `photo.webp`), which matches `replaceSpacePhotoWithCleaned`. If the
+   * derived cleaned path doesn't exist on disk yet (e.g. cleanup was
+   * skipped for coverage reasons) the swap-back just fails gracefully
+   * and the toggle re-renders to reflect the actual state.
+   */
+  const handleTogglePhotoVariant = useCallback(
+    async (useOriginal: boolean) => {
+      if (!state) return;
+      const originalPath = state.space.photoOriginalStoragePath;
+      const currentPath = state.space.photoStoragePath;
+      if (!originalPath || !currentPath) return;
+      // Derive the cleaned path from the original's folder — matches
+      // `replaceSpacePhotoWithCleaned` conventions. This lets us swap
+      // BACK to the cleaned variant without needing an extra column on
+      // `spaces` to remember it.
+      const idx = originalPath.lastIndexOf("/");
+      const folder = idx >= 0 ? originalPath.slice(0, idx) : "";
+      const cleanedPath = folder
+        ? `${folder}/photo_cleaned.jpg`
+        : "photo_cleaned.jpg";
+      const nextPath = useOriginal ? originalPath : cleanedPath;
+      if (nextPath === currentPath) return;
+      setState((prev) =>
+        prev
+          ? {
+              ...prev,
+              space: { ...prev.space, photoStoragePath: nextPath },
+            }
+          : prev,
+      );
+      const { error } = await updateSpace(state.space.id, {
+        photoStoragePath: nextPath,
+      });
+      if (error) {
+        // Roll back the optimistic swap so the toggle reflects reality.
+        setState((prev) =>
+          prev
+            ? {
+                ...prev,
+                space: { ...prev.space, photoStoragePath: currentPath },
+              }
+            : prev,
+        );
+      }
+    },
+    [state],
   );
 
   // ── Undo / Redo ──────────────────────────────────────────────
@@ -2044,6 +2249,43 @@ function SpaceEditorContent({ id }: { id: string }) {
                     )}
                 </div>
               )}
+              {/*
+                P1 (2026-08-19) — "원본 사용 / Use original" toggle.
+                Only rendered when the auto wall-cleanup produced a
+                distinct variant (i.e. `photo_original_storage_path`
+                exists and DIFFERS from `photo_storage_path`). Toggling
+                on swaps `photo_storage_path` back to the untouched
+                original so users who feel the cleanup is too
+                aggressive have an escape hatch — but the AUTO decision
+                to run cleanup on upload is unchanged, per the "no
+                options at upload" directive.
+              */}
+              {space.photoOriginalStoragePath &&
+                space.photoStoragePath &&
+                space.photoOriginalStoragePath !==
+                  space.photoStoragePath && (
+                  <label className="mt-3 flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 text-xs text-zinc-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={
+                        space.photoStoragePath ===
+                        space.photoOriginalStoragePath
+                      }
+                      onChange={(e) =>
+                        void handleTogglePhotoVariant(e.target.checked)
+                      }
+                    />
+                    <span className="flex-1">
+                      <span className="font-medium text-zinc-800">
+                        {t("simulation.wallCleanup.useOriginal.label")}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-zinc-500">
+                        {t("simulation.wallCleanup.useOriginal.hint")}
+                      </span>
+                    </span>
+                  </label>
+                )}
             </div>
           </details>
 

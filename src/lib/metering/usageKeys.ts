@@ -131,6 +131,16 @@ export const AI_FEATURE_TO_METER_KEY: Record<string, string> = {
    */
   "space.calibrate": USAGE_KEYS.SIMULATION_SPACE_CREATED,
   /**
+   * P1 (2026-08-19) — Automatic wall-region cleanup. Piggybacks on the
+   * same `simulation.space.created` meter as `space.calibrate` so the
+   * dashboard slice shape stays fixed; the emitted event carries
+   * `metadata.ai_feature = "space.wall_detect"` so analytics can
+   * separate the cleanup slice when needed. Auto-fires on every fresh
+   * upload — the meter fires once per successful detection, not once
+   * per space.
+   */
+  "space.wall_detect": USAGE_KEYS.SIMULATION_SPACE_CREATED,
+  /**
    * 2026-08-19 — Artwork upload pre-flight quality gate. Emitted for
    * every successful (non-degraded) verdict; the DSP enhancement
    * pipeline still has its own `.previewed` / `.completed` meters
@@ -168,4 +178,11 @@ export const AI_FEATURE_TO_ENTITLEMENT_KEY: Record<string, string> = {
    * short-circuits before we spend a vision token.
    */
   "space.calibrate": "simulation.2d",
+  /**
+   * P1 (2026-08-19) — Wall cleanup reuses the same `simulation.2d`
+   * gate so the auto-fire behavior stays consistent with calibration:
+   * users who can create a space also get the automatic wall
+   * cleanup pass; users blocked by the resolver never spend a token.
+   */
+  "space.wall_detect": "simulation.2d",
 };

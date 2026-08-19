@@ -219,3 +219,66 @@ export async function uploadSpacePhoto(
     heightPx,
   };
 }
+
+// ─── Post-upload cleanup swap ───────────────────────────────────────
+
+/**
+ * P1 (2026-08-19) — Upload the auto-cleaned wall-region variant of a
+ * space photo and swap `photo_storage_path` to point at it. The
+ * untouched original stays where `uploadSpacePhoto` first put it
+ * (`photo_original_storage_path`) so the "원본 사용 / Use original"
+ * toggle in the advanced accordion can revert at any time.
+ *
+ * Why a distinct suffix (`photo_cleaned.jpg`)? The display copy from
+ * `uploadSpacePhoto` is a WebP at `photo.webp` — overwriting it with a
+ * JPEG would confuse CDNs that key on the `.webp` extension for
+ * cache-control. Storing the cleaned variant at a sibling path keeps
+ * both variants co-located and lets us swap `photo_storage_path`
+ * atomically via `updateSpace`.
+ *
+ * `spaceIdForOwner` is used to derive the storage path (`{userId}/
+ * spaces/{spaceId}/photo_cleaned.jpg`); the RLS policy on the
+ * `artworks` bucket enforces `first segment === auth.uid()` so the
+ * caller must own the space.
+ *
+ * Errors surface via the returned `{ error }` shape so the caller can
+ * treat a cleanup upload failure as "cleanup skipped silently" without
+ * a try/catch — matches every other lib function in this module.
+ */
+export async function replaceSpacePhotoWithCleaned(
+  spaceId: string,
+  cleanedBlob: Blob,
+  options: { client?: SupabaseClient } = {},
+): Promise<{ storagePath: string | null; error: unknown }> {
+  const client = options.client ?? defaultClient;
+  if (!spaceId) {
+    return { storagePath: null, error: new Error("spaceId required") };
+  }
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+  const userId = session?.user?.id;
+  if (!userId) {
+    return { storagePath: null, error: new Error("Not authenticated") };
+  }
+
+  const cleanedPath = `${userId}/spaces/${spaceId}/photo_cleaned.jpg`;
+  const { error: uploadErr } = await client.storage
+    .from(BUCKET)
+    .upload(cleanedPath, cleanedBlob, {
+      upsert: true,
+      contentType: "image/jpeg",
+      cacheControl: "3600",
+    });
+  if (uploadErr) return { storagePath: null, error: uploadErr };
+
+  const { error: updateErr } = await updateSpace(
+    spaceId,
+    { photoStoragePath: cleanedPath },
+    { client },
+  );
+  if (updateErr) {
+    return { storagePath: cleanedPath, error: updateErr };
+  }
+  return { storagePath: cleanedPath, error: null };
+}

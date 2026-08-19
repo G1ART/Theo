@@ -3981,6 +3981,17 @@ export const messages = {
     "simulation.calibrate.retriggerEmpty":
       "AI couldn't find a clear reference. Try measuring manually.",
 
+    // P1 (2026-08-19) — Automatic wall-region cleanup. Auto-fires on
+    // every fresh upload (no user opt-in) — these strings surface only
+    // for the transient toasts + the "use original" escape hatch in
+    // the advanced accordion.
+    "simulation.wallCleanup.processing": "AI is tidying up the wall…",
+    "simulation.wallCleanup.done": "Wall tidied up",
+    "simulation.wallCleanup.useOriginal.label":
+      "Use original photo without cleanup",
+    "simulation.wallCleanup.useOriginal.hint":
+      "If the cleanup looks unnatural, you can revert to the original.",
+
     "simulation.picker.title": "Add an artwork",
     "simulation.picker.tab.saved": "Saved",
     "simulation.picker.tab.recent": "Recent",
@@ -7971,6 +7982,16 @@ export const messages = {
     "simulation.calibrate.retriggering": "AI가 스케일을 다시 잡고 있어요…",
     "simulation.calibrate.retriggerEmpty":
       "AI가 마땅한 물건을 못 찾았어요. 직접 재기로 시도해 보세요.",
+
+    // P1 (2026-08-19) — 자동 벽 클린업 (사용자 옵션 없이 업로드 시
+    // 즉시 실행). 사용자에게 노출되는 문구는 짧은 진행/완료 토스트와
+    // "정확한 스케일 (고급)" 아코디언 안의 원본 되돌리기 토글뿐.
+    "simulation.wallCleanup.processing": "AI가 벽을 정돈하고 있어요…",
+    "simulation.wallCleanup.done": "벽이 정돈됐어요",
+    "simulation.wallCleanup.useOriginal.label":
+      "정돈 없이 원본 사진 사용",
+    "simulation.wallCleanup.useOriginal.hint":
+      "정돈된 이미지가 부자연스러우면 원본으로 되돌릴 수 있어요.",
 
     "simulation.wall.title": "벽 보정",
     "simulation.wall.advancedTitle": "정확한 스케일 (고급)",

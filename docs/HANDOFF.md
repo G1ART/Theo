@@ -2,6 +2,60 @@
 
 Last updated: 2026-08-18
 
+## 2026-08-18 (21) — Vision AI ③ 업로드 시 자동 벽 클린업 (`space.wall_detect`)
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음 (`OPENAI_API_KEY` 만 필요, 없으면 조용히 스킵)
+
+### 배경
+- (14) Chunk C 릴리즈 후 사용자가 벽 사진의 창문 그림자·불균등 조명이 시뮬레이션 몰입감을 해친다고 지적. 별도 옵션 없이 업로드 즉시 자동 최적화 되도록 요구: "업로드 하자마자 바로 실시되도록 해야 효용감이 높으니 사용자에게 옵션을 줄 필요 없이 최적화해서 바로 '작품을 벽에 걸어보는 경험'을 할 수 있게 도와주는 방향으로 설계하자."
+- 옵션 B (벽 마스크 변환) 선택. 옵션 A (전역 톤 매핑) 는 가구·창문 색까지 왜곡 우려로 기각.
+
+### 파이프라인
+```
+upload → uploadSpacePhoto(원본 + display webp) → load
+       → runWallCleanup:
+            1) POST /api/ai/space-wall-detect → { wallPolygon, wallMedianRgb, confidence, lightDirection }
+            2) confidence<0.4 || polygon<3점 → 스킵 (조용히)
+            3) cleanupWallRegion (client canvas) → JPEG blob
+            4) replaceSpacePhotoWithCleaned → photo_storage_path 스왑 → load
+       → runAiCalibration(cleanedFile) → 스케일 감지
+```
+
+### 신규 파일 (2)
+- **`src/app/api/ai/space-wall-detect/route.ts`** — `handleAiRoute` 스캐폴딩 재사용, `spaceId` authz spot-check, defensive normalizer (폴리곤 3-12점 클램프, RGB 0-255 클램프).
+- **`src/lib/simulation/wallCleanup.ts`** — 순수 함수 `cleanupWallRegion(input)`. OffscreenCanvas 우선, HTMLCanvasElement 폴백. 알고리즘 상수:
+ - Feather 반경: `min(w,h)×0.02` — 폴리곤 경계 미세 오차 은폐, 하드 시임 방지.
+ - 저주파 luma map: 1/8 downscale → Gaussian blur `min(w,h)×0.10` → upscale.
+ - 보정비 클램프: `k ∈ [0.7, 1.5]` — highlight blowout / shadow crush 방지.
+ - Blend: `final = orig·(1 − 0.75·m) + corrected·(0.75·m)` — 마스크 외부 = 원본 비트 단위 동일.
+ - Chroma pull: 20% 강도로 `wallMedianRgb` 쪽으로, 다만 벽 채도>0.15 (액센트 벽) 이면 스킵.
+ - Coverage guard: <5% 또는 >95% 마스크 커버리지면 클린업 자체 스킵 (오탐지 방어).
+ - 출력: JPEG q=0.9.
+
+### 수정 파일 (8)
+- **`src/lib/ai/types.ts`** — `AiFeatureKey` 유니온에 `"space.wall_detect"` 추가. `SpaceWallDetectResult` + `SpaceWallDetectLightDirection` 타입.
+- **`src/lib/ai/safety.ts`** — allow-list 등록.
+- **`src/lib/ai/browser.ts`** — `FEATURE_TO_PATH` 매핑 + `aiApi.spaceWallDetect` 숏컷.
+- **`src/lib/ai/prompts/index.ts`** — `SPACE_WALL_DETECT_SYSTEM` + `SPACE_WALL_DETECT_SCHEMA`. 프롬프트가 폴리곤을 foreground occluder 주위로 감싸도록 명시 (시임 방지).
+- **`src/lib/metering/usageKeys.ts`** — 신규 키 추가 없이 `SIMULATION_SPACE_CREATED` 에 `metadata.ai_feature="space.wall_detect"` piggyback (space.calibrate 와 동일 패턴, 대시보드 슬라이스 스키마 유지).
+- **`src/lib/simulation/storage.ts`** — `replaceSpacePhotoWithCleaned(spaceId, blob)` 신규 헬퍼. 같은 폴더에 `photo_cleaned.jpg` 로 업로드 → `updateSpace({ photoStoragePath })` 스왑. **원본은 절대 덮어쓰지 않음.** 기존 `uploadSpacePhoto` 는 Chunk B 시점에 이미 dual-variant 저장을 하고 있어 배선 불필요.
+- **`src/components/simulation/SpaceEditor.tsx`** — `runWallCleanup` 헬퍼 + `handleUploadPhoto` 시퀀싱 확장 + "정돈 없이 원본 사용" 토글 (`handleTogglePhotoVariant`). 토글 조건부 노출: `photo_original_storage_path` 가 존재하고 `photo_storage_path` 와 다를 때만 (변경 가능 상태). 낙관적 업데이트 + 실패 롤백.
+- **`src/lib/i18n/messages.ts`** — EN/KO 4키: `simulation.wallCleanup.processing / done / useOriginal.label / useOriginal.hint`.
+
+### UX
+- **업로드 중**: "AI가 벽을 정돈하고 있어요…" 토스트 → 완료 시 "벽이 정돈됐어요" 토스트. calibration 토스트가 그 다음에 뜨면서 자연스레 오버라이드.
+- **Degraded / 저신뢰**: 두 토스트 모두 스킵 (silent). 원본 표시.
+- **에스케이프 해치**: "정확한 스케일 (고급)" 아코디언 안 체크박스 하나 — 원본/정돈본 스왑. 두 이미지가 동일 픽셀 dimensions 이므로 placement 좌표 재렌더 정확.
+
+### 검증
+- `npx tsc --noEmit` — exit 0.
+- `ReadLints` on 10파일 — no errors.
+- 매뉴얼 트레이스 5개 시나리오 (신규 업로드 · 키 없음 · 인스펙터 사진 교체 · 토글 ON · 토글 OFF) 모두 코드 경로 정합.
+
+### Deferred
+- Multi-wall 처리 (P1.5) — 현재는 primary target wall 만.
+- Wall cleanup 이 실제 벽 텍스처 (붓 자국, 페인트 결) 를 얼마나 보존하는지 실사 QA 는 실제 이미지로 확인 필요.
+
 ## 2026-08-18 (20) — 내 공간 진입로: 사이드바 → 워크스페이스 6번째 타일
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음

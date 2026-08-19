@@ -239,6 +239,17 @@ export type AiFeatureKey =
    */
   | "space.calibrate"
   /**
+   * P1 (2026-08-19) — Display / Hang Simulation의 자동 벽 클린업.
+   * 방 사진 업로드 직후 vision LLM 이 방 안의 주요 타깃 벽면 폴리곤과
+   * 벽면의 중앙값 RGB (그리고 광원 방향 힌트) 를 반환한다. 클라이언트는
+   * 이 폴리곤을 페더링된 마스크로 사용해 벽 영역 안쪽에서만 저주파
+   * 조도를 평탄화해 사진의 `photo_storage_path` 를 교체한다. 원본은
+   * `photo_original_storage_path` 로 보존되어 사용자가 "원본 사용"
+   * 토글로 되돌릴 수 있다. entitlement 는 기존 `simulation.2d` 를
+   * 그대로 쓰고, degraded/저신뢰 결과는 조용히 스킵한다.
+   */
+  | "space.wall_detect"
+  /**
    * 2026-08-19 — 업로드 파이프라인 pre-flight 품질 게이트. 사용자가
    * 업로드한 원본 사진 한 장을 vision LLM 으로 판정해 심각한 품질
    * 이슈(모션 블러, 스크린 촬영 모아레, 극단적 클리핑, 대부분 잘림
@@ -420,6 +431,58 @@ export type SpaceCalibrateCandidate = {
 
 export type SpaceCalibrateResult = AiDegradation & {
   candidates: SpaceCalibrateCandidate[];
+};
+
+/**
+ * P1 (2026-08-19) — Automatic wall-region cleanup.
+ *
+ * The upload pipeline sends ONE room photo (downscaled to 768 px long
+ * edge, JPEG q=0.85) to the model. The response describes the primary
+ * target wall (the flat vertical surface where a person would hang
+ * art — typically the wall facing the camera) as a normalized polygon
+ * plus its dominant paint color. The client uses these to build a
+ * feathered mask and flatten low-frequency lighting artefacts INSIDE
+ * the wall only. Furniture, floor, windows, and any framed art stay
+ * completely untouched.
+ *
+ * Contract
+ * --------
+ *   • `wallPolygon` is a 4–8 vertex polygon in normalized image
+ *     coordinates (0..1, origin top-left), CLOCKWISE from top-left.
+ *     Fewer than 3 vertices signals "no usable wall detected" and the
+ *     client skips cleanup entirely.
+ *   • `wallMedianRgb` is the dominant paint color of the wall
+ *     (0..255 per channel), sampled to ignore shadow / highlight
+ *     regions. Used as the target luminance / chroma reference during
+ *     the client-side flatten.
+ *   • `confidence < 0.4` also skips cleanup — a low-confidence
+ *     detection is more likely to distort the photo than help it.
+ *   • `lightDirection` is a coarse hint reserved for future passes
+ *     (e.g. rim-shadow reconstruction) — the current pipeline doesn't
+ *     use it, but shipping it now avoids a schema bump later.
+ *
+ * Degraded fallback: `{ wallPolygon: [], wallMedianRgb: [255,255,255],
+ * confidence: 0, lightDirection: "unknown" }` — every consumer must
+ * check `.confidence` and `.wallPolygon.length` before proceeding.
+ */
+export type SpaceWallDetectLightDirection =
+  | "top"
+  | "top_left"
+  | "left"
+  | "bottom_left"
+  | "bottom"
+  | "bottom_right"
+  | "right"
+  | "top_right"
+  | "diffuse"
+  | "unknown";
+
+export type SpaceWallDetectResult = AiDegradation & {
+  wallPolygon: Array<[number, number]>;
+  wallMedianRgb: [number, number, number];
+  wallColorName?: string;
+  confidence: number;
+  lightDirection?: SpaceWallDetectLightDirection;
 };
 
 /**

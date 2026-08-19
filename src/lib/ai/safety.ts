@@ -35,6 +35,7 @@ const ALLOWED_FEATURES: Readonly<Record<AiFeatureKey, true>> = Object.freeze({
   cv_import: true,
   translate_draft: true,
   "space.calibrate": true,
+  "space.wall_detect": true,
   artwork_quality_gate: true,
 });
 

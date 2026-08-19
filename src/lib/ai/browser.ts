@@ -17,6 +17,7 @@ import type {
   PortfolioSuggestionsResult,
   ProfileSuggestionsResult,
   SpaceCalibrateResult,
+  SpaceWallDetectResult,
   StudioDigestResult,
   TranslateDraftFieldKind,
   TranslateDraftResult,
@@ -37,6 +38,7 @@ const FEATURE_TO_PATH: Record<AiFeatureKey, string> = {
   cv_import: "/api/ai/cv-import",
   translate_draft: "/api/ai/translate-draft",
   "space.calibrate": "/api/ai/space-calibrate",
+  "space.wall_detect": "/api/ai/space-wall-detect",
   artwork_quality_gate: "/api/ai/artwork-quality-gate",
 };
 
@@ -263,6 +265,28 @@ export const aiApi = {
       "space.calibrate",
       body,
       { candidates: [] },
+      opts,
+    ),
+  /**
+   * P1 (2026-08-19) — Automatic wall-region cleanup detector. Body:
+   * `{ spaceId, imageBase64, mime, imagePxWidth, imagePxHeight }`.
+   *
+   * Fallback shape returns an empty polygon + zero confidence so
+   * callers can bail via `res.confidence < 0.4 || res.wallPolygon.length
+   * < 3` without a special "degraded?" branch — the client cleanup
+   * pipeline treats every low-confidence detection as "no cleanup"
+   * so a vision failure never distorts the user's upload.
+   */
+  spaceWallDetect: (body: Record<string, unknown>, opts?: CallAiOptions) =>
+    callAi<SpaceWallDetectResult>(
+      "space.wall_detect",
+      body,
+      {
+        wallPolygon: [],
+        wallMedianRgb: [255, 255, 255],
+        confidence: 0,
+        lightDirection: "unknown",
+      },
       opts,
     ),
   /**
