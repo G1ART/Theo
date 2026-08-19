@@ -27,6 +27,57 @@ import { attachArtworkImage } from "@/lib/supabase/artworks";
 const BUCKET = "artworks";
 
 /**
+ * 2026-08-19 (personal cutouts fix) — decide whether the current
+ * user can publish a cutout to the artwork globally (writes to
+ * `artwork_images`) or must land it in `artwork_user_cutouts` as a
+ * private overlay.
+ *
+ * Global write is allowed for:
+ *   • the artist (`artworks.artist_id = auth.uid()`); or
+ *   • a claim holder (`claims.subject_profile_id = auth.uid()`).
+ *
+ * Everyone else (a collector placing a public artwork into their
+ * Space) takes the personal path so the CTA no longer silently fails
+ * on the existing `artwork_images` RLS.
+ *
+ * Two shallow SELECTs, both RLS-friendly. Never throws — a network
+ * blip falls back to `false` so we never accidentally publish an
+ * unpermitted cutout.
+ */
+export async function canWriteGlobalCutout(
+  artworkId: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const { data: artistRow, error: artistErr } = await supabase
+      .from("artworks")
+      .select("id")
+      .eq("id", artworkId)
+      .eq("artist_id", userId)
+      .maybeSingle();
+    if (!artistErr && artistRow) return true;
+    const { data: claimRow, error: claimErr } = await supabase
+      .from("claims")
+      .select("id")
+      .eq("work_id", artworkId)
+      .eq("subject_profile_id", userId)
+      .maybeSingle();
+    if (!claimErr && claimRow) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Scope of a cutout write — see `canWriteGlobalCutout` above.
+ * Callers use this to swap toast copy so the artist / delegate
+ * knows their result is now published for the artwork, whereas a
+ * collector knows the touch-up is private to their Space.
+ */
+export type CutoutScope = "global" | "personal";
+
+/**
  * Fetch an image URL as a Blob. Handles both same-origin and
  * cross-origin CDNs — Supabase Storage serves public URLs with
  * permissive CORS so this stays a simple `fetch`.
@@ -83,6 +134,13 @@ export type BboxCropResult = {
   bboxPxWidth?: number;
   bboxPxHeight?: number;
   confidence?: number;
+  /**
+   * 2026-08-19 (personal cutouts fix) — where the row landed.
+   * `global` = `artwork_images` (artist / claim holder); `personal`
+   * = `artwork_user_cutouts` (collector / anyone else). Callers use
+   * this to swap toast copy. Only set when `applied === true`.
+   */
+  cutoutScope?: CutoutScope;
 };
 
 /**
@@ -190,33 +248,75 @@ export async function runVisionBboxCrop(input: {
     return { applied: false, reason: "upload_failed" };
   }
 
-  const { error: attachErr } = await attachArtworkImage(
-    input.artworkId,
-    path,
-    {
-      // High sort_order so the cutout sits after the primary in
-      // gallery contexts that iterate `artwork_images` — but the
-      // simulation renderer selects by `view_type`, so the ordering
-      // only matters for legacy carousels that still read the raw
-      // list. 100 leaves plenty of room for future cutout variants.
-      sortOrder: 100,
-      viewType: "cutout",
-    },
-  );
-  if (attachErr) {
-    // Best-effort cleanup — a dangling storage object is preferable
-    // to a stale artwork_images row, so we swap the priority and
-    // skip the delete when the attach fails (a re-run will overwrite
-    // via the same `crypto.randomUUID()` path guard).
-    return { applied: false, reason: "attach_failed" };
+  // 2026-08-19 (personal cutouts fix) — branch on ownership so a
+  // collector's write lands in `artwork_user_cutouts` (private) and
+  // the artist's / claim holder's write keeps flowing into
+  // `artwork_images` (published for every viewer).
+  const canGlobal = await canWriteGlobalCutout(input.artworkId, user.id);
+  if (canGlobal) {
+    const { error: attachErr } = await attachArtworkImage(
+      input.artworkId,
+      path,
+      {
+        // High sort_order so the cutout sits after the primary in
+        // gallery contexts that iterate `artwork_images` — but the
+        // simulation renderer selects by `view_type`, so the ordering
+        // only matters for legacy carousels that still read the raw
+        // list. 100 leaves plenty of room for future cutout variants.
+        sortOrder: 100,
+        viewType: "cutout",
+      },
+    );
+    if (attachErr) {
+      // Best-effort cleanup — a dangling storage object is preferable
+      // to a stale artwork_images row, so we swap the priority and
+      // skip the delete when the attach fails (a re-run will overwrite
+      // via the same `crypto.randomUUID()` path guard).
+      return { applied: false, reason: "attach_failed" };
+    }
+    return {
+      applied: true,
+      cutoutPath: path,
+      bboxPxWidth: cropW,
+      bboxPxHeight: cropH,
+      confidence: res.confidence,
+      cutoutScope: "global",
+    };
   }
 
+  // Personal fallback — upsert so re-runs from the same viewer
+  // overwrite the previous private crop rather than piling up rows.
+  const { error: personalErr } = await supabase
+    .from("artwork_user_cutouts")
+    .upsert(
+      {
+        user_id: user.id,
+        artwork_id: input.artworkId,
+        view_type: "cutout",
+        storage_path: path,
+        px_width: cropW,
+        px_height: cropH,
+        source: "vision_bbox",
+        metadata: { confidence: res.confidence, bbox: res.bbox },
+      },
+      { onConflict: "user_id,artwork_id,view_type" },
+    );
+  if (personalErr) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[cutoutClient] personal cutout insert failed",
+        personalErr.message,
+      );
+    }
+    return { applied: false, reason: "attach_failed" };
+  }
   return {
     applied: true,
     cutoutPath: path,
     bboxPxWidth: cropW,
     bboxPxHeight: cropH,
     confidence: res.confidence,
+    cutoutScope: "personal",
   };
 }
 
@@ -230,6 +330,13 @@ export type CutoutAlphaResult = {
     | "server_error"
     | "unknown";
   cutoutPath?: string;
+  /**
+   * 2026-08-19 (personal cutouts fix) — mirrors `BboxCropResult`.
+   * Server route now decides based on the same ownership check and
+   * echoes `"global"` (artist / claim holder) or `"personal"`
+   * (collector). Only set when `applied === true`.
+   */
+  cutoutScope?: CutoutScope;
 };
 
 /**
@@ -270,10 +377,17 @@ export async function runPhotoroomCutout(input: {
   if (!resp.ok) return { applied: false, reason: "server_error" };
 
   try {
-    const body = (await resp.json()) as { storagePath?: string };
+    const body = (await resp.json()) as {
+      storagePath?: string;
+      cutoutScope?: CutoutScope;
+    };
     return {
       applied: true,
       cutoutPath: body?.storagePath,
+      cutoutScope:
+        body?.cutoutScope === "personal" || body?.cutoutScope === "global"
+          ? body.cutoutScope
+          : undefined,
     };
   } catch {
     // Server sent 200 without JSON — still treat as success since

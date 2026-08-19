@@ -49,6 +49,19 @@ import {
   type SpaceKind,
 } from "@/lib/simulation/scene";
 
+/**
+ * 2026-08-19 (personal cutouts fix) — per-user cutout row shape,
+ * used to overlay the current viewer's private cutouts on top of the
+ * artist-published `artwork_images` rows in the renderer.
+ */
+type PersonalCutoutRow = {
+  artwork_id: string;
+  view_type: "cutout" | "cutout_alpha" | string;
+  storage_path: string;
+  px_width: number | null;
+  px_height: number | null;
+};
+
 // ─── Errors ─────────────────────────────────────────────────────────
 
 /**
@@ -240,14 +253,49 @@ function pickRendererImages(row: RawArtworkRow): {
   return { primary, cutout, cutoutAlpha };
 }
 
+/**
+ * 2026-08-19 (personal cutouts fix) — merge the current viewer's
+ * private cutouts on top of the artist-published rows. Personal wins
+ * when both exist for the same view_type (Track 1 or Track 2).
+ */
+function overlayPersonalCutouts(
+  base: {
+    cutout: ArtworkImageRow | null;
+    cutoutAlpha: ArtworkImageRow | null;
+  },
+  personal: PersonalCutoutRow[] | undefined,
+): { cutout: ArtworkImageRow | null; cutoutAlpha: ArtworkImageRow | null } {
+  if (!personal || personal.length === 0) return base;
+  let cutout = base.cutout;
+  let cutoutAlpha = base.cutoutAlpha;
+  for (const p of personal) {
+    if (!p?.storage_path) continue;
+    const asRow: ArtworkImageRow = {
+      storage_path: p.storage_path,
+      sort_order: null,
+      view_type: p.view_type,
+      width: p.px_width,
+      height: p.px_height,
+    };
+    if (p.view_type === "cutout_alpha") cutoutAlpha = asRow;
+    else if (p.view_type === "cutout") cutout = asRow;
+  }
+  return { cutout, cutoutAlpha };
+}
+
 function rowToArtworkThumb(
   row: RawArtworkRow,
   locale: Locale,
+  personalCutouts?: PersonalCutoutRow[],
 ): ArtworkThumbForScene {
   const picked = pickRendererImages(row);
+  const merged = overlayPersonalCutouts(
+    { cutout: picked.cutout, cutoutAlpha: picked.cutoutAlpha },
+    personalCutouts,
+  );
   const primaryPath = picked.primary?.storage_path ?? null;
-  const cutoutPath = picked.cutout?.storage_path ?? null;
-  const cutoutAlphaPath = picked.cutoutAlpha?.storage_path ?? null;
+  const cutoutPath = merged.cutout?.storage_path ?? null;
+  const cutoutAlphaPath = merged.cutoutAlpha?.storage_path ?? null;
   return {
     id: row.id,
     title: pickLocalizedArtworkTitle(row, locale),
@@ -261,16 +309,60 @@ function rowToArtworkThumb(
     // cutout_alpha > cutout > primary; consumers can also branch on
     // these to suppress warnings that only apply to the padded
     // primary (e.g. the aspect-mismatch banner).
+    //
+    // 2026-08-19 (personal cutouts fix) — personal (viewer-private)
+    // cutouts overlay the artist-published rows so non-artist Space
+    // owners see their own Track 1 / Track 2 results even though RLS
+    // stops them from writing to `artwork_images` globally.
     cutoutImageUrl: cutoutPath ? getArtworkImageUrl(cutoutPath, "medium") : null,
-    cutoutImagePxWidth: safePx(picked.cutout?.width),
-    cutoutImagePxHeight: safePx(picked.cutout?.height),
+    cutoutImagePxWidth: safePx(merged.cutout?.width),
+    cutoutImagePxHeight: safePx(merged.cutout?.height),
     cutoutAlphaImageUrl: cutoutAlphaPath
       ? getArtworkImageUrl(cutoutAlphaPath, "medium")
       : null,
-    cutoutAlphaImagePxWidth: safePx(picked.cutoutAlpha?.width),
-    cutoutAlphaImagePxHeight: safePx(picked.cutoutAlpha?.height),
+    cutoutAlphaImagePxWidth: safePx(merged.cutoutAlpha?.width),
+    cutoutAlphaImagePxHeight: safePx(merged.cutoutAlpha?.height),
     workForm: row.work_form ?? "flat_2d",
   };
+}
+
+/**
+ * 2026-08-19 (personal cutouts fix) — fetch the current session
+ * user's rows from `artwork_user_cutouts` for the given artwork ids.
+ * RLS enforces the `user_id = auth.uid()` filter so we can omit it
+ * on the client. Returns a map keyed by `artwork_id → rows[]` (both
+ * `cutout` and `cutout_alpha` may co-exist per artwork).
+ *
+ * Anonymous callers skip this entirely — the table has no `anon`
+ * grants, and public-share views should not leak personal touch-ups.
+ */
+async function fetchPersonalCutouts(
+  client: SupabaseClient,
+  artworkIds: string[],
+): Promise<Map<string, PersonalCutoutRow[]>> {
+  const out = new Map<string, PersonalCutoutRow[]>();
+  if (artworkIds.length === 0) return out;
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+  if (!session?.user?.id) return out;
+  const uniq = Array.from(new Set(artworkIds));
+  const { data, error } = await client
+    .from("artwork_user_cutouts")
+    .select("artwork_id, view_type, storage_path, px_width, px_height")
+    .in("artwork_id", uniq);
+  if (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[spaces] fetchPersonalCutouts failed", error.message);
+    }
+    return out;
+  }
+  for (const row of (data ?? []) as PersonalCutoutRow[]) {
+    const list = out.get(row.artwork_id) ?? [];
+    list.push(row);
+    out.set(row.artwork_id, list);
+  }
+  return out;
 }
 
 /**
@@ -294,8 +386,16 @@ export async function getArtworkSceneThumb(
     .maybeSingle();
   if (error) return { data: null, error };
   if (!data) return { data: null, error: null };
+  // 2026-08-19 (personal cutouts fix) — refetch may fire right after
+  // a non-artist viewer lands a personal cutout; overlay their private
+  // rows so the aspect-snap + toast logic upstream sees the fresh URL.
+  const personalMap = await fetchPersonalCutouts(client, [artworkId]);
   return {
-    data: rowToArtworkThumb(data as unknown as RawArtworkRow, locale),
+    data: rowToArtworkThumb(
+      data as unknown as RawArtworkRow,
+      locale,
+      personalMap.get(artworkId),
+    ),
     error: null,
   };
 }
@@ -306,6 +406,13 @@ async function fetchArtworkThumbs(
   selectCols: string,
   locale: Locale,
   publicOnly: boolean,
+  /**
+   * 2026-08-19 (personal cutouts fix) — when true, overlay the
+   * caller's `artwork_user_cutouts` rows on top of the global
+   * `artwork_images` rows. Set to false for the public share path
+   * so anonymous viewers never see a personal touch-up.
+   */
+  includePersonalCutouts = false,
 ): Promise<Map<string, ArtworkThumbForScene>> {
   const out = new Map<string, ArtworkThumbForScene>();
   if (artworkIds.length === 0) return out;
@@ -319,8 +426,11 @@ async function fetchArtworkThumbs(
     }
     return out;
   }
+  const personalMap = includePersonalCutouts
+    ? await fetchPersonalCutouts(client, uniq)
+    : new Map<string, PersonalCutoutRow[]>();
   for (const row of (data ?? []) as unknown as RawArtworkRow[]) {
-    out.set(row.id, rowToArtworkThumb(row, locale));
+    out.set(row.id, rowToArtworkThumb(row, locale, personalMap.get(row.id)));
   }
   return out;
 }
@@ -414,6 +524,7 @@ export async function getSpaceById(
     OWNER_ARTWORK_SELECT,
     locale,
     /* publicOnly */ false,
+    /* includePersonalCutouts */ true,
   );
   return { data: { space, artworks }, error: null };
 }

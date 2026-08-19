@@ -229,6 +229,25 @@ export type ScenePlacementUpsert = ScenePlacementInsert & {
   id?: string;
 };
 
+// ─── Personal (per-user) cutout row — mirrors `artwork_user_cutouts`.
+//
+// Non-artist viewers (collectors, curators, delegates) can generate a
+// cutout that improves their own Space render without publishing the
+// result to the artwork globally. RLS: `user_id = auth.uid()`. Anon /
+// public-share callers never see this table.
+
+export type ArtworkUserCutoutRow = {
+  userId: string;
+  artworkId: string;
+  viewType: "cutout" | "cutout_alpha";
+  storagePath: string;
+  pxWidth: number | null;
+  pxHeight: number | null;
+  source: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // ─── Artwork thumbnail bag used by the renderers ────────────────────
 
 /**

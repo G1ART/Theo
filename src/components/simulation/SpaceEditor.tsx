@@ -1912,7 +1912,17 @@ function SpaceEditorContent({ id }: { id: string }) {
           imageUrl: artwork.imageUrl,
         });
         if (res.applied) {
-          setToast(t("simulation.cutout.bbox.done"));
+          // 2026-08-19 (personal cutouts fix) — swap toast copy so
+          // artists see "published for this artwork" and collectors
+          // see "for your space". Falls back to the neutral key when
+          // scope is unknown (older result shape / older server).
+          const doneKey =
+            res.cutoutScope === "global"
+              ? "simulation.cutout.bbox.doneGlobal"
+              : res.cutoutScope === "personal"
+                ? "simulation.cutout.bbox.donePersonal"
+                : "simulation.cutout.bbox.done";
+          setToast(t(doneKey));
           // Phase 3: refresh just this artwork instead of the whole
           // scene — same aspect-snap path as the auto-fire.
           await refreshArtworkThumb(artworkId);
@@ -1946,7 +1956,13 @@ function SpaceEditorContent({ id }: { id: string }) {
       try {
         const res = await runPhotoroomCutout({ artworkId });
         if (res.applied) {
-          setToast(t("simulation.cutout.alpha.done"));
+          const doneKey =
+            res.cutoutScope === "global"
+              ? "simulation.cutout.alpha.doneGlobal"
+              : res.cutoutScope === "personal"
+                ? "simulation.cutout.alpha.donePersonal"
+                : "simulation.cutout.alpha.done";
+          setToast(t(doneKey));
           // Phase 3: refresh just this artwork.
           await refreshArtworkThumb(artworkId);
         } else if (res.reason === "not_configured") {

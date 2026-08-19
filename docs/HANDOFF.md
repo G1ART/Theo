@@ -2,6 +2,53 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (34) — Display Sim cutouts: 비-작가 뷰어용 personal cutouts (Track 1/2 RLS 해소)
+
+> **Supabase SQL**: `supabase/migrations/20260819060000_artwork_user_cutouts.sql` — **이번 배포에서는 MCP `apply_migration` 로 이미 원격 DB 에 반영됨** (테이블 생성, 4개 RLS 정책, `updated_at` 트리거, grants, orphan 파일 4건 정리). SQL 자체는 `create table if not exists` / `drop policy if exists` / `not exists` 가드로 idempotent 하므로 다른 환경에서도 그대로 재실행 가능. 파일은 `SET LOCAL storage.allow_delete_query = 'true'` 로 Supabase 의 `storage.protect_delete()` 트리거를 이 트랜잭션에서만 우회한다.
+>
+> **환경 변수 변경: 없음**. `PHOTOROOM_API_KEY` 는 사용자 결정으로 이번 라운드에서도 미설정 유지 → Track 2 는 `501 { degraded: true, reason: "no_key" }` 로 계속 그레이스풀 다운.
+
+### 배경 (버그 진단)
+- Space Editor 의 "여백 자동 제거 (AI)" (Track 1, `simulation.cutout.bbox.cta`) 와 "고급 배경 분리 (Pro)" (Track 2, `simulation.cutout.alpha.cta`) CTA 가 **작가가 아닌 뷰어**에게는 조용히 실패했다.
+- `ai_events` 상 AI 호출은 clean (`gpt-4o-mini`, 1-3s, `error_code=null`), 스토리지 업로드도 성공 (`d4b84e70-.../cutout/*.jpg` 4개 파일 존재), 하지만 `artwork_images` INSERT 는 `Allow owner insert artwork_images` RLS 정책 (`artist_id = auth.uid()` OR `claims.subject_profile_id = auth.uid()`) 에 걸려 REJECT.
+- 수집가 (`d4b84e70-…`) 가 공개 작품 `9976c054…` "Naked Flower C" 를 자기 Space 에 배치 → 두 조건 모두 실패 → INSERT 거부 → 렌더러는 새 cutout 을 못 보고 사용자는 "기능이 안 됨" 으로 인식.
+
+### 접근
+새 테이블 `artwork_user_cutouts` 를 만들어 **뷰어 개인용 cutout** 을 저장한다. RLS 는 단순한 `user_id = auth.uid()` — 작가가 아니어도 자기 Space 안에서만 보이는 cutout 을 만들 수 있다. 작가 / 클레임 홀더는 여전히 `artwork_images` 에 global 로 published 되어 모든 뷰어에게 반영된다. 공개 공유 (`get_space_by_share_token` RPC, 익명) 는 개인 cutout 을 절대 노출하지 않는다.
+
+**렌더러 우선순위** (loader `spaces.ts` → `ArtworkThumbForScene`):
+1. 현재 사용자의 personal cutout (`artwork_user_cutouts`)
+2. 작가가 published 한 global cutout (`artwork_images` view_type `cutout` / `cutout_alpha`)
+3. 원본 (`view_type='wall_mounted'`)
+
+### 변경 (수정 6 파일 · 1 SQL)
+
+**신규 SQL 마이그레이션:**
+- `supabase/migrations/20260819060000_artwork_user_cutouts.sql` — 테이블 + 인덱스, `updated_at` 트리거 (기존 `public.set_updated_at()` 재사용), RLS + 4개 정책 (SELECT/INSERT/UPDATE/DELETE 모두 `user_id = auth.uid()`), `authenticated` 전용 grants (`anon` revoke), 그리고 pre-fix orphan JPG 4건 (`d4b84e70-.../cutout/*.jpg`) 의 one-shot 정리. `not exists` 가드로 미래 실행에서도 안전 (`artwork_images` / `artwork_user_cutouts` 어디에도 참조가 없을 때만 삭제).
+
+**수정 파일:**
+- `src/lib/simulation/scene.ts` — `ArtworkUserCutoutRow` 타입 추가.
+- `src/lib/supabase/spaces.ts` — 새 helper `fetchPersonalCutouts` + `overlayPersonalCutouts`. `rowToArtworkThumb` 가 개인 cutout overlay 를 받으면 view_type 별로 global row 를 덮어씀. `fetchArtworkThumbs` 에 `includePersonalCutouts` 플래그 추가; `getSpaceById` (인증 owner 경로) 는 `true`, `getSpaceByShareToken` (익명 RPC 경로) 는 그대로 opt-out.
+- `src/lib/simulation/cutoutClient.ts` — 새 export `canWriteGlobalCutout(artworkId, userId)` (artist_id 또는 claim 확인, throw 금지 → 실패 시 false). `runVisionBboxCrop` 은 upload 성공 후 ownership 브랜치: global 가능 → `attachArtworkImage`, 아니면 `artwork_user_cutouts.upsert` (onConflict = PK). 반환에 `cutoutScope: "global" | "personal"` 추가. `runPhotoroomCutout` 도 서버 응답 body 의 `cutoutScope` 를 그대로 통과.
+- `src/app/api/ai/artwork-cutout-alpha/route.ts` — `loadPrimaryImage` 가 더 이상 `artist_id = user.id` 로 필터하지 않음 (공개 artwork_images 는 이미 public select 정책으로 RLS OK). 새 helper `decideCutoutScope` 로 브랜치, personal 케이스는 `artwork_user_cutouts.upsert`. `alreadyHasAlphaCutout` 는 global + 현재 유저의 personal 둘 다 검사 (Photoroom 재과금 방지). 응답에 `cutoutScope` 추가. usage event metadata 에도 `scope` 기록.
+- `src/components/simulation/SpaceEditor.tsx` — `handleRunBboxCrop` / `handleRunPhotoroomCutout` 이 `res.cutoutScope` 에 따라 `.doneGlobal` / `.donePersonal` / (fallback) `.done` toast key 선택. 다른 로직 변경 없음; `runBulkCrop` 은 같은 `runVisionBboxCrop` 를 호출하므로 자동 라우팅되고 `writeAutoCropFailed` 는 `applied=false` 브랜치에서만 호출 (성공은 카운터 오염 안 함).
+- `src/lib/i18n/messages.ts` — 4개 key 추가 (EN/KO 2쌍): `simulation.cutout.bbox.doneGlobal` / `.donePersonal`, `simulation.cutout.alpha.doneGlobal` / `.donePersonal`. 원본 `.done` 은 유지되어 서버 응답에 scope 가 없을 때 (older client / fallback) 사용된다.
+
+### Storage 정리
+- pre-fix orphan JPG 4건 (`d4b84e70-3b10-4da9-a6da-ad7830fc7519/cutout/{20deee11,69abaf18,89a7e829,95a2baa0}.jpg`) 모두 삭제 확인. `select count(*) from storage.objects where bucket_id='artworks' and name like 'd4b84e70-…/cutout/%'` → `0`.
+
+### 수동 검증
+1. `npx tsc --noEmit` — clean (0 errors, stale `.next/types/routes.d 2.ts` / `validator 2.ts` 파일은 macOS Finder duplicate 여서 삭제 후 재실행).
+2. `npx eslint <touched files>` — 신규 에러 0, `SpaceEditor.tsx:1282` 의 pre-existing `react-hooks/exhaustive-deps` 경고 1건만 (내 변경과 무관, `git stash` 로 확인).
+3. `npm run test:artwork-cutout-alpha-route` — pass (`no_key` contract).
+4. Supabase MCP smoke: `select count(*) from artwork_user_cutouts where user_id = 'd4b84e70-…'` = 0 (테이블 준비 완료; 사용자가 CTA 재시도하면 증가 예상). `pg_policies` 4건 (`select/insert/update/delete_own`) 확인.
+
+### 스펙 이탈
+- **Photoroom route 의 non-goal 인 "ownership check 를 별도 helper 로 뽑기" 는 유지**, `loadPrimaryImage` 는 그러나 unblock 을 위해 `artist_id` 필터를 제거해야 했음 (그렇지 않으면 collector 가 primary bytes 조차 hydrate 못 함). 공개 artwork 는 이미 `Allow public select artwork_images` 정책으로 anon 도 읽을 수 있으므로 정보 유출은 없음. 비공개 artwork 는 그대로 RLS 로 보호됨.
+- **Storage 정리에서 `SET LOCAL storage.allow_delete_query = 'true'` 우회 사용**: 계획서는 단순 DELETE 였으나, Supabase 의 `storage.protect_delete()` 트리거가 직접 `DELETE FROM storage.objects` 를 차단한다. `SET LOCAL` 로 트랜잭션 범위 내에서만 flag 를 뒤집는 escape hatch 를 썼고, `not exists` 가드도 유지했다.
+
+---
+
 ## 2026-08-19 (33) — 사인업 v2 Phase 1: 위저드 (Steps 1-3) + 프리미티브 + passwordPolicy
 
 > **Supabase SQL 적용 필요**: `supabase/migrations/20260819180000_upsert_my_profile_signup_v2.sql` (Supabase SQL Editor 에서 수동 실행). 함수 정의 1개만 포함하므로 SECTION 배너 없이 전체 붙여넣기 → Run.

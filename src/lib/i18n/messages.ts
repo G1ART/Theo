@@ -4010,6 +4010,13 @@ export const messages = {
     "simulation.cutout.bbox.cta": "Auto-remove padding (AI)",
     "simulation.cutout.bbox.running": "Detecting painting…",
     "simulation.cutout.bbox.done": "Padding removed",
+    // 2026-08-19 (personal cutouts fix) — differentiate copy so
+    // artists see "published for the artwork" and collectors see
+    // "for your space" (their crop is private to their Space).
+    "simulation.cutout.bbox.doneGlobal":
+      "Padding removed and published for this artwork.",
+    "simulation.cutout.bbox.donePersonal":
+      "Padding removed for your space.",
     "simulation.cutout.bbox.alreadyTight":
       "This photo is already tight around the painting.",
     "simulation.cutout.bbox.lowConfidence":
@@ -4019,6 +4026,10 @@ export const messages = {
     "simulation.cutout.alpha.cta": "Advanced cutout (Pro)",
     "simulation.cutout.alpha.running": "Cutting out background…",
     "simulation.cutout.alpha.done": "Advanced cutout applied",
+    "simulation.cutout.alpha.doneGlobal":
+      "Advanced cutout applied and published for this artwork.",
+    "simulation.cutout.alpha.donePersonal":
+      "Advanced cutout applied to your space.",
     "simulation.cutout.alpha.notConfigured":
       "Advanced cutout isn't configured on this server yet.",
     "simulation.cutout.alpha.notEntitled":
@@ -8237,6 +8248,12 @@ export const messages = {
     "simulation.cutout.bbox.cta": "여백 자동 제거 (AI)",
     "simulation.cutout.bbox.running": "그림 영역을 감지 중이에요…",
     "simulation.cutout.bbox.done": "여백이 정리됐어요",
+    // 2026-08-19 (personal cutouts fix) — 작가/청구권자는 작품에
+    // 반영, 그 외(수집가 등)는 이 스페이스에만 조용히 적용된다.
+    "simulation.cutout.bbox.doneGlobal":
+      "여백을 정리해서 이 작품에 반영했어요.",
+    "simulation.cutout.bbox.donePersonal":
+      "이 스페이스용 여백이 정리됐어요.",
     "simulation.cutout.bbox.alreadyTight":
       "이 사진은 이미 그림에 딱 맞게 잘려 있어요.",
     "simulation.cutout.bbox.lowConfidence":
@@ -8246,6 +8263,10 @@ export const messages = {
     "simulation.cutout.alpha.cta": "고급 배경 분리 (Pro)",
     "simulation.cutout.alpha.running": "배경을 분리 중이에요…",
     "simulation.cutout.alpha.done": "고급 배경 분리가 적용됐어요",
+    "simulation.cutout.alpha.doneGlobal":
+      "고급 배경 분리를 이 작품에 반영했어요.",
+    "simulation.cutout.alpha.donePersonal":
+      "이 스페이스에 고급 배경 분리가 적용됐어요.",
     "simulation.cutout.alpha.notConfigured":
       "이 서버에는 고급 배경 분리가 아직 설정되어 있지 않아요.",
     "simulation.cutout.alpha.notEntitled":

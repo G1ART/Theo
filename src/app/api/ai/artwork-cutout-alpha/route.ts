@@ -150,11 +150,52 @@ async function callPhotoroomSegment(
 }
 
 /**
- * Owner + primary-image lookup. RLS on `artworks` + `artwork_images`
- * already enforces "owner sees own rows only"; we surface the result
- * as `not_found` when the caller doesn't own the artwork so the
- * error message is identical whether the row exists but is private
- * or doesn't exist at all.
+ * 2026-08-19 (personal cutouts fix) — decide whether the current
+ * caller can publish a cutout globally (`artwork_images`) or must
+ * land it in the private `artwork_user_cutouts` table.
+ *
+ * Mirrors the browser-side helper in `cutoutClient.ts` so the
+ * decision is consistent whether the pipeline runs client-side
+ * (Track 1) or here (Track 2). Never throws.
+ */
+async function decideCutoutScope(
+  supabase: SupabaseClient,
+  userId: string,
+  artworkId: string,
+): Promise<"global" | "personal"> {
+  try {
+    const { data: artistRow } = await supabase
+      .from("artworks")
+      .select("id")
+      .eq("id", artworkId)
+      .eq("artist_id", userId)
+      .maybeSingle();
+    if (artistRow) return "global";
+    const { data: claimRow } = await supabase
+      .from("claims")
+      .select("id")
+      .eq("work_id", artworkId)
+      .eq("subject_profile_id", userId)
+      .maybeSingle();
+    if (claimRow) return "global";
+  } catch {
+    // Fall through to personal — safer default (never leaks a
+    // collector's private touch-up to the artwork globally).
+  }
+  return "personal";
+}
+
+/**
+ * Primary-image lookup. Public artworks stay readable via the
+ * artwork_images RLS (`Allow public select artwork_images`), so a
+ * collector can hydrate the source bytes even when they don't own
+ * the artwork. Returns `not_found` when the row is either private
+ * to another artist or genuinely missing.
+ *
+ * `alreadyHasAlphaCutout` is scoped per caller: it's `true` when
+ * either the artist has published a global `cutout_alpha` OR when
+ * the caller already generated a personal one for this artwork
+ * (avoids re-billing Photoroom on repeat clicks).
  */
 async function loadPrimaryImage(
   supabase: SupabaseClient,
@@ -172,9 +213,8 @@ async function loadPrimaryImage(
 > {
   const { data: artworkRow, error: artworkErr } = await supabase
     .from("artworks")
-    .select("id, artist_id")
+    .select("id")
     .eq("id", artworkId)
-    .eq("artist_id", userId)
     .maybeSingle();
   if (artworkErr) return { ok: false, reason: "error" };
   if (!artworkRow) return { ok: false, reason: "not_found" };
@@ -192,9 +232,24 @@ async function loadPrimaryImage(
   }[];
   if (rows.length === 0) return { ok: false, reason: "not_found" };
 
-  const alreadyHasAlphaCutout = rows.some((r) => r.view_type === "cutout_alpha");
+  const hasGlobalAlpha = rows.some((r) => r.view_type === "cutout_alpha");
+  let hasPersonalAlpha = false;
+  const { data: personalRow, error: personalErr } = await supabase
+    .from("artwork_user_cutouts")
+    .select("user_id")
+    .eq("user_id", userId)
+    .eq("artwork_id", artworkId)
+    .eq("view_type", "cutout_alpha")
+    .maybeSingle();
+  if (!personalErr && personalRow) hasPersonalAlpha = true;
+
   const primary =
-    rows.find((r) => r.view_type === "wall_mounted") ?? rows[0] ?? null;
+    rows.find((r) => r.view_type === "wall_mounted") ??
+    rows.find(
+      (r) => r.view_type !== "cutout" && r.view_type !== "cutout_alpha",
+    ) ??
+    rows[0] ??
+    null;
   if (!primary?.storage_path) return { ok: false, reason: "not_found" };
 
   const { data: blob, error: downloadErr } = await supabase.storage
@@ -211,7 +266,7 @@ async function loadPrimaryImage(
     storagePath: primary.storage_path,
     mime,
     bytes,
-    alreadyHasAlphaCutout,
+    alreadyHasAlphaCutout: hasGlobalAlpha || hasPersonalAlpha,
   };
 }
 
@@ -370,29 +425,66 @@ export async function POST(req: Request): Promise<NextResponse> {
       return degradedResponse(502, "storage_error", { error: "upload_failed" });
     }
 
-    // Insert the sibling row. `sort_order = 100` keeps it after the
-    // primary (0..N) so any surface that still sorts by `sort_order`
-    // (e.g. the artwork detail carousel) shows the primary first.
-    const insertPayload: Record<string, unknown> = {
-      artwork_id: artworkId,
-      storage_path: outputPath,
-      sort_order: 100,
-      view_type: "cutout_alpha",
-    };
-    if (dims) {
-      insertPayload.width = dims.width;
-      insertPayload.height = dims.height;
-    }
-    const { error: insertErr } = await supabase
-      .from("artwork_images")
-      .insert(insertPayload);
-    if (insertErr) {
-      // Roll back the storage upload so we don't leak an orphan file.
-      await supabase.storage
-        .from(STORAGE_BUCKET)
-        .remove([outputPath])
-        .catch(() => undefined);
-      return degradedResponse(500, "error", { error: "insert_failed" });
+    // 2026-08-19 (personal cutouts fix) — branch on ownership so a
+    // collector's Photoroom result lands in `artwork_user_cutouts`
+    // (private overlay) instead of hitting the `artwork_images` RLS
+    // wall. Artists / claim holders keep publishing globally.
+    const scope = await decideCutoutScope(supabase, user.id, artworkId);
+    if (scope === "global") {
+      // Insert the sibling row. `sort_order = 100` keeps it after the
+      // primary (0..N) so any surface that still sorts by `sort_order`
+      // (e.g. the artwork detail carousel) shows the primary first.
+      const insertPayload: Record<string, unknown> = {
+        artwork_id: artworkId,
+        storage_path: outputPath,
+        sort_order: 100,
+        view_type: "cutout_alpha",
+      };
+      if (dims) {
+        insertPayload.width = dims.width;
+        insertPayload.height = dims.height;
+      }
+      const { error: insertErr } = await supabase
+        .from("artwork_images")
+        .insert(insertPayload);
+      if (insertErr) {
+        // Roll back the storage upload so we don't leak an orphan file.
+        await supabase.storage
+          .from(STORAGE_BUCKET)
+          .remove([outputPath])
+          .catch(() => undefined);
+        return degradedResponse(500, "error", { error: "insert_failed" });
+      }
+    } else {
+      // Personal fallback — upsert so re-runs from the same viewer
+      // overwrite the previous private cutout row.
+      const personalPayload: Record<string, unknown> = {
+        user_id: user.id,
+        artwork_id: artworkId,
+        view_type: "cutout_alpha",
+        storage_path: outputPath,
+        source: "photoroom",
+        metadata: {
+          provider: "photoroom_v1_segment",
+          source: "space_editor",
+        },
+      };
+      if (dims) {
+        personalPayload.px_width = dims.width;
+        personalPayload.px_height = dims.height;
+      }
+      const { error: personalErr } = await supabase
+        .from("artwork_user_cutouts")
+        .upsert(personalPayload, {
+          onConflict: "user_id,artwork_id,view_type",
+        });
+      if (personalErr) {
+        await supabase.storage
+          .from(STORAGE_BUCKET)
+          .remove([outputPath])
+          .catch(() => undefined);
+        return degradedResponse(500, "error", { error: "insert_failed" });
+      }
     }
 
     void recordUsageEvent(
@@ -406,6 +498,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           output_width_px: dims?.width ?? null,
           output_height_px: dims?.height ?? null,
           source: "space_editor",
+          scope,
         },
       },
       { client: supabase, dualWriteBeta: false },
@@ -417,6 +510,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         width: dims?.width ?? null,
         height: dims?.height ?? null,
         viewType: "cutout_alpha",
+        cutoutScope: scope,
       },
       { status: 200 },
     );
