@@ -62,6 +62,8 @@ import {
 } from "@/lib/simulation/storage";
 import { cleanupWallRegion } from "@/lib/simulation/wallCleanup";
 import {
+  PLACEMENT_FALLBACK_HEIGHT_CM,
+  PLACEMENT_FALLBACK_WIDTH_CM,
   renderScene2D,
   type ArtworkThumbMap,
 } from "@/lib/simulation/renderer2d";
@@ -300,6 +302,35 @@ function SpaceEditorContent({ id }: { id: string }) {
 
   const aiCalibrationEnabled = useAiCalibrationPref();
 
+  /**
+   * P1 (2026-08-19) — Persistent status for the auto wall-cleanup
+   * pass. The pipeline is intentionally "fail open" (a bad polygon
+   * would distort the whole photo, so a skip is the right default),
+   * but silent skips left the user staring at a still-warped photo
+   * wondering whether the AI actually ran. This state drives a slim
+   * inline notice on the canvas with a CTA to (a) upload a clearer
+   * photo or (b) open the manual corner picker.
+   *
+   *   "idle"          — nothing to say yet (fresh mount, still working).
+   *   "applied"       — cleanup ran end-to-end; transient toast handled
+   *                     separately; we don't need a persistent notice.
+   *   "skipped-low"   — model returned low confidence / <3 vertices
+   *                     ("AI couldn't find a wall").
+   *   "skipped-coverage" — cleanup module bailed on the mask coverage
+   *                     guard (<5% or >95% of the image).
+   *   "skipped-error" — network / decode / storage swap failure.
+   *
+   * Kept per-space-id in `wallCleanupNoticeRef` so that a genuine
+   * "please try another photo" hint doesn't linger after a fresh
+   * upload — every upload resets the notice.
+   */
+  const [wallCleanupNotice, setWallCleanupNotice] = useState<
+    | { kind: "skipped-low" }
+    | { kind: "skipped-coverage" }
+    | { kind: "skipped-error" }
+    | null
+  >(null);
+
   // Auto-fire guard for the on-mount AI calibration path (Fix #3 in
   // the P1 bug patch). Set on the FIRST attempt for a given space so
   // we never re-fire on re-renders / state churn; the load-triggered
@@ -455,6 +486,35 @@ function SpaceEditorContent({ id }: { id: string }) {
     const { error } = await upsertPlacements(state.space.id, upserts);
     setSaving(false);
     if (error) {
+      // Roll the state back — a phantom placement that persists in
+      // memory but never lands in the DB is worse than a hard failure
+      // toast, because subsequent drags / flushes reference an id
+      // PostgREST has never seen and the whole editor drifts. Drop
+      // every temp-id placement we just tried to insert; keep updates
+      // for real-uuid rows (server state is authoritative — a reload
+      // will resync them) but clear the dirty set so we don't retry.
+      const tempIdsToDrop = new Set(
+        rows.filter((r) => r.id.startsWith("tmp_")).map((r) => r.id),
+      );
+      if (tempIdsToDrop.size > 0) {
+        setState((prev) => {
+          if (!prev) return prev;
+          const nextPlacements = prev.space.placements.filter(
+            (p) => !tempIdsToDrop.has(p.id),
+          );
+          return {
+            ...prev,
+            space: { ...prev.space, placements: nextPlacements },
+          };
+        });
+        setSelectedId((prev) => (prev && tempIdsToDrop.has(prev) ? null : prev));
+      }
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[simulation] upsertPlacements failed — rolled back", {
+          error,
+          droppedTempIds: Array.from(tempIdsToDrop),
+        });
+      }
       setToast(t("simulation.editor.saveFailed"));
       return;
     }
@@ -873,6 +933,7 @@ function SpaceEditorContent({ id }: { id: string }) {
             });
           }
           setToast(null);
+          setWallCleanupNotice({ kind: "skipped-low" });
           return { applied: false, cleanedFile: null };
         }
         const cleanup = await cleanupWallRegion({
@@ -889,6 +950,7 @@ function SpaceEditorContent({ id }: { id: string }) {
             });
           }
           setToast(null);
+          setWallCleanupNotice({ kind: "skipped-coverage" });
           return { applied: false, cleanedFile: null };
         }
         const swap = await replaceSpacePhotoWithCleaned(
@@ -900,9 +962,11 @@ function SpaceEditorContent({ id }: { id: string }) {
             console.debug("[simulation] wall cleanup swap failed", swap.error);
           }
           setToast(null);
+          setWallCleanupNotice({ kind: "skipped-error" });
           return { applied: false, cleanedFile: null };
         }
         await load();
+        setWallCleanupNotice(null);
         setToast(t("simulation.wallCleanup.done"));
         if (process.env.NODE_ENV !== "production") {
           console.debug("[simulation] wall cleanup applied", {
@@ -928,6 +992,7 @@ function SpaceEditorContent({ id }: { id: string }) {
           console.debug("[simulation] wall cleanup failed", err);
         }
         setToast(null);
+        setWallCleanupNotice({ kind: "skipped-error" });
         return { applied: false, cleanedFile: null };
       }
     },
@@ -1047,6 +1112,10 @@ function SpaceEditorContent({ id }: { id: string }) {
       // "handled by the upload path" so the load() below doesn't
       // race them into firing a redundant second pass.
       autoWallCleanupFiredRef.current = state.space.id;
+      // Fresh photo → clear any stale "cleanup skipped" notice from the
+      // previous upload so the collector doesn't stare at a warning
+      // that belongs to a discarded photo.
+      setWallCleanupNotice(null);
       setUploadBusy(true);
       try {
         const upload = await uploadSpacePhoto(state.space.id, file);
@@ -1268,6 +1337,24 @@ function SpaceEditorContent({ id }: { id: string }) {
       const surfaceId = surface?.id ?? null;
       const { xCm: rawX, yCm: rawY } = imagePxToWallCm(xImg, yImg, surface);
       const now = new Date().toISOString();
+      // Legacy artworks (uploaded before the dimensions gate) still
+      // have null width_cm/height_cm. Without a fallback the placement
+      // row round-trips through the renderer's null-drop filter and
+      // vanishes — the "0.1초 flash → 사라짐" P1 bug. Substitute a
+      // sensible A2-portrait default so every new placement carries
+      // concrete cm dimensions the inspector can render against, and
+      // toast the user so they know the default was picked.
+      const artworkHasDims =
+        pendingArtwork.widthCm != null &&
+        pendingArtwork.widthCm > 0 &&
+        pendingArtwork.heightCm != null &&
+        pendingArtwork.heightCm > 0;
+      const placementWidthCm = artworkHasDims
+        ? pendingArtwork.widthCm
+        : PLACEMENT_FALLBACK_WIDTH_CM;
+      const placementHeightCm = artworkHasDims
+        ? pendingArtwork.heightCm
+        : PLACEMENT_FALLBACK_HEIGHT_CM;
       const provisional: ScenePlacement = {
         id: tempId(),
         spaceId: state.space.id,
@@ -1279,8 +1366,8 @@ function SpaceEditorContent({ id }: { id: string }) {
         rotXDeg: 0,
         rotYDeg: 0,
         rotZDeg: 0,
-        widthCm: pendingArtwork.widthCm,
-        heightCm: pendingArtwork.heightCm,
+        widthCm: placementWidthCm,
+        heightCm: placementHeightCm,
         depthCm: pendingArtwork.depthCm,
         zOrder: state.space.placements.length,
         createdAt: now,
@@ -1320,6 +1407,12 @@ function SpaceEditorContent({ id }: { id: string }) {
       dirtyPlacements.current.set(nextPlacement.id, nextPlacement);
       setSelectedId(nextPlacement.id);
       setPendingArtwork(null);
+      // Surface the fallback so the user knows to correct the size —
+      // silent placement at the wrong scale is more confusing than a
+      // gentle "here's a placeholder, tune it in the inspector" nudge.
+      if (!artworkHasDims) {
+        setToast(t("simulation.editor.fallbackSizeApplied"));
+      }
       scheduleFlush();
     },
     [
@@ -1329,6 +1422,7 @@ function SpaceEditorContent({ id }: { id: string }) {
       computeSnappedPosition,
       pushHistory,
       scheduleFlush,
+      t,
     ],
   );
 
@@ -1901,6 +1995,62 @@ function SpaceEditorContent({ id }: { id: string }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section ref={canvasRef} className="min-w-0">
+          {/*
+            P1 (2026-08-19) — Wall-cleanup skip notice. The auto pass
+            silently fails open when the model can't confidently locate
+            a wall polygon (chaotic scenes, occluded walls, wall
+            heavily lit by direct sun). Before this notice existed, the
+            user just saw a still-warped photo with no clue the AI even
+            ran. Two CTAs so we don't strand them: (a) upload a
+            different photo, (b) open the manual corner picker.
+          */}
+          {photoUrl && wallCleanupNotice && (
+            <div
+              role="status"
+              className="mb-3 flex flex-wrap items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+            >
+              <span aria-hidden className="text-lg leading-none">⚠️</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">
+                  {t("simulation.wallCleanup.notice.title")}
+                </p>
+                <p className="mt-0.5 text-[11px] text-amber-800/90">
+                  {t(
+                    wallCleanupNotice.kind === "skipped-low"
+                      ? "simulation.wallCleanup.notice.lowConfidence"
+                      : wallCleanupNotice.kind === "skipped-coverage"
+                      ? "simulation.wallCleanup.notice.coverage"
+                      : "simulation.wallCleanup.notice.error",
+                  )}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadBusy}
+                  className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {t("simulation.wallCleanup.notice.replacePhoto")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCornersOpen(true)}
+                  className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  {t("simulation.wallCleanup.notice.pickCorners")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWallCleanupNotice(null)}
+                  className="rounded-lg px-1.5 py-1 text-[11px] text-amber-700 hover:text-amber-900"
+                  aria-label={t("simulation.picker.close")}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
           {photoUrl ? (
             <div className="relative w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100">
               {/* eslint-disable-next-line @next/next/no-img-element */}

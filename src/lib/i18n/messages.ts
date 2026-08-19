@@ -3924,6 +3924,13 @@ export const messages = {
     "simulation.editor.cancelPlacement": "Cancel",
     "simulation.editor.locked":
       "This space is over your plan's limit. Existing works stay visible.",
+    // P1 (2026-08-19) — Fallback size toast. Fires only when the picked
+    // artwork has no `width_cm` / `height_cm` yet (legacy uploads before
+    // the dimensions gate). We placed the work at 50 × 70 cm so the
+    // canvas still shows something usable; the inspector's dimension
+    // inputs let the collector correct the size.
+    "simulation.editor.fallbackSizeApplied":
+      "Real size wasn't set — showing at 50 × 70 cm. Adjust in the inspector.",
 
     "simulation.inspector.selection": "Selected work",
     "simulation.inspector.dimensions": "Dimensions",
@@ -4000,6 +4007,23 @@ export const messages = {
       "Use original photo without cleanup",
     "simulation.wallCleanup.useOriginal.hint":
       "If the cleanup looks unnatural, you can revert to the original.",
+    // P1 (2026-08-19) — Persistent inline notice that surfaces when
+    // the auto wall-cleanup silently bails. Prior behaviour was
+    // "fail open + silent" which left users staring at a photo whose
+    // shadows / sunlight the AI never touched, with no signal the
+    // pass had run. The notice offers two escape hatches: replace
+    // the photo (cluttered scenes rarely detect well) OR pick wall
+    // corners by hand (bypasses the AI polygon step entirely).
+    "simulation.wallCleanup.notice.title":
+      "AI couldn't tidy the wall in this photo",
+    "simulation.wallCleanup.notice.lowConfidence":
+      "The scene may be too cluttered for AI to see a clear wall. Try a photo with a wider expanse of wall paint visible, or set the wall corners yourself.",
+    "simulation.wallCleanup.notice.coverage":
+      "The detected wall was too small or too large to trust. Try a photo where the wall fills roughly a third of the frame.",
+    "simulation.wallCleanup.notice.error":
+      "We hit a network hiccup while tidying the wall. You can retry from the advanced panel or set the wall corners yourself.",
+    "simulation.wallCleanup.notice.replacePhoto": "Try another photo",
+    "simulation.wallCleanup.notice.pickCorners": "Set wall corners by hand",
 
     "simulation.picker.title": "Add an artwork",
     "simulation.picker.tab.saved": "Saved",
@@ -4011,6 +4035,12 @@ export const messages = {
       "3D sculpture and installation coming soon — only flat works can hang here for now.",
     "simulation.picker.add": "Add to wall",
     "simulation.picker.close": "Close",
+    // P1 (2026-08-19) — "You've already hung this work" badge that
+    // replaces the old faded-card treatment. Collectors read the
+    // opacity-60 fade as "the work I selected", which meant they
+    // couldn't visually confirm anything actually happened when they
+    // tapped a card.
+    "simulation.picker.alreadyPlaced": "Already hung",
 
     "simulation.snap.eyeLevel": "Eye level · 150 cm",
     "simulation.snap.center": "Center",
@@ -7961,6 +7991,13 @@ export const messages = {
     "simulation.editor.cancelPlacement": "취소",
     "simulation.editor.locked":
       "현재 플랜 한도를 초과한 공간이에요. 이미 걸린 작품은 그대로 볼 수 있어요.",
+    // P1 (2026-08-19) — 폴백 크기 토스트. 픽한 작품의 width_cm /
+    // height_cm 이 아직 세팅 안 된 legacy 업로드에서만 노출된다.
+    // renderer 가 null 치수 placement 를 걸러내는 필터에 걸려
+    // "0.1초 flash → 사라짐" 증상이 났던 것을 방지하려고 인스펙터에서
+    // 조정 가능한 50 × 70 cm 임시값으로 배치한다.
+    "simulation.editor.fallbackSizeApplied":
+      "실제 크기 정보가 없어 임시로 50 × 70 cm 로 걸었어요. 인스펙터에서 수정하세요.",
 
     "simulation.inspector.selection": "선택한 작품",
     "simulation.inspector.dimensions": "크기",
@@ -8020,6 +8057,20 @@ export const messages = {
       "정돈 없이 원본 사진 사용",
     "simulation.wallCleanup.useOriginal.hint":
       "정돈된 이미지가 부자연스러우면 원본으로 되돌릴 수 있어요.",
+    // P1 (2026-08-19) — 자동 벽 클린업이 조용히 스킵될 때 캔버스 위에
+    // 상시 노출되는 배지. 이전에는 fail-open silent 라서 사용자가
+    // AI 가 뛰긴 했는지도 모른 채 왜곡이 남은 사진을 보고 있었다.
+    // 배지에는 "다른 사진 시도" · "벽 코너 직접 지정" 두 경로를 제공.
+    "simulation.wallCleanup.notice.title":
+      "이 사진에서는 AI 가 벽을 정돈하지 못했어요",
+    "simulation.wallCleanup.notice.lowConfidence":
+      "장면이 복잡해 AI 가 벽면을 확신하지 못했어요. 벽 페인트가 넓게 보이는 사진을 다시 올려보시거나, 벽 코너를 직접 지정해 주세요.",
+    "simulation.wallCleanup.notice.coverage":
+      "감지된 벽 영역이 너무 작거나 너무 크게 잡혔어요. 벽이 프레임의 1/3 정도를 차지하는 사진을 시도해 보세요.",
+    "simulation.wallCleanup.notice.error":
+      "벽 정돈 중 네트워크 오류가 있었어요. 고급 패널에서 다시 실행하거나, 벽 코너를 직접 지정해 주세요.",
+    "simulation.wallCleanup.notice.replacePhoto": "다른 사진 시도",
+    "simulation.wallCleanup.notice.pickCorners": "벽 코너 직접 지정",
 
     "simulation.wall.title": "벽 보정",
     "simulation.wall.advancedTitle": "정확한 스케일 (고급)",
@@ -8044,6 +8095,11 @@ export const messages = {
       "3D 시뮬은 곧 제공됩니다. 지금은 평면 작품만 걸어볼 수 있어요.",
     "simulation.picker.add": "벽에 걸기",
     "simulation.picker.close": "닫기",
+    // P1 (2026-08-19) — "이 벽에 이미 걸어둔 작품" 배지. 기존 opacity
+    // fade 는 사용자에게 "내가 방금 고른 작품" 처럼 오독됐다 (아직
+    // 아무것도 안 골랐는데도 흐린 카드가 있어 혼선). 초록 체크 +
+    // "이미 걸림" 라벨로 명확하게 구분한다.
+    "simulation.picker.alreadyPlaced": "이미 걸림",
 
     "simulation.snap.eyeLevel": "눈높이 · 150 cm",
     "simulation.snap.center": "중앙 정렬",

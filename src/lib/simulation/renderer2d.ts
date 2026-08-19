@@ -22,6 +22,26 @@ import type {
 } from "./scene";
 
 /**
+ * P1 (2026-08-19) — Fallback placement dimensions used when NEITHER
+ * the placement override NOR the artwork's canonical `width_cm` /
+ * `height_cm` is populated. Legacy artworks (uploaded before the
+ * dimensions gate landed) still have `width_cm = null` in the DB, and
+ * every placement of such an artwork previously fell into the
+ * `continue` branch below → invisible on canvas, unclickable, but
+ * still persisted as a DB row. The symptom the P1 bug report calls
+ * out ("배치 후 0.1초 flash → 사라짐") is this filter kicking in.
+ *
+ * 50 × 70 cm ≈ A2 portrait, a conservative "typical wall art" size
+ * a collector will recognise as a reasonable placeholder. The
+ * inspector's dimension inputs remain the source of truth — a user
+ * who edits width/height on the placement immediately overrides the
+ * fallback (and that override persists back to `space_placements`
+ * so the next render is exact).
+ */
+export const PLACEMENT_FALLBACK_WIDTH_CM = 50;
+export const PLACEMENT_FALLBACK_HEIGHT_CM = 70;
+
+/**
  * Per-placement draw record. `css.zIndex` mirrors `placement.zOrder` so
  * DOM overlays stack in the same order the DB row list is drawn.
  */
@@ -76,14 +96,23 @@ export function renderScene2D(
       ? surfacesById.get(placement.surfaceId) ?? primarySurface
       : primarySurface;
     if (!surface) continue;
-    // Placement width/height override → artwork's canonical cm → skip.
-    // A placement with no resolvable size can't be projected, so we
-    // hide it rather than smear a 1 × 1 rectangle onto the photo.
-    const widthCm = placement.widthCm ?? artwork.widthCm ?? null;
-    const heightCm = placement.heightCm ?? artwork.heightCm ?? null;
-    if (widthCm == null || heightCm == null || widthCm <= 0 || heightCm <= 0) {
-      continue;
-    }
+    // Placement width/height override → artwork's canonical cm →
+    // fallback. Legacy artworks (uploaded before the dimensions gate)
+    // still have null width_cm/height_cm; without the fallback every
+    // placement of such an artwork silently vanished from the canvas
+    // (the "0.1초 flash → 사라짐" P1 bug). Substituting a sensible
+    // default keeps the placement visible + editable so the user can
+    // dial in the real size in the inspector.
+    const resolvedWidth = placement.widthCm ?? artwork.widthCm ?? null;
+    const resolvedHeight = placement.heightCm ?? artwork.heightCm ?? null;
+    const widthCm =
+      resolvedWidth != null && resolvedWidth > 0
+        ? resolvedWidth
+        : PLACEMENT_FALLBACK_WIDTH_CM;
+    const heightCm =
+      resolvedHeight != null && resolvedHeight > 0
+        ? resolvedHeight
+        : PLACEMENT_FALLBACK_HEIGHT_CM;
     const effectivePlacement: ScenePlacement = {
       ...placement,
       widthCm,

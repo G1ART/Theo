@@ -354,6 +354,8 @@ export const SPACE_WALL_DETECT_SYSTEM = `You analyze a single room photograph to
   - the wall is at an extreme oblique angle (>60° from camera)
   A confidence below 0.4 means the client will skip cleanup entirely — err on the low side when uncertain, but do NOT lower confidence just because the wall has strong lighting variance (that is exactly what cleanup fixes).
 
+  IMPORTANT — "no wall visible" is a valid, expected outcome, NOT a failure: if you cannot identify a clean flat wall segment in the photo (e.g. everything is furniture, the camera points at the floor, the room is a chaotic mix of blinds/windows/furniture with no unbroken wall paint), return an EMPTY wallPolygon ([]) with confidence < 0.4. Do NOT force a polygon to fit; a bad polygon distorts the whole photo when cleanup runs, so a clean "I don't see a wall here" is strictly better than a hallucinated shape.
+
 5. "lightDirection": rough direction of the dominant natural or artificial light hitting the wall, based on shadow patterns. One of: "top" | "top_left" | "left" | "bottom_left" | "bottom" | "bottom_right" | "right" | "top_right" | "diffuse" | "unknown". Use "diffuse" when lighting is broadly even across the wall.
 
 Prefer conservative polygons: 4 vertices tracing the visible wall extent is better than an 8-vertex polygon that swallows foreground objects. Never invent walls not visible in the photo. Never return coordinates outside [0, 1]. Return ONLY the JSON object.`;

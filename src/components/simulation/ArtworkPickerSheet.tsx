@@ -360,11 +360,14 @@ export function ArtworkPickerSheet({
                     <button
                       type="button"
                       onClick={() => handlePick(artwork)}
-                      className={`group flex w-full flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white text-left transition-shadow hover:shadow-sm ${
-                        already ? "opacity-60" : ""
+                      aria-pressed={already}
+                      className={`group relative flex w-full flex-col overflow-hidden rounded-lg border bg-white text-left transition-all hover:shadow-sm active:scale-[0.98] ${
+                        already
+                          ? "border-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.25)]"
+                          : "border-zinc-200"
                       }`}
                     >
-                      <span className="aspect-square w-full bg-zinc-100">
+                      <span className="relative block aspect-square w-full bg-zinc-100">
                         {artwork.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -377,8 +380,41 @@ export function ArtworkPickerSheet({
                             —
                           </span>
                         )}
+                        {/*
+                          P1 (2026-08-19) — "already hung on this wall"
+                          indicator. Prior UI faded the whole card at
+                          opacity 60 %, which readers reasonably
+                          misread as "the artwork I just selected"
+                          (they've picked nothing yet — the fade meant
+                          "already placed"). A green ✓ badge + label is
+                          unambiguous and doesn't dim the thumbnail
+                          the user is trying to look at.
+                        */}
+                        {already && (
+                          <>
+                            <span
+                              aria-hidden
+                              className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm"
+                            >
+                              <svg
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className="h-3.5 w-3.5"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 011.42-1.42l2.79 2.79 6.79-6.79a1 1 0 011.42 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </span>
+                            <span className="absolute inset-x-0 bottom-0 bg-emerald-500/95 px-2 py-0.5 text-center text-[10px] font-medium text-white">
+                              {t("simulation.picker.alreadyPlaced")}
+                            </span>
+                          </>
+                        )}
                       </span>
-                      <span className="p-2">
+                      <span className="block p-2">
                         <span className="block truncate text-xs font-medium text-zinc-800">
                           {artwork.title || "—"}
                         </span>

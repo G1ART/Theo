@@ -2,6 +2,66 @@
 
 Last updated: 2026-08-18
 
+## 2026-08-18 (24) — 시뮬 편집기 P1 hot-fix ③: 배치·클린업·선택 피드백 3-이슈 근원 픽스
+
+> Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
+
+### 사용자 리포트 (요약)
+1. 작품 선택 시 시각 피드백이 약함 (opacity dimming 만) — 이미 배치된 작품과 혼동.
+2. AI 가 어질러진 방 사진에서 벽을 못 찾음 → 클린업이 조용히 스킵되고 사용자에게는 "안 됨" 으로만 보임.
+3. **작품을 벽에 배치했더니 사라짐** — 0.1초 짜리 빨간 "작품 내리기" 텍스트가 flash 후 empty state 복귀.
+
+### 근원 감사
+
+DB 조회로 확정:
+- `Naked Flower A/B/C` 3개 legacy artwork 모두 `width_cm=null / height_cm=null / dims_confirmed_at=null / work_form='flat_2d'`.
+- 최근 space `fc8372d6-…` 에 이미 9개 placement 저장, **전부 `p.width_cm=null / p.height_cm=null`** — DB 삽입은 성공한 상태.
+
+트리거 체인 (이슈 3):
+1. `space_placements.width_cm/height_cm` 는 nullable (스키마).
+2. `ArtworkPickerSheet` 필터는 legacy `work_form=null → 'flat_2d'` normalize 로 통과.
+3. `handleCanvasTap` 이 `pendingArtwork.widthCm=null` 을 그대로 placement 에 넣음.
+4. **`renderer2d.ts::renderScene2D` line 82-86 — `widthCm==null || heightCm==null` 이면 `continue`** → 캔버스에 안 그려짐.
+5. Inspector 는 tempId 로 잠깐 "벽에서 내리기" 렌더 → 400ms `load()` → placement 가 real UUID 로 재-hydrate → `selectedId=tempId` unset → Inspector empty state 복귀 = "0.1초 flash".
+
+시나리오 A (RLS/NOT NULL 실패) 는 오답. **진짜 원인은 write-side 가 아니라 render-side null-drop 필터**.
+
+### 변경 (5파일)
+
+- **`src/lib/simulation/renderer2d.ts`** — 이슈 3 근원 픽스:
+ - `PLACEMENT_FALLBACK_WIDTH_CM=50` / `_HEIGHT_CM=70` 상수 신설·export.
+ - `renderScene2D` 의 null-drop 필터를 fallback 대체로 전환. **기존 DB 의 9개 legacy placement 도 즉시 렌더링됨** — 재작업/마이그레이션 불필요.
+
+- **`src/components/simulation/SpaceEditor.tsx`** — 3-이슈 UI/UX:
+ - **이슈 3 write-side**: `handleCanvasTap` 에 `artworkHasDims` 판정 → 없으면 50×70 fallback 삽입. `simulation.editor.fallbackSizeApplied` 토스트로 조정 CTA 노출.
+ - **이슈 3 안전망**: `flushPlacements` 실패 시 tempId placement 롤백 + `setSelectedId(null)` + dev log. 지금까지 없던 rollback.
+ - **이슈 2 사용자 노출**: `wallCleanupNotice` state (`skipped-low` / `coverage` / `error`) 신설. `runWallCleanup` 의 3개 skip 지점에서 세팅, 성공/새 업로드 시 clear. 캔버스 상단 amber slim 배너 + 2개 CTA ("다른 사진 시도" → file input / "벽 코너 직접 지정" → `PerspectiveCornerPicker` 오픈) + dismiss X.
+
+- **`src/components/simulation/ArtworkPickerSheet.tsx`** — 이슈 1:
+ - `opacity-60` fade 제거 (실제 의미는 "이미 배치됨" 이었으나 사용자는 "방금 선택함" 으로 오독).
+ - 이미 배치된 카드: `border-emerald-500` ring, 우상단 초록 원형 ✓ 배지, 하단 "이미 걸림" 라벨.
+ - 모든 카드에 `active:scale-[0.98]` kinetic feedback + `aria-pressed`.
+
+- **`src/lib/ai/prompts/index.ts`** — 이슈 2 프롬프트:
+ - `SPACE_WALL_DETECT_SYSTEM` 에 "empty polygon + confidence < 0.4 is a valid outcome, do NOT force a polygon" 명시. GPT-4o-mini 가 억지로 hallucinated 폴리곤 안 만들도록 유도.
+
+- **`src/lib/i18n/messages.ts`** — KO/EN 각 신규 키:
+ - `simulation.editor.fallbackSizeApplied`
+ - `simulation.picker.alreadyPlaced`
+ - `simulation.wallCleanup.notice.{title,lowConfidence,coverage,error,replacePhoto,pickCorners}`
+
+### 검증
+- `npx tsc --noEmit` — exit 0. `ReadLints` on 5파일 — 0 errors.
+- 매뉴얼 트레이스 (이슈 3): 탭 → placement widthCm=50/heightCm=70 → renderScene2D → canvas 즉시 표시 → toast → 400ms flush 성공 → 유지 ✔
+- 매뉴얼 트레이스 (이슈 2): auto-cleanup skip → `wallCleanupNotice` set → amber 배너 → CTA 클릭 시 fileInputRef / `setCornersOpen(true)` ✔
+- 매뉴얼 트레이스 (이슈 1): 이미 배치된 카드 = 초록 ring+✓+"이미 걸림"; 새로 pick = picker 닫히고 상단 "📍 배치하세요" 배너 ✔
+
+### 알려진 caveat / deferred
+- **tempId → real UUID `selectedId` race**: `flushPlacements` 후 selectedId stale → Inspector 잠깐 empty. Canvas 는 유지되므로 UX 영향 작음. 완전 매끄럽게 하려면 upsert 응답의 serverId 반환받아 재-매핑 필요 — 별도 이슈로.
+- **Fallback placement "임시 크기" 시각 마커 없음**: 인스펙터에 배지 없이 50×70 표시. 토스트로만 커버 — 후속 개선 대상.
+- **원본 `artworks.width_cm` 로 propagate 액션 없음**: 인스펙터에서 크기 조정 시 `space_placements` 만 반영. "이 작품 실제 치수 저장하기" 액션은 별도 이슈로.
+- **AI 벽 감지 프롬프트 효과**: real vision 응답 관찰 필요. (23) dev debug log 재사용 가능. 이 특정 사진 (창가 강햇빛+블라인드+어수선 소파) 은 gpt-4o-mini 한계일 가능성.
+
 ## 2026-08-18 (23) — 시뮬 편집기 P1 hot-fix ②: 4-이슈 근원 픽스
 
 > Supabase SQL 돌려야 할 것은 없음 · 환경 변수 변경 없음
