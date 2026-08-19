@@ -132,6 +132,13 @@ export default function SharedSpacePage() {
             {t("simulation.share.notFound")}
           </div>
         )}
+        {/*
+          Mirrors the editor's overlay style (P1 render-quality
+          patch, 2026-08-19): `object-contain` + mounting shadow
+          stack + hairline outline + top highlight so shared views
+          also render with faithful aspect and a "hanging object"
+          affordance, not the previous flat-sticker look.
+        */}
         {rendered.map((rp) => (
           <div
             key={rp.placement.id}
@@ -145,7 +152,9 @@ export default function SharedSpacePage() {
               transformOrigin: "0 0",
               transform: rp.css.matrix3d,
               zIndex: rp.css.zIndex + 1,
-              boxShadow: "0 6px 12px rgba(0,0,0,0.15)",
+              outline: "1px solid rgba(0,0,0,0.10)",
+              boxShadow:
+                "0 2px 6px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.18)",
             }}
           >
             {rp.artwork.imageUrl && (
@@ -153,7 +162,7 @@ export default function SharedSpacePage() {
               <img
                 src={rp.artwork.imageUrl}
                 alt={rp.artwork.title}
-                className="pointer-events-none h-full w-full select-none object-cover"
+                className="pointer-events-none h-full w-full select-none object-contain"
                 draggable={false}
               />
             )}

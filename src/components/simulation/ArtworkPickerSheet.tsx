@@ -48,7 +48,7 @@ const PICKER_SELECT = `
   size,
   size_unit,
   visibility,
-  artwork_images(storage_path, sort_order)
+  artwork_images(storage_path, sort_order, width, height)
 `;
 
 type PickerArtwork = {
@@ -61,6 +61,15 @@ type PickerArtwork = {
   widthCm: number | null;
   heightCm: number | null;
   depthCm: number | null;
+  /**
+   * Source-image pixel dimensions (from `artwork_images.width/height`,
+   * first `sort_order` row). Piped to the SpaceEditor so the aspect-
+   * ratio mismatch signal in the inspector works the moment a new
+   * placement is dropped (rather than only after a page reload).
+   * Null for legacy rows that predate the auto-compression pass.
+   */
+  imagePxWidth: number | null;
+  imagePxHeight: number | null;
   /** Free-form legacy size (nullable). Kept so the SpaceEditor can
    *  re-parse when the structured columns are still empty for legacy
    *  rows the backfill migration couldn't resolve. */
@@ -74,14 +83,19 @@ type PickerArtwork = {
     | "time_based";
 };
 
-function firstImagePath(
-  images: { storage_path: string | null; sort_order: number | null }[] | null,
-): string | null {
+type PickerImageRow = {
+  storage_path: string | null;
+  sort_order: number | null;
+  width?: number | null;
+  height?: number | null;
+};
+
+function firstImage(images: PickerImageRow[] | null): PickerImageRow | null {
   if (!images || images.length === 0) return null;
   const sorted = [...images].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
   );
-  return sorted[0]?.storage_path ?? null;
+  return sorted[0] ?? null;
 }
 
 type RawPickerRow = {
@@ -103,13 +117,14 @@ type RawPickerRow = {
   size: string | null;
   size_unit: "cm" | "in" | null;
   visibility: string | null;
-  artwork_images:
-    | { storage_path: string | null; sort_order: number | null }[]
-    | null;
+  artwork_images: PickerImageRow[] | null;
 };
 
 function normalizeRow(row: RawPickerRow, locale: Locale): PickerArtwork {
-  const path = firstImagePath(row.artwork_images);
+  const img = firstImage(row.artwork_images);
+  const path = img?.storage_path ?? null;
+  const pxW = img?.width;
+  const pxH = img?.height;
   const workForm = row.work_form ?? "flat_2d";
   return {
     id: row.id,
@@ -131,6 +146,10 @@ function normalizeRow(row: RawPickerRow, locale: Locale): PickerArtwork {
     widthCm: row.width_cm,
     heightCm: row.height_cm,
     depthCm: row.depth_cm,
+    imagePxWidth:
+      typeof pxW === "number" && Number.isFinite(pxW) && pxW > 0 ? pxW : null,
+    imagePxHeight:
+      typeof pxH === "number" && Number.isFinite(pxH) && pxH > 0 ? pxH : null,
     size: row.size,
     sizeUnit: row.size_unit,
     workForm,

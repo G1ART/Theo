@@ -2,6 +2,50 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (27) — 시뮬 렌더 퀄리티: 종횡비 왜곡 픽스 + 마운트 어포던스 + aspect 배지
+
+> Supabase SQL 적용함 (MCP `apply_migration` 원격 반영): `supabase/migrations/20260819050000_space_share_rpc_image_dims.sql` · 환경 변수 변경 없음
+
+### 배경
+사용자 리포트: (a) 작품이 세로 방향으로 찌부, (b) 원본 배경 padding 이 wall 위에서 스티커처럼 떠 보임. 스크린샷 확인 시 121.9×106.7 landscape placement 에 portrait 이미지가 스트레치돼 정사각형처럼 표시.
+
+### 근원 (3중)
+1. **`SpaceEditor.tsx:2191` `object-cover`** — placement rect 에 이미지 강제 fill+crop. Placement dims (structured cm 기반) 과 이미지 native aspect 안 맞으면 크롭·왜곡.
+2. **`storage_path` 는 enhancement 된 표시용이나 배경 padding 은 미제거** — 벽/여백 포함 이미지가 그대로 렌더됨.
+3. **이미지 픽셀 dims 가 `ArtworkThumbForScene` 로 노출 안 됨** → aspect 비교 불가 → 클라이언트가 미스매치 감지 못 함.
+
+### 변경 (6 파일 + 1 마이그레이션 + 1 문서)
+
+- **`src/lib/simulation/scene.ts`** — `ArtworkThumbForScene` 에 `imagePxWidth / imagePxHeight: number | null` 추가. Aspect 경고 + snap 액션 용.
+- **`src/lib/supabase/spaces.ts`** — `PUBLIC_ARTWORK_SELECT` 에 `artwork_images(width, height)` 추가. `firstImagePath` → `firstImage` 리네임 (전체 row 반환). `rowToArtworkThumb` 가 픽셀 dims 를 채움 (양수·유한수 가드).
+- **`supabase/migrations/20260819050000_space_share_rpc_image_dims.sql`** — `get_space_by_share_token(_token uuid)` RPC 의 `artwork_images[]` 각 요소에 `width, height` 추가. SECURITY DEFINER / grants / gating 그대로. 함수 1개라 통짜 paste OK. MCP 원격 반영 완료.
+- **`src/components/simulation/ArtworkPickerSheet.tsx`** — 픽커 select 에 `width, height` 추가. `PickerArtwork` 에 `imagePxWidth/Height` 노출 → SpaceEditor 가 reload 없이도 aspect 경고 발동.
+- **`src/components/simulation/SpaceEditor.tsx`**:
+ - **Part A**: `object-cover` → **`object-contain`**. Placement rect 크기 물리 치수 유지, 이미지는 letterbox → 픽셀 왜곡 zero.
+ - **Part B**: overlay `<div>` 에 마운트 스택 — `outline: 1px solid rgba(0,0,0,0.10)` + `box-shadow: 0 2px 6px .., 0 12px 28px .., inset 0 1px 0 rgba(255,255,255,0.18)`. 선택 시 진한 링으로 대체. "스티커" → "벽에 걸린 액자" 지각 개선.
+ - **Part C**: `computeAspectMismatch` 헬퍼 + `ASPECT_MISMATCH_THRESHOLD = 0.06` (6%) 상수. 인스펙터에서 image aspect ≠ placement aspect 6%+ 차이면 amber 카드 + `{placementRatio}` / `{imageRatio}` / `{delta}` 통계 + "긴 축 유지" / "짧은 축 유지" 액션. `mutatePlacement` 만 호출 → `artworks.width_cm/height_cm` 는 절대 안 건드림 (RLS-safe).
+ - `handlePickArtwork` thumb 생성부에 픽셀 dims 전달.
+- **`src/app/space/[token]/page.tsx`** — 공유 뷰에도 렌더 파리티. `object-cover` → `object-contain` + 동일 마운트 스택. 공유 링크 방문자도 왜곡 없이/스티커 아니게 봄.
+- **`src/lib/i18n/messages.ts`** — `simulation.inspector.aspectMismatch.{title,hint,stats,keepLong,keepShort}` KO/EN.
+
+### 새 문서: `docs/SIMULATION_QUALITY_ROADMAP.md` (~180줄)
+- 현재 진단 (Issue 1: aspect / Issue 2: padding + sticker) + 이번 패치 커버 범위.
+- **Photoroom cutout 스펙 초안**: 인스펙터 owner-only 버튼 → API 호출 → `artwork_images` `view_type='cutout'` 행 삽입 → 렌더 시 cutout 우선. 예상 M.
+- **Vision 기반 painting-bounds 자동 감지 스펙**: 업로드 시 auto, `gpt-4o-mini` bbox → `artwork_images.display_adjust.crop` 재활용. 예상 M-L.
+- **3D-look** (프레임/방향성 그림자/앰비언트): Deferred → P2 파라메트릭 3D 트랙.
+- Threshold tuning log 섹션.
+
+### 검증
+- `npx tsc --noEmit` — exit 0. `ReadLints` on 7파일 — 0 errors.
+- 매뉴얼 트레이스:
+ - 왜곡 픽스: 121.9×106.7 landscape rect + portrait 이미지 → letterbox, 픽셀 왜곡 zero ✔
+ - Mounting: soft drop-shadow 2단 + hairline outline + top inset highlight → 액자 지각 성립 ✔
+ - Aspect 배지: 1000×1500 portrait (0.667) vs 121.9×106.7 (1.143) → delta 41.6% ≫ 6% → 배지 노출. "긴 축 유지" → heightCm 182.8, "짧은 축 유지" → widthCm 71.2 ✔
+
+### 알려진 caveat / deferred
+- **Legacy 이미지의 padding 픽셀은 여전히 letterbox 안에 표시됨** — 이번 스코프의 최선 완화책은 warning + snap-to-aspect. 실제 제거는 로드맵의 Photoroom 트랙.
+- **6% 임계값 튜닝 여지**: 노이즈 리포트 시 8% 상향, 놓치는 케이스 시 5% 하향. 상수만 갈아끼우면 됨.
+
 ## 2026-08-19 (26) — Artwork 크기 파서 재활용 + backfill + 시뮬 편집기 폴백 propagate
 
 > Supabase SQL 적용함 (MCP `apply_migration` 원격 반영): `supabase/migrations/20260819040000_backfill_artwork_dims_from_size.sql` · 환경 변수 변경 없음

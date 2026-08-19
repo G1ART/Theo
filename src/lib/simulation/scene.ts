@@ -216,6 +216,25 @@ export type ArtworkThumbForScene = {
   widthCm: number | null;
   heightCm: number | null;
   depthCm: number | null;
+  /**
+   * Pixel dimensions of the source image at `imageUrl` (from
+   * `artwork_images.width/height`, the first `sort_order` row).
+   * Null for legacy rows uploaded before the auto-compression pass
+   * (which populates these) landed. The 2D renderer uses these to:
+   *
+   *   1. Warn when the image's aspect ratio disagrees with the
+   *      placement's physical aspect — a strong signal that the
+   *      uploaded photo contains background padding (the "wall
+   *      around the painting" case in the P1 quality report).
+   *   2. Offer a "fit to image aspect" inspector action so the user
+   *      can snap the placement to the true image proportions
+   *      without editing `artworks.width_cm/height_cm` (which would
+   *      leak into every other placement of the same work).
+   *
+   * Both features gracefully skip when either dimension is null.
+   */
+  imagePxWidth: number | null;
+  imagePxHeight: number | null;
   /** Dimensionality bucket used to decide which renderer path applies. */
   workForm:
     | "flat_2d"

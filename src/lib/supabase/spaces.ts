@@ -118,6 +118,14 @@ const SPACE_SELECT = `
  * share view. Nothing more than what already ships in
  * `artworks_select_public` (title / image / bilingual pair /
  * dimensions / work_form). No pricing, no ownership, no story text.
+ *
+ * `artwork_images.width` / `.height` are the source-file pixel
+ * dimensions (populated by the auto-compression pass in
+ * `20260728100000_artwork_images_auto_compression.sql`; NULL for
+ * pre-compression legacy rows). The 2D renderer uses them to warn
+ * when the image aspect disagrees with the placement's physical
+ * aspect — a strong signal that the upload contains background
+ * padding around the painting.
  */
 const PUBLIC_ARTWORK_SELECT = `
   id,
@@ -129,7 +137,7 @@ const PUBLIC_ARTWORK_SELECT = `
   width_cm,
   height_cm,
   depth_cm,
-  artwork_images(storage_path, sort_order, view_type)
+  artwork_images(storage_path, sort_order, view_type, width, height)
 `;
 
 /**
@@ -162,21 +170,34 @@ type RawArtworkRow = {
         storage_path: string | null;
         sort_order: number | null;
         view_type?: string | null;
+        width?: number | null;
+        height?: number | null;
       }[]
     | null;
 };
 
-function firstImagePath(row: RawArtworkRow): string | null {
+/**
+ * Pick the first (`sort_order`-lowest) image row. Returns `null` when
+ * the artwork has no images. We deliberately don't filter by
+ * `view_type` — legacy rows default to `wall_mounted` and the
+ * simulation is happy to render whatever cover the artist chose.
+ */
+function firstImage(
+  row: RawArtworkRow,
+): NonNullable<RawArtworkRow["artwork_images"]>[number] | null {
   const imgs = Array.isArray(row.artwork_images) ? [...row.artwork_images] : [];
   imgs.sort((a, b) => (a?.sort_order ?? 0) - (b?.sort_order ?? 0));
-  return imgs[0]?.storage_path ?? null;
+  return imgs[0] ?? null;
 }
 
 function rowToArtworkThumb(
   row: RawArtworkRow,
   locale: Locale,
 ): ArtworkThumbForScene {
-  const path = firstImagePath(row);
+  const img = firstImage(row);
+  const path = img?.storage_path ?? null;
+  const pxW = img?.width;
+  const pxH = img?.height;
   return {
     id: row.id,
     title: pickLocalizedArtworkTitle(row, locale),
@@ -184,6 +205,10 @@ function rowToArtworkThumb(
     widthCm: row.width_cm,
     heightCm: row.height_cm,
     depthCm: row.depth_cm,
+    imagePxWidth:
+      typeof pxW === "number" && Number.isFinite(pxW) && pxW > 0 ? pxW : null,
+    imagePxHeight:
+      typeof pxH === "number" && Number.isFinite(pxH) && pxH > 0 ? pxH : null,
     workForm: row.work_form ?? "flat_2d",
   };
 }

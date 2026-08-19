@@ -3951,6 +3951,21 @@ export const messages = {
       "Choose how room dimensions display. Artwork sizes keep the cm/in family of your choice.",
     "simulation.inspector.selectHint": "Tap a work on the wall to edit it.",
 
+    // P1 render-quality (2026-08-19) — Aspect-ratio mismatch signal.
+    // Shown when the source photo's aspect (from
+    // `artwork_images.width/height`) differs from the placement's
+    // physical aspect by more than ~6%. Typical trigger: the upload
+    // includes wall/frame padding around the painting, so the image
+    // looks squished or the wrong shape on the wall.
+    "simulation.inspector.aspectMismatch.title":
+      "Photo shape differs from the real dimensions",
+    "simulation.inspector.aspectMismatch.hint":
+      "The uploaded photo may include background around the artwork. Fit the placement to the photo's aspect for a truer preview — this only edits how this space displays it.",
+    "simulation.inspector.aspectMismatch.stats":
+      "Placement {placementRatio} vs. photo {imageRatio} ({delta}% difference)",
+    "simulation.inspector.aspectMismatch.keepLong": "Keep long side",
+    "simulation.inspector.aspectMismatch.keepShort": "Keep short side",
+
     "simulation.wall.title": "Wall calibration",
     "simulation.wall.advancedTitle": "Precise scale (advanced)",
     "simulation.wall.advancedHint":
@@ -8022,6 +8037,20 @@ export const messages = {
     "simulation.inspector.unitHint":
       "방·벽 치수 표기에 쓸 단위를 골라주세요. 작품 크기는 cm/in 계열을 그대로 유지합니다.",
     "simulation.inspector.selectHint": "벽에 걸린 작품을 눌러 편집해 보세요.",
+
+    // P1 render-quality (2026-08-19) — 사진 비율과 실제 치수 비율이
+    // 6% 이상 어긋날 때 인스펙터에 뜨는 경고. 원본에 그림 주변 벽/
+    // 프레임이 포함된 경우 실측 사이즈로 계산한 사각형과 이미지
+    // 종횡비가 안 맞아 "찌부" 느낌이 나기 때문에, 이미지 비율에
+    // 맞춰 placement 만 재계산할 수 있도록 액션을 붙였다.
+    "simulation.inspector.aspectMismatch.title":
+      "사진 비율이 실제 크기와 달라요",
+    "simulation.inspector.aspectMismatch.hint":
+      "업로드된 사진에 그림 주변 배경이 포함되어 있을 수 있어요. 사진 비율에 맞춰 사이즈를 조정하면 더 자연스럽게 보이고, 이 공간에서만 반영됩니다.",
+    "simulation.inspector.aspectMismatch.stats":
+      "실제 {placementRatio} vs. 사진 {imageRatio} ({delta}% 차이)",
+    "simulation.inspector.aspectMismatch.keepLong": "긴 축 유지",
+    "simulation.inspector.aspectMismatch.keepShort": "짧은 축 유지",
 
     // P1 (2026-08-19) — 측정 기반 스케일 보정 (AI + 수동).
     // 사진을 처음 올렸을 때, 사용자 설정이 켜져 있고 아직 보정되지

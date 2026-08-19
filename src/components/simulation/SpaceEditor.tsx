@@ -107,6 +107,28 @@ const PERSIST_DEBOUNCE_MS = 400;
 const FALLBACK_WALL_WIDTH_CM = 400;
 const FALLBACK_WALL_HEIGHT_CM = 260;
 
+/**
+ * P1 render-quality (2026-08-19) — threshold for showing the
+ * "image aspect ≠ placement aspect" warning in the inspector.
+ *
+ * We compare the artwork's SOURCE image aspect (from
+ * `artwork_images.width/height`) with the placement's physical
+ * aspect (`widthCm / heightCm`) and flag the delta as suspicious
+ * when it exceeds this fraction of the larger side.
+ *
+ * A photo of a painting that includes visible wall/frame padding
+ * typically inflates one dimension by 10–30 %, so 6 % is a
+ * comfortable "signal not noise" cutoff:
+ *   • rounding & EXIF quirks stay under ~2 %.
+ *   • JPEG re-encodes and mild letterboxing land in the 2–4 % band.
+ *   • Genuine padding cases (the P1 report's 121.9×106.7 cm portrait
+ *     that looked square) sit at 30–50 %.
+ *
+ * Tunable — bump toward 8 % if we get complaints about the warning
+ * being noisy, drop toward 5 % if users report missed cases.
+ */
+const ASPECT_MISMATCH_THRESHOLD = 0.06;
+
 // ─────────────────────────────────────────────────────────────────────
 // P1 (2026-08-19 hot-fix) — Display-unit ("cm | in | m | ft") helpers.
 //
@@ -239,6 +261,52 @@ function typicalMidpoint(candidate: SpaceCalibrateCandidate): number {
   const { min, max } = candidate.typical_range_cm;
   if (!Number.isFinite(min) || !Number.isFinite(max)) return 100;
   return Math.round((min + max) / 2);
+}
+
+/**
+ * Compare an artwork's source-image aspect with a placement's
+ * physical aspect (both expressed as width / height). Returns the
+ * fractional delta relative to the larger aspect, plus the two
+ * inputs so the inspector can display them.
+ *
+ * Returns `null` when either input is missing or degenerate — the
+ * inspector treats that as "no signal, hide the warning".
+ */
+function computeAspectMismatch(
+  imagePxWidth: number | null,
+  imagePxHeight: number | null,
+  placementWidthCm: number | null,
+  placementHeightCm: number | null,
+): {
+  imageAspect: number;
+  placementAspect: number;
+  delta: number;
+} | null {
+  if (
+    imagePxWidth == null ||
+    imagePxHeight == null ||
+    placementWidthCm == null ||
+    placementHeightCm == null
+  ) {
+    return null;
+  }
+  if (
+    imagePxWidth <= 0 ||
+    imagePxHeight <= 0 ||
+    placementWidthCm <= 0 ||
+    placementHeightCm <= 0
+  ) {
+    return null;
+  }
+  const imageAspect = imagePxWidth / imagePxHeight;
+  const placementAspect = placementWidthCm / placementHeightCm;
+  if (!Number.isFinite(imageAspect) || !Number.isFinite(placementAspect)) {
+    return null;
+  }
+  const denom = Math.max(imageAspect, placementAspect);
+  if (denom <= 0) return null;
+  const delta = Math.abs(imageAspect - placementAspect) / denom;
+  return { imageAspect, placementAspect, delta };
 }
 
 type MeasurePoint = { x: number; y: number };
@@ -1428,6 +1496,11 @@ function SpaceEditorContent({ id }: { id: string }) {
           recoveredDims?.depthCm != null
             ? recoveredDims.depthCm
             : pendingArtwork.depthCm,
+        // Piped through the picker so the aspect-mismatch signal
+        // fires the moment a new placement is dropped, not only
+        // after a full reload.
+        imagePxWidth: pendingArtwork.imagePxWidth,
+        imagePxHeight: pendingArtwork.imagePxHeight,
         workForm: pendingArtwork.workForm,
       };
       artworks.set(pendingArtwork.id, thumb);
@@ -2149,12 +2222,50 @@ function SpaceEditorContent({ id }: { id: string }) {
                   setSelectedId(null);
                 }}
               />
-              {/* Placement overlays */}
+              {/*
+                Placement overlays.
+
+                P1 render-quality (2026-08-19) — three visual fixes
+                folded into the overlay `<div>` + `<img>`:
+
+                  1. `object-contain` (was `object-cover`). The
+                     placement rectangle is derived from the physical
+                     `widthCm × heightCm`; forcing the image to fill
+                     that rectangle stretched/cropped the picture
+                     whenever the source photo's aspect didn't match
+                     (the "정사각형이 살짝 가로로 늘어남" symptom).
+                     Contain letterboxes inside the rect so pixels
+                     never distort — trading tiny transparent
+                     margins for a faithful render.
+                  2. Drop-shadow + subtle border. The old canvas
+                     rendered images as flat stickers on the wall,
+                     which reads badly for uploads that carry
+                     background padding around the painting. A soft
+                     cast shadow ("mounted, casts a shadow") plus a
+                     hairline outline gives the eye a clear "framed
+                     object on wall" affordance even before we ship
+                     Photoroom cutouts.
+                  3. Inset highlight on the top edge. A single 1 px
+                     white line at `inset 0 1px 0` mimics a picture's
+                     top-facing bevel picking up ambient light.
+                     Combined with the shadow this pushes perceived
+                     depth from ~0 to ~2 mm — enough for the eye to
+                     stop reading the placement as "on the wall's
+                     surface" and start reading it as "hanging in
+                     front of the wall."
+              */}
               {rendered.map((rp) => {
                 const isSelected = rp.placement.id === selectedId;
                 const isDragging = rp.placement.id === dragPlacementId;
                 const surface = rp.surface;
                 if (!surface) return null;
+                // Selection ring is a strong dark outline; unselected
+                // placements get the soft mount stack. Selection wins
+                // over the mount shadow so the affordance for "which
+                // placement am I editing" stays unambiguous.
+                const mountBoxShadow = isSelected
+                  ? "0 0 0 2px rgba(15,23,42,0.95), 0 2px 6px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.12)"
+                  : "0 2px 6px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.18)";
                 return (
                   <div
                     key={rp.placement.id}
@@ -2178,9 +2289,13 @@ function SpaceEditorContent({ id }: { id: string }) {
                       zIndex: rp.css.zIndex + 1,
                       touchAction: "none",
                       cursor: isDragging ? "grabbing" : "grab",
-                      boxShadow: isSelected
-                        ? "0 0 0 2px rgba(15,23,42,0.9)"
-                        : "0 6px 12px rgba(0,0,0,0.15)",
+                      // Hairline border (unselected only — the
+                      // selection ring already draws its own edge).
+                      outline: isSelected
+                        ? "none"
+                        : "1px solid rgba(0,0,0,0.10)",
+                      outlineOffset: 0,
+                      boxShadow: mountBoxShadow,
                     }}
                   >
                     {rp.artwork.imageUrl ? (
@@ -2188,7 +2303,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                       <img
                         src={rp.artwork.imageUrl}
                         alt={rp.artwork.title}
-                        className="pointer-events-none h-full w-full select-none object-cover"
+                        className="pointer-events-none h-full w-full select-none object-contain"
                         draggable={false}
                       />
                     ) : (
@@ -2490,93 +2605,224 @@ function SpaceEditorContent({ id }: { id: string }) {
               {t("simulation.inspector.selection")}
             </h2>
             {selected ? (
-              <div className="mt-3 space-y-3 text-sm text-zinc-700">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">
-                    {t("simulation.inspector.dimensions")}
+              (() => {
+                // P1 render-quality (2026-08-19) — aspect-ratio
+                // mismatch signal. The renderer already draws the
+                // image with `object-contain` so pixels never
+                // stretch; this signal + CTA lets the user snap the
+                // PLACEMENT rectangle to the image's true aspect
+                // when the source photo carries background padding.
+                //
+                // Deliberately does NOT mutate
+                // `artworks.width_cm/height_cm` — that would leak
+                // into every other user's placement of the same
+                // work. Placement dims are RLS-scoped to space
+                // owner, so this stays a safe local edit.
+                const artwork = state?.artworks.get(selected.artworkId) ?? null;
+                const mismatch = artwork
+                  ? computeAspectMismatch(
+                      artwork.imagePxWidth,
+                      artwork.imagePxHeight,
+                      selected.widthCm,
+                      selected.heightCm,
+                    )
+                  : null;
+                const showMismatch =
+                  mismatch != null &&
+                  mismatch.delta >= ASPECT_MISMATCH_THRESHOLD;
+                const applyFitToImage = (axis: "long" | "short") => {
+                  if (
+                    !mismatch ||
+                    selected.widthCm == null ||
+                    selected.heightCm == null
+                  ) {
+                    return;
+                  }
+                  // "긴 축 유지" — freeze whichever placement axis
+                  // is currently longer (in cm) and derive the
+                  // other from the image aspect. "짧은 축 유지" is
+                  // the inverse. Both preserve one physical size
+                  // the user cared about while removing the aspect
+                  // mismatch entirely.
+                  const wCm = selected.widthCm;
+                  const hCm = selected.heightCm;
+                  const imgAspect = mismatch.imageAspect; // w / h
+                  const widthIsLonger = wCm >= hCm;
+                  const keepWidth =
+                    (axis === "long" && widthIsLonger) ||
+                    (axis === "short" && !widthIsLonger);
+                  const nextWidth = keepWidth ? wCm : hCm * imgAspect;
+                  const nextHeight = keepWidth ? wCm / imgAspect : hCm;
+                  if (
+                    !Number.isFinite(nextWidth) ||
+                    !Number.isFinite(nextHeight) ||
+                    nextWidth <= 0 ||
+                    nextHeight <= 0
+                  ) {
+                    return;
+                  }
+                  mutatePlacement(selected.id, {
+                    widthCm: Number(nextWidth.toFixed(2)),
+                    heightCm: Number(nextHeight.toFixed(2)),
+                  });
+                };
+                return (
+                  <div className="mt-3 space-y-3 text-sm text-zinc-700">
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-zinc-500">
+                        {t("simulation.inspector.dimensions")}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <label className="flex items-center gap-1">
+                          <span className="text-xs text-zinc-500">
+                            {t("simulation.inspector.width")}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={
+                              selected.widthCm != null
+                                ? Number(cmDisplay(selected.widthCm).toFixed(1))
+                                : ""
+                            }
+                            onChange={(e) => {
+                              const raw = parseFloat(e.target.value);
+                              if (!Number.isFinite(raw)) return;
+                              const cm = sizeUnit === "in" ? raw * 2.54 : raw;
+                              mutatePlacement(selected.id, { widthCm: cm });
+                            }}
+                            className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
+                          />
+                          <span className="text-xs text-zinc-400">
+                            {unitSuffix}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-1">
+                          <span className="text-xs text-zinc-500">
+                            {t("simulation.inspector.height")}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={
+                              selected.heightCm != null
+                                ? Number(
+                                    cmDisplay(selected.heightCm).toFixed(1),
+                                  )
+                                : ""
+                            }
+                            onChange={(e) => {
+                              const raw = parseFloat(e.target.value);
+                              if (!Number.isFinite(raw)) return;
+                              const cm = sizeUnit === "in" ? raw * 2.54 : raw;
+                              mutatePlacement(selected.id, { heightCm: cm });
+                            }}
+                            className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
+                          />
+                          <span className="text-xs text-zinc-400">
+                            {unitSuffix}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                    {showMismatch && (
+                      <div
+                        role="status"
+                        className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span aria-hidden className="text-sm leading-none">
+                            ⚠️
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">
+                              {t(
+                                "simulation.inspector.aspectMismatch.title",
+                              )}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-amber-800/90">
+                              {t(
+                                "simulation.inspector.aspectMismatch.hint",
+                              )}
+                            </p>
+                            <p className="mt-1 text-[11px] text-amber-800/80">
+                              {t(
+                                "simulation.inspector.aspectMismatch.stats",
+                              )
+                                .replace(
+                                  "{placementRatio}",
+                                  mismatch.placementAspect.toFixed(2),
+                                )
+                                .replace(
+                                  "{imageRatio}",
+                                  mismatch.imageAspect.toFixed(2),
+                                )
+                                .replace(
+                                  "{delta}",
+                                  Math.round(mismatch.delta * 100).toString(),
+                                )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => applyFitToImage("long")}
+                            className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                          >
+                            {t(
+                              "simulation.inspector.aspectMismatch.keepLong",
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => applyFitToImage("short")}
+                            className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                          >
+                            {t(
+                              "simulation.inspector.aspectMismatch.keepShort",
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <label
+                        htmlFor="rot-z-input"
+                        className="text-xs uppercase tracking-wide text-zinc-500"
+                      >
+                        {t("simulation.inspector.rotation")}
+                      </label>
+                      <div className="mt-1 flex items-center gap-2">
+                        <input
+                          id="rot-z-input"
+                          type="range"
+                          min={-45}
+                          max={45}
+                          step={0.5}
+                          value={selected.rotZDeg}
+                          onChange={(e) =>
+                            mutatePlacement(selected.id, {
+                              rotZDeg: parseFloat(e.target.value),
+                            })
+                          }
+                          className="flex-1"
+                        />
+                        <span className="w-12 text-right text-xs text-zinc-500">
+                          {selected.rotZDeg.toFixed(1)}°
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteSelected()}
+                      className="text-xs font-medium text-red-600 hover:text-red-800"
+                    >
+                      {t("simulation.inspector.remove")}
+                    </button>
                   </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <label className="flex items-center gap-1">
-                      <span className="text-xs text-zinc-500">
-                        {t("simulation.inspector.width")}
-                      </span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={
-                          selected.widthCm != null
-                            ? Number(cmDisplay(selected.widthCm).toFixed(1))
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const raw = parseFloat(e.target.value);
-                          if (!Number.isFinite(raw)) return;
-                          const cm = sizeUnit === "in" ? raw * 2.54 : raw;
-                          mutatePlacement(selected.id, { widthCm: cm });
-                        }}
-                        className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
-                      />
-                      <span className="text-xs text-zinc-400">{unitSuffix}</span>
-                    </label>
-                    <label className="flex items-center gap-1">
-                      <span className="text-xs text-zinc-500">
-                        {t("simulation.inspector.height")}
-                      </span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={
-                          selected.heightCm != null
-                            ? Number(cmDisplay(selected.heightCm).toFixed(1))
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const raw = parseFloat(e.target.value);
-                          if (!Number.isFinite(raw)) return;
-                          const cm = sizeUnit === "in" ? raw * 2.54 : raw;
-                          mutatePlacement(selected.id, { heightCm: cm });
-                        }}
-                        className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
-                      />
-                      <span className="text-xs text-zinc-400">{unitSuffix}</span>
-                    </label>
-                  </div>
-                </div>
-                <div>
-                  <label
-                    htmlFor="rot-z-input"
-                    className="text-xs uppercase tracking-wide text-zinc-500"
-                  >
-                    {t("simulation.inspector.rotation")}
-                  </label>
-                  <div className="mt-1 flex items-center gap-2">
-                    <input
-                      id="rot-z-input"
-                      type="range"
-                      min={-45}
-                      max={45}
-                      step={0.5}
-                      value={selected.rotZDeg}
-                      onChange={(e) =>
-                        mutatePlacement(selected.id, {
-                          rotZDeg: parseFloat(e.target.value),
-                        })
-                      }
-                      className="flex-1"
-                    />
-                    <span className="w-12 text-right text-xs text-zinc-500">
-                      {selected.rotZDeg.toFixed(1)}°
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteSelected()}
-                  className="text-xs font-medium text-red-600 hover:text-red-800"
-                >
-                  {t("simulation.inspector.remove")}
-                </button>
-              </div>
+                );
+              })()
             ) : (
               <p className="mt-3 text-xs text-zinc-500">
                 {t("simulation.inspector.selectHint")}
