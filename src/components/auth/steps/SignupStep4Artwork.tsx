@@ -1,23 +1,24 @@
 "use client";
 
 /**
- * Signup v2 · Step 4 (Artwork quick-start) — Phase 2, 2026-08-19.
+ * Signup v2 · Step 4 (Artwork quick-start) — wireframe pixel-fidelity
+ * pass (2026-08-20). Phase 2 behavior preserved verbatim.
  *
- * Fields collected (aligned with `/upload`'s CREATED path, NOT the
- * designer's freeform wireframe — see parent Phase 2 task):
- *   - Photo (required)
- *   - Title (bilingual — current locale writes raw + `_ko`/`_en`)
- *   - Medium (free text; datalist seeded from TAXONOMY.mediumOptions)
- *   - Size (free text; parseSizeToDimensionsCm at submit)
- *   - Status → CREATED / OWNS / CURATED (spec §3.4 mapping)
- *   - Story (bilingual, optional)
+ * Layout (desktop ≥sm):
+ *   ┌───────────────┬───────────────────────────────┐
+ *   │               │ Title*         │ Year*        │
+ *   │  Uploader     │ Medium         │ Size         │
+ *   │  (aspect-1/1) │ Status                        │
+ *   │               │ Description                   │
+ *   └───────────────┴───────────────────────────────┘
+ *
+ * Mobile (<sm): uploader on top full-width, fields stacked below.
  *
  * Copy is role-aware (§5 #7):
  *   - artist   → primary CTA "Upload your first work"; skip is a
  *                secondary text link.
  *   - anyone   → primary CTA "Skip for now"; upload sits under a
- *     else       "Show anyway" disclosure. Non-artists tend to skip;
- *                we lead with that path so they don't feel forced.
+ *     else       "Show anyway" disclosure.
  *
  * On success or skip we clear the wizard sessionStorage draft and
  * route to `/feed`. A brief `TheoLoadingMark` covers the network
@@ -64,7 +65,7 @@ function defaultIntentForRole(
   return "";
 }
 
-const MAX_STORY_LEN = 2000;
+const MAX_DESCRIPTION_LEN = 2000;
 const DEDUP_DEBOUNCE_MS = 500;
 
 export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
@@ -80,9 +81,10 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [title, setTitle] = useState("");
+  const [year, setYear] = useState<string>("");
   const [medium, setMedium] = useState("");
   const [size, setSize] = useState("");
-  const [story, setStory] = useState("");
+  const [description, setDescription] = useState("");
   const [intent, setIntent] = useState<SignupStep4Intent | "">(() =>
     defaultIntentForRole(api.state.mainRole),
   );
@@ -116,8 +118,7 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
   }, []);
 
   // Object-URL hygiene. Revoke the preview blob URL when the file
-  // changes or the component unmounts — otherwise the browser leaks
-  // one allocation per Step 4 mount.
+  // changes or the component unmounts.
   useEffect(() => {
     if (!file) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -135,8 +136,7 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
     };
   }, [file]);
 
-  // Debounced dedup probe (§8 #7). Only fires when we have a title
-  // and a session — cheap query, scoped to the user's own works.
+  // Debounced dedup probe (§8 #7).
   useEffect(() => {
     if (dedupTimerRef.current) clearTimeout(dedupTimerRef.current);
     const q = title.trim();
@@ -177,14 +177,16 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
 
     setSubmitting(true);
     setUploadPhase("uploading");
+    const parsedYear = year.trim() ? Number.parseInt(year.trim(), 10) : NaN;
     const res = await createArtworkForCreatedIntent({
       userId,
       intent,
       file,
       title,
+      year: Number.isFinite(parsedYear) ? parsedYear : null,
       medium,
       size,
-      story,
+      description,
       locale,
     });
 
@@ -217,16 +219,10 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
   const showAnywayLabel = t("auth.signupV2.step4.showAnyway");
 
   // Non-artist collapsed lead: primary CTA is "Skip" and a small
-  // secondary link toggles the actual form. This mirrors the spec
-  // decision — most non-artists have nothing to upload at signup and
-  // shouldn't be asked to jump through a full form.
+  // secondary link toggles the actual form.
   if (!expanded) {
-    // Wireframe polish (2026-08-19): AuthShell already renders
-    // `nonArtistTitle` as the H1 sub-label; the collapsed panel only
-    // needs the descriptive body copy so we don't visually duplicate
-    // the sub-label directly below itself.
     return (
-      <div className="space-y-6">
+      <div className="max-w-md space-y-6">
         <p className="-mt-2 mb-2 text-sm text-zinc-500">
           {t("auth.signupV2.step4.nonArtistBody")}
         </p>
@@ -249,120 +245,108 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
     );
   }
 
-  // Body copy above the expanded form — role-aware. Artist gets the
-  // "Post one piece to start…" nudge; anyone who clicked "Show anyway"
-  // gets the non-artist framing that matches the subtitle above.
   const expandedBodyKey = isArtist
     ? "auth.signupV2.step4.artistSubtitle"
     : "auth.signupV2.step4.nonArtistSubtitle";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+      <p className="-mt-2 mb-2 text-sm text-zinc-500">
         {t(expandedBodyKey)}
       </p>
-      <div>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">
-          {t("auth.signupV2.step4.photoLabel")}
-        </label>
-        <label className="group relative flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-zinc-300 bg-white p-4 text-center text-sm text-zinc-500 transition-colors hover:border-zinc-500 hover:text-zinc-800">
-          {previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={previewUrl}
-              alt=""
-              className="max-h-64 w-auto rounded-2xl object-contain"
-            />
-          ) : (
-            <>
-              <span
-                aria-hidden
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-300 text-lg text-zinc-500"
-              >
-                +
-              </span>
-              <span>{t("auth.signupV2.step4.photoHint")}</span>
-            </>
-          )}
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            className="hidden"
-            onChange={(e) => {
-              const next = e.target.files?.[0] ?? null;
-              e.target.value = "";
-              if (next) setFile(next);
-            }}
-          />
-        </label>
-        {file && (
-          <button
-            type="button"
-            onClick={() => setFile(null)}
-            className="mt-2 text-[11px] text-zinc-500 hover:text-zinc-800"
-          >
-            {t("auth.signupV2.step4.photoRemove")}
-          </button>
-        )}
-      </div>
 
-      <OvalInput
-        label={t("auth.signupV2.step4.titleLabel")}
-        value={title}
-        onChange={setTitle}
-        required
-        hint={t("auth.signupV2.step4.titleHint")}
-      />
-
-      <OvalInput
-        label={t("auth.signupV2.step4.mediumLabel")}
-        value={medium}
-        onChange={setMedium}
-        hint={t("auth.signupV2.step4.mediumHint")}
-        list="signupv2-step4-medium"
-      />
-      <datalist id="signupv2-step4-medium">
-        {TAXONOMY.mediumOptions.map((opt) => (
-          <option key={opt.value} value={t(opt.labelKey)} />
-        ))}
-      </datalist>
-
-      <OvalInput
-        label={t("auth.signupV2.step4.sizeLabel")}
-        value={size}
-        onChange={setSize}
-        hint={t("auth.signupV2.step4.sizeHint")}
-      />
-
-      <OvalSelect
-        label={t("auth.signupV2.step4.statusLabel")}
-        value={intent}
-        onChange={(v) => setIntent((v as SignupStep4Intent) || "")}
-        options={statusOptions}
-        placeholder={t("auth.signupV2.step4.statusPlaceholder")}
-        hint={t("auth.signupV2.step4.statusHint")}
-      />
-
-      <div className="rounded-3xl border border-zinc-200 bg-white px-5 py-4">
-        <label className="mb-1 block text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">
-          {t("auth.signupV2.step4.storyLabel")}
-        </label>
-        <textarea
-          value={story}
-          onChange={(e) => {
-            const v = e.target.value;
-            setStory(v.length > MAX_STORY_LEN ? v.slice(0, MAX_STORY_LEN) : v);
-          }}
-          rows={3}
-          placeholder={t("auth.signupV2.step4.storyPlaceholder")}
-          className="w-full resize-none rounded-2xl bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
-          maxLength={MAX_STORY_LEN}
+      <div className="grid grid-cols-1 items-start gap-8 sm:grid-cols-[240px_1fr]">
+        <ArtworkPhotoUploader
+          file={file}
+          previewUrl={previewUrl}
+          onChange={setFile}
+          uploadLabel={t("auth.signupV2.step4.photoLabel")}
+          uploadHint={t("auth.signupV2.step4.photoHint")}
+          removeLabel={t("auth.signupV2.step4.photoRemove")}
         />
-        <div className="flex items-center justify-between text-[11px] text-zinc-400">
-          <span>{t("auth.signupV2.step4.storyHint")}</span>
-          <span>
-            {story.length} / {MAX_STORY_LEN}
-          </span>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-[1fr_110px] gap-3">
+            <OvalInput
+              labelStyle="outer"
+              label={t("auth.signupV2.step4.titleLabel")}
+              value={title}
+              onChange={setTitle}
+              required
+              hint={t("auth.signupV2.step4.titleHint")}
+            />
+            <OvalInput
+              labelStyle="outer"
+              label={t("auth.signupV2.step4.yearLabel")}
+              type="text"
+              inputMode="numeric"
+              value={year}
+              onChange={(v) => setYear(v.replace(/[^0-9]/g, "").slice(0, 4))}
+              hint={t("auth.signupV2.step4.yearHint")}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <OvalInput
+              labelStyle="outer"
+              label={t("auth.signupV2.step4.mediumLabel")}
+              value={medium}
+              onChange={setMedium}
+              hint={t("auth.signupV2.step4.mediumHint")}
+              list="signupv2-step4-medium"
+            />
+            <OvalInput
+              labelStyle="outer"
+              label={t("auth.signupV2.step4.sizeLabel")}
+              value={size}
+              onChange={setSize}
+              hint={t("auth.signupV2.step4.sizeHint")}
+            />
+          </div>
+          <datalist id="signupv2-step4-medium">
+            {TAXONOMY.mediumOptions.map((opt) => (
+              <option key={opt.value} value={t(opt.labelKey)} />
+            ))}
+          </datalist>
+
+          <OvalSelect
+            labelStyle="outer"
+            label={t("auth.signupV2.step4.statusLabel")}
+            value={intent}
+            onChange={(v) => setIntent((v as SignupStep4Intent) || "")}
+            options={statusOptions}
+            placeholder={t("auth.signupV2.step4.statusPlaceholder")}
+            hint={t("auth.signupV2.step4.statusHint")}
+          />
+
+          <div>
+            <label className="mb-1.5 block px-1 text-xs font-medium text-zinc-600">
+              {t("auth.signupV2.step4.descriptionLabel")}
+            </label>
+            <div className="rounded-3xl border border-zinc-300 bg-white px-5 py-3 transition-shadow focus-within:border-zinc-900 focus-within:ring-2 focus-within:ring-zinc-100">
+              <textarea
+                value={description}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDescription(
+                    v.length > MAX_DESCRIPTION_LEN
+                      ? v.slice(0, MAX_DESCRIPTION_LEN)
+                      : v,
+                  );
+                }}
+                rows={3}
+                placeholder={t("auth.signupV2.step4.descriptionPlaceholder")}
+                className="w-full resize-none bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                maxLength={MAX_DESCRIPTION_LEN}
+              />
+              <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-400">
+                <span>{t("auth.signupV2.step4.descriptionHint")}</span>
+                <span>
+                  {description.length} / {MAX_DESCRIPTION_LEN}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -413,5 +397,87 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
         {t("auth.signupV2.step4.footerHint")}
       </p>
     </form>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Uploader tile
+// ─────────────────────────────────────────────────────────────────────
+
+/** Square drop-zone tile that matches the wireframe's Step 4 upload
+ *  affordance. On desktop it sits in a 240px column beside the fields;
+ *  on mobile it becomes full-width above the fields. Preview and X-
+ *  remove button live inside the same aspect box so the layout doesn't
+ *  jump between empty and filled states. */
+function ArtworkPhotoUploader({
+  file,
+  previewUrl,
+  onChange,
+  uploadLabel,
+  uploadHint,
+  removeLabel,
+}: {
+  file: File | null;
+  previewUrl: string | null;
+  onChange: (next: File | null) => void;
+  uploadLabel: string;
+  uploadHint: string;
+  removeLabel: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1.5 block px-1 text-xs font-medium text-zinc-600">
+        {uploadLabel}
+      </label>
+      <label
+        className={`group relative flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-3xl border border-dashed p-4 text-center text-xs text-zinc-500 transition-colors ${
+          file
+            ? "border-zinc-200"
+            : "border-zinc-300 hover:border-zinc-500 hover:text-zinc-800"
+        }`}
+      >
+        {previewUrl ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt=""
+              className="absolute inset-1 rounded-2xl object-contain"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                onChange(null);
+              }}
+              aria-label={removeLabel}
+              className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-sm text-zinc-700 shadow-sm ring-1 ring-zinc-200 hover:bg-white hover:text-zinc-900"
+            >
+              ×
+            </button>
+          </>
+        ) : (
+          <>
+            <span
+              aria-hidden
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-300 text-lg text-zinc-500"
+            >
+              +
+            </span>
+            <span>{uploadHint}</span>
+          </>
+        )}
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const next = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            if (next) onChange(next);
+          }}
+        />
+      </label>
+    </div>
   );
 }

@@ -1,24 +1,44 @@
 "use client";
 
 /**
- * OvalInput — Signup v2 primitive (Phase 1, 2026-08-19).
+ * OvalInput — Signup v2 primitive (Phase 1, 2026-08-19; wireframe
+ * pixel-fidelity pass 2026-08-20).
  *
- * Round pill-shaped text input with a floating label, optional
- * leading / trailing adornments (icon buttons, `@` prefix, show/hide
- * toggle), and error / hint slots.
+ * Round pill-shaped text input with either a floating material-style
+ * label or a static outer label above the pill, plus optional leading
+ * / trailing adornments (icon buttons, `@` prefix, show/hide toggle),
+ * and error / hint slots.
  *
  * The visual language is deliberately "delicate" (thin 1px stroke,
- * generous padding, small floating label) so it matches the front-
- * door wireframes without conflicting with the authed-app DS.
+ * generous padding, small label) so it matches the front-door wire-
+ * frames without conflicting with the authed-app DS.
  *
- * Example:
- *   <OvalInput
- *     label="Email"
- *     type="email"
- *     value={email}
- *     onChange={setEmail}
- *     hint="곧 확인 이메일을 보낼게요."
- *   />
+ * ## `labelStyle`
+ *
+ *   - `"float"` (default) — the label starts centered inside the pill
+ *     and floats up to the top border on focus / when the input has a
+ *     value. This is what the /onboarding legacy screens still expect,
+ *     so it stays the default to avoid a fan-out refactor.
+ *   - `"outer"` — the label renders as a plain static `<label>` ABOVE
+ *     the pill (`mb-1.5 block text-xs font-medium text-zinc-600`). This
+ *     matches the designer's updated Signup v2 wireframes (2026-08-20)
+ *     where every field has a small gray label sitting above the pill.
+ *     Pass `required` and we auto-append a red `*` to the label.
+ *
+ * ## Escape hatch: `label={null}` + `labelStyle="outer"`
+ *
+ * When the caller wants full control of the row above the pill (e.g.
+ * `/login` v2 renders "Password" on the left and "Forgot password →"
+ * on the right in the same baseline), pass `label={null}` alongside
+ * `labelStyle="outer"`. The label element is skipped entirely and the
+ * pill renders alone — the caller is responsible for its own outer
+ * markup.
+ *
+ * Example (float, default — legacy /onboarding surfaces):
+ *   <OvalInput label="Email" type="email" value={email} onChange={setEmail} hint="…" />
+ *
+ * Example (outer — Signup v2 wireframes):
+ *   <OvalInput labelStyle="outer" label="Name" required value={name} onChange={setName} />
  */
 
 import {
@@ -31,12 +51,16 @@ import {
   type ReactNode,
 } from "react";
 
+export type OvalInputLabelStyle = "float" | "outer";
+
 export type OvalInputProps = Omit<
   InputHTMLAttributes<HTMLInputElement>,
   "onChange" | "value"
 > & {
-  /** Floating label above the input. */
-  label: ReactNode;
+  /** Label above the input. Pass `null` (with `labelStyle="outer"`) to
+   *  skip rendering the label — useful when the caller renders its own
+   *  label row (e.g. `/login` password field w/ inline Forgot link). */
+  label: ReactNode | null;
   value: string;
   onChange: (next: string) => void;
   /** Hint text below the field (grey). Ignored when `error` is set. */
@@ -51,6 +75,10 @@ export type OvalInputProps = Omit<
   wrapperClassName?: string;
   /** Show a subtle "checking…" spinner state. */
   loading?: boolean;
+  /** `"float"` (default) keeps the pre-2026-08-20 floating-label
+   *  behavior for /onboarding. `"outer"` renders the label statically
+   *  above the pill per the Signup v2 wireframes. */
+  labelStyle?: OvalInputLabelStyle;
 };
 
 function OvalInputInner(
@@ -72,6 +100,8 @@ function OvalInputInner(
     onFocus,
     className = "",
     disabled,
+    labelStyle = "float",
+    required,
     ...rest
   } = props;
   const autoId = useId();
@@ -89,8 +119,24 @@ function OvalInputInner(
   const paddingLeft = leadingAdornment ? "pl-11" : "pl-5";
   const paddingRight = trailingAdornment || loading ? "pr-11" : "pr-5";
 
+  // Outer-mode: static label above the pill. `label === null` is the
+  // escape hatch — caller owns the label row.
+  const outerLabel =
+    labelStyle === "outer" && label !== null ? (
+      <label
+        htmlFor={inputId}
+        className={`mb-1.5 block px-1 text-xs font-medium ${
+          hasError ? "text-red-500" : "text-zinc-600"
+        }`}
+      >
+        {label}
+        {required ? <span aria-hidden className="ml-0.5 text-red-500">*</span> : null}
+      </label>
+    ) : null;
+
   return (
     <div className={`w-full ${wrapperClassName}`}>
+      {outerLabel}
       <div
         className={`relative flex items-stretch rounded-full border bg-white transition-shadow duration-150 focus-within:ring-2 ${outlineTone} ${
           disabled ? "opacity-60" : ""
@@ -104,16 +150,18 @@ function OvalInputInner(
             {leadingAdornment}
           </span>
         )}
-        <label
-          htmlFor={inputId}
-          className={`pointer-events-none absolute left-5 origin-left select-none bg-white px-1 text-zinc-500 transition-all duration-150 ${
-            isFloating
-              ? "top-0 -translate-y-1/2 text-[11px] tracking-wide"
-              : "top-1/2 -translate-y-1/2 text-sm"
-          } ${hasError ? "text-red-500" : ""}`}
-        >
-          {label}
-        </label>
+        {labelStyle === "float" && label !== null && (
+          <label
+            htmlFor={inputId}
+            className={`pointer-events-none absolute left-5 origin-left select-none bg-white px-1 text-zinc-500 transition-all duration-150 ${
+              isFloating
+                ? "top-0 -translate-y-1/2 text-[11px] tracking-wide"
+                : "top-1/2 -translate-y-1/2 text-sm"
+            } ${hasError ? "text-red-500" : ""}`}
+          >
+            {label}
+          </label>
+        )}
         <input
           ref={ref}
           id={inputId}
@@ -128,6 +176,7 @@ function OvalInputInner(
             onBlur?.(e);
           }}
           disabled={disabled}
+          required={required}
           aria-invalid={hasError || undefined}
           aria-describedby={
             error || hint ? `${inputId}-message` : undefined

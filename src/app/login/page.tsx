@@ -499,6 +499,7 @@ function LoginV2Inner() {
             {t("auth.loginV2.passwordless.subhead")}
           </p>
           <OvalInput
+            labelStyle="outer"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
@@ -559,6 +560,7 @@ function LoginV2Inner() {
       ) : (
         <form onSubmit={handlePasswordSignIn} className="space-y-5" noValidate>
           <OvalInput
+            labelStyle="outer"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
@@ -569,15 +571,18 @@ function LoginV2Inner() {
             autoFocus
           />
           <div>
-            <OvalInput
-              label={t("auth.loginV2.password")}
-              type="password"
-              value={password}
-              onChange={setPassword}
-              autoComplete="current-password"
-              required
-            />
-            <div className="mt-1 flex justify-end px-5">
+            {/* Wireframe pixel-fidelity (2026-08-20): the Forgot
+             * link sits inline on the same baseline as the Password
+             * label. We render the label row manually and pass
+             * `label={null}` to OvalInput so it renders the pill
+             * without its own label. */}
+            <div className="mb-1.5 flex items-baseline justify-between px-1">
+              <label
+                htmlFor="loginV2-password"
+                className="text-xs font-medium text-zinc-600"
+              >
+                {t("auth.loginV2.password")}
+              </label>
               <Link
                 href={forgotHref}
                 className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
@@ -585,6 +590,16 @@ function LoginV2Inner() {
                 {t("auth.loginV2.forgot")}
               </Link>
             </div>
+            <OvalInput
+              id="loginV2-password"
+              labelStyle="outer"
+              label={null}
+              type="password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+              required
+            />
           </div>
 
           {error && (

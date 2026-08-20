@@ -1,17 +1,27 @@
 "use client";
 
 /**
- * Signup v2 · Step 2 (Password) — Phase 1 + Phase 5, 2026-08-19.
+ * Signup v2 · Step 2 (Name + Password) — wireframe pixel-fidelity pass
+ * (2026-08-20). Phase 1 + Phase 5 behavior preserved verbatim.
  *
- * - 12-char minimum (spec §5 #8 / §11.2), enforced client-side.
- * - Strength meter via `computePasswordStrength` (zxcvbn 4). Rendered
- *   through the shared `PasswordStrengthMeter` component (Phase 5).
- * - HIBP k-anonymity check runs on debounced blur / pause typing
- *   (800 ms) via `checkHibpPwned`. Only 5 hex chars of the SHA-1
- *   prefix leave the client. Network failure → fail-open (never
- *   blocks). Confirmed pwned → hard block on submit until the
- *   password changes.
- * - Show / hide toggle inline.
+ * Fields (per wireframe + product decisions):
+ *   - Name        (required, single OvalInput — user chose to keep the
+ *                  legacy `full_name` slot instead of splitting into
+ *                  First / Last / Display; see docs/HANDOFF entry).
+ *   - Password    (12-char minimum · zxcvbn strength meter · HIBP
+ *                  k-anonymity probe — all preserved from Phase 5).
+ *   - Confirm     (must match `password` exactly; inline
+ *     Password       `auth.signupV2.step2.passwordMismatch` error).
+ *
+ * The extra Name capture used to live on Step 3; moving it here matches
+ * the wireframe's field order and lets Step 3 focus on the profile
+ * card. Step 3's `saveProfileUnified` payload still writes `full_name`
+ * verbatim — we just push the state a step earlier.
+ *
+ * All the Phase 5 password affordances (12-char min via
+ * `MIN_PASSWORD_LENGTH`, strength meter via zxcvbn, HIBP debounce with
+ * `hibpSeqRef` stale-race guard) stay identical. Only the render order
+ * changed.
  */
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,11 +43,14 @@ const HIBP_DEBOUNCE_MS = 800;
 
 export function SignupStep2Password({ api }: { api: SignupStepApi }) {
   const { t } = useT();
+  const [fullName, setFullName] = useState(api.state.fullName);
   const [password, setPassword] = useState(api.state.password);
+  const [confirmPassword, setConfirmPassword] = useState(api.state.password);
   const [reveal, setReveal] = useState(false);
   const [pwned, setPwned] = useState<null | { pwned: boolean; count: number }>(null);
   const [checkingHibp, setCheckingHibp] = useState(false);
   const [touched, setTouched] = useState(password.length > 0);
+  const [confirmTouched, setConfirmTouched] = useState(false);
   const hibpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Sequence counter so a late HIBP response for a stale password
   // can't overwrite a fresh state (fast typers can outrun the network).
@@ -85,12 +98,21 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
   function handlePasswordChange(next: string) {
     setPassword(next);
     setTouched(true);
-    // Invalidate any prior HIBP verdict for the stale password.
     setPwned(null);
   }
 
   const pwnedError = pwned?.pwned === true;
-  const canContinue = shape.ok && !pwnedError;
+  const trimmedName = fullName.trim();
+  const passwordsMismatch =
+    confirmTouched &&
+    confirmPassword.length > 0 &&
+    confirmPassword !== password;
+  const canContinue =
+    !!trimmedName &&
+    shape.ok &&
+    !pwnedError &&
+    confirmPassword === password &&
+    confirmPassword.length > 0;
 
   const inlineError =
     touched && isTooShort
@@ -103,13 +125,22 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
     ? undefined
     : t("auth.signupV2.step2.passwordHint").replace("{min}", String(MIN_PASSWORD_LENGTH));
 
+  const confirmError = passwordsMismatch
+    ? t("auth.signupV2.step2.passwordMismatch")
+    : undefined;
+  const confirmHint = confirmTouched
+    ? undefined
+    : t("auth.signupV2.step2.confirmPasswordHint");
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
+    setConfirmTouched(true);
     if (!canContinue) return;
-    api.updateState({ password });
-    // Password is never persisted (§11.6). Only step advance is drafted.
-    api.persistDraft({ step: 3 });
+    api.updateState({ password, fullName: trimmedName });
+    // Password is never persisted (§11.6). Name is persisted so the
+    // user can refresh at Step 3 without retyping.
+    api.persistDraft({ step: 3, fullName: trimmedName });
     api.goToStep(3);
   }
 
@@ -123,23 +154,44 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
   const privacyHref = "/legal/privacy";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+      <p className="-mt-2 mb-4 text-sm text-zinc-500">
         {t("auth.signupV2.step2.subtitle")}
       </p>
-      <div className="space-y-3">
+
+      <OvalInput
+        labelStyle="outer"
+        label={t("auth.signupV2.step2.fullNameLabel")}
+        value={fullName}
+        onChange={(v) => {
+          setFullName(v);
+          api.updateState({ fullName: v });
+        }}
+        onBlur={() => {
+          if (fullName.trim()) {
+            api.persistDraft({ fullName: fullName.trim() });
+          }
+        }}
+        autoComplete="name"
+        autoFocus
+        required
+        hint={t("auth.signupV2.step2.fullNameHint")}
+      />
+
+      <div>
         <OvalInput
+          labelStyle="outer"
           label={t("auth.signupV2.step2.passwordLabel")}
           type={reveal ? "text" : "password"}
           value={password}
           onChange={handlePasswordChange}
           onBlur={() => setTouched(true)}
           autoComplete="new-password"
-          autoFocus
           minLength={MIN_PASSWORD_LENGTH}
           hint={inlineHint}
           error={inlineError}
           loading={checkingHibp}
+          required
           trailingAdornment={
             <button
               type="button"
@@ -159,23 +211,38 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
         />
 
         {password && (
-          <PasswordStrengthMeter
-            password={password}
-            userInputs={[api.state.email]}
-            minLength={MIN_PASSWORD_LENGTH}
-          />
+          <div className="mt-3">
+            <PasswordStrengthMeter
+              password={password}
+              userInputs={[api.state.email, fullName]}
+              minLength={MIN_PASSWORD_LENGTH}
+            />
+          </div>
         )}
 
         {checkingHibp && !pwnedError && (
           <p
             role="status"
             aria-live="polite"
-            className="text-[11px] text-zinc-500"
+            className="mt-2 text-[11px] text-zinc-500"
           >
             {t("auth.password.hibp.checking")}
           </p>
         )}
       </div>
+
+      <OvalInput
+        labelStyle="outer"
+        label={t("auth.signupV2.step2.confirmPasswordLabel")}
+        type={reveal ? "text" : "password"}
+        value={confirmPassword}
+        onChange={setConfirmPassword}
+        onBlur={() => setConfirmTouched(true)}
+        autoComplete="new-password"
+        required
+        hint={confirmHint}
+        error={confirmError}
+      />
 
       <PillButton
         type="submit"

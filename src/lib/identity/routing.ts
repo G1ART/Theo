@@ -14,10 +14,15 @@
  */
 
 import type { MyAuthState } from "@/lib/supabase/auth";
+import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
 
 export const DEFAULT_DESTINATION = "/feed?tab=all&sort=latest";
 export const IDENTITY_FINISH_PATH = "/onboarding/identity";
 export const ONBOARDING_PATH = "/onboarding";
+/** Signup v2 (2026-08-20): the new wizard front door. When
+ *  `NEXT_PUBLIC_SIGNUP_V2` is on, `onboardingUrlWithNext` returns a
+ *  path under this prefix instead of the legacy `/onboarding`. */
+export const SIGNUP_V2_PATH = "/signup";
 export const SET_PASSWORD_PATH = "/set-password";
 export const LOGIN_PATH = "/login";
 
@@ -51,17 +56,27 @@ export function loginUrlWithNext(opts?: RouteOpts): string {
 }
 
 /**
- * Build the sign-up (onboarding) path for a cold visitor, preserving
- * `next`. Companion to `loginUrlWithNext` — the platform's cold-visitor
+ * Build the sign-up path for a cold visitor, preserving `next`.
+ * Companion to `loginUrlWithNext` — the platform's cold-visitor
  * convention is sign-up-first, so gated actions on public surfaces
  * (inline auth gate, account-only nav rows) route here with the current
  * location as `next` so the user round-trips back after joining. `next`
  * is always run through `safeNextPath` to prevent open redirects.
+ *
+ * Signup v2 (2026-08-20): when `NEXT_PUBLIC_SIGNUP_V2` is `"true"`,
+ * this returns `/signup?next=...` (the wireframe wizard). Otherwise it
+ * falls back to the legacy `/onboarding?next=...`. The env flag is
+ * inlined at build time so this branch is a single boolean per bundle
+ * — every entry point (sidebar CTAs, `Header`, `InlineAuthGate`,
+ * `SeeInMySpaceCta`) picks up the new destination without per-call
+ * refactors. Keep the function name as-is so we don't have to fan out
+ * a rename across ~8 callers.
  */
 export function onboardingUrlWithNext(opts?: RouteOpts): string {
+  const base = isSignupV2Enabled() ? SIGNUP_V2_PATH : ONBOARDING_PATH;
   const safe = safeNextPath(opts?.nextPath);
-  if (!safe) return ONBOARDING_PATH;
-  return `${ONBOARDING_PATH}?next=${encodeURIComponent(safe)}`;
+  if (!safe) return base;
+  return `${base}?next=${encodeURIComponent(safe)}`;
 }
 
 export type RouteDecision = { to: string };

@@ -1,19 +1,31 @@
 "use client";
 
 /**
- * OvalSelect — Signup v2 primitive (Phase 1, 2026-08-19).
+ * OvalSelect — Signup v2 primitive (Phase 1, 2026-08-19; wireframe
+ * pixel-fidelity pass 2026-08-20).
  *
  * Round pill-shaped select with a custom dropdown menu. Matches
  * `OvalInput` visually so a stack of "이름 / 나이대 / 역할" reads as
  * one rhythm. No search / typeahead — the wireframes only use small
- * closed sets (age band, main role).
+ * closed sets (age band, main / secondary role, gender).
  *
  * Keyboard support: Enter / Space toggles, ArrowUp/Down cycles
  * options, Escape closes.
  *
+ * ## `labelStyle`
+ *
+ *   - `"float"` (default) — floating-material label that starts inside
+ *     the pill and lifts to the top border when the select is open or
+ *     a value is selected. Preserves the pre-2026-08-20 behavior.
+ *   - `"outer"` — static gray label above the pill (matches the Signup
+ *     v2 wireframe row). `required` auto-appends a red `*` to the
+ *     label. This is the mode every Step 3 select uses.
+ *
  * Example:
  *   <OvalSelect
- *     label="주 역할"
+ *     labelStyle="outer"
+ *     label="Primary Role"
+ *     required
  *     value={role}
  *     onChange={setRole}
  *     options={[{ value: "artist", label: "아티스트" }, ...]}
@@ -37,8 +49,10 @@ export type OvalSelectOption = {
   disabled?: boolean;
 };
 
+export type OvalSelectLabelStyle = "float" | "outer";
+
 export type OvalSelectProps = {
-  label: ReactNode;
+  label: ReactNode | null;
   value: string;
   onChange: (next: string) => void;
   options: readonly OvalSelectOption[];
@@ -48,6 +62,11 @@ export type OvalSelectProps = {
   disabled?: boolean;
   id?: string;
   wrapperClassName?: string;
+  /** `"float"` (default) or `"outer"` (Signup v2 wireframe). See file
+   *  header for details. */
+  labelStyle?: OvalSelectLabelStyle;
+  /** When `labelStyle === "outer"`, appends a red `*` to the label. */
+  required?: boolean;
 };
 
 export function OvalSelect(props: OvalSelectProps) {
@@ -62,6 +81,8 @@ export function OvalSelect(props: OvalSelectProps) {
     disabled = false,
     id,
     wrapperClassName = "",
+    labelStyle = "float",
+    required = false,
   } = props;
   const autoId = useId();
   const inputId = id ?? autoId;
@@ -145,23 +166,39 @@ export function OvalSelect(props: OvalSelectProps) {
     }
   };
 
+  const outerLabel =
+    labelStyle === "outer" && label !== null ? (
+      <label
+        htmlFor={inputId}
+        className={`mb-1.5 block px-1 text-xs font-medium ${
+          hasError ? "text-red-500" : "text-zinc-600"
+        }`}
+      >
+        {label}
+        {required ? <span aria-hidden className="ml-0.5 text-red-500">*</span> : null}
+      </label>
+    ) : null;
+
   return (
     <div className={`w-full ${wrapperClassName}`} ref={wrapperRef}>
+      {outerLabel}
       <div
         className={`relative rounded-full border bg-white transition-shadow duration-150 focus-within:ring-2 ${outlineTone} ${
           disabled ? "opacity-60" : ""
         }`}
       >
-        <label
-          htmlFor={inputId}
-          className={`pointer-events-none absolute left-5 origin-left select-none bg-white px-1 text-zinc-500 transition-all duration-150 ${
-            open || hasValue
-              ? "top-0 -translate-y-1/2 text-[11px] tracking-wide"
-              : "top-1/2 -translate-y-1/2 text-sm"
-          } ${hasError ? "text-red-500" : ""}`}
-        >
-          {label}
-        </label>
+        {labelStyle === "float" && label !== null && (
+          <label
+            htmlFor={inputId}
+            className={`pointer-events-none absolute left-5 origin-left select-none bg-white px-1 text-zinc-500 transition-all duration-150 ${
+              open || hasValue
+                ? "top-0 -translate-y-1/2 text-[11px] tracking-wide"
+                : "top-1/2 -translate-y-1/2 text-sm"
+            } ${hasError ? "text-red-500" : ""}`}
+          >
+            {label}
+          </label>
+        )}
         <button
           ref={buttonRef}
           id={inputId}

@@ -1,6 +1,183 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-19
+Last updated: 2026-08-20
+
+## 2026-08-20 (41) — Signup v2 · 와이어프레임 픽셀 정합 리스트럭처 (구조 + 비주얼)
+
+> **Supabase SQL 적용 필요:**
+> `supabase/migrations/20260820030000_profile_gender_column.sql`
+> (Supabase MCP `apply_migration` 로 실행 완료 — `profiles.gender text nullable`
+> column exists 검증됨). 같은 마이그레이션에서 `upsert_my_profile` RPC 도
+> `gender` 를 처리하도록 확장.
+>
+> **환경 변수 변경: 없음** — 기존 `NEXT_PUBLIC_SIGNUP_V2` 하나로 계속 게이팅.
+
+### 배경 — 왜 이 패치가 나왔나
+
+Signup v2 Phase 1/2/4/5 가 이미 랜딩했지만, 디자이너가 업데이트한
+와이어프레임의 필드 세트/레이아웃이 실제 코드에 반영되지 않았다. 게다가
+익명 유저의 `AppSidebar` "시작하기 / 로그인" 링크가 여전히 레거시
+`/onboarding` 를 가리키고 있어서 대다수 콜드 방문자는 **새 위저드를
+아예 보지 못한 상태**였다. 이번 라운드에서 (A) 라우팅 게이트 SSOT 를
+플래그로 뒤집고, (B) 모든 스텝의 필드셋을 와이어프레임과 일치시키고,
+(C) 프리미티브 레이어에 outer-label / wide-radio / content-width 옵션을
+붙여 화면을 픽셀 단위로 맞췄다. **단일 커밋으로 배포**.
+
+### 구조적 변경 (structural)
+
+- **A. 라우팅 SSOT 뒤집기** — `src/lib/identity/routing.ts` 의
+ `onboardingUrlWithNext(opts)` 가 `isSignupV2Enabled()` 를 읽어
+ 플래그 ON 이면 `/signup?next=...` 를, OFF 이면 기존
+ `/onboarding?next=...` 를 반환. 이 helper 는 `AppSidebar` (line 306
+ 익명 CTA · line 184 secondary nav 게이트), `Header` (2 곳),
+ `InlineAuthGate`, `SeeInMySpaceCta`, `page.tsx` 콜백 등 **8개 caller
+ 를 모두 커버**하므로 개별 파일 수정 없이 위저드로 라우팅됨.
+- **B. Step 2 = 이름 + 비밀번호** — `full_name` 캡처를 Step 3 → Step 2
+ 로 이동. 와이어프레임은 First/Last/Display 3-필드지만 유저 결정에
+ 따라 **단일 `full_name` OvalInput** 유지. 비밀번호 아래에
+ `confirmPassword` OvalInput 추가 (`passwordMismatch` 인라인 에러).
+ `PasswordStrengthMeter`, HIBP 800ms 디바운스, `hibpSeqRef` stale-race
+ 가드는 그대로. `SignupV2Draft.fullName` 은 여전히 Step 2 에서
+ sessionStorage 로 지속.
+- **C. Step 3 재구성** —
+  - Avatar 파일 picker (in-memory `File`, sessionStorage 로 직렬화
+    안함). 세션이 없는 상태에서 선택했다가 `signUpWithPassword`
+    성공 후 `uploadProfileMedia(file, "avatar", uid)` 로
+    `artworks/{userId}/profile/avatar/...` 업로드 → `avatar_url` 로
+    저장. 실패 시 `avatar_url` 만 스킵하고 wizard 는 계속 진행.
+    RPC 저장이 실패하면 orphan blob 을 `removeProfileMedia` 로 롤백.
+  - `gender` OvalSelect (선택 사항): `woman | man | non_binary |
+    prefer_not_to_say` — Signup v2 UI 는 이 4개로 제한하지만 DB 는
+    free-form text 라 향후 taxonomy 확장 여지 남김. `profiles.gender`
+    컬럼 신규 (마이그레이션 아래 참고).
+  - `age_band` 는 wireframe 에 맞춰 **PillRadio → OvalSelect** 로 전환
+    (기존 `TAXONOMY.ageBandOptions` 재사용).
+  - `secondaryRole` OvalSelect (선택 사항): 기본 primary 와 동일값
+    선택 시 자동으로 secondary drop. 저장 시 `roles: [main, secondary]
+    .filter(Boolean)`.
+  - `is_public` `PillRadio variant="wide"` (Public / Private, 필수
+    · 기본 `public`) — 와이어프레임의 라디오 dot + 큰 pill 두 개
+    스타일.
+  - Username OvalInput 유지.
+  - 데스크톱 2-col 그리드 (`gender/age` · `primary/secondary`).
+- **D. Step 4 = Year 추가 + Story→Description 이름 변경 + 데스크톱
+ 좌우 레이아웃** —
+  - `createArtworkForCreatedIntent` 페이로드에 `year: number | null`
+    추가 (`null` 이면 현재 year 로 폴백; DB `artworks.year` 는 기존
+    integer 컬럼 재사용).
+  - i18n: `auth.signupV2.step4.story*` → `auth.signupV2.step4.description*`
+    (DB 컬럼은 `story_ko/en` 유지, UI 라벨만 재명명).
+  - 데스크톱 sm+ `grid grid-cols-[240px_1fr]` — 좌측 240px 정사각형
+    업로더 + 우측 필드 컬럼 (Title/Year 는 `grid-cols-[1fr_110px]`,
+    Medium/Size 는 2-col, Status 는 full-width select, Description
+    은 textarea). 모바일 <sm 은 세로 스택.
+- **E. 마이그레이션 · 20260820030000_profile_gender_column.sql** —
+ `profiles.gender text` 컬럼 추가 (nullable, `add column if not
+ exists`) + `upsert_my_profile` RPC 를 `gender` 도 write 하도록 확장
+ (`nullif(trim(...), '')` 패턴). RLS 는 기존 owner-scoped
+ UPDATE/SELECT 정책이 자동으로 커버. MCP `apply_migration` 실행 완료 ·
+ `information_schema.columns` 로 검증 완료.
+
+### 비주얼 변경 (visual)
+
+- **F. `OvalInput`, `OvalSelect`, `PillRadio` — `labelStyle` prop 도입** —
+  - `"float"` (default) 는 기존 material-style floating label — 레거시
+    `/onboarding` 페이지들이 계속 이 모드로 렌더링되므로 backward
+    compat.
+  - `"outer"` 는 pill 위 정적 gray label (`mb-1.5 block text-xs
+    font-medium text-zinc-600`) + `required` 시 red `*` 자동. **모든
+    Signup v2 스텝 + LoginV2Inner** 는 `labelStyle="outer"` 사용.
+  - `label={null}` 은 outer 모드의 escape hatch — Login v2 의
+    Password 행처럼 caller 가 라벨 rewrite 를 원할 때 pill 만 렌더.
+- **G. `PillRadio` — `variant="wide"` 도입** — 2-column grid + 각 pill
+ 안에 radio dot + 중앙 라벨. Step 3 의 Public/Private 픽커에 사용.
+ 기존 `variant="chip"` (default) 는 age band 같은 wrap 배지에 계속
+ 사용됨.
+- **H. `AuthShell` — `contentWidth` prop 도입** — `"sm"` (default,
+ `max-w-md`) / `"md"` (`max-w-lg`) / `"lg"` (`max-w-2xl`). Step 4 만
+ `"lg"` 로 스위치 — 좌우 side-by-side 를 담기 위함.
+- **I. LoginV2Inner Forgot 링크 inline-right** — `Password` 라벨 오른쪽
+ baseline 에 인라인 배치 (`mb-1.5 flex items-baseline
+ justify-between`). OvalInput 는 `labelStyle="outer" label={null}` 로
+ pill 만 렌더.
+
+### i18n 델타 (EN + KO)
+
+- **추가**:
+  - `auth.signupV2.step2.fullNameLabel` / `.fullNameHint`
+  - `auth.signupV2.step2.confirmPasswordLabel` / `.confirmPasswordHint` /
+    `.passwordMismatch`
+  - `auth.signupV2.step3.photoLabel` / `.photoUpload`
+  - `auth.signupV2.step3.gender.{label,placeholder,hint,woman,man,
+    nonBinary,preferNotToSay}`
+  - `auth.signupV2.step3.primaryRoleLabel` (alias · 기존 mainRoleLabel
+    은 다른 caller 없이 stale 로 남겨둠)
+  - `auth.signupV2.step3.secondaryRoleLabel` / `.secondaryRoleHint` /
+    `.secondaryRolePlaceholder`
+  - `auth.signupV2.step3.ageBandPlaceholder`
+  - `auth.signupV2.step3.visibility.{label,public,private,hint}`
+  - `auth.signupV2.step4.yearLabel` / `.yearHint`
+  - `auth.signupV2.step4.description{Label,Placeholder,Hint}`
+- **재작성**: `auth.signupV2.step2.subtitle` (→ "이름과 비밀번호를
+ 설정해 주세요"), `.step2.continueCta` (→ "다음"),
+ `.step3.subtitle` (→ 2줄 프리엠블), `.step3.subLabel` (→ "당신에
+ 대해 조금 더 알려주세요" / "Tell us about you"), `.step4.footerHint`
+ (→ "더 많은 정보는 프로필에서 추가할 수 있어요."), `.step4.photoLabel`
+ (→ "Upload your artwork" / "작품 사진 업로드"),
+ `.step4.sizeHint` (parser 언급 제거).
+- **제거**: `auth.signupV2.step3.fullNameLabel` / `.fullNameHint` (Step
+ 2 로 이동), `.step3.avatarPlaceholder` (플레이스홀더 라벨 폐기),
+ `.step4.storyLabel` / `.storyPlaceholder` / `.storyHint` (Description
+ 으로 재명명).
+
+### 편집한 파일
+
+- `src/components/auth/primitives/AuthShell.tsx` (contentWidth prop)
+- `src/components/auth/primitives/OvalInput.tsx` (labelStyle prop)
+- `src/components/auth/primitives/OvalSelect.tsx` (labelStyle prop)
+- `src/components/auth/primitives/PillRadio.tsx` (variant, labelStyle)
+- `src/components/auth/primitives/index.ts` (barrel export)
+- `src/components/auth/SignupWizardShell.tsx` (gender/secondaryRole/
+ avatarFile state · Step 4 contentWidth="lg")
+- `src/components/auth/steps/SignupStep1Email.tsx` (outer label)
+- `src/components/auth/steps/SignupStep2Password.tsx` (이름 필드 이동,
+ confirmPassword)
+- `src/components/auth/steps/SignupStep3Profile.tsx` (photo, gender,
+ secondaryRole, visibility, 2-col grid, age band select)
+- `src/components/auth/steps/SignupStep4Artwork.tsx` (year, description,
+ 좌우 그리드)
+- `src/app/login/page.tsx` (LoginV2Inner outer labels · Forgot inline)
+- `src/lib/identity/routing.ts` (`onboardingUrlWithNext` v2-aware)
+- `src/lib/auth/signupWizardState.ts` (gender/secondaryRole types +
+ draft schema)
+- `src/lib/supabase/createArtworkForCreatedIntent.ts` (`year`,
+ `description` payload)
+- `src/lib/supabase/profileSaveUnified.ts` (`gender` in BASE_KEYS +
+ NULLABLE)
+- `src/lib/i18n/messages.ts` (EN + KO 델타)
+- `supabase/migrations/20260820030000_profile_gender_column.sql` (신규)
+
+### 위저드에서 벗어난 결정 (deviations from wireframe)
+
+1. **Name split**: 와이어프레임은 First / Last / Display name 3-필드 —
+ 유저가 데이터 모델 단순성을 위해 **단일 `full_name`** 유지 결정.
+ 화면에는 하나의 큰 outer-label 인풋으로 렌더.
+2. **Step 4 audience**: 와이어프레임은 "artist-only" 라벨링 —
+ 유저 결정으로 **모든 페르소나가 Step 4 진입 가능** (기존 non-artist
+ collapsed lead + "Show anyway" 링크 동작 유지).
+
+### Verified
+
+- `npx tsc --noEmit` — 새 에러 0. (pre-existing 4개 에러
+ `src/lib/simulation/__tests__/cutoutTrim.test.ts` 관련은 이번 패치
+ 이전부터 존재.)
+- `npx eslint src/components/auth src/lib/auth src/app/signup
+ src/components/shell/AppSidebar.tsx src/lib/identity/routing.ts
+ src/lib/supabase/createArtworkForCreatedIntent.ts
+ src/lib/supabase/profileSaveUnified.ts src/app/login/page.tsx` —
+ 0 errors, 0 warnings.
+- MCP smoke: `information_schema.columns` 에서 `profiles.gender
+ (text, nullable)` 존재 확인.
 
 ## 2026-08-19 (40) — Space Editor UX 단순화 (5대 pain point 일괄 정리)
 

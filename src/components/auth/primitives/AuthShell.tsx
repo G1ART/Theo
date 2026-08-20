@@ -34,6 +34,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { TheoLogo } from "@/components/brand/TheoLogo";
 
+export type AuthShellContentWidth = "sm" | "md" | "lg";
+
 export type AuthShellProps = {
   logo?: ReactNode;
   onBack?: () => void;
@@ -46,6 +48,17 @@ export type AuthShellProps = {
   alternate?: ReactNode;
   /** Home link href for the top-left brand mark. Defaults to `/`. */
   homeHref?: string;
+  /** Central column width. Signup v2 wireframe (2026-08-20): Steps 1
+   *  through 3 stay `"sm"` (max-w-md), Step 4 switches to `"lg"`
+   *  (max-w-2xl) so the uploader + fields sit side-by-side on
+   *  desktop. */
+  contentWidth?: AuthShellContentWidth;
+};
+
+const CONTENT_WIDTH_CLASS: Record<AuthShellContentWidth, string> = {
+  sm: "max-w-md",
+  md: "max-w-lg",
+  lg: "max-w-2xl",
 };
 
 export function AuthShell(props: AuthShellProps) {
@@ -60,7 +73,9 @@ export function AuthShell(props: AuthShellProps) {
     footer,
     alternate,
     homeHref = "/",
+    contentWidth = "sm",
   } = props;
+  const widthClass = CONTENT_WIDTH_CLASS[contentWidth];
 
   return (
     <div className="min-h-screen bg-white text-zinc-900">
@@ -89,7 +104,7 @@ export function AuthShell(props: AuthShellProps) {
         <span aria-hidden className="inline-block h-9 w-9" />
       </header>
 
-      <main className="mx-auto flex w-full max-w-md flex-col justify-center px-6 pb-16 pt-16 sm:pt-24">
+      <main className={`mx-auto flex w-full flex-col justify-center px-6 pb-16 pt-16 sm:pt-24 ${widthClass}`}>
         {(eyebrow || title || subtitle) && (
           <div className="mb-8">
             {eyebrow && (

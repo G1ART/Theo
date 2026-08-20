@@ -4097,6 +4097,19 @@ export const messages = {
       "Auto-cropped painting is in use.",
     "simulation.cutout.applied.alpha":
       "Advanced transparent cutout is in use.",
+    // 2026-08-20 (Tier 3) — retry / revert affordances so the user
+    // can re-run the cutout with a stronger white-paper trim or
+    // fall back to the previous state (bbox → primary,
+    // alpha → bbox → primary).
+    "simulation.cutout.bbox.retry": "Retry auto-trim",
+    "simulation.cutout.bbox.revert": "Revert to original",
+    "simulation.cutout.alpha.retry": "Retry advanced cutout",
+    "simulation.cutout.alpha.revertToBbox": "Revert to auto-trim",
+    "simulation.cutout.alpha.revert": "Revert to original",
+    "simulation.cutout.retry.noImprovement":
+      "We couldn't find more to trim this time. Try uploading a different angle for a tighter result.",
+    "simulation.cutout.revert.done": "Reverted to original",
+    "simulation.cutout.revertToBbox.done": "Reverted to auto-trim",
 
     "simulation.wall.title": "Wall calibration",
     "simulation.wall.advancedTitle": "Precise scale (advanced)",
@@ -4288,7 +4301,7 @@ export const messages = {
     "auth.signupV2.stepLabel.step4": "Step 4",
     "auth.signupV2.step1.subLabel": "Enter your email",
     "auth.signupV2.step2.subLabel": "Set your name and password",
-    "auth.signupV2.step3.subLabel": "Profile",
+    "auth.signupV2.step3.subLabel": "Tell us about you",
     "auth.signupV2.step1.subtitle":
       "We'll use this to sign you in and send occasional updates.",
     "auth.signupV2.step1.emailLabel": "Email",
@@ -4301,39 +4314,63 @@ export const messages = {
     "auth.signupV2.step1.continueWithApple": "Continue with Apple",
     "auth.signupV2.step1.oauthComingSoon": "Coming soon",
     "auth.signupV2.step2.subtitle":
-      "Use at least 12 characters. Longer is stronger — a passphrase works well.",
+      "Set your name and password",
+    "auth.signupV2.step2.fullNameLabel": "Name",
+    "auth.signupV2.step2.fullNameHint":
+      "This is how your name will appear on your Theo profile.",
     "auth.signupV2.step2.passwordLabel": "Password",
     "auth.signupV2.step2.passwordHint": "Must be at least {min} characters.",
     "auth.signupV2.step2.errorTooShort": "Password must be at least {min} characters.",
     "auth.signupV2.step2.errorPwned":
       "This password appears in known data breaches. Please choose another.",
+    "auth.signupV2.step2.confirmPasswordLabel": "Confirm password",
+    "auth.signupV2.step2.confirmPasswordHint":
+      "Re-enter the password to make sure it matches.",
+    "auth.signupV2.step2.passwordMismatch": "Passwords don't match.",
     "auth.signupV2.step2.showPassword": "Show",
     "auth.signupV2.step2.hidePassword": "Hide",
-    "auth.signupV2.step2.continueCta": "Continue",
+    "auth.signupV2.step2.continueCta": "Next",
     "auth.signupV2.step2.legalTemplate":
       "By creating an account you agree to the {terms} and {privacy}.",
     "auth.signupV2.step2.termsLabel": "Terms of Service",
     "auth.signupV2.step2.privacyLabel": "Privacy Policy",
     "auth.signupV2.step3.subtitle":
-      "You can edit any of this later in your profile.",
-    "auth.signupV2.step3.fullNameLabel": "Name",
-    "auth.signupV2.step3.fullNameHint":
-      "Displayed on your profile. Use your real name or a stage name.",
+      "Tell us more about you\nYou can change it later in your Profile",
+    "auth.signupV2.step3.photoLabel": "Setup profile photo",
+    "auth.signupV2.step3.photoUpload": "Upload photo",
+    "auth.signupV2.step3.photoRemove": "Remove photo",
+    "auth.signupV2.step3.gender.label": "Gender",
+    "auth.signupV2.step3.gender.placeholder": "Choose (optional)",
+    "auth.signupV2.step3.gender.hint": "Optional.",
+    "auth.signupV2.step3.gender.woman": "Woman",
+    "auth.signupV2.step3.gender.man": "Man",
+    "auth.signupV2.step3.gender.nonBinary": "Non-binary",
+    "auth.signupV2.step3.gender.preferNotToSay": "Prefer not to say",
     "auth.signupV2.step3.ageBandLabel": "Age",
+    "auth.signupV2.step3.ageBandPlaceholder": "Choose (optional)",
     "auth.signupV2.step3.ageBandHint": "Optional — helps us tune recommendations.",
-    "auth.signupV2.step3.mainRoleLabel": "Primary role",
+    "auth.signupV2.step3.primaryRoleLabel": "Primary Role",
+    "auth.signupV2.step3.mainRoleLabel": "Primary Role",
     "auth.signupV2.step3.mainRolePlaceholder": "Choose a role",
     "auth.signupV2.step3.mainRoleHint":
-      "Optional. You can add more roles later in Studio.",
+      "Your main way of engaging with the art world.",
+    "auth.signupV2.step3.secondaryRoleLabel": "Secondary Role",
+    "auth.signupV2.step3.secondaryRolePlaceholder": "Choose (optional)",
+    "auth.signupV2.step3.secondaryRoleHint":
+      "Optional. Add another role that describes you.",
     "auth.signupV2.step3.roleSkip": "Skip for now",
+    "auth.signupV2.step3.visibility.label":
+      "Visibility – who can see your profile?",
+    "auth.signupV2.step3.visibility.public": "Public",
+    "auth.signupV2.step3.visibility.private": "Private",
+    "auth.signupV2.step3.visibility.hint":
+      "Public profiles show up in Explore and can be followed by anyone. You can change this later.",
     "auth.signupV2.step3.usernameLabel": "Username",
     "auth.signupV2.step3.usernameHint":
       "3–20 characters. Letters, numbers, and underscores.",
     "auth.signupV2.step3.usernameTaken": "This username is already taken.",
     "auth.signupV2.step3.usernameReserved":
       "That username is reserved. Please choose another.",
-    "auth.signupV2.step3.avatarPlaceholder":
-      "You can add a profile photo from Studio → Profile after signup.",
     "auth.signupV2.step3.createCta": "Create account",
     "auth.signupV2.step3.nextHint": "You'll land on your feed after this.",
     "auth.signupV2.step3.checkEmail":
@@ -4407,25 +4444,27 @@ export const messages = {
       "Curators, collectors, and anyone else can post an artwork they made, own, or want to remember. Or just skip — you're already done.",
     "auth.signupV2.step4.nonArtistSubtitle":
       "You can add work anytime from Studio → New artwork.",
-    "auth.signupV2.step4.photoLabel": "Photo",
+    "auth.signupV2.step4.photoLabel": "Upload your artwork",
     "auth.signupV2.step4.photoHint": "Tap to choose an image",
     "auth.signupV2.step4.photoRemove": "Remove photo",
     "auth.signupV2.step4.titleLabel": "Title",
     "auth.signupV2.step4.titleHint": "Required.",
+    "auth.signupV2.step4.yearLabel": "Year",
+    "auth.signupV2.step4.yearHint": "e.g. 2026",
     "auth.signupV2.step4.mediumLabel": "Medium",
     "auth.signupV2.step4.mediumHint": "e.g. oil on canvas, digital, sculpture",
     "auth.signupV2.step4.sizeLabel": "Size",
-    "auth.signupV2.step4.sizeHint": "e.g. 60x80cm — we'll parse it for you",
+    "auth.signupV2.step4.sizeHint": "e.g. 60x80cm",
     "auth.signupV2.step4.statusLabel": "Status",
     "auth.signupV2.step4.statusPlaceholder": "Choose a status",
     "auth.signupV2.step4.statusHint": "How did this piece come to you?",
     "auth.signupV2.step4.status.created": "I made this",
     "auth.signupV2.step4.status.owns": "I own this",
     "auth.signupV2.step4.status.curated": "I'm curating this",
-    "auth.signupV2.step4.storyLabel": "Story",
-    "auth.signupV2.step4.storyPlaceholder":
+    "auth.signupV2.step4.descriptionLabel": "Description",
+    "auth.signupV2.step4.descriptionPlaceholder":
       "Anything you'd like to share about this piece — inspiration, process, or context.",
-    "auth.signupV2.step4.storyHint": "Optional.",
+    "auth.signupV2.step4.descriptionHint": "Optional.",
     "auth.signupV2.step4.submitArtist": "Post my first work",
     "auth.signupV2.step4.skipCta": "Skip for now",
     "auth.signupV2.step4.skipLink": "Skip and finish signup",
@@ -4437,7 +4476,7 @@ export const messages = {
     "auth.signupV2.step4.dedupWarning":
       "You already have a work with a similar title. Continue to post a new one, or edit the existing one instead.",
     "auth.signupV2.step4.footerHint":
-      "You can always add, edit, or delete works from Studio → My artworks.",
+      "More information can be added on your profile.",
 
     // ── 2026-08-19 — Signup v2 Phase 4 · existing-user completion banner.
     "auth.signupV2.completionBanner.title":
@@ -8654,8 +8693,8 @@ export const messages = {
     "auth.signupV2.stepLabel.step3": "Step 3",
     "auth.signupV2.stepLabel.step4": "Step 4",
     "auth.signupV2.step1.subLabel": "이메일을 입력해 주세요",
-    "auth.signupV2.step2.subLabel": "이름과 비밀번호 설정",
-    "auth.signupV2.step3.subLabel": "프로필",
+    "auth.signupV2.step2.subLabel": "이름과 비밀번호를 설정해 주세요",
+    "auth.signupV2.step3.subLabel": "당신에 대해 조금 더 알려주세요",
     "auth.signupV2.step1.subtitle":
       "가입과 알림에 사용할 이메일이에요. 자주 사용하는 주소로 넣어 주세요.",
     "auth.signupV2.step1.emailLabel": "이메일",
@@ -8667,39 +8706,63 @@ export const messages = {
     "auth.signupV2.step1.continueWithApple": "Apple로 계속하기",
     "auth.signupV2.step1.oauthComingSoon": "곧 지원 예정이에요",
     "auth.signupV2.step2.subtitle":
-      "12자 이상으로 만들어 주세요. 문장(passphrase)이 가장 안전하고 기억하기도 쉬워요.",
+      "이름과 비밀번호를 설정해 주세요",
+    "auth.signupV2.step2.fullNameLabel": "이름",
+    "auth.signupV2.step2.fullNameHint":
+      "Theo 프로필에 이 이름이 표시돼요. 본명 또는 활동명 모두 좋아요.",
     "auth.signupV2.step2.passwordLabel": "비밀번호",
     "auth.signupV2.step2.passwordHint": "최소 {min}자 이상 사용해 주세요.",
     "auth.signupV2.step2.errorTooShort": "비밀번호는 최소 {min}자 이상이어야 해요.",
     "auth.signupV2.step2.errorPwned":
       "이 비밀번호는 데이터 유출에 포함된 적 있어요. 다른 비밀번호를 사용해 주세요.",
+    "auth.signupV2.step2.confirmPasswordLabel": "비밀번호 확인",
+    "auth.signupV2.step2.confirmPasswordHint":
+      "동일한 비밀번호를 한 번 더 입력해 주세요.",
+    "auth.signupV2.step2.passwordMismatch": "비밀번호가 일치하지 않아요.",
     "auth.signupV2.step2.showPassword": "보이기",
     "auth.signupV2.step2.hidePassword": "숨기기",
-    "auth.signupV2.step2.continueCta": "계속",
+    "auth.signupV2.step2.continueCta": "다음",
     "auth.signupV2.step2.legalTemplate":
       "계정 생성 시 {terms} 및 {privacy}에 동의하는 것으로 간주됩니다.",
     "auth.signupV2.step2.termsLabel": "이용약관",
     "auth.signupV2.step2.privacyLabel": "개인정보처리방침",
     "auth.signupV2.step3.subtitle":
-      "언제든 프로필에서 다시 편집할 수 있어요.",
-    "auth.signupV2.step3.fullNameLabel": "이름",
-    "auth.signupV2.step3.fullNameHint":
-      "프로필에 표시돼요. 본명이나 활동명 모두 괜찮아요.",
+      "당신에 대해 조금 더 알려주세요\n프로필에서 나중에 언제든 변경할 수 있어요",
+    "auth.signupV2.step3.photoLabel": "프로필 사진 설정",
+    "auth.signupV2.step3.photoUpload": "사진 업로드",
+    "auth.signupV2.step3.photoRemove": "사진 제거",
+    "auth.signupV2.step3.gender.label": "성별",
+    "auth.signupV2.step3.gender.placeholder": "선택 (선택 사항)",
+    "auth.signupV2.step3.gender.hint": "선택 사항이에요.",
+    "auth.signupV2.step3.gender.woman": "여성",
+    "auth.signupV2.step3.gender.man": "남성",
+    "auth.signupV2.step3.gender.nonBinary": "논바이너리",
+    "auth.signupV2.step3.gender.preferNotToSay": "밝히지 않음",
     "auth.signupV2.step3.ageBandLabel": "나이대",
+    "auth.signupV2.step3.ageBandPlaceholder": "선택 (선택 사항)",
     "auth.signupV2.step3.ageBandHint": "선택 사항 · 추천을 개인화하는 데 사용돼요.",
+    "auth.signupV2.step3.primaryRoleLabel": "주 역할",
     "auth.signupV2.step3.mainRoleLabel": "주 역할",
     "auth.signupV2.step3.mainRolePlaceholder": "역할을 선택해 주세요",
     "auth.signupV2.step3.mainRoleHint":
-      "선택 사항 · 나중에 스튜디오에서 추가 역할을 더할 수 있어요.",
+      "예술계에서 활동하는 주된 방식이에요.",
+    "auth.signupV2.step3.secondaryRoleLabel": "보조 역할",
+    "auth.signupV2.step3.secondaryRolePlaceholder": "선택 (선택 사항)",
+    "auth.signupV2.step3.secondaryRoleHint":
+      "선택 사항 · 당신을 설명하는 또 다른 역할을 골라 보세요.",
     "auth.signupV2.step3.roleSkip": "나중에 정할게요",
+    "auth.signupV2.step3.visibility.label":
+      "공개 범위 · 누가 프로필을 볼 수 있나요?",
+    "auth.signupV2.step3.visibility.public": "공개",
+    "auth.signupV2.step3.visibility.private": "비공개",
+    "auth.signupV2.step3.visibility.hint":
+      "공개 프로필은 Explore에 노출되고 누구나 팔로우할 수 있어요. 나중에 변경할 수 있어요.",
     "auth.signupV2.step3.usernameLabel": "사용자명",
     "auth.signupV2.step3.usernameHint":
       "3–20자, 영문 소문자·숫자·언더스코어(_)만 가능해요.",
     "auth.signupV2.step3.usernameTaken": "해당 유저네임은 이미 사용 중입니다.",
     "auth.signupV2.step3.usernameReserved":
       "예약된 사용자명이에요. 다른 이름을 선택해 주세요.",
-    "auth.signupV2.step3.avatarPlaceholder":
-      "가입 후 스튜디오 → 프로필에서 사진을 추가할 수 있어요.",
     "auth.signupV2.step3.createCta": "계정 만들기",
     "auth.signupV2.step3.nextHint": "이 단계가 끝나면 피드로 이동해요.",
     "auth.signupV2.step3.checkEmail":
@@ -8772,25 +8835,27 @@ export const messages = {
       "큐레이터, 컬렉터, 그 외 누구든지 직접 만든·소장 중·기억하고 싶은 작품을 올릴 수 있어요. 지금은 건너뛰어도 괜찮아요.",
     "auth.signupV2.step4.nonArtistSubtitle":
       "스튜디오 → 새 작품에서 언제든 추가할 수 있어요.",
-    "auth.signupV2.step4.photoLabel": "사진",
+    "auth.signupV2.step4.photoLabel": "작품 사진 업로드",
     "auth.signupV2.step4.photoHint": "탭해서 이미지를 선택하세요",
     "auth.signupV2.step4.photoRemove": "사진 제거",
     "auth.signupV2.step4.titleLabel": "제목",
     "auth.signupV2.step4.titleHint": "필수 항목입니다.",
+    "auth.signupV2.step4.yearLabel": "제작 연도",
+    "auth.signupV2.step4.yearHint": "예: 2026",
     "auth.signupV2.step4.mediumLabel": "매체",
     "auth.signupV2.step4.mediumHint": "예: 캔버스에 유화, 디지털, 조각",
     "auth.signupV2.step4.sizeLabel": "크기",
-    "auth.signupV2.step4.sizeHint": "예: 60x80cm — 자동으로 인식해 드려요",
+    "auth.signupV2.step4.sizeHint": "예: 60x80cm",
     "auth.signupV2.step4.statusLabel": "상태",
     "auth.signupV2.step4.statusPlaceholder": "상태를 선택해 주세요",
     "auth.signupV2.step4.statusHint": "이 작품은 어떻게 만나게 됐나요?",
     "auth.signupV2.step4.status.created": "내 작품",
     "auth.signupV2.step4.status.owns": "내가 소장중",
     "auth.signupV2.step4.status.curated": "내가 큐레이션",
-    "auth.signupV2.step4.storyLabel": "이야기",
-    "auth.signupV2.step4.storyPlaceholder":
+    "auth.signupV2.step4.descriptionLabel": "설명",
+    "auth.signupV2.step4.descriptionPlaceholder":
       "작품에 대한 영감, 과정, 배경 등 남기고 싶은 이야기를 자유롭게 적어보세요.",
-    "auth.signupV2.step4.storyHint": "선택 항목입니다.",
+    "auth.signupV2.step4.descriptionHint": "선택 항목입니다.",
     "auth.signupV2.step4.submitArtist": "첫 작품 등록하기",
     "auth.signupV2.step4.skipCta": "다음에 할게요",
     "auth.signupV2.step4.skipLink": "건너뛰고 회원가입 마치기",
@@ -8802,7 +8867,7 @@ export const messages = {
     "auth.signupV2.step4.dedupWarning":
       "비슷한 제목의 작품이 이미 있어요. 그대로 새로 등록하거나 기존 작품을 수정할 수도 있어요.",
     "auth.signupV2.step4.footerHint":
-      "스튜디오 → 내 작품에서 언제든 추가·수정·삭제할 수 있어요.",
+      "더 많은 정보는 프로필에서 추가할 수 있어요.",
 
     // ── 2026-08-19 — Signup v2 Phase 4 · 기존 유저 프로필 완성 배너.
     "auth.signupV2.completionBanner.title": "프로필을 완성해 주세요",

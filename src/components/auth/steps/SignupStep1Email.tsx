@@ -119,6 +119,7 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
         {t("auth.signupV2.step1.subtitle")}
       </p>
       <OvalInput
+        labelStyle="outer"
         label={t("auth.signupV2.step1.emailLabel")}
         type="email"
         value={email}

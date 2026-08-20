@@ -28,6 +28,7 @@ import {
   loadSignupDraft,
   saveSignupDraft,
   type SignupV2Draft,
+  type SignupV2Gender,
   type SignupV2MainRole,
   type SignupV2WizardStep,
 } from "@/lib/auth/signupWizardState";
@@ -39,8 +40,10 @@ import { SignupStep2Password } from "./steps/SignupStep2Password";
 import { SignupStep3Profile } from "./steps/SignupStep3Profile";
 import { SignupStep4Artwork } from "./steps/SignupStep4Artwork";
 
-/** Wizard-level state exposed to each step. Passwords live only in
- *  memory — they're re-entered if the tab is closed at Step 2. */
+/** Wizard-level state exposed to each step. Passwords + the raw
+ *  `avatarFile` live only in memory — passwords aren't persisted per
+ *  §11.6 and File objects can't be JSON-serialized for sessionStorage.
+ *  Both are re-entered / re-picked if the tab closes mid-wizard. */
 export type SignupWizardState = {
   step: SignupV2WizardStep;
   email: string;
@@ -50,7 +53,15 @@ export type SignupWizardState = {
   username: string;
   ageBand: string;
   mainRole: SignupV2MainRole | "";
+  /** Signup v2 wireframe pass (2026-08-20). */
+  secondaryRole: SignupV2MainRole | "";
+  /** Signup v2 wireframe pass (2026-08-20). */
+  gender: SignupV2Gender | "";
   isPublic: boolean;
+  /** File selected on Step 3's avatar picker. Uploaded to
+   *  Storage during Step 3 submit (after `signUpWithPassword`
+   *  establishes a session), then flushed. Never persisted. */
+  avatarFile: File | null;
 };
 
 const INITIAL_STATE: SignupWizardState = {
@@ -62,7 +73,10 @@ const INITIAL_STATE: SignupWizardState = {
   username: "",
   ageBand: "",
   mainRole: "",
+  secondaryRole: "",
+  gender: "",
   isPublic: true,
+  avatarFile: null,
 };
 
 function stepFromParam(raw: string | null): SignupV2WizardStep {
@@ -115,6 +129,11 @@ export function SignupWizardShell() {
         ageBand: draft.ageBand ?? prev.ageBand,
         mainRole:
           draft.mainRole ?? (prev.mainRole as SignupWizardState["mainRole"]),
+        secondaryRole:
+          draft.secondaryRole ??
+          (prev.secondaryRole as SignupWizardState["secondaryRole"]),
+        gender:
+          draft.gender ?? (prev.gender as SignupWizardState["gender"]),
         isPublic:
           typeof draft.isPublic === "boolean" ? draft.isPublic : prev.isPublic,
         // If the URL explicitly says a step, it wins (link with
@@ -245,6 +264,11 @@ export function SignupWizardShell() {
     body = <SignupStep4Artwork api={api} />;
   }
 
+  // Wireframe pixel-fidelity pass (2026-08-20): Step 4 lays the
+  // uploader out beside the fields on ≥sm viewports, which needs a
+  // wider container than the tight Steps 1-3 column.
+  const contentWidth = state.step === 4 ? "lg" : "sm";
+
   return (
     <AuthShell
       onBack={handleBack}
@@ -252,6 +276,7 @@ export function SignupWizardShell() {
       title={titles[state.step]}
       subtitle={subtitles[state.step]}
       alternate={alternate}
+      contentWidth={contentWidth}
     >
       {body}
     </AuthShell>

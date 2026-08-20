@@ -1,18 +1,43 @@
 "use client";
 
 /**
- * PillRadio — Signup v2 primitive (Phase 1, 2026-08-19).
+ * PillRadio — Signup v2 primitive (Phase 1, 2026-08-19; wireframe
+ * pixel-fidelity pass 2026-08-20).
  *
- * Radio group rendered as a row of pill buttons. Matches the "Public
- * vs Private" and "Age band" wireframe patterns. Options wrap to
- * multiple lines on narrow viewports.
+ * Radio group rendered as pill buttons.
  *
- * Example:
+ * ## `variant`
+ *
+ *   - `"chip"` (default) — compact chips that wrap onto multiple lines
+ *     (e.g. age bands). Preserves the pre-2026-08-20 behavior.
+ *   - `"wide"` — two equally-sized large pill buttons in a 2-column
+ *     grid, each with a small circular radio dot on the left and its
+ *     label. Matches the wireframe's Public / Private visibility
+ *     picker. Options should be exactly two entries; extras will
+ *     simply overflow into extra grid cells.
+ *
+ * ## `labelStyle`
+ *
+ *   - `"legend"` (default) — the group label is a bold `<legend>`
+ *     above the row (legacy behavior).
+ *   - `"outer"` — smaller, gray, matches `OvalInput labelStyle="outer"`
+ *     so a Step 3 column of mixed selects and radios reads as one
+ *     rhythm.
+ *
+ * Example (chip, legacy):
+ *   <PillRadio label="Age" value={age} onChange={setAge} options={AGE_OPTS} />
+ *
+ * Example (wide, Signup v2):
  *   <PillRadio
- *     label="나이대"
- *     value={ageBand}
- *     onChange={setAgeBand}
- *     options={[{ value: "18_24", label: "18–24" }, ...]}
+ *     variant="wide"
+ *     labelStyle="outer"
+ *     label="Visibility – who can see your profile?"
+ *     value={vis}
+ *     onChange={setVis}
+ *     options={[
+ *       { value: "public", label: "Public" },
+ *       { value: "private", label: "Private" },
+ *     ]}
  *   />
  */
 
@@ -23,6 +48,9 @@ export type PillRadioOption = {
   label: ReactNode;
   disabled?: boolean;
 };
+
+export type PillRadioVariant = "chip" | "wide";
+export type PillRadioLabelStyle = "legend" | "outer";
 
 export type PillRadioProps = {
   label?: ReactNode;
@@ -35,6 +63,12 @@ export type PillRadioProps = {
   name?: string;
   /** Optional wrapper className. */
   className?: string;
+  /** `"chip"` (default) or `"wide"` — see file header. */
+  variant?: PillRadioVariant;
+  /** `"legend"` (default) or `"outer"` — see file header. */
+  labelStyle?: PillRadioLabelStyle;
+  /** When `labelStyle === "outer"`, appends a red `*` to the label. */
+  required?: boolean;
 };
 
 export function PillRadio(props: PillRadioProps) {
@@ -47,24 +81,84 @@ export function PillRadio(props: PillRadioProps) {
     options,
     name,
     className = "",
+    variant = "chip",
+    labelStyle = "legend",
+    required = false,
   } = props;
   const autoName = useId();
   const groupName = name ?? autoName;
   const hasError = !!error;
+
+  const groupClass =
+    variant === "wide"
+      ? "grid grid-cols-2 gap-3"
+      : "flex flex-wrap gap-2";
+
   return (
     <fieldset className={`w-full ${className}`}>
-      {label && (
-        <legend className="mb-2 block text-sm font-medium text-zinc-900">
-          {label}
-        </legend>
-      )}
+      {label &&
+        (labelStyle === "outer" ? (
+          <legend
+            className={`mb-1.5 block px-1 text-xs font-medium ${
+              hasError ? "text-red-500" : "text-zinc-600"
+            }`}
+          >
+            {label}
+            {required ? (
+              <span aria-hidden className="ml-0.5 text-red-500">*</span>
+            ) : null}
+          </legend>
+        ) : (
+          <legend className="mb-2 block text-sm font-medium text-zinc-900">
+            {label}
+          </legend>
+        ))}
       <div
         role="radiogroup"
         aria-invalid={hasError || undefined}
-        className="flex flex-wrap gap-2"
+        className={groupClass}
       >
         {options.map((opt) => {
           const selected = opt.value === value;
+          if (variant === "wide") {
+            // Larger pill with a visible radio dot on the left,
+            // centered label. Matches the wireframe.
+            return (
+              <label
+                key={opt.value}
+                className={`flex select-none cursor-pointer items-center justify-center gap-2 rounded-full border px-4 py-3 text-sm transition-colors ${
+                  opt.disabled
+                    ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-400"
+                    : selected
+                    ? "border-zinc-900 bg-zinc-900 text-white"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={groupName}
+                  value={opt.value}
+                  checked={selected}
+                  disabled={opt.disabled}
+                  onChange={() => onChange(opt.value)}
+                  className="sr-only"
+                />
+                <span
+                  aria-hidden
+                  className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+                    selected
+                      ? "border-white"
+                      : "border-zinc-400"
+                  }`}
+                >
+                  {selected && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                  )}
+                </span>
+                <span>{opt.label}</span>
+              </label>
+            );
+          }
           return (
             <label
               key={opt.value}

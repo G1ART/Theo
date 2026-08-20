@@ -1,38 +1,50 @@
 "use client";
 
 /**
- * Signup v2 · Step 3 (Profile) — Phase 1, 2026-08-19.
+ * Signup v2 · Step 3 (Profile card) — wireframe pixel-fidelity pass
+ * (2026-08-20). Phase 1 behavior preserved with the field-set the
+ * designer's updated wireframes ask for.
  *
- * Fields collected here (spec §2.4, §3.2):
- *   - full_name           (required)
- *   - age_band            (PillRadio, TAXONOMY.ageBandOptions)
- *   - main_role           (OvalSelect, ROLE_KEYS; skip allowed)
- *   - username            (OvalInput, `@` prefix, 300ms debounce
- *                          uniqueness check — error surfaces only on
- *                          collision, per §11.3)
+ * Fields collected on Step 3 (Name moved to Step 2 in this pass):
+ *   - avatar file       (optional — kept in memory as a `File`; uploaded
+ *                        to `artworks/{userId}/profile/avatar/...` after
+ *                        `signUpWithPassword` establishes a session)
+ *   - gender            (OvalSelect, optional — woman / man / non_binary
+ *                        / prefer_not_to_say; free-form text column)
+ *   - age band          (OvalSelect, optional — reuses TAXONOMY.ageBandOptions;
+ *                        wireframe switched this from PillRadio → select)
+ *   - main_role         ("Primary Role" · OvalSelect, ROLE_KEYS; skip allowed)
+ *   - secondary_role    ("Secondary Role" · OvalSelect, optional; must
+ *                        differ from primary — dropped silently otherwise)
+ *   - is_public         (WideRadio, Public / Private, defaults to Public)
+ *   - username          (OvalInput, `@` prefix, 300ms debounce; error
+ *                        only on collision per §11.3)
  *
  * On submit:
- *   1. `signUpWithPassword` with the email / password captured in
- *      Steps 1 & 2. Anti-enumeration duplicate detection uses
- *      Supabase's "empty identities" signal — a known-email is treated
- *      as a "please log in" hint here.
- *   2. Once session is established, call `upsert_my_profile` with
- *      base = { username, main_role, display_name (= full_name),
- *      full_name, age_band, tos_accepted_at: "true",
- *      profile_completed_at: "true" }. The extended RPC (see
- *      `20260819180000_upsert_my_profile_signup_v2.sql`) stamps
- *      `tos_accepted_at` / `profile_completed_at` first-write-wins.
- *   3. Route through the shared `routeByAuthState` gate so users who
- *      still need `/onboarding/identity` steps (e.g. `roles[]` beyond
- *      main_role) are handed off correctly, otherwise land on `/feed`.
- *
- * Photo upload placeholder: avatar upload is intentionally deferred —
- * the field is present but disabled, with a copy that redirects users
- * to Studio → Profile once the account exists. This matches spec §2.4
- * decision #10 ("Photo upload placeholder — first release optional").
+ *   1. `signUpWithPassword` with the email + password + full_name
+ *      captured in Steps 1 / 2. Anti-enumeration duplicate detection
+ *      uses Supabase's "empty identities" signal — a known-email
+ *      falls back to `signInWithPassword` and, on failure, surfaces
+ *      the "we found an account" hint.
+ *   2. If a session is established, upload the avatar file (best-
+ *      effort — a failure just skips avatar_url), then call
+ *      `saveProfileUnified` with { username, display_name,
+ *      full_name, main_role, roles: [main, secondary].filter(Boolean),
+ *      age_band, gender, is_public, avatar_url, tos_accepted_at: "true",
+ *      profile_completed_at: "true" }.
+ *   3. Advance to Step 4 (optional artwork quick-start). Draft is
+ *      NOT cleared yet — Step 4 still reads `mainRole` for its
+ *      role-aware copy.
  */
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { OvalSelect } from "@/components/auth/primitives/OvalSelect";
@@ -52,11 +64,33 @@ import {
 } from "@/lib/supabase/profiles";
 import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { loginUrlWithNext } from "@/lib/identity/routing";
+import {
+  ProfileMediaValidationError,
+  removeProfileMedia,
+  uploadProfileMedia,
+} from "@/lib/supabase/storage";
 import type { SignupStepApi } from "../SignupWizardShell";
-import type { SignupV2MainRole } from "@/lib/auth/signupWizardState";
+import type {
+  SignupV2Gender,
+  SignupV2MainRole,
+} from "@/lib/auth/signupWizardState";
 
 const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
 const USERNAME_DEBOUNCE_MS = 300;
+
+const GENDER_OPTIONS: readonly SignupV2Gender[] = [
+  "woman",
+  "man",
+  "non_binary",
+  "prefer_not_to_say",
+];
+
+const GENDER_LABEL_KEY: Record<SignupV2Gender, string> = {
+  woman: "auth.signupV2.step3.gender.woman",
+  man: "auth.signupV2.step3.gender.man",
+  non_binary: "auth.signupV2.step3.gender.nonBinary",
+  prefer_not_to_say: "auth.signupV2.step3.gender.preferNotToSay",
+};
 
 type UsernameStatus =
   | { kind: "idle" }
@@ -90,9 +124,15 @@ function reasonToStatus(
 export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   const { t } = useT();
 
-  const [fullName, setFullName] = useState(api.state.fullName);
   const [ageBand, setAgeBand] = useState(api.state.ageBand);
   const [mainRole, setMainRole] = useState<SignupV2MainRole | "">(api.state.mainRole);
+  const [secondaryRole, setSecondaryRole] = useState<SignupV2MainRole | "">(
+    api.state.secondaryRole,
+  );
+  const [gender, setGender] = useState<SignupV2Gender | "">(api.state.gender);
+  const [isPublic, setIsPublic] = useState<boolean>(api.state.isPublic);
+  const [avatarFile, setAvatarFile] = useState<File | null>(api.state.avatarFile);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [username, setUsername] = useState(
     api.state.username || api.state.usernameSeed || "",
   );
@@ -105,19 +145,36 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   const usernameSeqRef = useRef(0);
 
   // If Step 1 / Step 2 was skipped by an inbound link, bounce back to
-  // the earliest missing step.
+  // the earliest missing step. `fullName` also lives at Step 2 now.
   useEffect(() => {
     if (!api.state.email) {
       api.goToStep(1);
       return;
     }
-    if (!api.state.password) {
+    if (!api.state.password || !api.state.fullName.trim()) {
       api.goToStep(2);
     }
     // Intentionally single-shot — a subsequent state change (e.g. user
     // returns from Step 2 with the new password) should not re-run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Object-URL hygiene for the avatar preview blob.
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* best-effort */
+      }
+    };
+  }, [avatarFile]);
 
   const normalizedUsername = username.trim().toLowerCase();
 
@@ -145,12 +202,23 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
 
   const persistCurrent = useCallback(() => {
     api.persistDraft({
-      fullName: fullName.trim() || undefined,
       ageBand: ageBand || undefined,
       mainRole: (mainRole || undefined) as SignupV2MainRole | undefined,
+      secondaryRole:
+        (secondaryRole || undefined) as SignupV2MainRole | undefined,
+      gender: (gender || undefined) as SignupV2Gender | undefined,
+      isPublic,
       username: normalizedUsername || undefined,
     });
-  }, [api, fullName, ageBand, mainRole, normalizedUsername]);
+  }, [
+    api,
+    ageBand,
+    mainRole,
+    secondaryRole,
+    gender,
+    isPublic,
+    normalizedUsername,
+  ]);
 
   const roleOptions = useMemo(
     () => [
@@ -160,38 +228,92 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     [t],
   );
 
+  const secondaryRoleOptions = useMemo(
+    () => [
+      { value: "", label: t("auth.signupV2.step3.secondaryRolePlaceholder") },
+      // Suppress the primary from the secondary list so the "must
+      // differ" invariant is expressed structurally rather than as a
+      // post-hoc error.
+      ...ROLE_KEYS.filter((r) => r !== mainRole).map((r) => ({
+        value: r,
+        label: t(`role.${r}`),
+      })),
+    ],
+    [t, mainRole],
+  );
+
   const ageOptions = useMemo(
-    () => TAXONOMY.ageBandOptions.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+    () => [
+      { value: "", label: t("auth.signupV2.step3.ageBandPlaceholder") },
+      ...TAXONOMY.ageBandOptions.map((o) => ({
+        value: o.value,
+        label: t(o.labelKey),
+      })),
+    ],
+    [t],
+  );
+
+  const genderOptions = useMemo(
+    () => [
+      { value: "", label: t("auth.signupV2.step3.gender.placeholder") },
+      ...GENDER_OPTIONS.map((g) => ({
+        value: g,
+        label: t(GENDER_LABEL_KEY[g]),
+      })),
+    ],
+    [t],
+  );
+
+  const visibilityOptions = useMemo(
+    () => [
+      { value: "public", label: t("auth.signupV2.step3.visibility.public") },
+      { value: "private", label: t("auth.signupV2.step3.visibility.private") },
+    ],
     [t],
   );
 
   const canSubmit = useMemo(() => {
     if (submitting) return false;
-    if (!fullName.trim()) return false;
+    if (!api.state.fullName.trim()) return false;
     if (!USERNAME_REGEX.test(normalizedUsername)) return false;
     if (usernameStatus.kind === "taken") return false;
     if (usernameStatus.kind === "reserved") return false;
     if (usernameStatus.kind === "invalid") return false;
     return true;
-  }, [submitting, fullName, normalizedUsername, usernameStatus.kind]);
+  }, [
+    submitting,
+    api.state.fullName,
+    normalizedUsername,
+    usernameStatus.kind,
+  ]);
+
+  function handleAvatarChange(next: File | null) {
+    setAvatarFile(next);
+    api.updateState({ avatarFile: next });
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitError(null);
     setDuplicateEmail(null);
     if (!canSubmit) return;
-    if (!api.state.email || !api.state.password) {
+    if (!api.state.email || !api.state.password || !api.state.fullName.trim()) {
       // Should not happen — a defensive guard.
-      api.goToStep(!api.state.email ? 1 : 2);
+      if (!api.state.email) api.goToStep(1);
+      else api.goToStep(2);
       return;
     }
     setSubmitting(true);
     persistCurrent();
 
     // Step 1: create the account.
-    const trimmedName = fullName.trim();
-    const derivedRole: SignupV2MainRole | undefined =
-      mainRole || undefined;
+    const trimmedName = api.state.fullName.trim();
+    const derivedRole: SignupV2MainRole | undefined = mainRole || undefined;
+    const rolesToWrite: SignupV2MainRole[] = [];
+    if (derivedRole) rolesToWrite.push(derivedRole);
+    if (secondaryRole && secondaryRole !== derivedRole) {
+      rolesToWrite.push(secondaryRole);
+    }
     const { data, error: signUpErr } = await signUpWithPassword(
       api.state.email,
       api.state.password,
@@ -199,7 +321,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         username: normalizedUsername,
         display_name: trimmedName,
         main_role: derivedRole,
-        roles: derivedRole ? [derivedRole] : undefined,
+        roles: rolesToWrite.length > 0 ? rolesToWrite : undefined,
       },
       api.nextPath ?? null,
     );
@@ -226,7 +348,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         api.state.password,
       );
       if (!loginErr && loginData?.session) {
-        await routeAfterAccount(loginData.session.user.id);
+        await routeAfterAccount(loginData.session.user.id, rolesToWrite);
         return;
       }
       setSubmitting(false);
@@ -236,56 +358,65 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
 
     // Email-confirmation mode: show the "check your email" state.
     if (data?.user && !data?.session) {
-      // We can't stamp the profile without a session yet. The auth
-      // callback re-runs the identity gate — Step 3's `upsert_my_profile`
-      // is left to the confirmation round-trip (auto-fired here as a
-      // fire-and-forget; the callback will re-run it after session
-      // materialises). Draft persists so the user resumes on click.
       setSubmitting(false);
       setSubmitError(t("auth.signupV2.step3.checkEmail"));
       return;
     }
 
-    // Immediate-session mode: session is live, so we can stamp the
-    // profile immediately.
     const uid = data?.session?.user?.id;
     if (!uid) {
       setSubmitting(false);
       setSubmitError(t("auth.signupV2.step3.errorGeneric"));
       return;
     }
-    await routeAfterAccount(uid);
+    await routeAfterAccount(uid, rolesToWrite);
   }
 
-  async function routeAfterAccount(userId: string) {
+  async function routeAfterAccount(
+    userId: string,
+    rolesToWrite: SignupV2MainRole[],
+  ) {
     try {
       await ensureFreeEntitlement(userId);
     } catch {
       /* best-effort: entitlement seed is idempotent, retry-safe */
     }
 
-    // Stamp profile with the full Step 3 payload. `age_band` goes into
-    // the physical column via the extended RPC (Signup v2 migration).
-    // `tos_accepted_at` / `profile_completed_at` are stamp triggers —
-    // the RPC uses coalesce() so re-signup cannot bump the timestamp.
-    const trimmedName = fullName.trim();
+    // Best-effort avatar upload. A failure at this step should NOT
+    // block wizard completion — the user can add an avatar later
+    // from Studio → Profile. We only surface a message when
+    // uploadProfileMedia raises a structural validation error the
+    // user can act on (e.g. wrong mime).
+    let avatarPath: string | null = null;
+    if (avatarFile) {
+      try {
+        avatarPath = await uploadProfileMedia(avatarFile, "avatar", userId);
+      } catch (err) {
+        if (err instanceof ProfileMediaValidationError) {
+          setSubmitting(false);
+          setSubmitError(err.message);
+          return;
+        }
+        // Any other failure (network, RLS, storage 500) — skip the
+        // avatar_url column but continue with profile stamping.
+        avatarPath = null;
+      }
+    }
+
+    const trimmedName = api.state.fullName.trim();
     const savePayload: Record<string, unknown> = {
       username: normalizedUsername,
       display_name: trimmedName,
       full_name: trimmedName,
       tos_accepted_at: "true",
       profile_completed_at: "true",
+      is_public: isPublic,
     };
-    if (mainRole) {
-      savePayload.main_role = mainRole;
-      savePayload.roles = [mainRole];
-    }
-    if (ageBand) {
-      savePayload.age_band = ageBand;
-    }
-    if (typeof api.state.isPublic === "boolean") {
-      savePayload.is_public = api.state.isPublic;
-    }
+    if (mainRole) savePayload.main_role = mainRole;
+    if (rolesToWrite.length > 0) savePayload.roles = rolesToWrite;
+    if (ageBand) savePayload.age_band = ageBand;
+    if (gender) savePayload.gender = gender;
+    if (avatarPath) savePayload.avatar_url = avatarPath;
 
     const res = await saveProfileUnified({
       basePatch: savePayload,
@@ -294,6 +425,11 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     });
     if (!res.ok) {
       setSubmitting(false);
+      // Roll back the avatar upload so we don't leave orphan bytes
+      // when the RPC rejects the row.
+      if (avatarPath) {
+        void removeProfileMedia(avatarPath);
+      }
       // The most likely cause is the migration not yet being applied.
       // Surface a user-facing message but keep the account (signup
       // succeeded) so the user can still log in.
@@ -358,50 +494,120 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+      <p className="-mt-2 mb-4 whitespace-pre-line text-sm text-zinc-500">
         {t("auth.signupV2.step3.subtitle")}
       </p>
-      <OvalInput
-        label={t("auth.signupV2.step3.fullNameLabel")}
-        value={fullName}
-        onChange={(v) => {
-          setFullName(v);
-          api.updateState({ fullName: v });
-        }}
-        onBlur={() => persistCurrent()}
-        autoComplete="name"
-        required
-        hint={t("auth.signupV2.step3.fullNameHint")}
+
+      <AvatarPickerRow
+        file={avatarFile}
+        previewUrl={avatarPreview}
+        onChange={handleAvatarChange}
+        label={t("auth.signupV2.step3.photoLabel")}
+        uploadCta={t("auth.signupV2.step3.photoUpload")}
+        removeAria={t("auth.signupV2.step3.photoRemove")}
       />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <OvalSelect
+          labelStyle="outer"
+          label={t("auth.signupV2.step3.gender.label")}
+          value={gender}
+          onChange={(v) => {
+            const next = (v as SignupV2Gender | "") || "";
+            setGender(next);
+            api.updateState({ gender: next });
+            api.persistDraft({
+              gender: (next || undefined) as SignupV2Gender | undefined,
+            });
+          }}
+          options={genderOptions}
+          placeholder={t("auth.signupV2.step3.gender.placeholder")}
+          hint={t("auth.signupV2.step3.gender.hint")}
+        />
+
+        <OvalSelect
+          labelStyle="outer"
+          label={t("auth.signupV2.step3.ageBandLabel")}
+          value={ageBand}
+          onChange={(v) => {
+            setAgeBand(v);
+            api.updateState({ ageBand: v });
+            api.persistDraft({ ageBand: v || undefined });
+          }}
+          options={ageOptions}
+          placeholder={t("auth.signupV2.step3.ageBandPlaceholder")}
+          hint={t("auth.signupV2.step3.ageBandHint")}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <OvalSelect
+          labelStyle="outer"
+          label={t("auth.signupV2.step3.primaryRoleLabel")}
+          required
+          value={mainRole}
+          onChange={(v) => {
+            const next = (v as SignupV2MainRole | "") || "";
+            setMainRole(next);
+            // If secondary equals the new primary, silently drop it.
+            if (next && secondaryRole === next) {
+              setSecondaryRole("");
+              api.updateState({ mainRole: next, secondaryRole: "" });
+              api.persistDraft({
+                mainRole: (next || undefined) as SignupV2MainRole | undefined,
+                secondaryRole: undefined,
+              });
+              return;
+            }
+            api.updateState({ mainRole: next });
+            api.persistDraft({
+              mainRole: (next || undefined) as SignupV2MainRole | undefined,
+            });
+          }}
+          options={roleOptions}
+          placeholder={t("auth.signupV2.step3.mainRolePlaceholder")}
+          hint={t("auth.signupV2.step3.mainRoleHint")}
+        />
+
+        <OvalSelect
+          labelStyle="outer"
+          label={t("auth.signupV2.step3.secondaryRoleLabel")}
+          value={secondaryRole}
+          onChange={(v) => {
+            const next = (v as SignupV2MainRole | "") || "";
+            setSecondaryRole(next);
+            api.updateState({ secondaryRole: next });
+            api.persistDraft({
+              secondaryRole:
+                (next || undefined) as SignupV2MainRole | undefined,
+            });
+          }}
+          options={secondaryRoleOptions}
+          placeholder={t("auth.signupV2.step3.secondaryRolePlaceholder")}
+          hint={t("auth.signupV2.step3.secondaryRoleHint")}
+        />
+      </div>
 
       <PillRadio
-        label={t("auth.signupV2.step3.ageBandLabel")}
-        value={ageBand || null}
+        variant="wide"
+        labelStyle="outer"
+        label={t("auth.signupV2.step3.visibility.label")}
+        required
+        value={isPublic ? "public" : "private"}
         onChange={(v) => {
-          setAgeBand(v);
-          api.updateState({ ageBand: v });
-          api.persistDraft({ ageBand: v });
+          const next = v === "public";
+          setIsPublic(next);
+          api.updateState({ isPublic: next });
+          api.persistDraft({ isPublic: next });
         }}
-        options={ageOptions}
-        hint={t("auth.signupV2.step3.ageBandHint")}
-      />
-
-      <OvalSelect
-        label={t("auth.signupV2.step3.mainRoleLabel")}
-        value={mainRole}
-        onChange={(v) => {
-          const next = (v as SignupV2MainRole | "") || "";
-          setMainRole(next);
-          api.updateState({ mainRole: next });
-          api.persistDraft({ mainRole: (next || undefined) as SignupV2MainRole | undefined });
-        }}
-        options={roleOptions}
-        placeholder={t("auth.signupV2.step3.mainRolePlaceholder")}
-        hint={t("auth.signupV2.step3.mainRoleHint")}
+        options={visibilityOptions}
+        hint={t("auth.signupV2.step3.visibility.hint")}
       />
 
       <OvalInput
+        labelStyle="outer"
         label={t("auth.signupV2.step3.usernameLabel")}
+        required
         value={username}
         onChange={(v) => setUsername(v.toLowerCase())}
         onBlur={() => persistCurrent()}
@@ -414,10 +620,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         error={usernameError}
         loading={usernameStatus.kind === "checking"}
       />
-
-      <div className="rounded-3xl border border-dashed border-zinc-200 px-5 py-4 text-xs text-zinc-500">
-        {t("auth.signupV2.step3.avatarPlaceholder")}
-      </div>
 
       {submitError && (
         <p role="alert" className="rounded-3xl border border-red-100 bg-red-50 px-5 py-3 text-xs text-red-700">
@@ -438,5 +640,78 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         {t("auth.signupV2.step3.nextHint")}
       </p>
     </form>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Avatar picker
+// ─────────────────────────────────────────────────────────────────────
+
+/** Signup v2 Step 3 avatar chooser (2026-08-20 wireframe). Renders the
+ *  outer label above a row containing an "Upload photo" pill (opens the
+ *  file picker) and, when a file is selected, a 40px circular thumbnail
+ *  + an `×` remove button. Mimics the wireframe's compact one-row
+ *  layout rather than the drop-zone tile used by Studio → Profile. */
+function AvatarPickerRow({
+  file,
+  previewUrl,
+  onChange,
+  label,
+  uploadCta,
+  removeAria,
+}: {
+  file: File | null;
+  previewUrl: string | null;
+  onChange: (next: File | null) => void;
+  label: string;
+  uploadCta: string;
+  removeAria: string;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  return (
+    <div>
+      <label className="mb-1.5 block px-1 text-xs font-medium text-zinc-600">
+        {label}
+      </label>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-700 transition-colors hover:border-zinc-500 hover:text-zinc-900"
+        >
+          <span aria-hidden className="text-base leading-none">＋</span>
+          <span>{uploadCta}</span>
+        </button>
+        {file && previewUrl && (
+          <div className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt=""
+              className="h-10 w-10 rounded-full object-cover ring-1 ring-zinc-200"
+            />
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              aria-label={removeAria}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-300 text-sm text-zinc-500 transition-colors hover:border-zinc-500 hover:text-zinc-900"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const next = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            if (next) onChange(next);
+          }}
+        />
+      </div>
+    </div>
   );
 }

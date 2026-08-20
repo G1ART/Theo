@@ -21,6 +21,16 @@ export type SignupV2WizardStep = 1 | 2 | 3 | 4;
 
 export type SignupV2MainRole = "artist" | "curator" | "collector" | "gallerist";
 
+/** Signup v2 wireframe pass (2026-08-20): optional self-declared
+ *  gender on Step 3. Free-form column downstream so we don't paint
+ *  ourselves into a corner if the taxonomy expands — the UI restricts
+ *  writes to these four values. */
+export type SignupV2Gender =
+  | "woman"
+  | "man"
+  | "non_binary"
+  | "prefer_not_to_say";
+
 export type SignupV2Draft = {
   version: typeof CURRENT_VERSION;
   step: SignupV2WizardStep;
@@ -30,6 +40,10 @@ export type SignupV2Draft = {
   username?: string;
   ageBand?: string;
   mainRole?: SignupV2MainRole;
+  /** Signup v2 wireframe pass (2026-08-20). */
+  secondaryRole?: SignupV2MainRole;
+  /** Signup v2 wireframe pass (2026-08-20). */
+  gender?: SignupV2Gender;
   isPublic?: boolean;
   avatarPath?: string;
   step4?: {
@@ -50,8 +64,19 @@ const MAIN_ROLES: readonly SignupV2MainRole[] = [
   "gallerist",
 ];
 
+const GENDERS: readonly SignupV2Gender[] = [
+  "woman",
+  "man",
+  "non_binary",
+  "prefer_not_to_say",
+];
+
 function isMainRole(v: unknown): v is SignupV2MainRole {
   return typeof v === "string" && (MAIN_ROLES as readonly string[]).includes(v);
+}
+
+function isGender(v: unknown): v is SignupV2Gender {
+  return typeof v === "string" && (GENDERS as readonly string[]).includes(v);
 }
 
 function isStep(v: unknown): v is SignupV2WizardStep {
@@ -87,6 +112,8 @@ export function parseSignupDraft(raw: string | null | undefined): SignupV2Draft 
   if (typeof obj.username === "string") draft.username = obj.username;
   if (typeof obj.ageBand === "string") draft.ageBand = obj.ageBand;
   if (isMainRole(obj.mainRole)) draft.mainRole = obj.mainRole;
+  if (isMainRole(obj.secondaryRole)) draft.secondaryRole = obj.secondaryRole;
+  if (isGender(obj.gender)) draft.gender = obj.gender;
   if (typeof obj.isPublic === "boolean") draft.isPublic = obj.isPublic;
   if (typeof obj.avatarPath === "string") draft.avatarPath = obj.avatarPath;
   if (obj.step4 && typeof obj.step4 === "object") {

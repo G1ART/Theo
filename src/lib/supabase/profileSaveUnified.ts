@@ -46,6 +46,10 @@ const BASE_KEYS = new Set([
   "age_band",
   "tos_accepted_at",
   "profile_completed_at",
+  // Signup v2 wireframe pass (2026-08-20) — optional self-declared
+  // gender. Free-form text column with a closed-set UI. Cleared via
+  // the same `nullif(trim(...), '')` shape as age_band / full_name.
+  "gender",
 ]);
 
 /**
@@ -87,6 +91,8 @@ const NULLABLE_BASE_KEYS = new Set([
   // stamp-only fields (see the RPC's coalesce() clause).
   "full_name",
   "age_band",
+  // Signup v2 wireframe pass (2026-08-20).
+  "gender",
 ]);
 
 /**

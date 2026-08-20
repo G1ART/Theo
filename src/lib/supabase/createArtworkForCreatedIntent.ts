@@ -72,9 +72,17 @@ export type SignupStep4CreatePayload = {
   intent: SignupStep4Intent;
   file: File;
   title: string;
+  /** Signup v2 wireframe pass (2026-08-20): the wizard now surfaces a
+   *  `year` OvalInput between Title and Medium. Numeric, optional —
+   *  when omitted the helper falls back to the current calendar year
+   *  (unchanged from the pre-2026-08-20 default). */
+  year: number | null;
   medium: string;
   size: string;
-  story: string;
+  /** Free-form description (renamed from `story` in the wireframe;
+   *  DB column remains `story_ko` / `story_en` / `story` — see the
+   *  bilingual slots writer below). */
+  description: string;
   locale: Locale;
 };
 
@@ -121,7 +129,17 @@ function bilingualSlots(
 export async function createArtworkForCreatedIntent(
   payload: SignupStep4CreatePayload,
 ): Promise<SignupStep4CreateResult> {
-  const { userId, intent, file, title, medium, size, story, locale } = payload;
+  const {
+    userId,
+    intent,
+    file,
+    title,
+    year,
+    medium,
+    size,
+    description,
+    locale,
+  } = payload;
   if (!userId) {
     return { ok: false, code: "not_authenticated", message: "Not authenticated" };
   }
@@ -138,7 +156,7 @@ export async function createArtworkForCreatedIntent(
 
   const titleSlots = bilingualSlots(titleTrim, locale);
   const mediumSlots = bilingualSlots(mediumTrim, locale);
-  const storySlots = bilingualSlots(story, locale);
+  const descriptionSlots = bilingualSlots(description, locale);
 
   // Structured dims are best-effort — unparseable strings just leave
   // width/height NULL and we let the salon dims-confirm nudge on the
@@ -151,18 +169,22 @@ export async function createArtworkForCreatedIntent(
     title: titleSlots.legacy ?? titleTrim,
     title_ko: titleSlots.ko,
     title_en: titleSlots.en,
-    // Year is not surfaced at Step 4; default to the current calendar
-    // year (matches wireframe intent — most quick-start uploads are
-    // recent work). User can edit later in `/my/artworks/{id}`.
-    year: new Date().getFullYear(),
+    // Signup v2 wireframe (2026-08-20): year is now user-editable.
+    // Callers pass `null` to preserve the pre-2026-08-20 default
+    // (current calendar year), which is still fine for quick-start
+    // uploads of recent work.
+    year:
+      typeof year === "number" && Number.isFinite(year)
+        ? Math.trunc(year)
+        : new Date().getFullYear(),
     medium: mediumSlots.legacy ?? mediumTrim,
     medium_ko: mediumSlots.ko,
     medium_en: mediumSlots.en,
     size: sizeTrim,
     size_unit: sizeTrim ? "cm" : null,
-    story: storySlots.legacy,
-    story_ko: storySlots.ko,
-    story_en: storySlots.en,
+    story: descriptionSlots.legacy,
+    story_ko: descriptionSlots.ko,
+    story_en: descriptionSlots.en,
     ownership_status: OWNERSHIP_STATUS_BY_INTENT[intent],
     pricing_mode: "inquire",
     is_price_public: false,
