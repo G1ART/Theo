@@ -4345,6 +4345,64 @@ export const messages = {
     "auth.password.strength.fair": "Fair",
     "auth.password.strength.strong": "Strong",
     "auth.password.strength.veryStrong": "Very strong",
+    "auth.password.strength.belowMin": "Below the {min}-character minimum",
+
+    // ── 2026-08-19 — Signup v2 Phase 5 HIBP inline warning.
+    "auth.password.hibp.checking": "Checking for known breaches…",
+    "auth.password.hibp.pwned":
+      "This password appeared in a data breach. Please choose a different one.",
+    "auth.password.hibp.error":
+      "Couldn't verify against the breach list — you can still continue.",
+
+    // ── 2026-08-19 — Signup v2 Phase 2 · Step 4 (artwork quick-start).
+    "auth.signupV2.step4.artistTitle": "Add your first work",
+    "auth.signupV2.step4.artistSubtitle":
+      "Post one piece to start building your Theo studio. You can add more later.",
+    "auth.signupV2.step4.nonArtistTitle": "Save a piece you love (optional)",
+    "auth.signupV2.step4.nonArtistBody":
+      "Curators, collectors, and anyone else can post an artwork they made, own, or want to remember. Or just skip — you're already done.",
+    "auth.signupV2.step4.nonArtistSubtitle":
+      "You can add work anytime from Studio → New artwork.",
+    "auth.signupV2.step4.photoLabel": "Photo",
+    "auth.signupV2.step4.photoHint": "Tap to choose an image",
+    "auth.signupV2.step4.photoRemove": "Remove photo",
+    "auth.signupV2.step4.titleLabel": "Title",
+    "auth.signupV2.step4.titleHint": "Required.",
+    "auth.signupV2.step4.mediumLabel": "Medium",
+    "auth.signupV2.step4.mediumHint": "e.g. oil on canvas, digital, sculpture",
+    "auth.signupV2.step4.sizeLabel": "Size",
+    "auth.signupV2.step4.sizeHint": "e.g. 60x80cm — we'll parse it for you",
+    "auth.signupV2.step4.statusLabel": "Status",
+    "auth.signupV2.step4.statusPlaceholder": "Choose a status",
+    "auth.signupV2.step4.statusHint": "How did this piece come to you?",
+    "auth.signupV2.step4.status.created": "I made this",
+    "auth.signupV2.step4.status.owns": "I own this",
+    "auth.signupV2.step4.status.curated": "I'm curating this",
+    "auth.signupV2.step4.storyLabel": "Story",
+    "auth.signupV2.step4.storyPlaceholder":
+      "Anything you'd like to share about this piece — inspiration, process, or context.",
+    "auth.signupV2.step4.storyHint": "Optional.",
+    "auth.signupV2.step4.submitArtist": "Post my first work",
+    "auth.signupV2.step4.skipCta": "Skip for now",
+    "auth.signupV2.step4.skipLink": "Skip and finish signup",
+    "auth.signupV2.step4.showAnyway": "I'd still like to post something",
+    "auth.signupV2.step4.uploading": "Uploading your work…",
+    "auth.signupV2.step4.uploadSuccess": "Done! Taking you to your feed.",
+    "auth.signupV2.step4.uploadError":
+      "We couldn't finish the upload. Please try again.",
+    "auth.signupV2.step4.dedupWarning":
+      "You already have a work with a similar title. Continue to post a new one, or edit the existing one instead.",
+    "auth.signupV2.step4.footerHint":
+      "You can always add, edit, or delete works from Studio → My artworks.",
+
+    // ── 2026-08-19 — Signup v2 Phase 4 · existing-user completion banner.
+    "auth.signupV2.completionBanner.title":
+      "Please complete your profile",
+    "auth.signupV2.completionBanner.body":
+      "Fill in the new profile fields (name · age · role) to get better content.",
+    "auth.signupV2.completionBanner.cta": "Complete profile",
+    "auth.signupV2.completionBanner.dismiss": "Later",
+    "auth.signupV2.completionBanner.dismissAria": "Dismiss for this session",
   },
   ko: {
     "nav.feed": "피드",
@@ -8615,6 +8673,63 @@ export const messages = {
     "auth.password.strength.fair": "보통",
     "auth.password.strength.strong": "강함",
     "auth.password.strength.veryStrong": "매우 강함",
+    "auth.password.strength.belowMin": "최소 {min}자 미만이에요",
+
+    // ── 2026-08-19 — Signup v2 Phase 5 HIBP 안내.
+    "auth.password.hibp.checking": "유출된 비밀번호인지 확인 중…",
+    "auth.password.hibp.pwned":
+      "이 비밀번호는 다른 유출 데이터에서 발견됐어요. 다른 비밀번호를 사용해 주세요.",
+    "auth.password.hibp.error":
+      "유출 목록을 확인하지 못했지만, 계속 진행할 수 있어요.",
+
+    // ── 2026-08-19 — Signup v2 Phase 2 · Step 4 (작품 빠른 등록).
+    "auth.signupV2.step4.artistTitle": "첫 작품을 올려볼까요?",
+    "auth.signupV2.step4.artistSubtitle":
+      "한 점만 등록해도 Theo 스튜디오가 시작돼요. 나중에 언제든 추가할 수 있어요.",
+    "auth.signupV2.step4.nonArtistTitle": "마음에 드는 한 점을 올려보세요 (선택)",
+    "auth.signupV2.step4.nonArtistBody":
+      "큐레이터, 컬렉터, 그 외 누구든지 직접 만든·소장 중·기억하고 싶은 작품을 올릴 수 있어요. 지금은 건너뛰어도 괜찮아요.",
+    "auth.signupV2.step4.nonArtistSubtitle":
+      "스튜디오 → 새 작품에서 언제든 추가할 수 있어요.",
+    "auth.signupV2.step4.photoLabel": "사진",
+    "auth.signupV2.step4.photoHint": "탭해서 이미지를 선택하세요",
+    "auth.signupV2.step4.photoRemove": "사진 제거",
+    "auth.signupV2.step4.titleLabel": "제목",
+    "auth.signupV2.step4.titleHint": "필수 항목입니다.",
+    "auth.signupV2.step4.mediumLabel": "매체",
+    "auth.signupV2.step4.mediumHint": "예: 캔버스에 유화, 디지털, 조각",
+    "auth.signupV2.step4.sizeLabel": "크기",
+    "auth.signupV2.step4.sizeHint": "예: 60x80cm — 자동으로 인식해 드려요",
+    "auth.signupV2.step4.statusLabel": "상태",
+    "auth.signupV2.step4.statusPlaceholder": "상태를 선택해 주세요",
+    "auth.signupV2.step4.statusHint": "이 작품은 어떻게 만나게 됐나요?",
+    "auth.signupV2.step4.status.created": "내 작품",
+    "auth.signupV2.step4.status.owns": "내가 소장중",
+    "auth.signupV2.step4.status.curated": "내가 큐레이션",
+    "auth.signupV2.step4.storyLabel": "이야기",
+    "auth.signupV2.step4.storyPlaceholder":
+      "작품에 대한 영감, 과정, 배경 등 남기고 싶은 이야기를 자유롭게 적어보세요.",
+    "auth.signupV2.step4.storyHint": "선택 항목입니다.",
+    "auth.signupV2.step4.submitArtist": "첫 작품 등록하기",
+    "auth.signupV2.step4.skipCta": "다음에 할게요",
+    "auth.signupV2.step4.skipLink": "건너뛰고 회원가입 마치기",
+    "auth.signupV2.step4.showAnyway": "그래도 한 점 올려볼래요",
+    "auth.signupV2.step4.uploading": "작품을 업로드하고 있어요…",
+    "auth.signupV2.step4.uploadSuccess": "완료! 피드로 이동할게요.",
+    "auth.signupV2.step4.uploadError":
+      "업로드를 마치지 못했어요. 잠시 후 다시 시도해 주세요.",
+    "auth.signupV2.step4.dedupWarning":
+      "비슷한 제목의 작품이 이미 있어요. 그대로 새로 등록하거나 기존 작품을 수정할 수도 있어요.",
+    "auth.signupV2.step4.footerHint":
+      "스튜디오 → 내 작품에서 언제든 추가·수정·삭제할 수 있어요.",
+
+    // ── 2026-08-19 — Signup v2 Phase 4 · 기존 유저 프로필 완성 배너.
+    "auth.signupV2.completionBanner.title": "프로필을 완성해 주세요",
+    "auth.signupV2.completionBanner.body":
+      "새로운 프로필 정보(이름 · 연령대 · 대표 역할)를 채우면 더 잘 맞는 콘텐츠를 볼 수 있어요.",
+    "auth.signupV2.completionBanner.cta": "프로필 완성하기",
+    "auth.signupV2.completionBanner.dismiss": "나중에",
+    "auth.signupV2.completionBanner.dismissAria": "이번 세션 동안 숨기기",
   },
 } as const;
 

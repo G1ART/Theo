@@ -2,6 +2,163 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (37) — Signup v2 Phase 2 (Step 4 작품 등록) + Phase 4 (완성 배너) + Phase 5 (HIBP · 강도 미터 · 레거시 12자 정렬)
+
+> **Supabase SQL 적용 필요: 없음** — 모든 스키마는 Phase 0 마이그레이션
+> (`full_name`, `age_band`, `tos_accepted_at`, `profile_completed_at`)
+> 과 Phase 1 확장 RPC (`upsert_my_profile`) 를 그대로 재사용한다.
+> Step 4 는 기존 `artworks` / `claims` / `search_works_for_dedup` /
+> `create_claim_for_existing_artist` 만 활용.
+>
+> **환경 변수 변경: 없음** — `NEXT_PUBLIC_SIGNUP_V2` 하나로 계속 게이팅.
+> 완성 배너는 이 플래그 뒤에 숨겨져 있어서, 플래그가 켜지지 않은 환경
+> 에서는 렌더링되지 않는다.
+
+### 배경 — 왜 이 패치가 나왔나
+Signup v2 Phase 1 (wizard shell + Steps 1-3, commit `3527df9`) 과 이어
+`/login` 리디자인 + OAuth 배선까지 랜딩한 상태에서, 스펙 §2.4 (Step 4
+와이어프레임) / §6 (Phase 2/4/5 계획) 이 명시한 나머지 세 조각을 한
+라운드에 마무리한다. Step 4 는 "가입 직후 첫 작품을 올려 스튜디오를
+채우는" 경험을, 완성 배너는 "레거시 유저를 새 프로필 필드로 유도하는"
+넛지를, 그리고 Phase 5 는 비밀번호 보안 (HIBP + zxcvbn + 12자 정렬)
+을 담당한다.
+
+### 배포 파일
+
+**신규**
+- `src/components/auth/steps/SignupStep4Artwork.tsx` — Step 4 화면.
+  로컬 세션에서 `mainRole` 을 읽어 아티스트/논-아티스트 코피를 스위칭.
+  Photo (필수) · Title (필수 · 이중언어 slot) · Medium (datalist =
+  `TAXONOMY.mediumOptions`) · Size (free-text →
+  `parseSizeToDimensionsCm` 로 구조화 · best-effort 자동 저장) ·
+  Status (`CREATED` / `OWNS` / `CURATED`, 아티스트 → CREATED 기본,
+  컬렉터 → OWNS 기본) · Story (선택, 이중언어). Non-artist 는 초기
+  진입 시 폼이 접혀 있고 primary CTA 가 "다음에 할게요" · 하단 얇은
+  링크로 "그래도 한 점 올려볼래요" 를 노출. 아티스트는 폼이 펼쳐진
+  상태로 primary CTA 가 "첫 작품 등록하기" · 하단 얇은 링크로 skip.
+  성공/스킵 모두 `api.clearDraft()` + `router.replace("/feed?tab=all&sort=latest")`.
+  업로드 중에는 `TheoLoadingMark` 로 스핀 (§8 #1). Title 이 ≥ 2 자면
+  500ms 디바운스로 본인 소유 작품에 대한 `searchWorksForDedup` 을
+  돌려 dedup 인라인 경고 (§8 #7) — hard block 이 아니라 경고만.
+- `src/lib/supabase/createArtworkForCreatedIntent.ts` — Step 4 서브밋
+  헬퍼. `/upload` 의 CREATED path 를 압축한 minimal 서브셋:
+  - `createArtwork` → `year = 새 해 default`, `pricing_mode = 'inquire'`,
+    `is_price_public = false`, `artist_id = auth.uid()`.
+  - `intent ∈ { OWNS, CURATED }` 는 image attach 이전에
+    `createClaimForExistingArtist` 로 `claims` row 를 만들어 RLS
+    (`Allow owner insert artwork_images`) 가 `claims.subject_profile_id =
+    auth.uid()` 로 통과하도록 보장. `CREATED` 는 claim 없이 artist 브랜치
+    통과.
+  - Upload 실패 / attach 실패 시 이전에 저장한 storage 경로 +
+    artwork row 를 rollback (`/my/artworks` 에 orphan draft 를 남기지
+    않기 위해).
+  - `parseSizeToDimensionsCm` 성공 시 `updateArtworkDimsIfMissing` 로
+    구조화 dims 반영 (실패해도 swallow — salon 의 "dims-confirm 넛지"
+    가 나중에 처리).
+  - 별도 `findMyDedupCandidates(userId, title)` 헬퍼로 §8 #7 dedup
+    프로브 노출.
+- `src/components/auth/PasswordStrengthMeter.tsx` — Phase 5 미터.
+  5-segment bar + 로컬 라이즈된 bucket 라벨 (`auth.password.strength.*`)
+  + zxcvbn `feedback.warning / suggestions` 을 그대로 인라인. Bar
+  색상은 zxcvbn score 0..4 → gray/red/orange/emerald/deep-emerald.
+  `password.length > 0 && password.length < minLength` 일 때만
+  "최소 {min}자 미만이에요" 힌트를 추가로 붙임 (부모 폼이 이미 shape
+  체크를 소유하므로 미터는 정보 전달만 담당).
+- `src/components/auth/ExistingUserCompletionBanner.tsx` — Phase 4 배너.
+  `NEXT_PUBLIC_SIGNUP_V2` ON + 세션 존재 + `profile_completed_at IS
+  NULL` + 세션 배너 dismiss 플래그 (`signup:v2:completionBannerDismissed`)
+  없음 + 현재 경로가 auth 서페이스 (`/signup`, `/login`, `/legal`,
+  `/auth`, `/onboarding`, `/set-password`) 가 아닐 때만 렌더. 타겟팅
+  select 로 `profile_completed_at, full_name, username, display_name,
+  avatar_url` 5 컬럼만 읽음 (`PROFILE_ME_SELECT` 를 넓힐 필요 없이 이
+  배너 전용). CTA 는 wizard sessionStorage draft 를 `step: 3` + 기존
+  `full_name` / `username` 으로 시딩한 뒤 `/signup?step=3` 으로 라우팅.
+  Dismiss 는 세션스토리지에 기록되어 다음 로그인/브라우저 재시작 시
+  다시 노출.
+
+**수정**
+- `src/components/auth/SignupWizardShell.tsx` — Step 4 라우팅 추가.
+  `stepFromParam` 이 4 를 허용, 총 스텝 수 3 → 4 로 업데이트,
+  Step 4 에서는 뒤로가기 화살표를 숨김 (해당 시점엔 계정이 이미
+  생성되어 있어 Step 3 재제출을 방지). Step 4 title/subtitle 은
+  `state.mainRole` 로 아티스트/논-아티스트 코피를 스위칭.
+- `src/components/auth/steps/SignupStep3Profile.tsx` — 성공 시
+  기존의 `routeByAuthState` → `/feed` 대신 `api.goToStep(4)` 로
+  wizard 내 다음 스텝으로 전진. `sessionStorage` draft 는 Step 4 가
+  `mainRole` 등을 다시 읽을 수 있도록 clear 하지 않고 유지.
+- `src/app/layout.tsx` — `<ExistingUserCompletionBanner />` 를
+  `<RandomIdBanner />` 바로 아래 마운트. 두 배너는 조건이 서로 배타적
+  — RandomId 는 `needs_identity_setup` (username/display_name/roles/main_role
+  missing) 을, Completion 은 `profile_completed_at IS NULL` (Signup v2
+  프로필 필드) 를 겨냥해서 실무상 겹치지 않음.
+- `src/lib/i18n/messages.ts` — EN + KO 아래 코피 추가 (개수 §i18n
+  섹션 참고).
+
+### i18n 코피 개수 (EN + KO)
+- `auth.signupV2.step4.*` — 27 키 (title/subtitle × 2 persona, 5 필드
+  라벨 + 5 힌트, 3 status option, submit/skip/skipLink/showAnyway,
+  uploading/uploadSuccess/uploadError, dedupWarning, footerHint).
+- `auth.signupV2.completionBanner.*` — 5 키 (title, body, cta,
+  dismiss, dismissAria).
+- `auth.password.strength.belowMin` — 1 신규 키 (기존 5개 라벨은
+  Phase 1 에서 이미 존재).
+- `auth.password.hibp.*` — 3 신규 키 (checking, pwned, error).
+
+### Step 4 status → claim mapping (§3.4)
+| Intent   | `artworks.ownership_status` | `claims` row?             |
+| -------- | --------------------------- | ------------------------- |
+| CREATED  | `available`                 | 없음 (RLS: `artist_id`)    |
+| OWNS     | `owned`                     | `claim_type = 'OWNS'`     |
+| CURATED  | `not_for_sale`              | `claim_type = 'CURATED'`  |
+
+CREATED 는 `artist_id = auth.uid()` 만으로 `Allow owner insert
+artwork_images` RLS 를 통과. OWNS/CURATED 는 image attach 전에
+`create_claim_for_existing_artist` RPC 로 `claims` row 를 먼저
+insert 해 같은 RLS 정책의 `claims.subject_profile_id = auth.uid()`
+브랜치를 활성화. Step 4 는 external artist search UI 를 노출하지
+않으므로 OWNS/CURATED 도 `artist_id = auth.uid()` 로 동일 셀프
+attribution — 사용자가 나중에 `/my/artworks/{id}` 에서 external
+artist 로 재지정 가능.
+
+### HIBP · 강도 미터 배선
+- Debounce: `HIBP_DEBOUNCE_MS = 800` (Phase 1 500ms 에서 상향).
+  `SignupStep2Password.tsx` 에서 `useEffect(password, isTooShort)` 로
+  스케줄, 매 keystroke 마다 `setPwned(null)` 로 이전 판정 무효화 +
+  `hibpSeqRef` 로 stale race 방지.
+- Fail-open: `passwordPolicy.checkHibpPwned` 는 fetch 실패 시
+  `{ pwned: false, count: 0 }` 반환 → submit gate 는 통과. HIBP 가
+  `pwned: true` 로 답할 때만 CTA disable + 빨간 인라인 경고
+  (`auth.password.hibp.pwned`) 표시.
+- 강도 미터: 유저 인풋 (`email`) 을 `zxcvbn` 에 추가 penalty 로
+  넘겨서 email-based derivatives 를 저평가. score 0..4 → 5 색상 bar +
+  bucket 라벨 + zxcvbn `warning / suggestions` 인라인.
+
+### 레거시 12자 정렬
+- `MIN_PASSWORD_LENGTH` 는 이번 라운드 이전에 이미 `src/lib/auth/passwordPolicy.ts`
+  로 추출되어 있었음. `src/app/onboarding/page.tsx`, `src/app/set-password/page.tsx`,
+  `src/app/auth/reset/page.tsx` 세 파일 모두 이 SSOT 를 import 해서
+  hint / error / `minLength` attribute 를 동일 값으로 사용 중. 이번
+  라운드에서 별도 코드 변경은 발생하지 않았고, 검증만 진행 (모든
+  경로가 이미 12자 aligned).
+
+### Verified
+- `npx tsc --noEmit` — 0 errors.
+- `npx eslint <touched files>` — 0 errors / 0 warnings (Phase 4 배너
+  useEffect 의 mount 초기화 setState 만 `set-state-in-effect` 룰에
+  `// eslint-disable-next-line` 로 명시 opt-out — 다른 shell 컴포넌트
+  들도 같은 관용어를 사용).
+- `npm run test:password-policy` — 13/13 pass (기존 스위트, 변화 없음).
+- 수동 워크스루 (comment-only): Wizard Step 1 → 2 → 3 (`upsert_my_profile`
+  스탬프 `profile_completed_at = now`) → Step 4 (아티스트: CREATED
+  기본 · 컬렉터: OWNS 기본 · 큐레이터/gallerist: no default · Non-artist
+  는 폼 접힘) → Skip / Submit → `/feed?tab=all&sort=latest` + draft
+  clear.
+- 배너 sanity: `NEXT_PUBLIC_SIGNUP_V2` OFF 면 즉시 return null →
+  화면에 뜨지 않음. ON + `profile_completed_at NULL` 이면 CTA 클릭
+  시 draft 시딩 + `/signup?step=3` 이동. Dismiss 클릭 시
+  `sessionStorage:signup:v2:completionBannerDismissed = "1"` 저장 →
+  같은 세션에서 재렌더 안 됨.
+
 ## 2026-08-19 (36) — Signup v2 · `/login` 리디자인 갭 메우기 + Phase 3 OAuth (Google/Apple) 배선
 
 > **Supabase SQL 적용 필요: 없음** — Phase 0 스키마 (`full_name`,

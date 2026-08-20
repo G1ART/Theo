@@ -34,7 +34,6 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { OvalSelect } from "@/components/auth/primitives/OvalSelect";
 import { PillRadio } from "@/components/auth/primitives/PillRadio";
@@ -45,7 +44,6 @@ import { ROLE_KEYS } from "@/lib/identity/roles";
 import {
   signUpWithPassword,
   signInWithPassword,
-  getMyAuthState,
 } from "@/lib/supabase/auth";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
 import {
@@ -53,7 +51,7 @@ import {
   type UsernameAvailabilityReason,
 } from "@/lib/supabase/profiles";
 import { ensureFreeEntitlement } from "@/lib/entitlements";
-import { loginUrlWithNext, routeByAuthState } from "@/lib/identity/routing";
+import { loginUrlWithNext } from "@/lib/identity/routing";
 import type { SignupStepApi } from "../SignupWizardShell";
 import type { SignupV2MainRole } from "@/lib/auth/signupWizardState";
 
@@ -91,7 +89,6 @@ function reasonToStatus(
 
 export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   const { t } = useT();
-  const router = useRouter();
 
   const [fullName, setFullName] = useState(api.state.fullName);
   const [ageBand, setAgeBand] = useState(api.state.ageBand);
@@ -308,22 +305,12 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
       return;
     }
 
-    // Wizard done — clear the sessionStorage draft (§11.6).
-    api.clearDraft();
-
-    // Route via the shared gate. If the extended RPC and the shared
-    // `needs_identity_setup` fields are aligned, this lands the user
-    // on `/feed`. Otherwise (legacy identity RPC) they'll be routed
-    // to `/onboarding/identity` for the roles[] finalization — either
-    // way, the account exists.
-    const state = await getMyAuthState();
-    const { to } = routeByAuthState(state, {
-      nextPath: api.nextPath,
-      sessionPresent: true,
-    });
-    // Give the router a chance before we release the submitting state.
+    // Advance the wizard to Step 4 (optional artwork quick-start).
+    // We intentionally do NOT clear the sessionStorage draft yet — Step
+    // 4 still reads `mainRole` to choose its default intent. The draft
+    // is cleared when Step 4 finishes (submit OR skip).
     setSubmitting(false);
-    router.replace(to);
+    api.goToStep(4);
   }
 
   if (duplicateEmail) {

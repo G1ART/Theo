@@ -18,8 +18,10 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getSession } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
-
-const MIN_PASSWORD_LENGTH = 8;
+// Signup v2 Phase 5 (2026-08-19): shared 12-char floor via
+// `passwordPolicy.ts`. Reset flow reads the SSOT so a future bump
+// won't leave this page behind.
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/passwordPolicy";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -57,7 +59,12 @@ export default function ResetPasswordPage() {
     setError(null);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(t("resetPassword.errorMin"));
+      setError(
+        t("resetPassword.errorMin").replace(
+          "{min}",
+          String(MIN_PASSWORD_LENGTH),
+        ),
+      );
       return;
     }
     if (password !== confirm) {
@@ -165,7 +172,10 @@ export default function ResetPasswordPage() {
             autoComplete="new-password"
           />
           <p className="mt-1 text-xs text-zinc-500">
-            {t("onboarding.passwordHint")}
+            {t("onboarding.passwordHint").replace(
+              "{min}",
+              String(MIN_PASSWORD_LENGTH),
+            )}
           </p>
         </div>
 

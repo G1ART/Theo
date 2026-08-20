@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
+import { ExistingUserCompletionBanner } from "@/components/auth/ExistingUserCompletionBanner";
 import { Header } from "@/components/Header";
 import { HtmlLangSync } from "@/components/HtmlLangSync";
 import { MigrationGuard } from "@/components/MigrationGuard";
@@ -95,6 +96,7 @@ export default async function RootLayout({
             <TourProvider>
               <Header />
               <RandomIdBanner />
+              <ExistingUserCompletionBanner />
               {children}
             </TourProvider>
           </ActingAsProvider>

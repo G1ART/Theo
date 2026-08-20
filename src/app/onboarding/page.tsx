@@ -25,8 +25,10 @@ import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { useT } from "@/lib/i18n/useT";
 import { routeByAuthState, safeNextPath, loginUrlWithNext } from "@/lib/identity/routing";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
-
-const MIN_PASSWORD_LENGTH = 8;
+// Signup v2 Phase 5 (2026-08-19): legacy pages now share the same
+// 12-char floor as the new /signup wizard. SSOT lives in
+// `src/lib/auth/passwordPolicy.ts` so future bumps only touch one file.
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/passwordPolicy";
 
 type Mode = "check" | "signup";
 
@@ -84,7 +86,12 @@ function OnboardingInner() {
     setError(null);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(t("onboarding.errorPasswordMin"));
+      setError(
+        t("onboarding.errorPasswordMin").replace(
+          "{min}",
+          String(MIN_PASSWORD_LENGTH),
+        ),
+      );
       return;
     }
     if (password !== passwordConfirm) {
@@ -247,7 +254,10 @@ function OnboardingInner() {
               aria-describedby="signup-password-hint"
             />
             <p id="signup-password-hint" className="mt-1 text-xs text-zinc-500">
-              {t("onboarding.passwordHint")}
+              {t("onboarding.passwordHint").replace(
+                "{min}",
+                String(MIN_PASSWORD_LENGTH),
+              )}
             </p>
           </div>
           <div>

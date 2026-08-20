@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
-
-const MIN_PASSWORD_LENGTH = 8;
+// Signup v2 Phase 5 (2026-08-19): shared 12-char floor via
+// `passwordPolicy.ts`. See docs/SIGNUP_REDESIGN_SPEC.md §5 #8.
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/passwordPolicy";
 
 export default function SetPasswordPage() {
   const router = useRouter();
@@ -21,7 +22,12 @@ export default function SetPasswordPage() {
     setError(null);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(t("setPassword.errorMinLength"));
+      setError(
+        t("setPassword.errorMinLength").replace(
+          "{min}",
+          String(MIN_PASSWORD_LENGTH),
+        ),
+      );
       return;
     }
     if (password !== confirm) {

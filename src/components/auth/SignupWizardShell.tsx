@@ -37,6 +37,7 @@ import { safeNextPath } from "@/lib/identity/routing";
 import { SignupStep1Email } from "./steps/SignupStep1Email";
 import { SignupStep2Password } from "./steps/SignupStep2Password";
 import { SignupStep3Profile } from "./steps/SignupStep3Profile";
+import { SignupStep4Artwork } from "./steps/SignupStep4Artwork";
 
 /** Wizard-level state exposed to each step. Passwords live only in
  *  memory — they're re-entered if the tab is closed at Step 2. */
@@ -66,7 +67,7 @@ const INITIAL_STATE: SignupWizardState = {
 
 function stepFromParam(raw: string | null): SignupV2WizardStep {
   const n = raw ? Number.parseInt(raw, 10) : 1;
-  if (n === 2 || n === 3) return n;
+  if (n === 2 || n === 3 || n === 4) return n;
   return 1;
 }
 
@@ -188,9 +189,16 @@ export function SignupWizardShell() {
     [state, updateState, persistDraft, goToStep, clearDraft, nextPath],
   );
 
-  const handleBack = state.step > 1 ? () => goToStep((state.step - 1) as SignupV2WizardStep) : undefined;
+  // Step 4 lands the user on the shared "quick-start artwork" surface,
+  // but by that point their account already exists — the back arrow
+  // would return them to a Step 3 that's already been persisted. Hide
+  // it so users can't accidentally re-submit `upsert_my_profile`.
+  const handleBack =
+    state.step > 1 && state.step < 4
+      ? () => goToStep((state.step - 1) as SignupV2WizardStep)
+      : undefined;
 
-  const totalSteps = 3;
+  const totalSteps = 4;
   const eyebrow = t("auth.signupV2.stepEyebrow")
     .replace("{step}", String(state.step))
     .replace("{total}", String(totalSteps));
@@ -207,17 +215,29 @@ export function SignupWizardShell() {
     </span>
   );
 
+  // Step 4 copy is role-aware (§5 #7). The wizard shell picks the
+  // right title/subtitle based on `state.mainRole` so the copy lands
+  // before the form even mounts.
+  const step4TitleKey =
+    state.mainRole === "artist"
+      ? "auth.signupV2.step4.artistTitle"
+      : "auth.signupV2.step4.nonArtistTitle";
+  const step4SubtitleKey =
+    state.mainRole === "artist"
+      ? "auth.signupV2.step4.artistSubtitle"
+      : "auth.signupV2.step4.nonArtistSubtitle";
+
   const titles: Record<SignupV2WizardStep, string> = {
     1: t("auth.signupV2.step1.title"),
     2: t("auth.signupV2.step2.title"),
     3: t("auth.signupV2.step3.title"),
-    4: t("auth.signupV2.step3.title"),
+    4: t(step4TitleKey),
   };
   const subtitles: Record<SignupV2WizardStep, string> = {
     1: t("auth.signupV2.step1.subtitle"),
     2: t("auth.signupV2.step2.subtitle"),
     3: t("auth.signupV2.step3.subtitle"),
-    4: t("auth.signupV2.step3.subtitle"),
+    4: t(step4SubtitleKey),
   };
 
   let body: ReactNode = null;
@@ -225,8 +245,10 @@ export function SignupWizardShell() {
     body = <SignupStep1Email api={api} />;
   } else if (state.step === 2) {
     body = <SignupStep2Password api={api} />;
-  } else {
+  } else if (state.step === 3) {
     body = <SignupStep3Profile api={api} />;
+  } else {
+    body = <SignupStep4Artwork api={api} />;
   }
 
   return (
