@@ -122,8 +122,8 @@ export function AuthShell(props: AuthShellProps) {
       : "mt-3 text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl";
   const subtitleClass =
     titleTone === "quiet"
-      ? "mt-3 text-[13px] leading-relaxed text-zinc-500"
-      : "mt-4 text-base leading-relaxed text-zinc-600";
+      ? "mt-3 whitespace-pre-line text-[13px] leading-relaxed text-zinc-500"
+      : "mt-3 whitespace-pre-line text-sm leading-relaxed text-zinc-600";
 
   const mark = logo ?? (
     <TheoLogo

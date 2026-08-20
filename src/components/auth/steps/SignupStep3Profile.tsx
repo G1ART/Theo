@@ -13,7 +13,7 @@
  *                        / prefer_not_to_say; free-form text column)
  *   - age band          (OvalSelect, optional — reuses TAXONOMY.ageBandOptions;
  *                        wireframe switched this from PillRadio → select)
- *   - main_role         ("Primary Role" · OvalSelect, ROLE_KEYS; skip allowed)
+ *   - main_role         ("Primary Role*" · OvalSelect, ROLE_KEYS; required)
  *   - secondary_role    ("Secondary Role" · OvalSelect, optional; must
  *                        differ from primary — dropped silently otherwise)
  *   - is_public         (WideRadio, Public / Private, defaults to Public)
@@ -45,7 +45,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { OvalSelect } from "@/components/auth/primitives/OvalSelect";
 import { PillRadio } from "@/components/auth/primitives/PillRadio";
@@ -63,7 +62,6 @@ import {
   type UsernameAvailabilityReason,
 } from "@/lib/supabase/profiles";
 import { ensureFreeEntitlement } from "@/lib/entitlements";
-import { loginUrlWithNext } from "@/lib/identity/routing";
 import {
   ProfileMediaValidationError,
   removeProfileMedia,
@@ -140,8 +138,8 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     kind: "idle",
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [duplicateEmail, setDuplicateEmail] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const usernameSeqRef = useRef(0);
 
   // If Step 1 / Step 2 was skipped by an inbound link, bounce back to
@@ -221,10 +219,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   ]);
 
   const roleOptions = useMemo(
-    () => [
-      { value: "", label: t("auth.signupV2.step3.roleSkip") },
-      ...ROLE_KEYS.map((r) => ({ value: r, label: t(`role.${r}`) })),
-    ],
+    () => ROLE_KEYS.map((r) => ({ value: r, label: t(`role.${r}`) })),
     [t],
   );
 
@@ -275,6 +270,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   const canSubmit = useMemo(() => {
     if (submitting) return false;
     if (!api.state.fullName.trim()) return false;
+    if (!mainRole) return false;
     if (!USERNAME_REGEX.test(normalizedUsername)) return false;
     if (usernameStatus.kind === "taken") return false;
     if (usernameStatus.kind === "reserved") return false;
@@ -283,6 +279,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   }, [
     submitting,
     api.state.fullName,
+    mainRole,
     normalizedUsername,
     usernameStatus.kind,
   ]);
@@ -295,7 +292,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitError(null);
-    setDuplicateEmail(null);
+    setAttempted(true);
     if (!canSubmit) return;
     if (!api.state.email || !api.state.password || !api.state.fullName.trim()) {
       // Should not happen — a defensive guard.
@@ -352,7 +349,8 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         return;
       }
       setSubmitting(false);
-      setDuplicateEmail(api.state.email);
+      api.updateState({ duplicateEmail: api.state.email });
+      api.goToStep(1);
       return;
     }
 
@@ -449,55 +447,22 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     api.goToStep(4);
   }
 
-  if (duplicateEmail) {
-    return (
-      <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-6 text-sm text-zinc-900">
-        <p className="font-semibold">{t("auth.signupV2.step3.duplicateTitle")}</p>
-        <p className="mt-2 text-zinc-700">
-          {t("auth.signupV2.step3.duplicateBody").replace("{email}", duplicateEmail)}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href={loginUrlWithNext({ nextPath: api.nextPath ?? undefined })}
-            className="inline-flex items-center rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800"
-          >
-            {t("auth.signupV2.step3.duplicateLoginCta")}
-          </Link>
-          <Link
-            href={`/auth/forgot?email=${encodeURIComponent(duplicateEmail)}`}
-            className="inline-flex items-center rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-500 hover:bg-white"
-          >
-            {t("auth.signupV2.step3.duplicateResetCta")}
-          </Link>
-          <button
-            type="button"
-            onClick={() => {
-              setDuplicateEmail(null);
-              api.goToStep(1);
-            }}
-            className="inline-flex items-center rounded-full px-4 py-2 text-xs font-medium text-zinc-600 hover:text-zinc-900"
-          >
-            {t("auth.signupV2.step3.duplicateChangeEmail")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const usernameError =
     usernameStatus.kind === "taken"
       ? t("auth.signupV2.step3.usernameTaken")
       : usernameStatus.kind === "reserved"
       ? t("auth.signupV2.step3.usernameReserved")
+      : attempted &&
+          (usernameStatus.kind === "invalid" || !normalizedUsername)
+        ? t("auth.signupV2.step3.usernameHint")
+        : undefined;
+  const roleError =
+    attempted && !mainRole
+      ? t("auth.signupV2.step3.primaryRoleRequired")
       : undefined;
-  const usernameHint = t("auth.signupV2.step3.usernameHint");
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <p className="-mt-2 mb-4 whitespace-pre-line text-sm text-zinc-500">
-        {t("auth.signupV2.step3.subtitle")}
-      </p>
-
       <AvatarPickerRow
         file={avatarFile}
         previewUrl={avatarPreview}
@@ -522,7 +487,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
           }}
           options={genderOptions}
           placeholder={t("auth.signupV2.step3.gender.placeholder")}
-          hint={t("auth.signupV2.step3.gender.hint")}
         />
 
         <OvalSelect
@@ -536,7 +500,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
           }}
           options={ageOptions}
           placeholder={t("auth.signupV2.step3.ageBandPlaceholder")}
-          hint={t("auth.signupV2.step3.ageBandHint")}
         />
       </div>
 
@@ -549,7 +512,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
           onChange={(v) => {
             const next = (v as SignupV2MainRole | "") || "";
             setMainRole(next);
-            // If secondary equals the new primary, silently drop it.
             if (next && secondaryRole === next) {
               setSecondaryRole("");
               api.updateState({ mainRole: next, secondaryRole: "" });
@@ -566,7 +528,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
           }}
           options={roleOptions}
           placeholder={t("auth.signupV2.step3.mainRolePlaceholder")}
-          hint={t("auth.signupV2.step3.mainRoleHint")}
+          error={roleError}
         />
 
         <OvalSelect
@@ -584,7 +546,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
           }}
           options={secondaryRoleOptions}
           placeholder={t("auth.signupV2.step3.secondaryRolePlaceholder")}
-          hint={t("auth.signupV2.step3.secondaryRoleHint")}
         />
       </div>
 
@@ -592,7 +553,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         variant="wide"
         labelStyle="outer"
         label={t("auth.signupV2.step3.visibility.label")}
-        required
         value={isPublic ? "public" : "private"}
         onChange={(v) => {
           const next = v === "public";
@@ -601,7 +561,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
           api.persistDraft({ isPublic: next });
         }}
         options={visibilityOptions}
-        hint={t("auth.signupV2.step3.visibility.hint")}
       />
 
       <OvalInput
@@ -616,29 +575,20 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         autoCorrect="off"
         spellCheck={false}
         leadingAdornment="@"
-        hint={usernameHint}
+        hint={usernameError ? undefined : t("auth.signupV2.step3.usernameHint")}
         error={usernameError}
         loading={usernameStatus.kind === "checking"}
       />
 
       {submitError && (
-        <p role="alert" className="rounded-3xl border border-red-100 bg-red-50 px-5 py-3 text-xs text-red-700">
+        <p role="alert" className="text-center text-xs text-red-600">
           {submitError}
         </p>
       )}
 
-      <PillButton
-        type="submit"
-        variant="primary"
-        fullWidth
-        loading={submitting}
-        disabled={!canSubmit}
-      >
+      <PillButton type="submit" variant="primary" fullWidth loading={submitting}>
         {t("auth.signupV2.step3.createCta")}
       </PillButton>
-      <p className="text-center text-[11px] text-zinc-400">
-        {t("auth.signupV2.step3.nextHint")}
-      </p>
     </form>
   );
 }
@@ -647,11 +597,10 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
 // Avatar picker
 // ─────────────────────────────────────────────────────────────────────
 
-/** Signup v2 Step 3 avatar chooser (2026-08-20 wireframe). Renders the
- *  outer label above a row containing an "Upload photo" pill (opens the
- *  file picker) and, when a file is selected, a 40px circular thumbnail
- *  + an `×` remove button. Mimics the wireframe's compact one-row
- *  layout rather than the drop-zone tile used by Studio → Profile. */
+/** Signup v2 Step 3 avatar chooser. Outer label above a compact row:
+ *  "Upload" pill with a download-arrow icon, then a gray circle that
+ *  holds the thumbnail (or stays empty). An `×` overlays the circle
+ *  once a file is chosen — matching the wireframe's one-row layout. */
 function AvatarPickerRow({
   file,
   previewUrl,
@@ -679,27 +628,47 @@ function AvatarPickerRow({
           onClick={() => inputRef.current?.click()}
           className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-700 transition-colors hover:border-zinc-500 hover:text-zinc-900"
         >
-          <span aria-hidden className="text-base leading-none">＋</span>
           <span>{uploadCta}</span>
+          <svg
+            aria-hidden
+            viewBox="0 0 16 16"
+            className="h-3.5 w-3.5 text-zinc-500"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M8 2.5v8" />
+            <path d="M5 8.5 8 11.5 11 8.5" />
+            <path d="M3 13.5h10" />
+          </svg>
         </button>
-        {file && previewUrl && (
-          <div className="flex items-center gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+        <div className="relative h-10 w-10 shrink-0">
+          {file && previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={previewUrl}
               alt=""
               className="h-10 w-10 rounded-full object-cover ring-1 ring-zinc-200"
             />
+          ) : (
+            <span
+              aria-hidden
+              className="block h-10 w-10 rounded-full bg-zinc-200"
+            />
+          )}
+          {file ? (
             <button
               type="button"
               onClick={() => onChange(null)}
               aria-label={removeAria}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-300 text-sm text-zinc-500 transition-colors hover:border-zinc-500 hover:text-zinc-900"
+              className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-zinc-300 bg-white text-[11px] leading-none text-zinc-500 hover:border-zinc-500 hover:text-zinc-900"
             >
               ×
             </button>
-          </div>
-        )}
+          ) : null}
+        </div>
         <input
           ref={inputRef}
           type="file"

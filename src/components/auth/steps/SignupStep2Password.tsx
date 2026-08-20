@@ -128,9 +128,6 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
   const confirmError = passwordsMismatch
     ? t("auth.signupV2.step2.passwordMismatch")
     : undefined;
-  const confirmHint = confirmTouched
-    ? undefined
-    : t("auth.signupV2.step2.confirmPasswordHint");
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -155,10 +152,6 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <p className="-mt-2 mb-4 text-sm text-zinc-500">
-        {t("auth.signupV2.step2.subtitle")}
-      </p>
-
       <OvalInput
         labelStyle="outer"
         label={t("auth.signupV2.step2.fullNameLabel")}
@@ -175,7 +168,6 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
         autoComplete="name"
         autoFocus
         required
-        hint={t("auth.signupV2.step2.fullNameHint")}
       />
 
       <div>
@@ -240,16 +232,10 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
         onBlur={() => setConfirmTouched(true)}
         autoComplete="new-password"
         required
-        hint={confirmHint}
         error={confirmError}
       />
 
-      <PillButton
-        type="submit"
-        variant="primary"
-        fullWidth
-        disabled={!canContinue}
-      >
+      <PillButton type="submit" variant="primary" fullWidth>
         {t("auth.signupV2.step2.continueCta")}
       </PillButton>
 

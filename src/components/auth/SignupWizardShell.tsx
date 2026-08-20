@@ -22,7 +22,6 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import {
   clearSignupDraft,
   loadSignupDraft,
@@ -62,6 +61,11 @@ export type SignupWizardState = {
    *  Storage during Step 3 submit (after `signUpWithPassword`
    *  establishes a session), then flushed. Never persisted. */
   avatarFile: File | null;
+  /** Set when Step 3's sign-up hits a known email (anti-enumeration
+   *  empty-identities signal). The wizard snaps back to Step 1 so
+   *  the red one-liner can sit under "Already have an account?"
+   *  exactly as the wireframe draws it. Memory-only. */
+  duplicateEmail: string | null;
 };
 
 const INITIAL_STATE: SignupWizardState = {
@@ -77,6 +81,7 @@ const INITIAL_STATE: SignupWizardState = {
   gender: "",
   isPublic: true,
   avatarFile: null,
+  duplicateEmail: null,
 };
 
 function stepFromParam(raw: string | null): SignupV2WizardStep {
@@ -217,29 +222,9 @@ export function SignupWizardShell() {
       ? () => goToStep((state.step - 1) as SignupV2WizardStep)
       : undefined;
 
-  const alternate: ReactNode = (
-    <span>
-      {t("auth.signupV2.haveAccount")}{" "}
-      <Link
-        href={nextPath ? `/login?next=${encodeURIComponent(nextPath)}` : "/login"}
-        className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-      >
-        {t("auth.signupV2.logInCta")}
-      </Link>
-    </span>
-  );
-
-  // Wireframe polish (2026-08-19): the huge H1 is the *step label*
-  // ("Step N"), the AuthShell subtitle is the short action label
-  // ("Enter your email"). Descriptive body copy lives inside each step
-  // as a small `<p>` above the form. Step 4 sub-label stays
-  // role-aware and reuses Worker B's existing `.artistTitle` /
-  // `.nonArtistTitle` copy verbatim so we don't duplicate strings.
-  const step4SubLabelKey =
-    state.mainRole === "artist"
-      ? "auth.signupV2.step4.artistTitle"
-      : "auth.signupV2.step4.nonArtistTitle";
-
+  // "Already have an account? Log in" lives inside Step 1 (directly
+  // under Sign up, then the optional red duplicate line) so the
+  // spacing matches the wireframe. Later steps have no alternate.
   const titles: Record<SignupV2WizardStep, string> = {
     1: t("auth.signupV2.stepLabel.step1"),
     2: t("auth.signupV2.stepLabel.step2"),
@@ -250,7 +235,7 @@ export function SignupWizardShell() {
     1: t("auth.signupV2.step1.subLabel"),
     2: t("auth.signupV2.step2.subLabel"),
     3: t("auth.signupV2.step3.subLabel"),
-    4: t(step4SubLabelKey),
+    4: t("auth.signupV2.step4.subLabel"),
   };
 
   let body: ReactNode = null;
@@ -277,7 +262,6 @@ export function SignupWizardShell() {
       showLocale
       title={titles[state.step]}
       subtitle={subtitles[state.step]}
-      alternate={alternate}
       contentWidth={contentWidth}
     >
       {body}

@@ -2,6 +2,48 @@
 
 Last updated: 2026-08-20
 
+## 2026-08-20 (45) — /signup Steps 1–4 와이어프레임 픽셀 피델리티
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+### 배경
+
+`/login` 구도를 와이어프레임에 맞춘 뒤, 가입 1–4단계도 같은 시각 언어를
+이어가되 이미 확정한 제품 결정은 유지한다.
+
+### 유지한 제품 결정
+
+- 이름은 단일 `full_name` (First/Last/Display 분리 없음)
+- Gender 선택 사항 유지
+- Step 4는 모든 페르소나 (아티스트 전용 아님, 접힌 Skip 리드 제거)
+- Step 1에 OAuth 없음 (Google은 `/login` Quick Start만)
+- Username은 와이어프레임에 없어도 계정에 필요 → Visibility 아래 유지
+- 비밀번호 12자 · 강도 미터 · HIBP · 확인 필드 유지 (더 조용히)
+- ToS/privacy는 Step 2 Next 아래 한 줄
+
+### 변경
+
+- **Step 1** — CTA "Sign up", OAuth 제거, 버튼 아래 "Already have an
+  account? Log in", 중복 이메일은 빨간 한 줄 (Step 3 탐지 후 Step 1로
+  스냅백). 빈 필드여도 검정 필.
+- **Step 2** — 셸 서브타이틀만 사용, "Enter your password" /
+  "Confirm your password", Next 검정 필.
+- **Step 3** — 업로드 필 + 회색 원 + ×, 힌트 제거, Primary Role 필수
+  (Skip for now 제거), Visibility는 흰 오벌 + 우측 라디오 닷 (선택 시
+  파란 점, 검정 필 아님), CTA "Next".
+- **Step 4** — `UnderlineField` 카탈로그 시트, 업로더 안에
+  "+ Upload your artwork", 전원에게 폼 노출, 검정 필은 "Skip".
+  폼이 채워지면 조용한 "Post this work" 텍스트 액션.
+- AuthShell subtitle `whitespace-pre-line` (Step 3/4 두 줄 카피).
+
+### 검증
+
+- `npx tsc --noEmit` 및 해당 auth 파일 eslint.
+
+---
+
 ## 2026-08-20 (44) — /login 와이어프레임 픽셀 피델리티 (히어로 로고 + 플로팅 레이블)
 
 > **Supabase SQL 적용 필요: 없음.**

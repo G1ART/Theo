@@ -126,12 +126,12 @@ export function PillRadio(props: PillRadioProps) {
             return (
               <label
                 key={opt.value}
-                className={`flex select-none cursor-pointer items-center justify-center gap-2 rounded-full border px-4 py-3 text-sm transition-colors ${
+                className={`flex cursor-pointer select-none items-center justify-between gap-3 rounded-full border bg-white px-5 py-3 text-sm transition-colors ${
                   opt.disabled
-                    ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-400"
+                    ? "cursor-not-allowed border-zinc-200 text-zinc-400"
                     : selected
-                    ? "border-zinc-900 bg-zinc-900 text-white"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500"
+                    ? "border-zinc-400 text-zinc-800"
+                    : "border-zinc-300 text-zinc-700 hover:border-zinc-500"
                 }`}
               >
                 <input
@@ -143,19 +143,17 @@ export function PillRadio(props: PillRadioProps) {
                   onChange={() => onChange(opt.value)}
                   className="sr-only"
                 />
+                <span>{opt.label}</span>
                 <span
                   aria-hidden
-                  className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
-                    selected
-                      ? "border-white"
-                      : "border-zinc-400"
+                  className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
+                    selected ? "border-zinc-500" : "border-zinc-400"
                   }`}
                 >
                   {selected && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                    <span className="h-2 w-2 rounded-full bg-blue-500" />
                   )}
                 </span>
-                <span>{opt.label}</span>
               </label>
             );
           }

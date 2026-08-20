@@ -4301,29 +4301,32 @@ export const messages = {
     "auth.signupV2.stepLabel.step4": "Step 4",
     "auth.signupV2.step1.subLabel": "Enter your email",
     "auth.signupV2.step2.subLabel": "Set your name and password",
-    "auth.signupV2.step3.subLabel": "Tell us about you",
+    "auth.signupV2.step3.subLabel":
+      "Tell us more about you\nYou can change it later in your Profile.",
     "auth.signupV2.step1.subtitle":
       "We'll use this to sign you in and send occasional updates.",
     "auth.signupV2.step1.emailLabel": "Email",
     "auth.signupV2.step1.emailHint":
       "Use an email you check regularly — you'll confirm it in a moment.",
     "auth.signupV2.step1.emailInvalid": "That doesn't look like a valid email.",
-    "auth.signupV2.step1.continueCta": "Continue",
+    "auth.signupV2.step1.continueCta": "Sign up",
     "auth.signupV2.step1.orDivider": "or",
     "auth.signupV2.step1.continueWithGoogle": "Continue with Google",
     "auth.signupV2.step1.continueWithApple": "Continue with Apple",
     "auth.signupV2.step1.oauthComingSoon": "Coming soon",
+    "auth.signupV2.step1.duplicateInline":
+      "*We found an account with this email. Please log in.",
     "auth.signupV2.step2.subtitle":
       "Set your name and password",
     "auth.signupV2.step2.fullNameLabel": "Name",
     "auth.signupV2.step2.fullNameHint":
       "This is how your name will appear on your Theo profile.",
-    "auth.signupV2.step2.passwordLabel": "Password",
+    "auth.signupV2.step2.passwordLabel": "Enter your password",
     "auth.signupV2.step2.passwordHint": "Must be at least {min} characters.",
     "auth.signupV2.step2.errorTooShort": "Password must be at least {min} characters.",
     "auth.signupV2.step2.errorPwned":
       "This password appears in known data breaches. Please choose another.",
-    "auth.signupV2.step2.confirmPasswordLabel": "Confirm password",
+    "auth.signupV2.step2.confirmPasswordLabel": "Confirm your password",
     "auth.signupV2.step2.confirmPasswordHint":
       "Re-enter the password to make sure it matches.",
     "auth.signupV2.step2.passwordMismatch": "Passwords don't match.",
@@ -4337,7 +4340,7 @@ export const messages = {
     "auth.signupV2.step3.subtitle":
       "Tell us more about you\nYou can change it later in your Profile",
     "auth.signupV2.step3.photoLabel": "Setup profile photo",
-    "auth.signupV2.step3.photoUpload": "Upload photo",
+    "auth.signupV2.step3.photoUpload": "Upload",
     "auth.signupV2.step3.photoRemove": "Remove photo",
     "auth.signupV2.step3.gender.label": "Gender",
     "auth.signupV2.step3.gender.placeholder": "Choose (optional)",
@@ -4359,6 +4362,7 @@ export const messages = {
     "auth.signupV2.step3.secondaryRoleHint":
       "Optional. Add another role that describes you.",
     "auth.signupV2.step3.roleSkip": "Skip for now",
+    "auth.signupV2.step3.primaryRoleRequired": "Please choose a primary role.",
     "auth.signupV2.step3.visibility.label":
       "Visibility – who can see your profile?",
     "auth.signupV2.step3.visibility.public": "Public",
@@ -4371,7 +4375,7 @@ export const messages = {
     "auth.signupV2.step3.usernameTaken": "This username is already taken.",
     "auth.signupV2.step3.usernameReserved":
       "That username is reserved. Please choose another.",
-    "auth.signupV2.step3.createCta": "Create account",
+    "auth.signupV2.step3.createCta": "Next",
     "auth.signupV2.step3.nextHint": "You'll land on your feed after this.",
     "auth.signupV2.step3.checkEmail":
       "Check your email to confirm the account, then continue where you left off.",
@@ -4438,6 +4442,8 @@ export const messages = {
       "Couldn't verify against the breach list — you can still continue.",
 
     // ── 2026-08-19 — Signup v2 Phase 2 · Step 4 (artwork quick-start).
+    "auth.signupV2.step4.subLabel":
+      "Quick start to your account\nYou can change it later anytime on your profile",
     "auth.signupV2.step4.artistTitle": "Add your first work",
     "auth.signupV2.step4.artistSubtitle":
       "Post one piece to start building your Theo studio. You can add more later.",
@@ -4447,7 +4453,7 @@ export const messages = {
     "auth.signupV2.step4.nonArtistSubtitle":
       "You can add work anytime from Studio → New artwork.",
     "auth.signupV2.step4.photoLabel": "Upload your artwork",
-    "auth.signupV2.step4.photoHint": "Tap to choose an image",
+    "auth.signupV2.step4.photoHint": "Upload your artwork",
     "auth.signupV2.step4.photoRemove": "Remove photo",
     "auth.signupV2.step4.titleLabel": "Title",
     "auth.signupV2.step4.titleHint": "Required.",
@@ -4468,9 +4474,10 @@ export const messages = {
       "Anything you'd like to share about this piece — inspiration, process, or context.",
     "auth.signupV2.step4.descriptionHint": "Optional.",
     "auth.signupV2.step4.submitArtist": "Post my first work",
-    "auth.signupV2.step4.skipCta": "Skip for now",
+    "auth.signupV2.step4.skipCta": "Skip",
     "auth.signupV2.step4.skipLink": "Skip and finish signup",
     "auth.signupV2.step4.showAnyway": "I'd still like to post something",
+    "auth.signupV2.step4.postCta": "Post this work",
     "auth.signupV2.step4.uploading": "Uploading your work…",
     "auth.signupV2.step4.uploadSuccess": "Done! Taking you to your feed.",
     "auth.signupV2.step4.uploadError":
@@ -8707,23 +8714,26 @@ export const messages = {
     "auth.signupV2.stepLabel.step4": "Step 4",
     "auth.signupV2.step1.subLabel": "이메일을 입력해 주세요",
     "auth.signupV2.step2.subLabel": "이름과 비밀번호를 설정해 주세요",
-    "auth.signupV2.step3.subLabel": "당신에 대해 조금 더 알려주세요",
+    "auth.signupV2.step3.subLabel":
+      "당신에 대해 조금 더 알려주세요\n프로필에서 나중에 언제든 변경할 수 있어요",
     "auth.signupV2.step1.subtitle":
       "가입과 알림에 사용할 이메일이에요. 자주 사용하는 주소로 넣어 주세요.",
     "auth.signupV2.step1.emailLabel": "이메일",
     "auth.signupV2.step1.emailHint": "곧 확인 이메일을 보내 드릴게요.",
     "auth.signupV2.step1.emailInvalid": "이메일 형식이 올바르지 않아요.",
-    "auth.signupV2.step1.continueCta": "계속",
+    "auth.signupV2.step1.continueCta": "가입하기",
     "auth.signupV2.step1.orDivider": "또는",
     "auth.signupV2.step1.continueWithGoogle": "Google로 계속하기",
     "auth.signupV2.step1.continueWithApple": "Apple로 계속하기",
     "auth.signupV2.step1.oauthComingSoon": "곧 지원 예정이에요",
+    "auth.signupV2.step1.duplicateInline":
+      "*이 이메일로 가입된 계정을 찾았어요. 로그인해 주세요.",
     "auth.signupV2.step2.subtitle":
       "이름과 비밀번호를 설정해 주세요",
     "auth.signupV2.step2.fullNameLabel": "이름",
     "auth.signupV2.step2.fullNameHint":
       "Theo 프로필에 이 이름이 표시돼요. 본명 또는 활동명 모두 좋아요.",
-    "auth.signupV2.step2.passwordLabel": "비밀번호",
+    "auth.signupV2.step2.passwordLabel": "비밀번호 입력",
     "auth.signupV2.step2.passwordHint": "최소 {min}자 이상 사용해 주세요.",
     "auth.signupV2.step2.errorTooShort": "비밀번호는 최소 {min}자 이상이어야 해요.",
     "auth.signupV2.step2.errorPwned":
@@ -8742,7 +8752,7 @@ export const messages = {
     "auth.signupV2.step3.subtitle":
       "당신에 대해 조금 더 알려주세요\n프로필에서 나중에 언제든 변경할 수 있어요",
     "auth.signupV2.step3.photoLabel": "프로필 사진 설정",
-    "auth.signupV2.step3.photoUpload": "사진 업로드",
+    "auth.signupV2.step3.photoUpload": "업로드",
     "auth.signupV2.step3.photoRemove": "사진 제거",
     "auth.signupV2.step3.gender.label": "성별",
     "auth.signupV2.step3.gender.placeholder": "선택 (선택 사항)",
@@ -8764,6 +8774,7 @@ export const messages = {
     "auth.signupV2.step3.secondaryRoleHint":
       "선택 사항 · 당신을 설명하는 또 다른 역할을 골라 보세요.",
     "auth.signupV2.step3.roleSkip": "나중에 정할게요",
+    "auth.signupV2.step3.primaryRoleRequired": "주 역할을 선택해 주세요.",
     "auth.signupV2.step3.visibility.label":
       "공개 범위 · 누가 프로필을 볼 수 있나요?",
     "auth.signupV2.step3.visibility.public": "공개",
@@ -8776,7 +8787,7 @@ export const messages = {
     "auth.signupV2.step3.usernameTaken": "해당 유저네임은 이미 사용 중입니다.",
     "auth.signupV2.step3.usernameReserved":
       "예약된 사용자명이에요. 다른 이름을 선택해 주세요.",
-    "auth.signupV2.step3.createCta": "계정 만들기",
+    "auth.signupV2.step3.createCta": "다음",
     "auth.signupV2.step3.nextHint": "이 단계가 끝나면 피드로 이동해요.",
     "auth.signupV2.step3.checkEmail":
       "이메일에서 계정 확인 후 이어서 진행해 주세요.",
@@ -8842,6 +8853,8 @@ export const messages = {
       "유출 목록을 확인하지 못했지만, 계속 진행할 수 있어요.",
 
     // ── 2026-08-19 — Signup v2 Phase 2 · Step 4 (작품 빠른 등록).
+    "auth.signupV2.step4.subLabel":
+      "계정 퀵 스타트\n프로필에서 나중에 언제든 변경할 수 있어요",
     "auth.signupV2.step4.artistTitle": "첫 작품을 올려볼까요?",
     "auth.signupV2.step4.artistSubtitle":
       "한 점만 등록해도 Theo 스튜디오가 시작돼요. 나중에 언제든 추가할 수 있어요.",
@@ -8851,7 +8864,7 @@ export const messages = {
     "auth.signupV2.step4.nonArtistSubtitle":
       "스튜디오 → 새 작품에서 언제든 추가할 수 있어요.",
     "auth.signupV2.step4.photoLabel": "작품 사진 업로드",
-    "auth.signupV2.step4.photoHint": "탭해서 이미지를 선택하세요",
+    "auth.signupV2.step4.photoHint": "작품 업로드",
     "auth.signupV2.step4.photoRemove": "사진 제거",
     "auth.signupV2.step4.titleLabel": "제목",
     "auth.signupV2.step4.titleHint": "필수 항목입니다.",
@@ -8872,9 +8885,10 @@ export const messages = {
       "작품에 대한 영감, 과정, 배경 등 남기고 싶은 이야기를 자유롭게 적어보세요.",
     "auth.signupV2.step4.descriptionHint": "선택 항목입니다.",
     "auth.signupV2.step4.submitArtist": "첫 작품 등록하기",
-    "auth.signupV2.step4.skipCta": "다음에 할게요",
+    "auth.signupV2.step4.skipCta": "건너뛰기",
     "auth.signupV2.step4.skipLink": "건너뛰고 회원가입 마치기",
     "auth.signupV2.step4.showAnyway": "그래도 한 점 올려볼래요",
+    "auth.signupV2.step4.postCta": "이 작품 등록하기",
     "auth.signupV2.step4.uploading": "작품을 업로드하고 있어요…",
     "auth.signupV2.step4.uploadSuccess": "완료! 피드로 이동할게요.",
     "auth.signupV2.step4.uploadError":
