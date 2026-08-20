@@ -145,6 +145,17 @@ export type SceneSpace = {
   shareToken: string;
   isActive: boolean;
   expiresAt: string | null;
+  /**
+   * Display Simulation (2026-08-19) — timestamp when the space owner
+   * deferred the required wall-calibration setup step. `null` means
+   * "never deferred"; the Space Editor's `CalibrationSetupOverlay`
+   * uses this together with `space_surfaces.widthCm` to decide
+   * whether to auto-show the blocking gate or a lightweight
+   * "벽 크기 미설정" reminder banner. Mirrors
+   * `spaces.calibration_deferred_at` (migration
+   * `20260819230000_space_calibration_deferred_at.sql`).
+   */
+  calibrationDeferredAt: string | null;
   createdAt: string;
   updatedAt: string;
   surfaces: SceneSurface[];
@@ -174,6 +185,13 @@ export type SceneSpaceInsert = {
   photoHeightPx?: number | null;
   isActive?: boolean;
   expiresAt?: string | null;
+  /**
+   * Display Simulation (2026-08-19). Client-side callers pass
+   * `null` to clear the flag after successful calibration or a
+   * timestamptz string (`new Date().toISOString()`) to record the
+   * user opting out via "나중에 설정".
+   */
+  calibrationDeferredAt?: string | null;
 };
 
 /** Partial patch for a `spaces` header — all fields optional. */
@@ -445,6 +463,8 @@ export function rowToSceneSpace(row: Record<string, unknown>): SceneSpace {
     shareToken: toStr(row.share_token),
     isActive: toBool(row.is_active, true),
     expiresAt: (row.expires_at as string | null) ?? null,
+    calibrationDeferredAt:
+      (row.calibration_deferred_at as string | null) ?? null,
     createdAt: toStr(row.created_at),
     updatedAt: toStr(row.updated_at),
     surfaces,
@@ -487,6 +507,7 @@ export function sceneSpaceInsertToRow(input: SceneSpaceInsert): Record<string, u
   put(row, "photo_height_px", input.photoHeightPx);
   put(row, "is_active", input.isActive);
   put(row, "expires_at", input.expiresAt);
+  put(row, "calibration_deferred_at", input.calibrationDeferredAt);
   return row;
 }
 
@@ -506,6 +527,7 @@ export function sceneSpaceUpdateToRow(input: SceneSpaceUpdate): Record<string, u
   put(row, "photo_height_px", input.photoHeightPx);
   put(row, "is_active", input.isActive);
   put(row, "expires_at", input.expiresAt);
+  put(row, "calibration_deferred_at", input.calibrationDeferredAt);
   return row;
 }
 
@@ -838,6 +860,11 @@ export const SceneSpaceSchema: SceneSchema<SceneSpace> = makeSchema((input, issu
   const shareToken = checkStr(raw.shareToken ?? raw.share_token, "shareToken", issues);
   const isActive = checkBool(raw.isActive ?? raw.is_active, "isActive", issues, true);
   const expiresAt = checkOptStr(raw.expiresAt ?? raw.expires_at, "expiresAt", issues);
+  const calibrationDeferredAt = checkOptStr(
+    raw.calibrationDeferredAt ?? raw.calibration_deferred_at,
+    "calibrationDeferredAt",
+    issues,
+  );
   const createdAt = checkStr(raw.createdAt ?? raw.created_at, "createdAt", issues);
   const updatedAt = checkStr(raw.updatedAt ?? raw.updated_at, "updatedAt", issues);
 
@@ -881,6 +908,7 @@ export const SceneSpaceSchema: SceneSchema<SceneSpace> = makeSchema((input, issu
     shareToken,
     isActive,
     expiresAt,
+    calibrationDeferredAt,
     createdAt,
     updatedAt,
     surfaces: surfaces.sort((a, b) => a.surfaceIndex - b.surfaceIndex),
@@ -940,6 +968,9 @@ export const SceneSpaceInsertSchema: SceneSchema<SceneSpaceInsert> = makeSchema(
       ...(raw.expiresAt !== undefined && {
         expiresAt: raw.expiresAt as string | null,
       }),
+      ...(raw.calibrationDeferredAt !== undefined && {
+        calibrationDeferredAt: raw.calibrationDeferredAt as string | null,
+      }),
     };
   },
 );
@@ -979,6 +1010,9 @@ export const SceneSpaceUpdateSchema: SceneSchema<SceneSpaceUpdate> = makeSchema(
     }
     if (raw.isActive !== undefined) out.isActive = Boolean(raw.isActive);
     if (raw.expiresAt !== undefined) out.expiresAt = raw.expiresAt as string | null;
+    if (raw.calibrationDeferredAt !== undefined) {
+      out.calibrationDeferredAt = raw.calibrationDeferredAt as string | null;
+    }
     if (issues.length > 0) return null;
     return out;
   },

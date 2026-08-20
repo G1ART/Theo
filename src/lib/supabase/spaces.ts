@@ -116,6 +116,7 @@ const SPACE_SELECT = `
   share_token,
   is_active,
   expires_at,
+  calibration_deferred_at,
   created_at,
   updated_at,
   space_surfaces(

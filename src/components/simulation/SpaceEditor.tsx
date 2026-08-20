@@ -109,6 +109,8 @@ import {
   runPhotoroomCutout,
   runVisionBboxCrop,
 } from "@/lib/simulation/cutoutClient";
+import { isPhotoroomEnabled } from "@/lib/simulation/photoroomEnabled";
+import { deleteSpacePhotoAndReset } from "@/lib/simulation/storage";
 
 const SNAP_TOLERANCE_CM = 3;
 const EYE_LEVEL_CM = 150;
@@ -119,28 +121,6 @@ const PERSIST_DEBOUNCE_MS = 400;
  *  the corner picker or dimensions inputs these are replaced. */
 const FALLBACK_WALL_WIDTH_CM = 400;
 const FALLBACK_WALL_HEIGHT_CM = 260;
-
-/**
- * P1 render-quality (2026-08-19) — threshold for showing the
- * "image aspect ≠ placement aspect" warning in the inspector.
- *
- * We compare the artwork's SOURCE image aspect (from
- * `artwork_images.width/height`) with the placement's physical
- * aspect (`widthCm / heightCm`) and flag the delta as suspicious
- * when it exceeds this fraction of the larger side.
- *
- * A photo of a painting that includes visible wall/frame padding
- * typically inflates one dimension by 10–30 %, so 6 % is a
- * comfortable "signal not noise" cutoff:
- *   • rounding & EXIF quirks stay under ~2 %.
- *   • JPEG re-encodes and mild letterboxing land in the 2–4 % band.
- *   • Genuine padding cases (the P1 report's 121.9×106.7 cm portrait
- *     that looked square) sit at 30–50 %.
- *
- * Tunable — bump toward 8 % if we get complaints about the warning
- * being noisy, drop toward 5 % if users report missed cases.
- */
-const ASPECT_MISMATCH_THRESHOLD = 0.06;
 
 /**
  * Phase 3 (2026-08-19) — silent auto-crop failure cache. Keeps a
@@ -414,6 +394,30 @@ function SpaceEditorContent({ id }: { id: string }) {
   const [measureInputCm, setMeasureInputCm] = useState("");
   const [calibrateBusy, setCalibrateBusy] = useState(false);
 
+  // Display Simulation (2026-08-19) — Required wall-calibration overlay
+  // and companion "벽 크기 미설정" banner. The overlay is a blocking
+  // modal that appears when a space has a photo but no scale AND the
+  // user hasn't explicitly deferred. Once deferred, `spaces
+  // .calibrationDeferredAt` is stamped server-side and mirrored into
+  // `calibrationSessionSkip` for hot-reload symmetry. The banner then
+  // stays visible until the wall is calibrated; hitting its "지금 설정"
+  // button flips `overlayForced` so the overlay reopens over the top.
+  const [overlayForced, setOverlayForced] = useState(false);
+  const [calibrationSessionSkip, setCalibrationSessionSkip] = useState(false);
+  // Overlay's Option B — direct wall width/height inputs. Stored as
+  // display-unit strings (m / cm / in / ft), converted to cm on apply
+  // via `displayNumberToCm(...)`.
+  const [overlayWallW, setOverlayWallW] = useState("");
+  const [overlayWallH, setOverlayWallH] = useState("");
+
+  // Display Simulation (2026-08-19) — canvas "사진 삭제" FAB confirm
+  // dialog + busy indicator. Reset locally after a successful wipe
+  // together with the calibration + auto-fire refs so the reopened
+  // empty-space UX runs the overlay + AI passes as if this were a
+  // brand new upload session.
+  const [removePhotoConfirmOpen, setRemovePhotoConfirmOpen] = useState(false);
+  const [removePhotoBusy, setRemovePhotoBusy] = useState(false);
+
   const aiCalibrationEnabled = useAiCalibrationPref();
 
   /**
@@ -571,6 +575,60 @@ function SpaceEditorContent({ id }: { id: string }) {
 
   const photoUrl = spacePhotoUrl(state?.space.photoStoragePath ?? null);
   const placements = state?.space.placements ?? [];
+
+  // Display Simulation (2026-08-19) — Required-calibration gate.
+  //
+  // Precondition for "space has a scale": the primary wall surface has
+  // a non-null widthCm > 0. `widthCm/heightCm` are the DB-persisted
+  // wall size in cm; every downstream pxPerCm lookup derives from
+  // them, so treating the null case as "not calibrated" mirrors the
+  // renderer's own fallback behaviour. photoCorners alone is NOT
+  // enough — a perspective quad without a scale still can't project
+  // placements at real-world proportions.
+  //
+  // Overlay logic:
+  //   • no photo yet          → overlay hidden (user must upload first)
+  //   • scale already set     → overlay hidden (nothing to do)
+  //   • overlayForced === true → overlay shown even if deferred
+  //     (banner's "지금 설정" button re-opens it)
+  //   • deferred (server flag OR same-tab session skip) → overlay
+  //     hidden, banner shown instead
+  //   • otherwise             → overlay shown (first-run setup)
+  //
+  // Banner logic:
+  //   • only when the overlay is NOT shown AND scale is still unset
+  //     AND the user has explicitly deferred (server flag OR session
+  //     skip). Prevents a redundant banner on the very first mount
+  //     before the user has had a chance to interact with the overlay.
+  const surfaceHasScale = Boolean(
+    primarySurface?.widthCm && primarySurface.widthCm > 0,
+  );
+  const spaceCalibrationDeferredAt =
+    state?.space.calibrationDeferredAt ?? null;
+  const calibrationDeferred =
+    Boolean(spaceCalibrationDeferredAt) || calibrationSessionSkip;
+  // The manual "tap-to-measure" flow needs an unobstructed view of the
+  // canvas so users can drop two points. When it's active the overlay
+  // steps aside; if the user cancels the measurement, the overlay
+  // re-shows automatically (scale is still unset).
+  //
+  // `overlayForced` bypasses the "!surfaceHasScale" check so the
+  // post-setup "벽 크기 다시 설정" button in the wall-size card can
+  // reopen the setup gate even after a scale has been persisted.
+  const showCalibrationOverlay = Boolean(
+    photoUrl &&
+      primarySurface &&
+      measureState.phase === "idle" &&
+      (overlayForced ||
+        (!surfaceHasScale && !calibrationDeferred)),
+  );
+  const showCalibrationBanner = Boolean(
+    photoUrl &&
+      primarySurface &&
+      !surfaceHasScale &&
+      !showCalibrationOverlay &&
+      calibrationDeferred,
+  );
 
   const rendered = useMemo(() => {
     if (!state || !primarySurface || imageBox.w === 0 || imageBox.h === 0) {
@@ -1419,14 +1477,59 @@ function SpaceEditorContent({ id }: { id: string }) {
   );
 
   /**
-   * Manual "AI로 스케일 다시 감지" trigger. Wired to the accordion
-   * button; also invoked by the auto-fire useEffect below. Kept as a
-   * thin wrapper so the button + effect share the exact same guards.
+   * Manual "AI로 스케일 다시 감지" trigger. Also invoked by the
+   * auto-fire useEffect below and by the required-calibration
+   * overlay's "Ask AI again" button. Kept as a thin wrapper so every
+   * entry point shares the exact same guards + toast plumbing.
    */
   const handleManualAiRetrigger = useCallback(async () => {
     if (calibrateBusy) return;
     await runAiCalibrationFromCurrentPhoto("retrigger");
   }, [calibrateBusy, runAiCalibrationFromCurrentPhoto]);
+
+  /**
+   * Display Simulation (2026-08-19) — "사진 삭제" FAB. Deletes the
+   * current wall photo, resets the surface scale, and drops every
+   * placement inside this space. The Space itself stays put — that
+   * action lives on `/my/spaces`. Wired to a confirm dialog so a
+   * single mis-tap doesn't wipe the user's carefully positioned
+   * artworks.
+   *
+   * Local state is reset in step to match the fresh empty-space UX:
+   *   • auto-fire refs cleared so the next upload re-runs cleanup +
+   *     AI calibrate exactly like a first upload.
+   *   • calibration overlay state cleared so the setup gate reappears.
+   *   • selection / pending / measure state cleared so no stale IDs
+   *     survive the wipe.
+   *   • `load()` re-fetches the (now empty) space row.
+   */
+  const handleConfirmRemovePhoto = useCallback(async () => {
+    if (!state) return;
+    setRemovePhotoBusy(true);
+    const { error } = await deleteSpacePhotoAndReset(state.space.id);
+    setRemovePhotoBusy(false);
+    if (error) {
+      setToast(t("simulation.editor.saveFailed"));
+      return;
+    }
+    setRemovePhotoConfirmOpen(false);
+    autoCalibrateFiredRef.current = null;
+    autoWallCleanupFiredRef.current = null;
+    setCalibrationSessionSkip(false);
+    setOverlayForced(false);
+    setOverlayWallW("");
+    setOverlayWallH("");
+    setSelectedId(null);
+    setPendingArtwork(null);
+    setCalibrateCandidates([]);
+    setCalibrateIdx(0);
+    setCalibrateInputCm("");
+    setMeasureState({ phase: "idle" });
+    setMeasureInputCm("");
+    setWallCleanupNotice(null);
+    setCornersOpen(false);
+    await load();
+  }, [state, t, load]);
 
   // Auto-fire AI calibration ONCE per space when the editor mounts on
   // a space that has a photo but no scale yet. This covers users who
@@ -1517,48 +1620,6 @@ function SpaceEditorContent({ id }: { id: string }) {
     return () => clearTimeout(h);
   }, [autoCropToast]);
 
-  // 2026-08-19 (Fix D) — "제안된 크기 / Suggested size" card
-  // dismiss state. Keyed by placement id, persisted per-browser
-  // via sessionStorage so a "이대로 유지" click stays sticky across
-  // re-selects within the tab but resets on next visit (the user
-  // may have added a fresh cutout by then). Session (not local) so
-  // dismissals don't accumulate forever.
-  const SUGGESTED_SIZE_DISMISS_SS_KEY = "abstract:sim:suggestedSize:dismissed";
-  const [dismissedSuggestedSize, setDismissedSuggestedSize] = useState<
-    Set<string>
-  >(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const raw = window.sessionStorage.getItem(SUGGESTED_SIZE_DISMISS_SS_KEY);
-      if (!raw) return new Set();
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return new Set(parsed.filter((v): v is string => typeof v === "string"));
-      }
-      return new Set();
-    } catch {
-      return new Set();
-    }
-  });
-  const dismissSuggestedSize = useCallback((placementId: string) => {
-    setDismissedSuggestedSize((prev) => {
-      if (prev.has(placementId)) return prev;
-      const next = new Set(prev);
-      next.add(placementId);
-      if (typeof window !== "undefined") {
-        try {
-          window.sessionStorage.setItem(
-            SUGGESTED_SIZE_DISMISS_SS_KEY,
-            JSON.stringify(Array.from(next)),
-          );
-        } catch {
-          /* quota / private mode — best-effort */
-        }
-      }
-      return next;
-    });
-  }, []);
-
   const readAutoCropFailedCache = useCallback((): Record<string, number> => {
     if (typeof window === "undefined") return {};
     try {
@@ -1606,77 +1667,18 @@ function SpaceEditorContent({ id }: { id: string }) {
   );
 
   /**
-   * "Keep long axis" aspect snap. Given a placement's current cm
-   * rect and a cutout's pixel aspect, returns the new cm rect that
-   * freezes the longer side and derives the shorter from the
-   * aspect. Returns null when inputs are degenerate (missing dims
-   * / non-positive aspect).
-   *
-   * 2026-08-19 — no longer auto-applied. The refreshArtworkThumb
-   * side-effect that used to dirty every matching placement was
-   * removed because it silently overrode trusted physical dims
-   * (Summer Garden II case: 121.92×106.68cm → 121.92×162.56cm
-   * portrait). Kept exported / callable in case future callers
-   * want the "snap to cutout aspect" transform on demand; the
-   * inspector's "제안된 크기 / Suggested size" card now surfaces
-   * this option to the user explicitly.
-   */
-  function snapPlacementToCutoutAspect(
-    widthCm: number | null,
-    heightCm: number | null,
-    cutoutPxW: number | null,
-    cutoutPxH: number | null,
-  ): { widthCm: number; heightCm: number } | null {
-    if (
-      widthCm == null ||
-      heightCm == null ||
-      widthCm <= 0 ||
-      heightCm <= 0 ||
-      cutoutPxW == null ||
-      cutoutPxH == null ||
-      cutoutPxW <= 0 ||
-      cutoutPxH <= 0
-    ) {
-      return null;
-    }
-    const imgAspect = cutoutPxW / cutoutPxH;
-    const widthIsLonger = widthCm >= heightCm;
-    const nextWidth = widthIsLonger ? widthCm : heightCm * imgAspect;
-    const nextHeight = widthIsLonger ? widthCm / imgAspect : heightCm;
-    if (
-      !Number.isFinite(nextWidth) ||
-      !Number.isFinite(nextHeight) ||
-      nextWidth <= 0 ||
-      nextHeight <= 0
-    ) {
-      return null;
-    }
-    return {
-      widthCm: Number(nextWidth.toFixed(2)),
-      heightCm: Number(nextHeight.toFixed(2)),
-    };
-  }
-
-  /**
    * Refresh a single artwork's scene-thumb in `state.artworks`.
    *
-   * 2026-08-19 — the automatic aspect-snap ("if a new cutout
-   * arrives, silently re-write every placement's cm rect to match
-   * the cutout's pixel aspect") was REMOVED. It silently overrode
-   * trusted physical dims — a 121.92×106.68cm landscape ("Summer
-   * Garden II") got snapped to 121.92×162.56cm portrait after
-   * auto-crop, which is worse than not cropping at all. The
-   * inspector's "제안된 크기 / Suggested size" card now surfaces
-   * both the physical-dim mismatch AND the cutout-aspect mismatch
-   * as suggestions the user explicitly opts into (see
-   * `snapPlacementToCutoutAspect` — still exported for the manual
-   * "Apply cutout aspect" button — and the physical-dim path in
-   * the inspector).
-   *
-   * The refresh itself is still needed after Track 1 / Track 2
-   * (the renderer swaps to `cutoutImageUrl` once it's present) and
-   * after silent auto-crop; it just no longer dirties any
-   * placement.
+   * 2026-08-19 (Suggested-size removal) — the automatic aspect-snap
+   * side-effect (silently re-writing every placement's cm rect to
+   * match the cutout's pixel aspect) was removed on 2026-08-19 and
+   * the follow-up "제안된 크기" opt-in card is now gone too. The
+   * placement dimensions are the single source of truth: they land
+   * from `artworks.width_cm/height_cm` at drop time and only change
+   * when the user edits width/height/rotate in the inspector. The
+   * refresh here just swaps the thumb bag so the renderer picks up
+   * the freshly attached cutout row (renderer prefers
+   * `cutoutAlphaImageUrl > cutoutImageUrl > imageUrl`).
    */
   const refreshArtworkThumb = useCallback(
     async (artworkId: string) => {
@@ -2214,7 +2216,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         // Surface the fallback so the user knows to correct the size —
         // silent placement at the wrong scale is more confusing than a
         // gentle "here's a placeholder, tune it in the inspector" nudge.
-        setToast(t("simulation.editor.fallbackSizeApplied"));
+        setToast(t("simulation.inspector.fallbackSizeToast"));
       }
       scheduleFlush();
     },
@@ -2301,6 +2303,7 @@ function SpaceEditorContent({ id }: { id: string }) {
             ...prev,
             space: {
               ...prev.space,
+              calibrationDeferredAt: null,
               surfaces: prev.space.surfaces.map((s) =>
                 s.id === primarySurface.id
                   ? { ...s, widthCm: wallWidthCm, heightCm: wallHeightCm }
@@ -2315,9 +2318,15 @@ function SpaceEditorContent({ id }: { id: string }) {
       { widthCm: wallWidthCm, heightCm: wallHeightCm },
       { spaceIdForTouch: state.space.id },
     );
+    // A successful calibration invalidates any prior "나중에 설정"
+    // stamp — the reason to defer is gone. Clear the DB flag and the
+    // session mirror so the banner disappears immediately.
+    await updateSpace(state.space.id, { calibrationDeferredAt: null });
     setCalibrateCandidates([]);
     setCalibrateIdx(0);
     setCalibrateInputCm("");
+    setOverlayForced(false);
+    setCalibrationSessionSkip(false);
     setToast(t("simulation.calibrate.applied"));
   }, [
     state,
@@ -2335,11 +2344,104 @@ function SpaceEditorContent({ id }: { id: string }) {
     setCalibrateInputCm("");
   }, [calibrateCandidates.length]);
 
-  const handleDismissCalibrate = useCallback(() => {
-    setCalibrateCandidates([]);
-    setCalibrateIdx(0);
-    setCalibrateInputCm("");
+  // 2026-08-19 — `handleDismissCalibrate` was retired together with
+  // the floating AI card. Deferrals now flow through
+  // `handleDeferCalibration`, which also stamps the persistent
+  // `spaces.calibration_deferred_at` column — a local-only dismissal
+  // no longer makes sense because the calibration UI is required.
+
+  /**
+   * Display Simulation (2026-08-19) — "나중에 설정" from the required
+   * calibration overlay. Stamps `spaces.calibration_deferred_at =
+   * now()` on the row (so the overlay does NOT auto-show on the next
+   * space load) AND mirrors the flag into a per-session React state
+   * so hot-reload / re-mount within the same tab respects the
+   * decision immediately (the DB write is async).
+   *
+   * Optimistically patches `state.space.calibrationDeferredAt` so the
+   * banner renders in-place; the awaited `updateSpace` call keeps the
+   * DB honest. If the DB call fails we keep the optimistic value —
+   * showing the banner locally is strictly less disruptive than
+   * reverting to a blocking overlay just because the network dropped.
+   */
+  const handleDeferCalibration = useCallback(async () => {
+    if (!state) return;
+    const now = new Date().toISOString();
+    setCalibrationSessionSkip(true);
+    setOverlayForced(false);
+    setOverlayWallW("");
+    setOverlayWallH("");
+    setState((prev) =>
+      prev
+        ? {
+            ...prev,
+            space: { ...prev.space, calibrationDeferredAt: now },
+          }
+        : prev,
+    );
+    await updateSpace(state.space.id, { calibrationDeferredAt: now });
+  }, [state]);
+
+  const handleReopenCalibrationOverlay = useCallback(() => {
+    setOverlayForced(true);
+    setOverlayWallW("");
+    setOverlayWallH("");
   }, []);
+
+  /**
+   * Display Simulation (2026-08-19) — Overlay Option B "Apply". Sets
+   * the wall's widthCm / heightCm directly from the user-supplied
+   * dims, mirroring `handleApplyCalibrateCandidate`'s persistence
+   * pattern but skipping the AI bbox math (we don't derive pxPerCm
+   * from an object — the wall dims + native photo px are enough).
+   *
+   * Also clears the deferral (so the banner disappears immediately
+   * once the wall has scale) — the DB column is nullable and set to
+   * `null` on a fresh calibration to match the "never deferred"
+   * semantic of a freshly re-calibrated space.
+   */
+  const handleApplyDirectWallDims = useCallback(async () => {
+    if (!state || !primarySurface) return;
+    const rawW = parseFloat(overlayWallW);
+    const rawH = parseFloat(overlayWallH);
+    if (
+      !Number.isFinite(rawW) ||
+      rawW <= 0 ||
+      !Number.isFinite(rawH) ||
+      rawH <= 0
+    ) {
+      return;
+    }
+    const widthCm = displayNumberToCm(rawW, displayUnit);
+    const heightCm = displayNumberToCm(rawH, displayUnit);
+    setState((prev) =>
+      prev
+        ? {
+            ...prev,
+            space: {
+              ...prev.space,
+              calibrationDeferredAt: null,
+              surfaces: prev.space.surfaces.map((s) =>
+                s.id === primarySurface.id
+                  ? { ...s, widthCm, heightCm }
+                  : s,
+              ),
+            },
+          }
+        : prev,
+    );
+    await updateSurface(
+      primarySurface.id,
+      { widthCm, heightCm },
+      { spaceIdForTouch: state.space.id },
+    );
+    await updateSpace(state.space.id, { calibrationDeferredAt: null });
+    setOverlayWallW("");
+    setOverlayWallH("");
+    setOverlayForced(false);
+    setCalibrationSessionSkip(false);
+    setToast(t("simulation.calibrate.applied"));
+  }, [state, primarySurface, overlayWallW, overlayWallH, displayUnit, t]);
 
   /**
    * Enter manual tap-to-measure mode. Clears the AI card AND any
@@ -2393,6 +2495,7 @@ function SpaceEditorContent({ id }: { id: string }) {
             ...prev,
             space: {
               ...prev.space,
+              calibrationDeferredAt: null,
               surfaces: prev.space.surfaces.map((s) =>
                 s.id === primarySurface.id
                   ? { ...s, widthCm: wallWidthCm, heightCm: wallHeightCm }
@@ -2407,8 +2510,11 @@ function SpaceEditorContent({ id }: { id: string }) {
       { widthCm: wallWidthCm, heightCm: wallHeightCm },
       { spaceIdForTouch: state.space.id },
     );
+    await updateSpace(state.space.id, { calibrationDeferredAt: null });
     setMeasureState({ phase: "idle" });
     setMeasureInputCm("");
+    setOverlayForced(false);
+    setCalibrationSessionSkip(false);
     setToast(t("simulation.calibrate.applied"));
   }, [
     state,
@@ -2757,108 +2863,43 @@ function SpaceEditorContent({ id }: { id: string }) {
         </div>
       )}
 
-      {/* P1 — AI calibration card. Renders above the canvas so the
-          bbox overlay (drawn inside the canvas) and the question
-          card sit side-by-side on the same visual axis. Priority over
-          the detecting toast; only shown when the model returned at
-          least one candidate. */}
-      {calibrateCandidates.length > 0 && (() => {
-        const c = calibrateCandidates[calibrateIdx];
-        if (!c) return null;
-        const label = locale === "ko" ? c.label_ko : c.label_en;
-        const ask = locale === "ko" ? c.ask_ko : c.ask_en;
-        const midpoint = typicalMidpoint(c);
-        // Range/hint/placeholder all follow the wider display unit so
-        // a user in `m` sees "보통 1.9-2.2m" for door height, not
-        // "190-220cm" while their input row already shows "m".
-        const rangeMin = Number(
-          formatCmForUnit(c.typical_range_cm.min, displayUnit),
-        );
-        const rangeMax = Number(
-          formatCmForUnit(c.typical_range_cm.max, displayUnit),
-        );
-        const rangeHint = t("simulation.calibrate.rangeHint")
-          .replace("{min}", String(rangeMin))
-          .replace("{max}", String(rangeMax))
-          .replace("{unit}", displayUnit);
-        const placeholder = formatCmForUnit(midpoint, displayUnit);
-        return (
-          <div
-            role="dialog"
-            aria-labelledby="calibrate-card-title"
-            className="mb-4 flex flex-col gap-3 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-4 shadow-sm"
-          >
-            <div>
-              <h3
-                id="calibrate-card-title"
-                className="text-sm font-semibold text-emerald-900"
-              >
-                {t("simulation.calibrate.cardTitle").replace(
-                  "{label}",
-                  label,
-                )}
-              </h3>
-              <p className="mt-1 text-xs text-emerald-800">{ask}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-2 py-1.5">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.5"
-                  min={1}
-                  value={calibrateInputCm}
-                  onChange={(e) => setCalibrateInputCm(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void handleApplyCalibrateCandidate();
-                    }
-                  }}
-                  placeholder={placeholder}
-                  className="w-20 rounded border-0 px-1 py-0.5 text-sm outline-none focus:ring-0"
-                  aria-label={ask}
-                />
-                <span className="text-xs text-zinc-500">{displayUnit}</span>
-              </label>
-              <span className="text-[11px] text-emerald-700">{rangeHint}</span>
-              <div className="ml-auto flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleApplyCalibrateCandidate()}
-                  disabled={!parseFloat(calibrateInputCm)}
-                  className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
-                >
-                  {t("simulation.calibrate.apply")}
-                </button>
-                {calibrateCandidates.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={handleCycleCandidate}
-                    className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
-                  >
-                    {t("simulation.calibrate.tryAnother")}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={startManualMeasure}
-                  className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
-                >
-                  {t("simulation.calibrate.manual")}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDismissCalibrate}
-                  className="rounded-full px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                >
-                  {t("simulation.calibrate.later")}
-                </button>
-              </div>
-            </div>
+      {/*
+        Display Simulation (2026-08-19) — "벽 크기 미설정" persistent
+        banner. Shown when the user has explicitly deferred the
+        required-calibration overlay AND the wall still has no scale.
+        Clicking "지금 설정" flips `overlayForced` back on so the
+        overlay reopens over the top; completing the calibration
+        (Option A / B / manual measure) clears the deferral flag and
+        the banner falls away on its own.
+
+        The old floating "AI calibration" card was removed in this
+        same patch — its content now lives inside the overlay's
+        Option A, which is the required setup step rather than a
+        dismissable suggestion.
+      */}
+      {showCalibrationBanner && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+        >
+          <span aria-hidden className="text-lg leading-none">⚠️</span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              {t("simulation.calibrate.banner.title")}
+            </p>
+            <p className="mt-0.5 text-[11px] text-amber-800/90">
+              {t("simulation.calibrate.banner.body")}
+            </p>
           </div>
-        );
-      })()}
+          <button
+            type="button"
+            onClick={handleReopenCalibrationOverlay}
+            className="rounded-lg border border-amber-400 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+          >
+            {t("simulation.calibrate.banner.cta")}
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section ref={canvasRef} className="min-w-0">
@@ -3321,6 +3362,47 @@ function SpaceEditorContent({ id }: { id: string }) {
                     </div>
                   );
                 })()}
+
+              {/*
+                Display Simulation (2026-08-19) — "사진 삭제" FAB.
+                Absolute-positioned bottom-right of the canvas card,
+                mirroring the "+ 작품 추가" affordance on the opposite
+                edge. Compact rounded-full with a trash glyph; a
+                confirm dialog gates the destructive action. Hidden
+                while the manual-measure or setup-overlay is active
+                so it doesn't compete for attention with the current
+                setup flow.
+              */}
+              {!showCalibrationOverlay && measureState.phase === "idle" && (
+                <button
+                  type="button"
+                  onClick={() => setRemovePhotoConfirmOpen(true)}
+                  disabled={removePhotoBusy}
+                  className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-full border border-white/40 bg-black/60 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg backdrop-blur hover:bg-black/70 disabled:opacity-50"
+                  title={t("simulation.canvas.removePhoto")}
+                  aria-label={t("simulation.canvas.removePhoto")}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                  <span>{t("simulation.canvas.removePhoto")}</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/70 px-4 text-center">
@@ -3337,16 +3419,14 @@ function SpaceEditorContent({ id }: { id: string }) {
                   ? t("simulation.create.submitting")
                   : t("simulation.editor.uploadPhoto")}
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleUploadPhoto(f);
-                }}
-              />
+              {/*
+                Note: the single `<input ref={fileInputRef}>` for
+                choosing a file lives in the inspector column below —
+                one input keeps a single canonical ref target so
+                every "click the file picker" affordance (this empty
+                state, the wall-cleanup notice, etc.) hits the same
+                element without ref collisions.
+              */}
             </div>
           )}
           <div className="mt-3">
@@ -3381,18 +3461,14 @@ function SpaceEditorContent({ id }: { id: string }) {
                 // work. Placement dims are RLS-scoped to space
                 // owner, so this stays a safe local edit.
                 const artwork = state?.artworks.get(selected.artworkId) ?? null;
-                // Phase 2 (2026-08-20) — pick the strongest image
-                // source available for this artwork; the resolved
-                // source drives the aspect-mismatch suppression and
-                // the cutout CTA visibility below.
+                // 2026-08-19 (Suggested-size removal): the
+                // `resolvedSource` selector was retired with the
+                // "Suggested size" card that consumed it. The cutout
+                // CTA visibility below reads `hasBboxCutout` and
+                // `hasAlphaCutout` directly, and the aspect-mismatch
+                // banner is gone entirely.
                 const hasAlphaCutout = Boolean(artwork?.cutoutAlphaImageUrl);
                 const hasBboxCutout = Boolean(artwork?.cutoutImageUrl);
-                const resolvedSource: "primary" | "cutout" | "cutout_alpha" =
-                  hasAlphaCutout
-                    ? "cutout_alpha"
-                    : hasBboxCutout
-                      ? "cutout"
-                      : "primary";
                 const currentFramePreset = resolveFramePreset(
                   selected.framePreset,
                 );
@@ -3402,145 +3478,39 @@ function SpaceEditorContent({ id }: { id: string }) {
                 const alphaBusy =
                   cutoutBusy?.artworkId === selected.artworkId &&
                   cutoutBusy.track === "alpha";
+                // 2026-08-19 (unset-Pro fix) — the Photoroom Pro button
+                // is hidden entirely unless the deployment has opted in
+                // via `NEXT_PUBLIC_PHOTOROOM_ENABLED=true`. Server also
+                // gates the request, but suppressing the CTA client-side
+                // keeps the inspector free of a button that only ever
+                // produces a "not configured" toast.
+                const photoroomEnabled = isPhotoroomEnabled();
 
-                // ─── 2026-08-19 (Fix D) — Suggested size card ─────
-                // Replaces the old amber "aspectMismatch" banner.
-                // The card surfaces up to TWO suggestions the user
-                // can opt into (never auto-applied):
-                //
-                //   1. **Physical dims** — when the artwork has
-                //      trusted `width_cm × height_cm` values on the
-                //      `artworks` row AND the current placement
-                //      aspect differs by >6%, offer to restore the
-                //      physical size. Highest priority: this is the
-                //      artist's authored ground truth.
-                //   2. **Cutout aspect** — when a cutout exists, the
-                //      cutout's pixel aspect differs from the
-                //      placement aspect by >6%, AND the cutout
-                //      aspect does NOT already match the physical
-                //      aspect, offer to snap to it. Cutouts still
-                //      matter for legacy uploads without recorded
-                //      physical dims (or for artists who mis-typed
-                //      the dims).
-                //
-                // The "Keep as-is" affordance dismisses the card via
-                // sessionStorage keyed by placement id (see
-                // `dismissedSuggestedSize` above).
-                const placementAspect =
-                  selected.widthCm != null &&
-                  selected.heightCm != null &&
-                  selected.widthCm > 0 &&
-                  selected.heightCm > 0
-                    ? selected.widthCm / selected.heightCm
-                    : null;
-                const physicalWidthCm = artwork?.widthCm ?? null;
-                const physicalHeightCm = artwork?.heightCm ?? null;
-                const physicalAspect =
-                  physicalWidthCm != null &&
-                  physicalHeightCm != null &&
-                  physicalWidthCm > 0 &&
-                  physicalHeightCm > 0
-                    ? physicalWidthCm / physicalHeightCm
-                    : null;
-                function aspectDelta(a: number, b: number): number {
-                  const denom = Math.max(a, b);
-                  return denom > 0 ? Math.abs(a - b) / denom : 0;
-                }
-                const physicalMismatch =
-                  placementAspect != null &&
-                  physicalAspect != null &&
-                  aspectDelta(placementAspect, physicalAspect) >=
-                    ASPECT_MISMATCH_THRESHOLD;
-                // Cutout aspect from the strongest cutout available;
-                // fall back to the primary image aspect only when we
-                // are STILL rendering the primary (no cutout row) —
-                // that's the legacy aspect-mismatch case.
-                const cutoutPxW =
-                  artwork?.cutoutAlphaImagePxWidth ??
-                  artwork?.cutoutImagePxWidth ??
-                  null;
-                const cutoutPxH =
-                  artwork?.cutoutAlphaImagePxHeight ??
-                  artwork?.cutoutImagePxHeight ??
-                  null;
-                const cutoutAspect =
-                  cutoutPxW != null && cutoutPxH != null && cutoutPxH > 0
-                    ? cutoutPxW / cutoutPxH
-                    : null;
-                const primaryAspect =
-                  resolvedSource === "primary" &&
-                  artwork?.imagePxWidth != null &&
-                  artwork?.imagePxHeight != null &&
-                  artwork.imagePxHeight > 0
-                    ? artwork.imagePxWidth / artwork.imagePxHeight
-                    : null;
-                const imageAspectForSuggestion =
-                  cutoutAspect ?? primaryAspect ?? null;
-                const cutoutSuggestionMismatch =
-                  placementAspect != null &&
-                  imageAspectForSuggestion != null &&
-                  aspectDelta(placementAspect, imageAspectForSuggestion) >=
-                    ASPECT_MISMATCH_THRESHOLD &&
-                  // Skip the cutout suggestion when its aspect already
-                  // matches the physical aspect — the physical row
-                  // covers it and dedup keeps the card tidy.
-                  (physicalAspect == null ||
-                    aspectDelta(imageAspectForSuggestion, physicalAspect) >=
-                      ASPECT_MISMATCH_THRESHOLD);
-                const isDismissed = dismissedSuggestedSize.has(selected.id);
-                const showSuggestedSize =
-                  !isDismissed &&
-                  (physicalMismatch || cutoutSuggestionMismatch);
-
-                const applyPhysicalDims = () => {
+                // Rotate 90° — swaps this placement's widthCm and
+                // heightCm without touching the underlying artwork
+                // record. Handles the rare orientation mismatch case
+                // (e.g. Summer Garden II landscape mis-tagged portrait).
+                const rotate90 = () => {
                   if (
-                    physicalWidthCm == null ||
-                    physicalHeightCm == null ||
-                    physicalWidthCm <= 0 ||
-                    physicalHeightCm <= 0
+                    selected.widthCm == null ||
+                    selected.heightCm == null ||
+                    selected.widthCm <= 0 ||
+                    selected.heightCm <= 0
                   ) {
                     return;
                   }
                   mutatePlacement(selected.id, {
-                    widthCm: Number(physicalWidthCm.toFixed(2)),
-                    heightCm: Number(physicalHeightCm.toFixed(2)),
+                    widthCm: selected.heightCm,
+                    heightCm: selected.widthCm,
                   });
                 };
-                const applyCutoutAspect = () => {
-                  if (
-                    imageAspectForSuggestion == null ||
-                    selected.widthCm == null ||
-                    selected.heightCm == null
-                  ) {
-                    return;
-                  }
-                  // Same "keep long axis" behaviour as the legacy
-                  // aspect-mismatch card — freeze whichever
-                  // placement axis is longer and derive the shorter
-                  // from the image aspect. Preserves the user's
-                  // hero size.
-                  const snapped = snapPlacementToCutoutAspect(
-                    selected.widthCm,
-                    selected.heightCm,
-                    imageAspectForSuggestion,
-                    1,
-                  );
-                  if (!snapped) return;
-                  mutatePlacement(selected.id, snapped);
-                };
-                function formatCmPair(w: number, h: number): string {
-                  const wDisp = cmDisplay(w);
-                  const hDisp = cmDisplay(h);
-                  const dp = sizeUnit === "in" ? 1 : 1;
-                  return `${wDisp.toFixed(dp)} × ${hDisp.toFixed(dp)}${unitSuffix}`;
-                }
                 return (
                   <div className="mt-3 space-y-3 text-sm text-zinc-700">
                     <div>
                       <div className="text-xs uppercase tracking-wide text-zinc-500">
                         {t("simulation.inspector.dimensions")}
                       </div>
-                      <div className="mt-1 flex items-center gap-2">
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
                         <label className="flex items-center gap-1">
                           <span className="text-xs text-zinc-500">
                             {t("simulation.inspector.width")}
@@ -3591,119 +3561,18 @@ function SpaceEditorContent({ id }: { id: string }) {
                             {unitSuffix}
                           </span>
                         </label>
+                        <button
+                          type="button"
+                          onClick={rotate90}
+                          className="ml-auto inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
+                          title={t("simulation.inspector.rotate")}
+                          aria-label={t("simulation.inspector.rotate")}
+                        >
+                          <span aria-hidden>↻</span>
+                          {t("simulation.inspector.rotate")}
+                        </button>
                       </div>
                     </div>
-                    {showSuggestedSize && (
-                      <div
-                        role="status"
-                        className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span
-                            aria-hidden
-                            className="rounded-md bg-sky-600/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-                          >
-                            {t("simulation.inspector.suggestedSize.badge")}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium">
-                              {t("simulation.inspector.suggestedSize.title")}
-                            </p>
-                            <p className="mt-0.5 text-[11px] text-sky-800/90">
-                              {t("simulation.inspector.suggestedSize.hint")}
-                            </p>
-                            {selected.widthCm != null &&
-                              selected.heightCm != null && (
-                                <p className="mt-1 text-[11px] text-sky-800/80">
-                                  {t(
-                                    "simulation.inspector.suggestedSize.current",
-                                  ).replace(
-                                    "{size}",
-                                    formatCmPair(
-                                      selected.widthCm,
-                                      selected.heightCm,
-                                    ),
-                                  )}
-                                </p>
-                              )}
-                          </div>
-                        </div>
-                        <div className="mt-2 flex flex-col gap-1.5">
-                          {physicalMismatch &&
-                            physicalWidthCm != null &&
-                            physicalHeightCm != null && (
-                              <button
-                                type="button"
-                                onClick={applyPhysicalDims}
-                                className="flex items-center justify-between gap-2 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-sky-900 hover:bg-sky-100"
-                              >
-                                <span className="min-w-0 flex-1 truncate text-left">
-                                  {t(
-                                    "simulation.inspector.suggestedSize.applyPhysical",
-                                  ).replace(
-                                    "{size}",
-                                    formatCmPair(
-                                      physicalWidthCm,
-                                      physicalHeightCm,
-                                    ),
-                                  )}
-                                </span>
-                                <span
-                                  aria-hidden
-                                  className="text-sky-700"
-                                >
-                                  →
-                                </span>
-                              </button>
-                            )}
-                          {cutoutSuggestionMismatch &&
-                            imageAspectForSuggestion != null &&
-                            selected.widthCm != null &&
-                            selected.heightCm != null &&
-                            (() => {
-                              const preview = snapPlacementToCutoutAspect(
-                                selected.widthCm,
-                                selected.heightCm,
-                                imageAspectForSuggestion,
-                                1,
-                              );
-                              if (!preview) return null;
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={applyCutoutAspect}
-                                  className="flex items-center justify-between gap-2 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-sky-900 hover:bg-sky-100"
-                                >
-                                  <span className="min-w-0 flex-1 truncate text-left">
-                                    {t(
-                                      "simulation.inspector.suggestedSize.applyCutout",
-                                    ).replace(
-                                      "{size}",
-                                      formatCmPair(
-                                        preview.widthCm,
-                                        preview.heightCm,
-                                      ),
-                                    )}
-                                  </span>
-                                  <span
-                                    aria-hidden
-                                    className="text-sky-700"
-                                  >
-                                    →
-                                  </span>
-                                </button>
-                              );
-                            })()}
-                          <button
-                            type="button"
-                            onClick={() => dismissSuggestedSize(selected.id)}
-                            className="self-start rounded-lg px-2.5 py-1 text-[11px] font-medium text-sky-800 hover:text-sky-900"
-                          >
-                            {t("simulation.inspector.suggestedSize.keepAsIs")}
-                          </button>
-                        </div>
-                      </div>
-                    )}
                     <div>
                       <label
                         htmlFor="rot-z-input"
@@ -3786,11 +3655,14 @@ function SpaceEditorContent({ id }: { id: string }) {
                       Cutout CTAs (Phase 2 painting isolation).
                       Track 1 (bbox crop) is always visible when the
                       artwork has no bbox cutout yet — free, one-shot,
-                      no gating. Track 2 (Photoroom alpha) is labelled
-                      "Pro" and shows a "Beta 무료 사용 가능" hint
-                      while `PLAN_FEATURE_MATRIX` is unlocked for all
-                      plans. Both re-fetch the space on success so
-                      the renderer picks the new sibling row.
+                      no gating. Track 2 (Photoroom alpha) is gated
+                      behind `NEXT_PUBLIC_PHOTOROOM_ENABLED` and hidden
+                      entirely (button + caption) when the environment
+                      hasn't opted in — the server key check is a
+                      belt-and-braces safety net for that gate.
+                      The section itself is hidden when there's nothing
+                      for the user to do (existing cutout + Pro
+                      disabled).
                     */}
                     {artwork?.imageUrl && (
                       <div>
@@ -3812,7 +3684,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                                 : t("simulation.cutout.bbox.cta")}
                             </button>
                           )}
-                          {!hasAlphaCutout && (
+                          {photoroomEnabled && !hasAlphaCutout && (
                             <button
                               type="button"
                               onClick={() =>
@@ -3836,7 +3708,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                               : t("simulation.cutout.applied.bbox")}
                           </p>
                         )}
-                        {!hasAlphaCutout && (
+                        {photoroomEnabled && !hasAlphaCutout && (
                           <p className="mt-1 text-[11px] text-zinc-500">
                             {t("simulation.cutout.alpha.betaHint")}
                           </p>
@@ -3860,96 +3732,118 @@ function SpaceEditorContent({ id }: { id: string }) {
             )}
           </div>
 
-          {photoUrl && (
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="text-sm font-medium text-zinc-700 hover:text-zinc-900 disabled:opacity-50"
-                disabled={uploadBusy}
-              >
-                {uploadBusy
-                  ? t("simulation.create.submitting")
-                  : t("simulation.editor.replacePhoto")}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleUploadPhoto(f);
-                }}
-              />
-            </div>
-          )}
+          {/*
+            2026-08-19 (UX simplification patch):
+              • The standalone "사진 교체" button in the inspector is
+                gone. Users now remove the current photo via the
+                bottom-right canvas FAB and re-upload from the
+                canvas's own "사진을 업로드하세요" affordance. Removing
+                the redundant sidebar button collapses the mental
+                model to a single "canvas-owned" photo flow.
+              • The old collapsible "정확한 스케일 (고급)" accordion is
+                replaced by the required-calibration overlay above
+                the canvas. Post-setup edits live in the compact
+                "벽 크기" card below, which only renders once the
+                wall has a scale (surfaceHasScale). Hidden fields for
+                the "고급" jargon are removed entirely.
+          */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleUploadPhoto(f);
+            }}
+          />
 
-          <details className="group rounded-2xl border border-zinc-200 bg-white p-4 open:pb-4">
-            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-zinc-900 marker:hidden">
-              <span>{t("simulation.wall.advancedTitle")}</span>
-              <span
-                aria-hidden
-                className="text-xs text-zinc-400 transition-transform group-open:rotate-180"
-              >
-                ▾
-              </span>
-            </summary>
-            <p className="mt-2 text-xs text-zinc-500">
-              {t("simulation.wall.advancedHint")}
-            </p>
-            <div className="mt-3 space-y-2 text-sm">
-              <label className="flex items-center justify-between gap-2">
-                <span className="text-xs text-zinc-500">
-                  {t("simulation.wall.width")} ({displayUnit})
-                </span>
-                <input
-                  type="number"
-                  step={displayUnit === "m" ? "0.01" : displayUnit === "ft" ? "0.1" : "1"}
-                  value={
-                    primarySurface?.widthCm != null
-                      ? Number(
-                          (primarySurface.widthCm / wallUnitFactor).toFixed(
-                            wallUnitDecimals,
-                          ),
-                        )
-                      : ""
-                  }
-                  onChange={(e) => {
-                    const raw = parseFloat(e.target.value);
-                    void handleWallDims({
-                      widthCm: Number.isFinite(raw) ? raw * wallUnitFactor : null,
-                    });
-                  }}
-                  className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
-                />
-              </label>
-              <label className="flex items-center justify-between gap-2">
-                <span className="text-xs text-zinc-500">
-                  {t("simulation.wall.height")} ({displayUnit})
-                </span>
-                <input
-                  type="number"
-                  step={displayUnit === "m" ? "0.01" : displayUnit === "ft" ? "0.1" : "1"}
-                  value={
-                    primarySurface?.heightCm != null
-                      ? Number(
-                          (primarySurface.heightCm / wallUnitFactor).toFixed(
-                            wallUnitDecimals,
-                          ),
-                        )
-                      : ""
-                  }
-                  onChange={(e) => {
-                    const raw = parseFloat(e.target.value);
-                    void handleWallDims({
-                      heightCm: Number.isFinite(raw) ? raw * wallUnitFactor : null,
-                    });
-                  }}
-                  className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
-                />
-              </label>
-              {photoUrl && (
+          {photoUrl && surfaceHasScale && (
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-900">
+                    {t("simulation.wall.card.title")}
+                  </h2>
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    {t("simulation.wall.card.hint")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleReopenCalibrationOverlay}
+                  className="whitespace-nowrap rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  {t("simulation.wall.card.reopen")}
+                </button>
+              </div>
+              <div className="mt-3 space-y-2 text-sm">
+                <label className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-zinc-500">
+                    {t("simulation.wall.width")} ({displayUnit})
+                  </span>
+                  <input
+                    type="number"
+                    step={
+                      displayUnit === "m"
+                        ? "0.01"
+                        : displayUnit === "ft"
+                          ? "0.1"
+                          : "1"
+                    }
+                    value={
+                      primarySurface?.widthCm != null
+                        ? Number(
+                            (primarySurface.widthCm / wallUnitFactor).toFixed(
+                              wallUnitDecimals,
+                            ),
+                          )
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value);
+                      void handleWallDims({
+                        widthCm: Number.isFinite(raw)
+                          ? raw * wallUnitFactor
+                          : null,
+                      });
+                    }}
+                    className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-zinc-500">
+                    {t("simulation.wall.height")} ({displayUnit})
+                  </span>
+                  <input
+                    type="number"
+                    step={
+                      displayUnit === "m"
+                        ? "0.01"
+                        : displayUnit === "ft"
+                          ? "0.1"
+                          : "1"
+                    }
+                    value={
+                      primarySurface?.heightCm != null
+                        ? Number(
+                            (primarySurface.heightCm / wallUnitFactor).toFixed(
+                              wallUnitDecimals,
+                            ),
+                          )
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value);
+                      void handleWallDims({
+                        heightCm: Number.isFinite(raw)
+                          ? raw * wallUnitFactor
+                          : null,
+                      });
+                    }}
+                    className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
+                  />
+                </label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -3962,43 +3856,6 @@ function SpaceEditorContent({ id }: { id: string }) {
                   </button>
                   <button
                     type="button"
-                    onClick={startManualMeasure}
-                    className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-50"
-                  >
-                    {t("simulation.calibrate.manual")}
-                  </button>
-                  {/*
-                    Manual re-trigger for the AI calibration card.
-                    Shown only when the space still has an unset scale
-                    (widthCm null AND photoCorners null) so users who
-                    already calibrated don't accidentally re-run the
-                    AI + risk overwriting a good value on Apply. The
-                    pref must also be on — hides the button entirely
-                    for users who opted out at Settings.
-                  */}
-                  {aiCalibrationEnabled &&
-                    !primarySurface?.widthCm &&
-                    !primarySurface?.photoCorners && (
-                      <button
-                        type="button"
-                        onClick={() => void handleManualAiRetrigger()}
-                        disabled={calibrateBusy}
-                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
-                      >
-                        {calibrateBusy
-                          ? t("simulation.calibrate.retriggering")
-                          : t("simulation.calibrate.retrigger")}
-                      </button>
-                    )}
-                  {/*
-                    Manual "벽 정돈 다시 실행" — same shape as the AI
-                    retrigger. Always available when a photo exists
-                    (unlike calibration, cleanup is idempotent —
-                    re-running against `photo_original_storage_path`
-                    just produces a fresh cleaned copy).
-                  */}
-                  <button
-                    type="button"
                     onClick={() => void handleManualWallCleanupRetry()}
                     disabled={wallCleanupBusy}
                     className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
@@ -4008,46 +3865,44 @@ function SpaceEditorContent({ id }: { id: string }) {
                       : t("simulation.wallCleanup.retry")}
                   </button>
                 </div>
-              )}
-              {/*
-                P1 (2026-08-19) — "원본 사용 / Use original" toggle.
-                Only rendered when the auto wall-cleanup produced a
-                distinct variant (i.e. `photo_original_storage_path`
-                exists and DIFFERS from `photo_storage_path`). Toggling
-                on swaps `photo_storage_path` back to the untouched
-                original so users who feel the cleanup is too
-                aggressive have an escape hatch — but the AUTO decision
-                to run cleanup on upload is unchanged, per the "no
-                options at upload" directive.
-              */}
-              {space.photoOriginalStoragePath &&
-                space.photoStoragePath &&
-                space.photoOriginalStoragePath !==
-                  space.photoStoragePath && (
-                  <label className="mt-3 flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 text-xs text-zinc-700">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={
-                        space.photoStoragePath ===
-                        space.photoOriginalStoragePath
-                      }
-                      onChange={(e) =>
-                        void handleTogglePhotoVariant(e.target.checked)
-                      }
-                    />
-                    <span className="flex-1">
-                      <span className="font-medium text-zinc-800">
-                        {t("simulation.wallCleanup.useOriginal.label")}
+                {/*
+                  P1 (2026-08-19) — "원본 사용 / Use original" toggle.
+                  Only rendered when the auto wall-cleanup produced a
+                  distinct variant (i.e. `photo_original_storage_path`
+                  exists and DIFFERS from `photo_storage_path`). Kept
+                  in the "벽 크기" card because it's an escape hatch
+                  for the wall-cleanup pass, which is conceptually
+                  adjacent to wall calibration.
+                */}
+                {space.photoOriginalStoragePath &&
+                  space.photoStoragePath &&
+                  space.photoOriginalStoragePath !==
+                    space.photoStoragePath && (
+                    <label className="mt-3 flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 text-xs text-zinc-700">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={
+                          space.photoStoragePath ===
+                          space.photoOriginalStoragePath
+                        }
+                        onChange={(e) =>
+                          void handleTogglePhotoVariant(e.target.checked)
+                        }
+                      />
+                      <span className="flex-1">
+                        <span className="font-medium text-zinc-800">
+                          {t("simulation.wallCleanup.useOriginal.label")}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-zinc-500">
+                          {t("simulation.wallCleanup.useOriginal.hint")}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block text-[11px] text-zinc-500">
-                        {t("simulation.wallCleanup.useOriginal.hint")}
-                      </span>
-                    </span>
-                  </label>
-                )}
+                    </label>
+                  )}
+              </div>
             </div>
-          </details>
+          )}
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">
@@ -4075,6 +3930,342 @@ function SpaceEditorContent({ id }: { id: string }) {
           </div>
         </aside>
       </div>
+
+      {/*
+        Display Simulation (2026-08-19) — Required-calibration overlay.
+        Renders as a blocking modal centered over the whole viewport
+        (z-40, same layer as the corner picker) so canvas interactions
+        are gated until the user calibrates or explicitly defers.
+        `overlayForced` bypasses the deferral check for the post-setup
+        "벽 크기 다시 설정" affordance.
+
+        Content is a single stacked card with two options + a defer
+        link:
+          A) AI-detected object. Uses the existing `calibrateCandidates`
+             pipeline. The AI runs on mount via the pre-existing
+             auto-fire useEffect further above; when candidates are
+             available we render the same input row that used to live
+             in the floating card. "다른 물건" cycles.
+          B) Direct wall dims. Two inputs (width/height) in the current
+             display unit; on Apply we call `handleApplyDirectWallDims`
+             which sets `space_surfaces.width_cm/height_cm` and clears
+             `spaces.calibration_deferred_at`.
+        Manual 2-point tap-to-measure is exposed as a link inside
+        Option B; clicking it closes the overlay temporarily (measure
+        needs canvas visibility), and cancelling the measure re-opens
+        the overlay automatically (see `showCalibrationOverlay`).
+      */}
+      {showCalibrationOverlay && (() => {
+        const activeCandidate =
+          calibrateCandidates.length > 0
+            ? calibrateCandidates[calibrateIdx]
+            : null;
+        const aiLabel = activeCandidate
+          ? locale === "ko"
+            ? activeCandidate.label_ko
+            : activeCandidate.label_en
+          : "";
+        const aiAsk = activeCandidate
+          ? locale === "ko"
+            ? activeCandidate.ask_ko
+            : activeCandidate.ask_en
+          : "";
+        const aiRangeHint = activeCandidate
+          ? t("simulation.calibrate.rangeHint")
+              .replace(
+                "{min}",
+                String(
+                  Number(
+                    formatCmForUnit(
+                      activeCandidate.typical_range_cm.min,
+                      displayUnit,
+                    ),
+                  ),
+                ),
+              )
+              .replace(
+                "{max}",
+                String(
+                  Number(
+                    formatCmForUnit(
+                      activeCandidate.typical_range_cm.max,
+                      displayUnit,
+                    ),
+                  ),
+                ),
+              )
+              .replace("{unit}", displayUnit)
+          : "";
+        const aiPlaceholder = activeCandidate
+          ? formatCmForUnit(typicalMidpoint(activeCandidate), displayUnit)
+          : "";
+        return (
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calibrate-overlay-title"
+          >
+            <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+              <h2
+                id="calibrate-overlay-title"
+                className="text-base font-semibold text-zinc-900"
+              >
+                {t("simulation.calibrate.overlay.title")}
+              </h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                {t("simulation.calibrate.overlay.subtitle")}
+              </p>
+
+              <section className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-900">
+                  {t("simulation.calibrate.overlay.aiTitle")}
+                </h3>
+                {calibrateBusy && !activeCandidate ? (
+                  <p className="mt-2 text-xs text-emerald-800">
+                    {t("simulation.calibrate.overlay.aiDetecting")}
+                  </p>
+                ) : activeCandidate ? (
+                  <>
+                    <p className="mt-2 text-xs text-emerald-800">
+                      {t("simulation.calibrate.overlay.aiHint").replace(
+                        "{label}",
+                        aiLabel,
+                      )}
+                    </p>
+                    <p className="mt-1 text-[11px] text-emerald-700/90">
+                      {aiAsk}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-2 py-1.5">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.5"
+                          min={1}
+                          value={calibrateInputCm}
+                          onChange={(e) =>
+                            setCalibrateInputCm(e.target.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleApplyCalibrateCandidate();
+                            }
+                          }}
+                          placeholder={aiPlaceholder}
+                          className="w-24 rounded border-0 px-1 py-0.5 text-sm outline-none focus:ring-0"
+                          aria-label={aiAsk}
+                        />
+                        <span className="text-xs text-zinc-500">
+                          {displayUnit}
+                        </span>
+                      </label>
+                      <span className="text-[11px] text-emerald-700">
+                        {aiRangeHint}
+                      </span>
+                      <div className="ml-auto flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleApplyCalibrateCandidate()
+                          }
+                          disabled={!parseFloat(calibrateInputCm)}
+                          className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                        >
+                          {t("simulation.calibrate.apply")}
+                        </button>
+                        {calibrateCandidates.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={handleCycleCandidate}
+                            className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                          >
+                            {t("simulation.calibrate.tryAnother")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-2 text-xs text-emerald-800">
+                      {t("simulation.calibrate.overlay.aiEmpty")}
+                    </p>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleManualAiRetrigger()}
+                        disabled={calibrateBusy}
+                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {calibrateBusy
+                          ? t("simulation.calibrate.retriggering")
+                          : t("simulation.calibrate.overlay.retryAi")}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </section>
+
+              <section className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-900">
+                  {t("simulation.calibrate.overlay.directTitle")}
+                </h3>
+                <p className="mt-2 text-xs text-zinc-500">
+                  {t("simulation.calibrate.overlay.directHint")}
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-zinc-500">
+                      {t("simulation.calibrate.overlay.directWidth")} (
+                      {displayUnit})
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step={
+                        displayUnit === "m"
+                          ? "0.01"
+                          : displayUnit === "ft"
+                            ? "0.1"
+                            : "1"
+                      }
+                      value={overlayWallW}
+                      onChange={(e) => setOverlayWallW(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleApplyDirectWallDims();
+                        }
+                      }}
+                      className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-zinc-500">
+                      {t("simulation.calibrate.overlay.directHeight")} (
+                      {displayUnit})
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step={
+                        displayUnit === "m"
+                          ? "0.01"
+                          : displayUnit === "ft"
+                            ? "0.1"
+                            : "1"
+                      }
+                      value={overlayWallH}
+                      onChange={(e) => setOverlayWallH(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleApplyDirectWallDims();
+                        }
+                      }}
+                      className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleApplyDirectWallDims()}
+                    disabled={
+                      !parseFloat(overlayWallW) ||
+                      !parseFloat(overlayWallH)
+                    }
+                    className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
+                  >
+                    {t("simulation.calibrate.overlay.directApply")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Temporarily hide the overlay so users can see
+                      // the canvas to drop two points. Cancelling the
+                      // measure returns `measureState.phase` to "idle"
+                      // and the overlay re-shows via the derived
+                      // `showCalibrationOverlay` guard.
+                      setOverlayForced(false);
+                      startManualMeasure();
+                    }}
+                    className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900"
+                  >
+                    {t("simulation.calibrate.overlay.manualLink")}
+                  </button>
+                </div>
+              </section>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void handleDeferCalibration()}
+                  className="text-xs font-medium text-zinc-500 underline hover:text-zinc-800"
+                >
+                  {t("simulation.calibrate.overlay.later")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/*
+        Display Simulation (2026-08-19) — "사진 삭제" confirm dialog.
+        Fires from the canvas bottom-right FAB. Confirmed action wipes
+        the space's photo, resets the wall scale, and drops every
+        placement (see `deleteSpacePhotoAndReset`); the space itself
+        stays alive so the user lands on the empty "사진을 업로드하세요"
+        state within the same URL.
+      */}
+      {removePhotoConfirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-photo-title"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !removePhotoBusy) {
+              setRemovePhotoConfirmOpen(false);
+            }
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+            <h3
+              id="remove-photo-title"
+              className="text-sm font-semibold text-zinc-900"
+            >
+              {t("simulation.canvas.removePhoto.confirm.title")}
+            </h3>
+            <p className="mt-2 text-xs text-zinc-600">
+              {t("simulation.canvas.removePhoto.confirm.body")}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRemovePhotoConfirmOpen(false)}
+                disabled={removePhotoBusy}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {t("simulation.canvas.removePhoto.confirm.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmRemovePhoto()}
+                disabled={removePhotoBusy}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {removePhotoBusy
+                  ? t("simulation.canvas.removePhoto.busy")
+                  : t("simulation.canvas.removePhoto.confirm.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {cornersOpen && photoUrl && primarySurface && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">

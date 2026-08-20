@@ -15,6 +15,7 @@
   - `NEXT_PUBLIC_SIGNUP_V2` — Signup v2 wizard feature flag (2026-08-20). 초기값 `false`. `true` 로 두면 `/signup` 신규 마법사 + 리디자인된 로그인 화면이 노출된다. Phase 6 롤아웃 시 10% → 100% 램프 예정. 상세는 `docs/SIGNUP_REDESIGN_SPEC.md` §6/§11.
   - 초대 메일 사용 시: SENDGRID_API_KEY, INVITE_FROM_EMAIL
   - (optional) `PHOTOROOM_API_KEY` — Theo Image Enhance (Beta) 의 "Object" 파이프라인 + Display Simulation Phase 2 의 Track 2 (`/api/ai/artwork-cutout-alpha`, 투명 PNG cutout). 서버 전용 (NEXT_PUBLIC_ prefix 붙이지 말 것). 미설정 시 Object 모드는 `provider_unauthorized` fallback 을 반환하고, Track 2 cutout 라우트는 501 을 반환한다. Track 1 (무료 Vision bbox 크롭) 은 영향 없음.
+  - `NEXT_PUBLIC_PHOTOROOM_ENABLED` — Space Editor 의 "고급 배경 분리 (Pro)" 버튼 노출 여부. 초기값 `false` (버튼 완전히 숨김). `PHOTOROOM_API_KEY` 를 서버에 설정한 다음에만 `true` 로 뒤집는다. false 인데 true 로 두면 UI 는 뜨지만 클릭 시 501 토스트만 뜨므로 사용자가 "기능 고장" 으로 오인함. 두 환경변수는 항상 함께 뒤집는다.
   - Theo Board 발행 시: `THEO_BOARD_PUBLISH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` (서버 전용). 발행: `THEO_BOARD_PUBLISH_TOKEN=... npm run publish:theo -- --title "..." --type announcement`
 
 3) Run
@@ -60,6 +61,7 @@
 
   Theo Image Enhance (Beta, 2026-08-05) — "Object" 파이프라인 사용 시:
 - **PHOTOROOM_API_KEY** — [Photoroom SDK](https://sdk.photoroom.com) 의 세그멘테이션 API 키. 서버 전용(Server-side Only). `NEXT_PUBLIC_` prefix 붙이면 안 된다. 두 곳에서 사용된다: (1) Theo Image Enhance (Beta) Object 파이프라인, (2) Display Simulation Phase 2 — Track 2 (`/api/ai/artwork-cutout-alpha`) 로 시뮬레이션용 투명 PNG cutout 을 생성. 미설정 시 (1) Object 모드는 `provider_unauthorized` fallback 을 반환하고 flat 파이프라인만 동작, (2) Track 2 cutout 라우트는 HTTP 501 로 응답한다 (Track 1 무료 Vision bbox 크롭은 계속 작동).
+- **NEXT_PUBLIC_PHOTOROOM_ENABLED** (public) — Space Editor 의 "고급 배경 분리 (Pro)" 버튼 노출 스위치. 기본 `false` (미노출). `PHOTOROOM_API_KEY` 를 실제로 서버에 세팅한 뒤에만 `true` 로 뒤집는다. `true` 인데 서버 키가 없으면 사용자는 501 토스트만 계속 보게 되므로 두 값을 함께 관리한다.
 
   Theo Board (2026-08-13) — 발행 API / CLI. **둘 다 서버 전용** (`NEXT_PUBLIC_` 붙이지 말 것):
 - **THEO_BOARD_PUBLISH_TOKEN** — CLI(및 향후 Slack)가 `POST /api/theo-board/*` 에 보내는 Bearer 시크릿. 긴 랜덤 문자열.

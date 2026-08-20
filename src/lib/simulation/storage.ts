@@ -245,6 +245,103 @@ export async function uploadSpacePhoto(
  * treat a cleanup upload failure as "cleanup skipped silently" without
  * a try/catch — matches every other lib function in this module.
  */
+/**
+ * Display Simulation (2026-08-19) — "사진 삭제" FAB on the canvas.
+ *
+ * Wipes every artefact tied to the current room photo for a single
+ * space so the user is bounced back to the empty "사진을 업로드하세요"
+ * state within the SAME space. Does NOT delete the space itself —
+ * that lives on `/my/spaces`.
+ *
+ * Steps (best-effort, storage errors are logged but non-fatal so a
+ * DB-level cleanup still runs to completion):
+ *   1. Read the current photo paths from `spaces` (both the display
+ *      copy and the untouched original + the optional `photo_cleaned`
+ *      sibling written by `replaceSpacePhotoWithCleaned`). We list
+ *      the space's storage prefix and delete every key under it so
+ *      any legacy suffix (`.jpg`, `.png`, `.webp`, `_cleaned.jpg`)
+ *      is swept in one shot.
+ *   2. Delete all `space_placements` rows for the space (drops every
+ *      hung artwork).
+ *   3. Reset the wall surface — `widthCm=null, heightCm=null,
+ *      photoCorners=null` so the required calibration overlay
+ *      reappears on the next photo upload.
+ *   4. Patch the `spaces` row: clear `photoStoragePath`,
+ *      `photoOriginalStoragePath`, `photoWidthPx`, `photoHeightPx`,
+ *      and clear the `calibrationDeferredAt` timestamp (so a
+ *      re-upload gets the setup gate again as intended).
+ *
+ * All four steps run against the same RLS-scoped client (`updateSpace`
+ * / `updateSurface` / `deletePlacement` reuse the same primitives the
+ * editor already relies on, so no new server-side plumbing is needed).
+ */
+export async function deleteSpacePhotoAndReset(
+  spaceId: string,
+  options: { client?: SupabaseClient } = {},
+): Promise<{ error: unknown }> {
+  const client = options.client ?? defaultClient;
+  if (!spaceId) return { error: new Error("spaceId required") };
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+  const userId = session?.user?.id;
+  if (!userId) return { error: new Error("Not authenticated") };
+
+  // Sweep every file under this space's storage prefix. Listing lets
+  // us catch legacy naming (`photo.jpg` from very old uploads +
+  // `photo_cleaned.jpg` from Track-1 auto-cleanup) without hard-coding
+  // suffixes here.
+  const prefix = `${userId}/spaces/${spaceId}`;
+  const { data: entries, error: listErr } = await client.storage
+    .from(BUCKET)
+    .list(prefix);
+  if (listErr && process.env.NODE_ENV !== "production") {
+    console.warn("[simulation/storage] list before delete failed", listErr);
+  }
+  const paths = (entries ?? []).map((e) => `${prefix}/${e.name}`);
+  if (paths.length > 0) {
+    const { error: rmErr } = await client.storage.from(BUCKET).remove(paths);
+    if (rmErr && process.env.NODE_ENV !== "production") {
+      console.warn("[simulation/storage] storage remove failed", rmErr);
+    }
+  }
+
+  // Drop every placement in a single round trip. RLS on
+  // `space_placements` scopes by owner.
+  const { error: dropPlacementsErr } = await client
+    .from("space_placements")
+    .delete()
+    .eq("space_id", spaceId);
+  if (dropPlacementsErr) return { error: dropPlacementsErr };
+
+  // Reset the wall surface (surface_index=0 for `room_photo_2d`).
+  const { error: resetSurfaceErr } = await client
+    .from("space_surfaces")
+    .update({
+      width_cm: null,
+      height_cm: null,
+      photo_corners: null,
+    })
+    .eq("space_id", spaceId);
+  if (resetSurfaceErr) return { error: resetSurfaceErr };
+
+  // Clear photo columns + calibration deferral on the space header.
+  const { error: patchErr } = await updateSpace(
+    spaceId,
+    {
+      photoStoragePath: null,
+      photoOriginalStoragePath: null,
+      photoWidthPx: null,
+      photoHeightPx: null,
+      calibrationDeferredAt: null,
+    },
+    { client },
+  );
+  if (patchErr) return { error: patchErr };
+
+  return { error: null };
+}
+
 export async function replaceSpacePhotoWithCleaned(
   spaceId: string,
   cleanedBlob: Blob,

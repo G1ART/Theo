@@ -441,6 +441,8 @@ Return a JSON object with:
   - EXCLUDE any matte (the coloured card between glass and image on framed prints).
   - EXCLUDE any floor, table, easel, or props visible in an in-situ shot.
   - EXCLUDE any solid-color padding or letterboxing added to the photo file.
+  - When strong shadows or window glare fall NEAR the painting boundary, DO NOT include the shadow region in the painting bbox. The shadow is part of the surrounding wall, not the painting.
+  - Look for the geometric rectangular boundary of the painted surface, ignoring lighting artifacts.
   - Prefer a slightly loose bbox that keeps a tiny sliver of frame / edge visible over one that clips into the painting itself. Losing a pixel of art is worse than keeping a pixel of frame.
 
   Edge-by-edge inspection procedure (required, do not skip):

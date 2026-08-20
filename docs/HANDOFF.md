@@ -2,6 +2,150 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (40) — Space Editor UX 단순화 (5대 pain point 일괄 정리)
+
+> **Supabase SQL 적용 필요:**
+> `supabase/migrations/20260819230000_space_calibration_deferred_at.sql`
+> (Supabase MCP `apply_migration` 로 실행 완료 — column exists 검증됨).
+>
+> **환경 변수 추가:**
+> `NEXT_PUBLIC_PHOTOROOM_ENABLED` (기본 `"false"`). `.env.example` /
+> `docs/03_RUNBOOK.md` 갱신됨. **Vercel Env 에도 추가 필요** — 값 `false`
+> 로 배포 후, 서버 `PHOTOROOM_API_KEY` 를 설정할 때 함께 `true` 로
+> 뒤집는다 (둘 중 하나만 켜면 UX 회귀 발생).
+
+### 배경 — 유저가 반복 지적한 5가지
+
+1. "Pro 고급배경분리" 버튼이 늘 보이는데 서버 키 미설정 → 매번 501
+   토스트. UX 오염.
+2. 인스펙터가 복잡. "사진비율 / 물리 크기 / 두 시스템의 로직" 이라는
+   내부 용어가 사용자에게 새어나가고, `Suggested size` 카드의 auto-snap
+   이 이미 잘 등록된 실측을 사진 aspect 로 눌러버리는 회귀 유발.
+3. Track 1 잘라내기가 개선됐지만 여전히 좌측 그림자를 그림 경계에
+   포함시키는 경우가 남음.
+4. 벽 스케일이 "고급" 아코디언 안에 숨어 있어 필수 스텝인데도 대부분의
+   유저가 건너뜀 → 시뮬레이션이 부정확.
+5. 인스펙터 사이드바의 "사진 교체" 버튼 위치가 어색.
+
+### 변경 요약 — Fix 1 · Photoroom Pro 버튼 hide-gate
+
+- `src/lib/simulation/photoroomEnabled.ts` 신설. 빌드 타임 노출
+  플래그 `NEXT_PUBLIC_PHOTOROOM_ENABLED`("true" 이외는 모두 false)
+  를 읽는 `isPhotoroomEnabled(): boolean` export.
+- 인스펙터 cutout 섹션에서 Pro 버튼과 그 caption 을 조건부로 완전히
+  숨김. 서버의 `PHOTOROOM_API_KEY` 는 belt-and-braces 그대로.
+- `.env.example` + `docs/03_RUNBOOK.md` env 섹션 업데이트.
+
+### 변경 요약 — Fix 2 · "제안된 크기" 카드 + auto-snap 완전 폐기
+
+- `snapPlacementToCutoutAspect` 호출 제거 (`refreshArtworkThumb` 는
+  더 이상 placement dims 를 만지지 않음). cutout 는 렌더러가 자동으로
+  올바른 aspect 로 그리되, `space_placements.width_cm/height_cm` 는
+  오직 `artworks.width_cm/height_cm` (실측) 로만 결정.
+- Suggested-size 카드 전체 삭제. dismiss LS 키 / `dismissedSuggestedSize`
+  상태 / `ASPECT_MISMATCH_THRESHOLD` 상수 정리.
+- 폴백: 첫 tap-to-place 때 artwork 에 dims 가 없으면 50×70cm 로
+  배치하고 토스트로 안내 (`simulation.inspector.fallbackSizeToast`).
+- 인스펙터에 90° 회전 버튼 신설 (`simulation.inspector.rotate`) —
+  선택한 placement 의 widthCm ↔ heightCm 만 스왑, artwork 로우는
+  건드리지 않음 (다른 유저의 placement 로 오염되지 않도록).
+- i18n 정리: `simulation.inspector.suggestedSize.*` /
+  `simulation.inspector.aspectMismatch.*` 완전 삭제 (grep 결과 0
+  caller). `simulation.editor.fallbackSizeApplied` deprecated 주석
+  전환.
+
+### 변경 요약 — Fix 3 · 벽 스케일을 required setup step 으로 승격
+
+- 새 마이그레이션 `20260819230000_space_calibration_deferred_at.sql` —
+  `spaces.calibration_deferred_at timestamptz` (nullable, add if not
+  exists). MCP `apply_migration` 로 실행 완료.
+- `SceneSpace.calibrationDeferredAt` 필드 추가. `rowToSceneSpace` /
+  insert / update payload / validator / `SPACE_SELECT` 전부 반영.
+- `SpaceEditor` 내부에 blocking `CalibrationSetupOverlay` 신설. 조건:
+  `photoUrl && primarySurface && (overlayForced || (!surfaceHasScale &&
+  !calibrationDeferred))`.
+  - **Option A** (AI-detected object): 기존 `runAiCalibrationFromCurrentPhoto`
+    가 마운트에서 자동 fire (auto-fire useEffect). 후보 있으면
+    라벨/설명/실측 입력, "다른 물건" 사이클, apply 시 pxPerCm 계산.
+    후보 없으면 "AI 다시 요청" 버튼.
+  - **Option B** (Direct wall dims): 벽 width/height 를 현재 display
+    unit(m/cm/in/ft) 로 입력 → `handleApplyDirectWallDims` 가 곧바로
+    `updateSurface(...)` + `updateSpace(calibrationDeferredAt: null)`.
+  - "사진에서 직접 재기 →" 링크 → 오버레이 잠시 접고 `startManualMeasure`.
+    측정 취소 시 자동 재open (`measureState.phase === 'idle'` 가드).
+  - "나중에 설정" 링크 → `handleDeferCalibration` 이
+    `calibrationDeferredAt=now()` 를 stamp + 세션 미러 flag.
+- 오버레이 사라진 상태에서 벽 스케일 여전히 미설정이면 캔버스 상단에
+  `simulation.calibrate.banner.*` 배너 (지금 설정 CTA →
+  `handleReopenCalibrationOverlay`). 오버레이 재open 시 `overlayForced`
+  가 scale 존재 여부 게이트를 무시하도록 완화 (post-setup 재보정 지원).
+- 이전 floating "AI calibration card" 삭제 (오버레이가 그 역할을 흡수).
+- 이전 "정확한 스케일 (고급)" `<details>` 아코디언 삭제, 대신 스케일이
+  잡힌 뒤 노출되는 `simulation.wall.card.*` 카드 (width/height 입력
+  + 모서리 편집 + 벽 정돈 재실행 + 원본 사용 토글 + 다시 설정 버튼).
+
+### 변경 요약 — Fix 4 · 사진 교체 → 사진 삭제 FAB 로 대체
+
+- 인스펙터의 "사진 교체" 카드 제거. `simulation.editor.replacePhoto`
+  키는 deprecated 주석과 함께 남겨둠 (fallback rendering 안전).
+- 캔버스 우하단 절대 위치 FAB 신설 (`simulation.canvas.removePhoto`,
+  trash 아이콘 + 라벨). 오버레이/manual measure 중에는 숨김.
+- 확인 다이얼로그 → `handleConfirmRemovePhoto` → 신규 헬퍼
+  `deleteSpacePhotoAndReset(spaceId)`:
+  1. `storage.list({userId}/spaces/{spaceId})` 후 전 파일 remove
+     (`photo.webp`, `photo_original.<ext>`, `photo_cleaned.jpg` 등
+     레거시 suffix 모두 sweep).
+  2. `space_placements` 전 행 delete (space owner RLS 로 스코프됨).
+  3. `space_surfaces` widthCm / heightCm / photoCorners → null.
+  4. `spaces` photoStoragePath / photoOriginalStoragePath /
+     photoWidthPx / photoHeightPx / calibrationDeferredAt → null.
+- 성공 시 auto-fire refs, overlay/session flag, 선택/pending/measure/
+  cutout notice 를 모두 리셋 → 같은 공간의 "사진을 업로드하세요" 상태로
+  복귀. Space 자체는 삭제하지 않음 (그 액션은 `/my/spaces` 목록).
+
+### 변경 요약 — Fix 5 · Track 1 프롬프트 미세 튜닝
+
+- `ARTWORK_PAINTING_BBOX_SYSTEM` 에 두 줄 추가:
+  - "When strong shadows or window glare fall NEAR the painting
+    boundary, DO NOT include the shadow region in the painting
+    bbox. The shadow is part of the surrounding wall, not the
+    painting."
+  - "Look for the geometric rectangular boundary of the painted
+    surface, ignoring lighting artifacts."
+- **주의:** gpt-4o vision 의 근본적 한계 (그림자를 그림 경계로 오독)
+  는 프롬프트만으로 완전히 해결되지 않음. 사용자가 여전히 좌측
+  그림자를 남긴다고 지적한다면 Track 2(Photoroom alpha) 활성화가
+  최종 답. 이번 패치는 nudge only.
+
+### i18n 추가/삭제 요약
+
+- **추가**: `simulation.canvas.removePhoto.*`,
+  `simulation.calibrate.overlay.*`, `simulation.calibrate.banner.*`,
+  `simulation.wall.card.*` (모두 EN + KO).
+- **삭제**: `simulation.inspector.suggestedSize.*` /
+  `simulation.inspector.aspectMismatch.*` (커넥터 grep 0 매치).
+- **Deprecated (키 잔존, caller 없음)**: `simulation.editor.replacePhoto`,
+  `simulation.editor.fallbackSizeApplied` (comment-noted).
+
+### Verified
+
+- `npx tsc --noEmit` — 0 errors.
+- `npx eslint <touched files>` — 0 errors (1 pre-existing warning
+  at SpaceEditor.tsx:1301, unrelated to this patch).
+- `grep -r 'simulation\.inspector\.(suggestedSize|aspectMismatch)'`
+  → HANDOFF 기록 외 0 매치.
+- MCP smoke: `information_schema.columns` 에서
+  `spaces.calibration_deferred_at (timestamptz, nullable)` 존재 확인.
+
+### 배포 노트
+
+- Vercel Env 에 `NEXT_PUBLIC_PHOTOROOM_ENABLED=false` 를 추가한다
+  (없어도 helper 는 false 로 폴백하지만 배포 로그 상 명시 권장).
+- Photoroom 을 이후 활성화하려면 반드시 순서 준수:
+  1. 서버 `PHOTOROOM_API_KEY` 를 먼저 세팅 (Vercel Env).
+  2. 그 다음 `NEXT_PUBLIC_PHOTOROOM_ENABLED=true` 로 뒤집는다.
+  순서를 뒤집으면 UI 는 뜨지만 서버가 501 을 반환 → 회귀.
+
 ## 2026-08-19 (39) — Feed 스크롤+상태 스냅샷 복원 + "맨 위로" FAB
 
 > **Supabase SQL 적용 필요: 없음** — DB / RPC / RLS 는 손대지 않음.

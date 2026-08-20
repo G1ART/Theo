@@ -3943,6 +3943,11 @@ export const messages = {
     "simulation.editor.needsPhoto":
       "Upload a room photo to start hanging works.",
     "simulation.editor.uploadPhoto": "Upload photo",
+    // 2026-08-19 — deprecated: the standalone "Replace photo" button
+    // in the inspector was removed; users re-upload via the canvas's
+    // "Upload photo" affordance after removing the current photo
+    // through the bottom-right "Remove photo" FAB. Key retained so
+    // any stragglers don't render the raw key string.
     "simulation.editor.replacePhoto": "Replace photo",
     "simulation.editor.addArtwork": "+ Add artwork",
     "simulation.editor.emptyCanvas": "Add an artwork to begin",
@@ -3951,12 +3956,10 @@ export const messages = {
     "simulation.editor.locked":
       "This space is over your plan's limit. Existing works stay visible.",
     // P1 (2026-08-19) — Fallback size toast. Fires only when the picked
-    // artwork has no `width_cm` / `height_cm` yet (legacy uploads before
-    // the dimensions gate). We placed the work at 50 × 70 cm so the
-    // canvas still shows something usable; the inspector's dimension
-    // inputs let the collector correct the size.
-    "simulation.editor.fallbackSizeApplied":
-      "Real size wasn't set — showing at 50 × 70 cm. Adjust in the inspector.",
+    // 2026-08-19 (Suggested-size removal) — legacy fallback-size toast
+    // has moved under `simulation.inspector.fallbackSizeToast` so all
+    // sizing copy lives in one place. Key preserved here only as an
+    // in-code note; no callers remain.
     // P1 (2026-08-19) — Fires when the picked artwork has no structured
     // dims but the parser recovered them from the free-form `size`
     // string (e.g. legacy "91 X 91cm"). We placed at the real size and
@@ -3969,6 +3972,68 @@ export const messages = {
     "simulation.inspector.width": "Width",
     "simulation.inspector.height": "Height",
     "simulation.inspector.rotation": "Rotation",
+    // 2026-08-19 (Suggested-size removal) — small 90° swap button
+    // sitting next to width/height inputs. Swaps THIS placement's
+    // widthCm and heightCm only; does not touch the underlying
+    // artwork row. Handles the rare "portrait mis-tagged landscape"
+    // orientation case without re-introducing the auto-snap logic.
+    "simulation.inspector.rotate": "Rotate",
+    // 2026-08-19 (Suggested-size removal) — toast shown when a
+    // placement drops but the artwork has no `width_cm/height_cm`
+    // registered, so we fall back to a 50×70 cm placeholder. Copy
+    // tells the user how to correct it without stranding them.
+    "simulation.inspector.fallbackSizeToast":
+      "This artwork's size isn't registered, so we placed it at the default 50×70 cm. You can adjust it in the inspector.",
+    // 2026-08-19 — canvas bottom-right "Remove photo" FAB + its
+    // confirmation dialog. Wipes the photo, wall scale, and every
+    // placement inside the space without deleting the space itself
+    // (that action lives in `/my/spaces`).
+    "simulation.canvas.removePhoto": "Remove photo",
+    "simulation.canvas.removePhoto.confirm.title": "Remove this photo?",
+    "simulation.canvas.removePhoto.confirm.body":
+      "The current wall photo, the wall scale, and every artwork you've placed will be reset. The space itself is kept.",
+    "simulation.canvas.removePhoto.confirm.confirm": "Remove",
+    "simulation.canvas.removePhoto.confirm.cancel": "Cancel",
+    "simulation.canvas.removePhoto.busy": "Removing…",
+    // 2026-08-19 — Required-calibration overlay + persistent banner.
+    // Replaces the old "정확한 스케일 (고급)" accordion. The overlay
+    // gates canvas interaction after a fresh upload until the user
+    // either calibrates (Option A: AI-detected object with real size;
+    // Option B: direct wall width/height) OR opts out via "Later".
+    // The banner surfaces the same call-to-action for spaces where
+    // scale is still unset and the user has already deferred.
+    "simulation.calibrate.overlay.title": "Tell us the wall size",
+    "simulation.calibrate.overlay.subtitle":
+      "We need the real size of this wall so the simulation matches your room.",
+    "simulation.calibrate.overlay.aiTitle":
+      "Option A — pick an object in the photo",
+    "simulation.calibrate.overlay.aiHint":
+      "AI spotted this {label}. Enter its real size to lock the wall scale.",
+    "simulation.calibrate.overlay.aiDetecting":
+      "AI is scanning the photo for a size reference…",
+    "simulation.calibrate.overlay.aiEmpty":
+      "AI didn't find a clear object. Use Option B or measure manually.",
+    "simulation.calibrate.overlay.retryAi": "Ask AI again",
+    "simulation.calibrate.overlay.directTitle":
+      "Option B — enter the wall size directly",
+    "simulation.calibrate.overlay.directHint":
+      "No obvious objects? Type the wall's width and height.",
+    "simulation.calibrate.overlay.directWidth": "Wall width",
+    "simulation.calibrate.overlay.directHeight": "Wall height",
+    "simulation.calibrate.overlay.directApply": "Apply wall size",
+    "simulation.calibrate.overlay.manualLink": "Measure directly on the photo →",
+    "simulation.calibrate.overlay.later": "I'll set it up later",
+    "simulation.calibrate.banner.title": "Wall size not set",
+    "simulation.calibrate.banner.body":
+      "The simulation uses a rough default until you calibrate. Set it now for accurate rendering.",
+    "simulation.calibrate.banner.cta": "Set it now",
+    // Post-calibration wall-size card — surfaces the current scale
+    // once it's been set, so users can adjust wall dims / re-run AI
+    // / edit corners without hunting through an "advanced" hideout.
+    "simulation.wall.card.title": "Wall size",
+    "simulation.wall.card.hint":
+      "Adjust the wall width and height if the scale looks off.",
+    "simulation.wall.card.reopen": "Recalibrate wall",
     "simulation.inspector.remove": "Remove from wall",
     "simulation.inspector.unit": "Units",
     "simulation.inspector.unit.cm": "cm",
@@ -3976,37 +4041,6 @@ export const messages = {
     "simulation.inspector.unitHint":
       "Choose how room dimensions display. Artwork sizes keep the cm/in family of your choice.",
     "simulation.inspector.selectHint": "Tap a work on the wall to edit it.",
-
-    // P1 render-quality (2026-08-19) — Aspect-ratio mismatch signal.
-    // Shown when the source photo's aspect (from
-    // `artwork_images.width/height`) differs from the placement's
-    // physical aspect by more than ~6%. Typical trigger: the upload
-    // includes wall/frame padding around the painting, so the image
-    // looks squished or the wrong shape on the wall.
-    "simulation.inspector.aspectMismatch.title":
-      "Photo shape differs from the real dimensions",
-    "simulation.inspector.aspectMismatch.hint":
-      "The uploaded photo may include background around the artwork. Fit the placement to the photo's aspect for a truer preview — this only edits how this space displays it.",
-    "simulation.inspector.aspectMismatch.stats":
-      "Placement {placementRatio} vs. photo {imageRatio} ({delta}% difference)",
-    "simulation.inspector.aspectMismatch.keepLong": "Keep long side",
-    "simulation.inspector.aspectMismatch.keepShort": "Keep short side",
-
-    // 2026-08-19 (Fix D) — Unified "Suggested size" card. Replaces
-    // the old amber "aspectMismatch" banner. Surfaces up to two
-    // opt-in suggestions: (a) restore the artist's authored
-    // physical dims (`artworks.width_cm/height_cm`), (b) snap to the
-    // cutout image aspect. Never auto-applied. See SpaceEditor.tsx.
-    "simulation.inspector.suggestedSize.badge": "Suggested",
-    "simulation.inspector.suggestedSize.title": "Suggested size",
-    "simulation.inspector.suggestedSize.hint":
-      "The current placement doesn't match the artwork's real dimensions. Apply one of the suggestions below, or keep the current size.",
-    "simulation.inspector.suggestedSize.current": "Current: {size}",
-    "simulation.inspector.suggestedSize.applyPhysical":
-      "Apply physical size ({size})",
-    "simulation.inspector.suggestedSize.applyCutout":
-      "Match cutout aspect ({size})",
-    "simulation.inspector.suggestedSize.keepAsIs": "Keep as-is",
 
     // Display Simulation Phase 2 (2026-08-20) — mounting realism.
     // The picker exposes five presets; each maps to a nested CSS
@@ -8309,12 +8343,9 @@ export const messages = {
     "simulation.editor.locked":
       "현재 플랜 한도를 초과한 공간이에요. 이미 걸린 작품은 그대로 볼 수 있어요.",
     // P1 (2026-08-19) — 폴백 크기 토스트. 픽한 작품의 width_cm /
-    // height_cm 이 아직 세팅 안 된 legacy 업로드에서만 노출된다.
-    // renderer 가 null 치수 placement 를 걸러내는 필터에 걸려
-    // "0.1초 flash → 사라짐" 증상이 났던 것을 방지하려고 인스펙터에서
-    // 조정 가능한 50 × 70 cm 임시값으로 배치한다.
-    "simulation.editor.fallbackSizeApplied":
-      "실제 크기 정보가 없어 임시로 50 × 70 cm 로 걸었어요. 인스펙터에서 수정하세요.",
+    // 2026-08-19 (제안된 크기 카드 제거) — 이전 fallback 토스트는
+    // `simulation.inspector.fallbackSizeToast` 로 이동. 여기서는
+    // 남아있던 callers 를 완전히 제거했다는 주석만 남긴다.
     // P1 (2026-08-19) — 구조화된 치수가 없지만 파서가 자유 텍스트
     // `size` 로부터 실측을 복구한 경우 뜨는 토스트. 배치는 실측 크기로
     // 반영되고, 소유자라면 백그라운드로 artworks 로우에 propagate 된다.
@@ -8326,6 +8357,68 @@ export const messages = {
     "simulation.inspector.width": "가로",
     "simulation.inspector.height": "세로",
     "simulation.inspector.rotation": "기울기",
+    // 2026-08-19 (제안된 크기 카드 제거) — 인스펙터 width/height 옆에
+    // 붙는 90° 스왑 버튼. 이 placement 의 widthCm/heightCm 만 서로
+    // 뒤바꾸고 artworks 로우는 손대지 않는다. 세로/가로 잘못 걸리는
+    // 케이스를 자동 스냅 없이 사용자가 직접 해결할 수 있게 해주는
+    // 최소 UI.
+    "simulation.inspector.rotate": "회전",
+    // 2026-08-19 (제안된 크기 카드 제거) — 작품에 실제 치수
+    // (width_cm/height_cm) 가 등록되어 있지 않아 50×70cm 기본값으로
+    // 배치될 때 뜨는 토스트. 사용자에게 인스펙터에서 조정할 수 있음을
+    // 알린다.
+    "simulation.inspector.fallbackSizeToast":
+      "이 작품의 크기가 등록되어 있지 않아 기본값 50×70cm 으로 설정됐어요. 인스펙터에서 조정할 수 있어요.",
+    // 2026-08-19 — 캔버스 우하단 "사진 삭제" FAB + 확인 다이얼로그.
+    // 현재 공간의 사진, 벽 스케일, 배치된 모든 작품을 초기화한다.
+    // 공간 자체는 삭제되지 않으며 (그 액션은 `/my/spaces` 에 있음),
+    // 사용자는 같은 공간의 "사진을 업로드하세요" 상태로 돌아온다.
+    "simulation.canvas.removePhoto": "사진 삭제",
+    "simulation.canvas.removePhoto.confirm.title": "이 사진을 삭제할까요?",
+    "simulation.canvas.removePhoto.confirm.body":
+      "이 공간 사진과 벽 스케일, 배치된 모든 작품이 함께 초기화됩니다. 공간 자체는 유지돼요.",
+    "simulation.canvas.removePhoto.confirm.confirm": "삭제",
+    "simulation.canvas.removePhoto.confirm.cancel": "취소",
+    "simulation.canvas.removePhoto.busy": "삭제 중…",
+    // 2026-08-19 — 필수 스케일 설정 오버레이 + 지연 시 배너.
+    // 기존 "정확한 스케일 (고급)" 아코디언을 대체한다. 사진 업로드
+    // 직후 벽 스케일이 없으면 blocking 오버레이가 뜨고, 사용자는
+    // Option A(AI가 찾은 물체의 실제 크기 입력) 또는 Option B
+    // (직접 벽 크기 입력)로 스케일을 잡거나 "나중에 설정"으로 미룰
+    // 수 있다. 미룬 경우 캔버스 상단에 지속적으로 뜨는 배너에서
+    // 언제든 다시 열 수 있다.
+    "simulation.calibrate.overlay.title": "벽 크기를 알려주세요",
+    "simulation.calibrate.overlay.subtitle":
+      "정확한 시뮬레이션을 위해 이 벽의 실제 크기가 필요해요.",
+    "simulation.calibrate.overlay.aiTitle":
+      "옵션 A — 사진 속 물체 사용",
+    "simulation.calibrate.overlay.aiHint":
+      "AI가 이 {label}을(를) 찾았어요. 실제 크기를 입력하면 벽 스케일이 잡혀요.",
+    "simulation.calibrate.overlay.aiDetecting":
+      "AI가 크기 기준이 될 물체를 찾고 있어요…",
+    "simulation.calibrate.overlay.aiEmpty":
+      "AI가 뚜렷한 물체를 찾지 못했어요. 옵션 B를 쓰거나 직접 재보세요.",
+    "simulation.calibrate.overlay.retryAi": "AI 다시 요청",
+    "simulation.calibrate.overlay.directTitle":
+      "옵션 B — 벽 크기 직접 입력",
+    "simulation.calibrate.overlay.directHint":
+      "물체가 없으면 벽의 가로·세로 크기를 알려주세요.",
+    "simulation.calibrate.overlay.directWidth": "벽 가로",
+    "simulation.calibrate.overlay.directHeight": "벽 세로",
+    "simulation.calibrate.overlay.directApply": "벽 크기 적용",
+    "simulation.calibrate.overlay.manualLink": "사진에서 직접 재기 →",
+    "simulation.calibrate.overlay.later": "나중에 설정",
+    "simulation.calibrate.banner.title": "벽 크기 미설정",
+    "simulation.calibrate.banner.body":
+      "지금은 대략적인 기본값으로 시뮬레이션 중이에요. 지금 설정하면 실측 그대로 렌더링돼요.",
+    "simulation.calibrate.banner.cta": "지금 설정",
+    // 벽 스케일이 설정된 뒤 노출되는 편집 카드. "정확한 스케일 (고급)"
+    // 아코디언을 대체한다. AI 재감지 / 직접 재기 / 모서리 편집 등
+    // 편집 액션은 여기서 접근한다.
+    "simulation.wall.card.title": "벽 크기",
+    "simulation.wall.card.hint":
+      "스케일이 어색하면 벽 가로·세로를 조정해 보세요.",
+    "simulation.wall.card.reopen": "벽 크기 다시 설정",
     "simulation.inspector.remove": "벽에서 내리기",
     "simulation.inspector.unit": "단위",
     "simulation.inspector.unit.cm": "cm",
@@ -8333,35 +8426,6 @@ export const messages = {
     "simulation.inspector.unitHint":
       "방·벽 치수 표기에 쓸 단위를 골라주세요. 작품 크기는 cm/in 계열을 그대로 유지합니다.",
     "simulation.inspector.selectHint": "벽에 걸린 작품을 눌러 편집해 보세요.",
-
-    // P1 render-quality (2026-08-19) — 사진 비율과 실제 치수 비율이
-    // 6% 이상 어긋날 때 인스펙터에 뜨는 경고. 원본에 그림 주변 벽/
-    // 프레임이 포함된 경우 실측 사이즈로 계산한 사각형과 이미지
-    // 종횡비가 안 맞아 "찌부" 느낌이 나기 때문에, 이미지 비율에
-    // 맞춰 placement 만 재계산할 수 있도록 액션을 붙였다.
-    "simulation.inspector.aspectMismatch.title":
-      "사진 비율이 실제 크기와 달라요",
-    "simulation.inspector.aspectMismatch.hint":
-      "업로드된 사진에 그림 주변 배경이 포함되어 있을 수 있어요. 사진 비율에 맞춰 사이즈를 조정하면 더 자연스럽게 보이고, 이 공간에서만 반영됩니다.",
-    "simulation.inspector.aspectMismatch.stats":
-      "실제 {placementRatio} vs. 사진 {imageRatio} ({delta}% 차이)",
-    "simulation.inspector.aspectMismatch.keepLong": "긴 축 유지",
-    "simulation.inspector.aspectMismatch.keepShort": "짧은 축 유지",
-
-    // 2026-08-19 (Fix D) — 통합 "제안된 크기" 카드. 기존 amber
-    // "aspectMismatch" 배너를 대체한다. 최대 두 가지 opt-in 제안을
-    // 노출: (a) 작가가 기재한 물리 크기(artworks.width_cm/height_cm)
-    // 복원, (b) cutout 이미지 비율에 스냅. 자동 적용 안 함.
-    "simulation.inspector.suggestedSize.badge": "제안",
-    "simulation.inspector.suggestedSize.title": "제안된 크기",
-    "simulation.inspector.suggestedSize.hint":
-      "지금 크기가 물리 크기와 다릅니다. 아래 제안 중 하나를 적용하거나, 지금 크기를 그대로 유지할 수 있어요.",
-    "simulation.inspector.suggestedSize.current": "지금 크기: {size}",
-    "simulation.inspector.suggestedSize.applyPhysical":
-      "물리 크기 {size} 적용",
-    "simulation.inspector.suggestedSize.applyCutout":
-      "사진 비율 {size} 적용",
-    "simulation.inspector.suggestedSize.keepAsIs": "이대로 유지",
 
     // Display Simulation Phase 2 (2026-08-20) — 마운팅 리얼리즘.
     // 5개 프레임 프리셋 + 두 트랙의 그림 분리(cutout) CTA.
