@@ -29,6 +29,8 @@ export {
 } from "./PillButton";
 export {
   AuthShell,
+  type AuthShellBrandPlacement,
   type AuthShellContentWidth,
   type AuthShellProps,
+  type AuthShellTitleTone,
 } from "./AuthShell";

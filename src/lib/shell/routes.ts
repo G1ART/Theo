@@ -37,3 +37,22 @@ export function isShellRoute(pathname: string | null | undefined): boolean {
   if (pathname.startsWith("/feed")) return true;
   return SHELL_PREFIXES.some((p) => pathname.startsWith(p));
 }
+
+/**
+ * Front-door auth surfaces whose wireframes have no global chrome
+ * (no top logo, no EN/KO + Login strip). The global `Header` returns
+ * null on these routes so `/login` and `/signup` can own the full
+ * canvas — matching the 2026-08 designer login/signup frames.
+ *
+ * `/onboarding/identity` is intentionally excluded: that's an
+ * in-app finish step for signed-in users and still uses the shell.
+ */
+export function isAuthFrontDoorRoute(
+  pathname: string | null | undefined,
+): boolean {
+  if (!pathname) return false;
+  if (pathname === "/login" || pathname.startsWith("/login/")) return true;
+  if (pathname === "/signup" || pathname.startsWith("/signup")) return true;
+  if (pathname === "/onboarding") return true;
+  return false;
+}

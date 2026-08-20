@@ -469,22 +469,18 @@ function LoginV2Inner() {
 
   return (
     <AuthShell
+      brandPlacement="hero"
+      titleTone="quiet"
+      showLocale
+      contentWidth="sm"
       title={
-        // Wireframe polish (2026-08-19): the H1 bumped from
-        // text-3xl/text-4xl → text-4xl/text-5xl. `max-w-[16ch]` on the
-        // wrapper keeps the two taglines on their own lines even at
-        // 48px on narrow viewports (both strings are ≤15 chars).
-        <span className="block max-w-[16ch] leading-tight">
+        <span className="block">
           <span className="block">{t("auth.loginV2.tagline1")}</span>
           <span className="block">{t("auth.loginV2.tagline2")}</span>
         </span>
       }
       subtitle={t("auth.loginV2.subhead")}
-      footer={
-        <p className="text-center text-[11px] leading-relaxed text-zinc-500">
-          {t("auth.loginV2.footnote.consent")}
-        </p>
-      }
+      footer={t("auth.loginV2.footnote.consent")}
     >
       {toast && (
         <OAuthToast
@@ -500,7 +496,6 @@ function LoginV2Inner() {
             {t("auth.loginV2.passwordless.subhead")}
           </p>
           <OvalInput
-            labelStyle="outer"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
@@ -511,7 +506,7 @@ function LoginV2Inner() {
             autoFocus
           />
           {passwordlessSent ? (
-            <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <p className="rounded-full bg-emerald-50 px-5 py-3 text-sm text-emerald-700">
               {t("auth.loginV2.passwordless.sent")}
             </p>
           ) : null}
@@ -535,7 +530,7 @@ function LoginV2Inner() {
               ? `${t("auth.loginV2.passwordless.submit")} (${passwordlessCooldown}s)`
               : t("auth.loginV2.passwordless.submit")}
           </PillButton>
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-center text-xs text-zinc-500">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-center text-xs text-zinc-500">
             <button
               type="button"
               onClick={() => {
@@ -543,25 +538,24 @@ function LoginV2Inner() {
                 setPasswordlessSent(false);
                 setError(null);
               }}
-              className="font-medium text-zinc-600 hover:text-zinc-900"
+              className="text-zinc-600 hover:text-zinc-900"
             >
               {t("auth.loginV2.passwordless.back")}
             </button>
-            <span aria-hidden className="text-zinc-300">
-              ·
+            <span className="text-zinc-500">
+              {t("auth.loginV2.newToTheo")}{" "}
+              <Link
+                href={signupHref}
+                className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+              >
+                {t("auth.loginV2.signUpCta")}
+              </Link>
             </span>
-            <Link
-              href={signupHref}
-              className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-            >
-              {t("auth.loginV2.signupLink")}
-            </Link>
           </div>
         </form>
       ) : (
         <form onSubmit={handlePasswordSignIn} className="space-y-5" noValidate>
           <OvalInput
-            labelStyle="outer"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
@@ -571,37 +565,23 @@ function LoginV2Inner() {
             required
             autoFocus
           />
-          <div>
-            {/* Wireframe pixel-fidelity (2026-08-20): the Forgot
-             * link sits inline on the same baseline as the Password
-             * label. We render the label row manually and pass
-             * `label={null}` to OvalInput so it renders the pill
-             * without its own label. */}
-            <div className="mb-1.5 flex items-baseline justify-between px-1">
-              <label
-                htmlFor="loginV2-password"
-                className="text-xs font-medium text-zinc-600"
-              >
-                {t("auth.loginV2.password")}
-              </label>
+          <OvalInput
+            label={t("auth.loginV2.password")}
+            type="password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
+            required
+            trailingWide
+            trailingAdornment={
               <Link
                 href={forgotHref}
-                className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+                className="whitespace-nowrap text-[11px] text-zinc-500 hover:text-zinc-900"
               >
                 {t("auth.loginV2.forgot")}
               </Link>
-            </div>
-            <OvalInput
-              id="loginV2-password"
-              labelStyle="outer"
-              label={null}
-              type="password"
-              value={password}
-              onChange={setPassword}
-              autoComplete="current-password"
-              required
-            />
-          </div>
+            }
+          />
 
           {error && (
             <p role="alert" className="px-5 text-sm text-red-600">
@@ -614,54 +594,49 @@ function LoginV2Inner() {
             variant="primary"
             fullWidth
             loading={loading}
-            disabled={!email.trim() || !password}
           >
             {loading ? t("auth.loginV2.submitting") : t("auth.loginV2.submit")}
           </PillButton>
 
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-center text-xs text-zinc-500">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-center text-xs text-zinc-500">
             <button
               type="button"
               onClick={() => {
                 setPasswordless(true);
                 setError(null);
               }}
-              className="font-medium text-zinc-600 hover:text-zinc-900"
+              className="text-zinc-600 hover:text-zinc-900"
             >
               {t("auth.loginV2.passwordless.link")}
             </button>
-            <span aria-hidden className="text-zinc-300">
-              ·
+            <span className="text-zinc-500">
+              {t("auth.loginV2.newToTheo")}{" "}
+              <Link
+                href={signupHref}
+                className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+              >
+                {t("auth.loginV2.signUpCta")}
+              </Link>
             </span>
-            <Link
-              href={signupHref}
-              className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-            >
-              {t("auth.loginV2.signupLink")}
-            </Link>
           </div>
         </form>
       )}
 
       <div className="mt-10">
-        <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+        <p className="mb-3 text-center text-sm text-zinc-600">
           {t("auth.loginV2.quickStart.label")}
         </p>
-        {/* 2026-08-20: flex-center replaces `grid-cols-3` while the
-            OAuth cluster is Google-only. When Apple / Kakao come
-            back online, swap this back to `grid grid-cols-3 gap-2`
-            for a 3-column layout. */}
         <div className="flex flex-wrap justify-center gap-2">
           {quickStartPills.map((pill) => {
             if (pill.disabled) {
               return (
                 <PillButton
                   key={pill.provider}
-                  variant="secondary"
+                  variant="primary"
                   disabled
                   aria-disabled
                   title={pill.disabledTooltip}
-                  className="!px-3 opacity-60"
+                  className="!px-8 opacity-60"
                 >
                   {pill.label}
                 </PillButton>
@@ -672,11 +647,11 @@ function LoginV2Inner() {
             return (
               <PillButton
                 key={pill.provider}
-                variant="secondary"
+                variant="primary"
                 onClick={() => handleOAuth(provider)}
                 loading={isLoading}
                 disabled={oauthLoading !== null && !isLoading}
-                className="!px-3"
+                className="!px-8"
               >
                 {pill.label}
               </PillButton>

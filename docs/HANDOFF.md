@@ -2,6 +2,44 @@
 
 Last updated: 2026-08-20
 
+## 2026-08-20 (44) — /login 와이어프레임 픽셀 피델리티 (히어로 로고 + 플로팅 레이블)
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+### 배경
+
+`NEXT_PUBLIC_SIGNUP_V2=true` 재배포 후 v2 `/login` 은 랜딩됐지만, 전역
+`Header` (좌측 작은 로고 + 우측 EN/KO·Login) 와 AuthShell 의 display H1
+이 겹쳐 와이어프레임과 구도가 달랐다. 와이어프레임은 **큰 중앙 로고가
+히어로**이고 태그라인은 작은 본문이며, Email/Password 레이블은 **오벌
+안쪽**에 떠 있고 Forgot Password 는 비밀번호 필드 오른쪽 안에 있다.
+OAuth 는 검정 필 버튼.
+
+### 변경
+
+- `Header` 는 `/login`, `/signup`, `/onboarding`(exact) 에서 `null`
+  반환. 훅은 그대로 실행 (Rules of Hooks).
+- `AuthShell` 에 `brandPlacement` (`header` | `hero` | `none`) 과
+  `titleTone` (`display` | `quiet`) 추가. `/login` 은 `hero` + `quiet`.
+  `/signup` 은 `none` + display "Step N".
+- 로그인 인풋은 `labelStyle="float"` 로 복귀. Forgot 링크는
+  `trailingAdornment` + `trailingWide` 로 오벌 안 우측.
+- Google OAuth 버튼 `variant="primary"` (검정 필). Quick Start 라벨은
+  title case.
+- Log in 버튼은 빈 필드여도 회색 disabled 가 아니라 검정 유지 (submit
+  시 브라우저 required 검증).
+- 우상단 미니 EN/KO 칩만 AuthShell 이 소유 (전역 Header 의 Login 링크는
+  제거 — 이미 로그인 페이지이므로).
+
+### 검증
+
+- `npx tsc --noEmit` — 이번 파일 0 errors.
+- eslint: Header 의 기존 `set-state-in-effect` 2건만 (이번 패치 무관).
+
+---
+
 ## 2026-08-20 (43) — /login + /signup OAuth 클러스터 Google-only 트림
 
 > **Supabase SQL 적용 필요: 없음.**

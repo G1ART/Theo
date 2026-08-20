@@ -3,7 +3,7 @@
 import { TheoLogo } from "@/components/brand/TheoLogo";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { isShellRoute } from "@/lib/shell/routes";
+import { isAuthFrontDoorRoute, isShellRoute } from "@/lib/shell/routes";
 import { useEffect, useId, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { Session } from "@supabase/supabase-js";
@@ -69,6 +69,7 @@ export function Header() {
   // On AppShell routes the desktop (lg+) chrome is the left sidebar, so we
   // hide the top nav there. Mobile keeps the proven Header + hamburger.
   const shellRoute = isShellRoute(pathname);
+  const authFrontDoor = isAuthFrontDoorRoute(pathname);
   const { t, locale, setLocale } = useT();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -399,6 +400,11 @@ export function Header() {
     unreadCount > 0
       ? `${accountMenuLabel} (${unreadCount > 99 ? "99+" : unreadCount})`
       : accountMenuLabel;
+
+  // Login / signup wireframes are a full-bleed canvas with no global
+  // chrome. AuthShell owns the logo (large centered mark on /login,
+  // none on /signup). Hooks above must still run.
+  if (authFrontDoor) return null;
 
   return (
     <>

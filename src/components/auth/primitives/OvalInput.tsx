@@ -79,6 +79,9 @@ export type OvalInputProps = Omit<
    *  behavior for /onboarding. `"outer"` renders the label statically
    *  above the pill per the Signup v2 wireframes. */
   labelStyle?: OvalInputLabelStyle;
+  /** Widen the right padding so a text link (e.g. "Forgot Password?")
+   *  can sit inside the oval without colliding with typed text. */
+  trailingWide?: boolean;
 };
 
 function OvalInputInner(
@@ -102,6 +105,7 @@ function OvalInputInner(
     disabled,
     labelStyle = "float",
     required,
+    trailingWide = false,
     ...rest
   } = props;
   const autoId = useId();
@@ -117,7 +121,12 @@ function OvalInputInner(
     : "border-zinc-300 focus-within:border-zinc-900 focus-within:ring-zinc-100";
 
   const paddingLeft = leadingAdornment ? "pl-11" : "pl-5";
-  const paddingRight = trailingAdornment || loading ? "pr-11" : "pr-5";
+  const paddingRight =
+    trailingAdornment || loading
+      ? trailingWide
+        ? "pr-32 sm:pr-36"
+        : "pr-11"
+      : "pr-5";
 
   // Outer-mode: static label above the pill. `label === null` is the
   // escape hatch — caller owns the label row.
@@ -185,7 +194,7 @@ function OvalInputInner(
           {...rest}
         />
         {(trailingAdornment || loading) && (
-          <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-sm text-zinc-500">
+          <span className="absolute inset-y-0 right-0 flex items-center pr-5 text-sm text-zinc-500">
             {loading ? (
               <span
                 aria-hidden

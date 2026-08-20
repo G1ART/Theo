@@ -273,6 +273,8 @@ export function SignupWizardShell() {
     <AuthShell
       onBack={handleBack}
       backLabel={t("auth.signupV2.back")}
+      brandPlacement="none"
+      showLocale
       title={titles[state.step]}
       subtitle={subtitles[state.step]}
       alternate={alternate}

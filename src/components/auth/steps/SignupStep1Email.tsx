@@ -151,23 +151,23 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
       </div>
 
       <div>
-        <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+        <p className="mb-3 text-center text-sm text-zinc-600">
           {t("auth.loginV2.quickStart.label")}
         </p>
         {/* 2026-08-20: flex-center while OAuth cluster is Google-only.
             Swap back to `grid grid-cols-3 gap-2` when Apple + Kakao
-            come online. */}
+            come online. Wireframe OAuth pills are filled black. */}
         <div className="flex flex-wrap justify-center gap-2">
           {quickStartPills.map((pill) => {
             if (pill.disabled) {
               return (
                 <PillButton
                   key={pill.provider}
-                  variant="secondary"
+                  variant="primary"
                   disabled
                   aria-disabled
                   title={pill.disabledTooltip}
-                  className="!px-3 opacity-60"
+                  className="!px-8 opacity-60"
                 >
                   {pill.label}
                 </PillButton>
@@ -178,11 +178,11 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
             return (
               <PillButton
                 key={pill.provider}
-                variant="secondary"
+                variant="primary"
                 onClick={() => handleOAuth(provider)}
                 loading={isLoading}
                 disabled={oauthLoading !== null && !isLoading}
-                className="!px-3"
+                className="!px-8"
               >
                 {pill.label}
               </PillButton>

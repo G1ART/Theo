@@ -1,40 +1,37 @@
 "use client";
 
 /**
- * AuthShell — Signup v2 primitive (Phase 1, 2026-08-19).
+ * AuthShell — Signup v2 primitive (Phase 1, 2026-08-19; login
+ * pixel-fidelity pass 2026-08-20).
  *
  * Shared frame for /signup, /login (v2), password reset, and other
- * "brand-facing" surfaces (Option C hybrid, spec §4.2). Single centered
- * narrow column, huge top padding, thin visual language. Slots:
+ * "brand-facing" surfaces. Single centered narrow column.
  *
- *   - `logo`          — brand mark (defaults to `<TheoLogo/>` sm).
- *   - `back`          — optional back arrow (auto-renders when `onBack`).
- *   - `eyebrow`       — small uppercase label above the title
- *                       ("Step 1 / 3").
- *   - `title`         — large H1.
- *   - `subtitle`      — supporting body copy.
- *   - `children`      — form area.
- *   - `footer`        — passive-consent copy, ToS link block, etc.
- *   - `alternate`     — bottom row for the alternate CTA
- *                       ("이미 계정이 있으신가요? 로그인").
+ * ## Brand placement (2026-08-20 login wireframe)
  *
- * Example:
- *   <AuthShell
- *     onBack={() => router.back()}
- *     eyebrow="Step 1 of 3"
- *     title="Enter your email"
- *     subtitle="계정을 만들 이메일 주소를 입력해 주세요."
- *     alternate={<Link href="/login">이미 계정이 있으신가요? 로그인</Link>}
- *   >
- *     <OvalInput label="Email" ... />
- *   </AuthShell>
+ *   - `"header"` — small mark in a top bar (legacy). Unused by the
+ *     current login/signup frames.
+ *   - `"hero"` — large centered mark above a quiet tagline. This is
+ *     the /login composition: logo is the visual hero, "Meet your
+ *     Theo. / Be our Theo." sits under it as body copy, NOT as a
+ *     display H1.
+ *   - `"none"` — no mark. Signup steps open on a huge "Step N" title
+ *     with no logo (designer frames).
+ *
+ * ## Title tone
+ *
+ *   - `"display"` — 4xl/5xl light (signup "Step N").
+ *   - `"quiet"` — small body copy (login taglines).
  */
 
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { TheoLogo } from "@/components/brand/TheoLogo";
+import { useT } from "@/lib/i18n/useT";
 
 export type AuthShellContentWidth = "sm" | "md" | "lg";
+export type AuthShellBrandPlacement = "header" | "hero" | "none";
+export type AuthShellTitleTone = "display" | "quiet";
 
 export type AuthShellProps = {
   logo?: ReactNode;
@@ -46,13 +43,19 @@ export type AuthShellProps = {
   children: ReactNode;
   footer?: ReactNode;
   alternate?: ReactNode;
-  /** Home link href for the top-left brand mark. Defaults to `/`. */
+  /** Home link href for the brand mark. Defaults to `/`. */
   homeHref?: string;
-  /** Central column width. Signup v2 wireframe (2026-08-20): Steps 1
-   *  through 3 stay `"sm"` (max-w-md), Step 4 switches to `"lg"`
-   *  (max-w-2xl) so the uploader + fields sit side-by-side on
-   *  desktop. */
+  /** Central column width. Signup v2: Steps 1–3 stay `"sm"`
+   *  (max-w-md), Step 4 switches to `"lg"` (max-w-2xl). */
   contentWidth?: AuthShellContentWidth;
+  /** Where the Theo mark lives. See file header. Default `"header"`. */
+  brandPlacement?: AuthShellBrandPlacement;
+  /** Visual weight of `title`. Default `"display"`. */
+  titleTone?: AuthShellTitleTone;
+  /** Tiny EN/KO control in the top-right. Login/signup hide the
+   *  global Header, so this is the only locale affordance on those
+   *  surfaces. */
+  showLocale?: boolean;
 };
 
 const CONTENT_WIDTH_CLASS: Record<AuthShellContentWidth, string> = {
@@ -60,6 +63,37 @@ const CONTENT_WIDTH_CLASS: Record<AuthShellContentWidth, string> = {
   md: "max-w-lg",
   lg: "max-w-2xl",
 };
+
+function LocaleChip() {
+  const { locale, setLocale } = useT();
+  return (
+    <div className="absolute right-4 top-4 z-10 flex items-center gap-1 text-xs text-zinc-400 sm:right-8 sm:top-6">
+      <button
+        type="button"
+        onClick={() => setLocale("en")}
+        className={
+          locale === "en"
+            ? "font-medium text-zinc-800"
+            : "hover:text-zinc-700"
+        }
+      >
+        EN
+      </button>
+      <span>/</span>
+      <button
+        type="button"
+        onClick={() => setLocale("ko")}
+        className={
+          locale === "ko"
+            ? "font-medium text-zinc-800"
+            : "hover:text-zinc-700"
+        }
+      >
+        KO
+      </button>
+    </div>
+  );
+}
 
 export function AuthShell(props: AuthShellProps) {
   const {
@@ -74,60 +108,102 @@ export function AuthShell(props: AuthShellProps) {
     alternate,
     homeHref = "/",
     contentWidth = "sm",
+    brandPlacement = "header",
+    titleTone = "display",
+    showLocale = false,
   } = props;
   const widthClass = CONTENT_WIDTH_CLASS[contentWidth];
+  const isHero = brandPlacement === "hero";
+  const showHeaderBar = brandPlacement === "header" || !!onBack;
+
+  const titleClass =
+    titleTone === "quiet"
+      ? "text-[15px] font-normal leading-snug text-zinc-700"
+      : "mt-3 text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl";
+  const subtitleClass =
+    titleTone === "quiet"
+      ? "mt-3 text-[13px] leading-relaxed text-zinc-500"
+      : "mt-4 text-base leading-relaxed text-zinc-600";
+
+  const mark = logo ?? (
+    <TheoLogo
+      size={isHero ? "md" : "sm"}
+      className={isHero ? "h-40 sm:h-48" : "h-8"}
+      priority={isHero}
+    />
+  );
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900">
-      <header className="flex items-center justify-between px-4 pt-4 sm:px-8 sm:pt-6">
-        <div className="flex items-center gap-2">
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label={backLabel}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              <span aria-hidden className="text-lg leading-none">
-                ←
-              </span>
-            </button>
-          )}
-        </div>
-        <Link
-          href={homeHref}
-          aria-label="Theo"
-          className="inline-flex items-center"
-        >
-          {logo ?? <TheoLogo size="sm" className="h-8" />}
-        </Link>
-        <span aria-hidden className="inline-block h-9 w-9" />
-      </header>
+    <div className="relative min-h-screen bg-white text-zinc-900">
+      {showLocale && <LocaleChip />}
 
-      <main className={`mx-auto flex w-full flex-col justify-center px-6 pb-16 pt-16 sm:pt-24 ${widthClass}`}>
+      {showHeaderBar && (
+        <header className="flex items-center justify-between px-4 pt-4 sm:px-8 sm:pt-6">
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label={backLabel}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+              >
+                <span aria-hidden className="text-lg leading-none">
+                  ←
+                </span>
+              </button>
+            )}
+          </div>
+          {brandPlacement === "header" ? (
+            <Link
+              href={homeHref}
+              aria-label="Theo"
+              className="inline-flex items-center"
+            >
+              {mark}
+            </Link>
+          ) : (
+            <span aria-hidden className="inline-block h-9 w-9" />
+          )}
+          <span aria-hidden className="inline-block h-9 w-9" />
+        </header>
+      )}
+
+      <main
+        className={`mx-auto flex w-full flex-col px-6 pb-16 ${widthClass} ${
+          isHero
+            ? "min-h-screen justify-center py-16"
+            : "justify-center pt-16 sm:pt-24"
+        }`}
+      >
+        {isHero && (
+          <Link
+            href={homeHref}
+            aria-label="Theo"
+            className="mb-8 flex justify-center sm:mb-10"
+          >
+            {mark}
+          </Link>
+        )}
+
         {(eyebrow || title || subtitle) && (
-          <div className="mb-8">
+          <div className={isHero ? "mb-10" : "mb-8"}>
             {eyebrow && (
               <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
                 {eyebrow}
               </p>
             )}
-            {title && (
-              <h1 className="mt-3 text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl">
-                {title}
-              </h1>
-            )}
-            {subtitle && (
-              <p className="mt-4 text-base leading-relaxed text-zinc-600">
-                {subtitle}
-              </p>
-            )}
+            {title && <h1 className={titleClass}>{title}</h1>}
+            {subtitle && <p className={subtitleClass}>{subtitle}</p>}
           </div>
         )}
 
         {children}
 
-        {footer && <div className="mt-8 text-xs text-zinc-500">{footer}</div>}
+        {footer && (
+          <div className="mt-10 text-center text-[11px] leading-relaxed text-zinc-400">
+            {footer}
+          </div>
+        )}
 
         {alternate && (
           <div className="mt-10 text-center text-sm text-zinc-500">
