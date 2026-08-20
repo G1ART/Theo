@@ -2,6 +2,51 @@
 
 Last updated: 2026-08-20
 
+## 2026-08-20 (43) — /login + /signup OAuth 클러스터 Google-only 트림
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음** — 다만 프로덕션에서 v2 UI 자체를 노출하려면
+> Vercel Env 에 `NEXT_PUBLIC_SIGNUP_V2=true` 가 세팅돼있어야 한다. 이 값
+> 미설정 시 `/signup` → `/onboarding` 리디렉트, `/login` → 레거시 UI 로
+> fallback (build-time inlined flag이라 코드 변경으로는 해결 불가).
+
+### 배경
+
+와이어프레임 v2 login 화면은 Google / Apple / 카톡..? 3 pill 을 Quick
+Start 로 노출하도록 그려져 있었고 코드도 그대로 반영돼있었지만, Supabase
+Auth Dashboard 에 실제 설정된 provider 는 Google 뿐. Apple 은 owner 계정
+가입 이슈로 지연, Kakao 는 아직 개발자 계정 미신청. 결과: 프로덕션 사용자가
+Apple 클릭 시 `provider_not_configured` 토스트를, Kakao 는 `disabled`
+tooltip 을 보게 되어 UX 잡음이 커짐.
+
+### 변경
+
+- `src/app/login/page.tsx::LoginV2Inner` — `quickStartPills` 를 Google 1개로
+ 축소. 그리드 `grid-cols-3` → `flex justify-center gap-2` 로 스왑해서 단일
+ pill 이 자연스럽게 중앙 정렬.
+- `src/components/auth/steps/SignupStep1Email.tsx` — 위와 동일한 처리.
+- 두 파일 모두 원본 3-pill 배열을 주석으로 남겨둬서 provider 가 붙는 순간
+ 한 줄 삭제 → 배열 항목 복원 → grid 클래스 복원의 3단 revert 로 원복 가능.
+
+### 검증
+
+- `npx eslint src/app/login/page.tsx src/components/auth/steps/SignupStep1Email.tsx`
+ → 0 errors, 0 warnings.
+- 프리미티브 / 타입 시그니처 무변경 → `tsc --noEmit` 회귀 없음.
+
+### 커밋
+
+`2bfa2e7` — `polish(auth): trim OAuth cluster to Google-only until Apple/Kakao are configured`
+
+### 재배포 필수
+
+Vercel Redeploy 를 돌려야 프로덕션에 반영된다. 이번 커밋과 함께 Vercel Env
+에 `NEXT_PUBLIC_SIGNUP_V2=true`, `PHOTOROOM_API_KEY`,
+`NEXT_PUBLIC_PHOTOROOM_ENABLED=true` 3개가 모두 세팅돼있는지 반드시 확인.
+
+---
+
 ## 2026-08-20 (42) — Space Editor 컷아웃 재시도/되돌리기 UX + 종이-배경 대상 aggressive trim (Tier 3)
 
 > **Supabase SQL 적용 필요: 없음** — 스키마 변경 없음. 삭제 helper 들은
