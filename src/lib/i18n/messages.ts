@@ -4241,8 +4241,17 @@ export const messages = {
     "auth.signupV2.back": "Back",
     "auth.signupV2.haveAccount": "Already have an account?",
     "auth.signupV2.logInCta": "Log in",
-    "auth.signupV2.stepEyebrow": "Step {step} of {total}",
-    "auth.signupV2.step1.title": "Enter your email",
+    // Wireframe polish (2026-08-19): the H1 is the step label,
+    // subLabel is the short action sentence right beneath it.
+    // Designer used English "Step N" in both locales, so KO reuses
+    // the English strings verbatim.
+    "auth.signupV2.stepLabel.step1": "Step 1",
+    "auth.signupV2.stepLabel.step2": "Step 2",
+    "auth.signupV2.stepLabel.step3": "Step 3",
+    "auth.signupV2.stepLabel.step4": "Step 4",
+    "auth.signupV2.step1.subLabel": "Enter your email",
+    "auth.signupV2.step2.subLabel": "Set your name and password",
+    "auth.signupV2.step3.subLabel": "Profile",
     "auth.signupV2.step1.subtitle":
       "We'll use this to sign you in and send occasional updates.",
     "auth.signupV2.step1.emailLabel": "Email",
@@ -4254,7 +4263,6 @@ export const messages = {
     "auth.signupV2.step1.continueWithGoogle": "Continue with Google",
     "auth.signupV2.step1.continueWithApple": "Continue with Apple",
     "auth.signupV2.step1.oauthComingSoon": "Coming soon",
-    "auth.signupV2.step2.title": "Choose a password",
     "auth.signupV2.step2.subtitle":
       "Use at least 12 characters. Longer is stronger — a passphrase works well.",
     "auth.signupV2.step2.passwordLabel": "Password",
@@ -4269,7 +4277,6 @@ export const messages = {
       "By creating an account you agree to the {terms} and {privacy}.",
     "auth.signupV2.step2.termsLabel": "Terms of Service",
     "auth.signupV2.step2.privacyLabel": "Privacy Policy",
-    "auth.signupV2.step3.title": "Tell us about you",
     "auth.signupV2.step3.subtitle":
       "You can edit any of this later in your profile.",
     "auth.signupV2.step3.fullNameLabel": "Name",
@@ -8571,8 +8578,16 @@ export const messages = {
     "auth.signupV2.back": "뒤로",
     "auth.signupV2.haveAccount": "이미 계정이 있으신가요?",
     "auth.signupV2.logInCta": "로그인",
-    "auth.signupV2.stepEyebrow": "STEP {step} · {total}",
-    "auth.signupV2.step1.title": "이메일을 입력해 주세요",
+    // 와이어프레임 폴리시 (2026-08-19): H1 = 스텝 라벨, subLabel =
+    // 그 아래 짧은 액션 문구. 디자이너가 두 로케일 모두 영문
+    // "Step N"을 사용했으므로 KO도 영문을 그대로 둔다.
+    "auth.signupV2.stepLabel.step1": "Step 1",
+    "auth.signupV2.stepLabel.step2": "Step 2",
+    "auth.signupV2.stepLabel.step3": "Step 3",
+    "auth.signupV2.stepLabel.step4": "Step 4",
+    "auth.signupV2.step1.subLabel": "이메일을 입력해 주세요",
+    "auth.signupV2.step2.subLabel": "이름과 비밀번호 설정",
+    "auth.signupV2.step3.subLabel": "프로필",
     "auth.signupV2.step1.subtitle":
       "가입과 알림에 사용할 이메일이에요. 자주 사용하는 주소로 넣어 주세요.",
     "auth.signupV2.step1.emailLabel": "이메일",
@@ -8583,7 +8598,6 @@ export const messages = {
     "auth.signupV2.step1.continueWithGoogle": "Google로 계속하기",
     "auth.signupV2.step1.continueWithApple": "Apple로 계속하기",
     "auth.signupV2.step1.oauthComingSoon": "곧 지원 예정이에요",
-    "auth.signupV2.step2.title": "비밀번호를 설정해 주세요",
     "auth.signupV2.step2.subtitle":
       "12자 이상으로 만들어 주세요. 문장(passphrase)이 가장 안전하고 기억하기도 쉬워요.",
     "auth.signupV2.step2.passwordLabel": "비밀번호",
@@ -8598,7 +8612,6 @@ export const messages = {
       "계정 생성 시 {terms} 및 {privacy}에 동의하는 것으로 간주됩니다.",
     "auth.signupV2.step2.termsLabel": "이용약관",
     "auth.signupV2.step2.privacyLabel": "개인정보처리방침",
-    "auth.signupV2.step3.title": "당신에 대해 알려주세요",
     "auth.signupV2.step3.subtitle":
       "언제든 프로필에서 다시 편집할 수 있어요.",
     "auth.signupV2.step3.fullNameLabel": "이름",

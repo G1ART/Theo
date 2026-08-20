@@ -115,6 +115,9 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+        {t("auth.signupV2.step1.subtitle")}
+      </p>
       <OvalInput
         label={t("auth.signupV2.step1.emailLabel")}
         type="email"

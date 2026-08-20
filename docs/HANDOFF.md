@@ -2,6 +2,53 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (38) — Signup v2 · 와이어프레임 픽셀 폴리시 (기능 변경 없음)
+
+> **Supabase SQL 적용 필요: 없음** — DB / RPC / RLS 는 손대지 않음.
+>
+> **환경 변수 변경: 없음.**
+
+Signup v2 (Phase 1/2/4/5) 랜딩 직후 스펙 §2.2–§2.5 와이어프레임에
+맞춰 순수 시각 폴리시. **기능은 하나도 바뀌지 않는다** — auth flow,
+HIBP, OAuth, 배너, Step 4 업로드 로직은 모두 그대로.
+
+### 변경 요약
+- `AuthShell` H1 을 `text-3xl sm:text-4xl` → `text-4xl sm:text-5xl`
+  로 키우고, `<main>` 상단 여백 `pt-12 sm:pt-20` → `pt-16 sm:pt-24`,
+  subtitle 을 `text-sm` → `text-base` + `mt-3` → `mt-4` 로 조정.
+  와이어프레임의 "얇은 대형 타이틀 + 넉넉한 여백" 톤에 맞춤.
+- `SignupWizardShell` 의 title/subtitle 슬롯 의미 뒤집기.
+  기존: eyebrow="Step 1 of 3" · title="Enter your email" · subtitle=(설명).
+  이후: eyebrow 제거 · title="Step 1" · subtitle="Enter your email".
+  기존 설명 문구는 각 Step 파일 안에서 폼 바로 위 `<p>` 로 이동.
+- Step 4 는 role-aware 로 subLabel 이 Worker B 의 `.artistTitle` /
+  `.nonArtistTitle` 문자열을 그대로 재사용 → 새 문자열 중복 없음.
+- `/login` v2 tagline 래퍼에 `max-w-[16ch]` 방어 추가 (H1 이 커져도
+  두 줄이 3 줄로 흐르지 않게).
+
+### i18n 델타 (`src/lib/i18n/messages.ts`, EN + KO 동시)
+- **추가**: `auth.signupV2.stepLabel.step1`~`step4` = "Step 1"~"Step 4"
+  (디자이너가 두 로케일 모두 영문 사용 → KO 도 동일 문자열).
+- **추가**: `auth.signupV2.step1.subLabel` / `.step2.subLabel` /
+  `.step3.subLabel` — 각 단계의 짧은 액션 라벨.
+- **제거**: `auth.signupV2.stepEyebrow` (더 이상 소비되지 않음).
+- **제거**: `auth.signupV2.step1.title` / `.step2.title` / `.step3.title`
+  (subLabel 로 대체됨). `.step4.artistTitle` / `.nonArtistTitle` 은
+  Step 4 subLabel 로 계속 활용되므로 유지.
+
+### 편집한 파일
+- `src/components/auth/primitives/AuthShell.tsx`
+- `src/components/auth/SignupWizardShell.tsx`
+- `src/components/auth/steps/SignupStep1Email.tsx`
+- `src/components/auth/steps/SignupStep2Password.tsx`
+- `src/components/auth/steps/SignupStep3Profile.tsx`
+- `src/components/auth/steps/SignupStep4Artwork.tsx`
+- `src/app/login/page.tsx` (LoginV2Inner 만 · 레거시 `LoginLegacyInner`
+  는 미변경)
+- `src/lib/i18n/messages.ts`
+
+Verified: `npx tsc --noEmit` clean · `npx eslint <touched>` clean.
+
 ## 2026-08-19 (37) — Signup v2 Phase 2 (Step 4 작품 등록) + Phase 4 (완성 배너) + Phase 5 (HIBP · 강도 미터 · 레거시 12자 정렬)
 
 > **Supabase SQL 적용 필요: 없음** — 모든 스키마는 Phase 0 마이그레이션

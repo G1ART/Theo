@@ -221,16 +221,15 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
   // decision — most non-artists have nothing to upload at signup and
   // shouldn't be asked to jump through a full form.
   if (!expanded) {
+    // Wireframe polish (2026-08-19): AuthShell already renders
+    // `nonArtistTitle` as the H1 sub-label; the collapsed panel only
+    // needs the descriptive body copy so we don't visually duplicate
+    // the sub-label directly below itself.
     return (
       <div className="space-y-6">
-        <div className="rounded-3xl border border-zinc-200 bg-zinc-50/60 p-6 text-sm text-zinc-700">
-          <p className="font-medium text-zinc-900">
-            {t("auth.signupV2.step4.nonArtistTitle")}
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-zinc-600">
-            {t("auth.signupV2.step4.nonArtistBody")}
-          </p>
-        </div>
+        <p className="-mt-2 mb-2 text-sm text-zinc-500">
+          {t("auth.signupV2.step4.nonArtistBody")}
+        </p>
         <PillButton
           type="button"
           variant="primary"
@@ -250,8 +249,18 @@ export function SignupStep4Artwork({ api }: { api: SignupStepApi }) {
     );
   }
 
+  // Body copy above the expanded form — role-aware. Artist gets the
+  // "Post one piece to start…" nudge; anyone who clicked "Show anyway"
+  // gets the non-artist framing that matches the subtitle above.
+  const expandedBodyKey = isArtist
+    ? "auth.signupV2.step4.artistSubtitle"
+    : "auth.signupV2.step4.nonArtistSubtitle";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+        {t(expandedBodyKey)}
+      </p>
       <div>
         <label className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">
           {t("auth.signupV2.step4.photoLabel")}

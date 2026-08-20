@@ -89,7 +89,7 @@ export function AuthShell(props: AuthShellProps) {
         <span aria-hidden className="inline-block h-9 w-9" />
       </header>
 
-      <main className="mx-auto flex w-full max-w-md flex-col justify-center px-6 pb-16 pt-12 sm:pt-20">
+      <main className="mx-auto flex w-full max-w-md flex-col justify-center px-6 pb-16 pt-16 sm:pt-24">
         {(eyebrow || title || subtitle) && (
           <div className="mb-8">
             {eyebrow && (
@@ -98,12 +98,12 @@ export function AuthShell(props: AuthShellProps) {
               </p>
             )}
             {title && (
-              <h1 className="mt-3 text-3xl font-light tracking-tight text-zinc-900 sm:text-4xl">
+              <h1 className="mt-3 text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl">
                 {title}
               </h1>
             )}
             {subtitle && (
-              <p className="mt-3 text-sm leading-relaxed text-zinc-600">
+              <p className="mt-4 text-base leading-relaxed text-zinc-600">
                 {subtitle}
               </p>
             )}

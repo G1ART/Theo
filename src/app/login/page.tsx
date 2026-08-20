@@ -469,7 +469,11 @@ function LoginV2Inner() {
   return (
     <AuthShell
       title={
-        <span className="block leading-tight">
+        // Wireframe polish (2026-08-19): the H1 bumped from
+        // text-3xl/text-4xl → text-4xl/text-5xl. `max-w-[16ch]` on the
+        // wrapper keeps the two taglines on their own lines even at
+        // 48px on narrow viewports (both strings are ≤15 chars).
+        <span className="block max-w-[16ch] leading-tight">
           <span className="block">{t("auth.loginV2.tagline1")}</span>
           <span className="block">{t("auth.loginV2.tagline2")}</span>
         </span>

@@ -358,6 +358,9 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+        {t("auth.signupV2.step3.subtitle")}
+      </p>
       <OvalInput
         label={t("auth.signupV2.step3.fullNameLabel")}
         value={fullName}

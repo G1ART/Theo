@@ -198,11 +198,6 @@ export function SignupWizardShell() {
       ? () => goToStep((state.step - 1) as SignupV2WizardStep)
       : undefined;
 
-  const totalSteps = 4;
-  const eyebrow = t("auth.signupV2.stepEyebrow")
-    .replace("{step}", String(state.step))
-    .replace("{total}", String(totalSteps));
-
   const alternate: ReactNode = (
     <span>
       {t("auth.signupV2.haveAccount")}{" "}
@@ -215,29 +210,28 @@ export function SignupWizardShell() {
     </span>
   );
 
-  // Step 4 copy is role-aware (§5 #7). The wizard shell picks the
-  // right title/subtitle based on `state.mainRole` so the copy lands
-  // before the form even mounts.
-  const step4TitleKey =
+  // Wireframe polish (2026-08-19): the huge H1 is the *step label*
+  // ("Step N"), the AuthShell subtitle is the short action label
+  // ("Enter your email"). Descriptive body copy lives inside each step
+  // as a small `<p>` above the form. Step 4 sub-label stays
+  // role-aware and reuses Worker B's existing `.artistTitle` /
+  // `.nonArtistTitle` copy verbatim so we don't duplicate strings.
+  const step4SubLabelKey =
     state.mainRole === "artist"
       ? "auth.signupV2.step4.artistTitle"
       : "auth.signupV2.step4.nonArtistTitle";
-  const step4SubtitleKey =
-    state.mainRole === "artist"
-      ? "auth.signupV2.step4.artistSubtitle"
-      : "auth.signupV2.step4.nonArtistSubtitle";
 
   const titles: Record<SignupV2WizardStep, string> = {
-    1: t("auth.signupV2.step1.title"),
-    2: t("auth.signupV2.step2.title"),
-    3: t("auth.signupV2.step3.title"),
-    4: t(step4TitleKey),
+    1: t("auth.signupV2.stepLabel.step1"),
+    2: t("auth.signupV2.stepLabel.step2"),
+    3: t("auth.signupV2.stepLabel.step3"),
+    4: t("auth.signupV2.stepLabel.step4"),
   };
   const subtitles: Record<SignupV2WizardStep, string> = {
-    1: t("auth.signupV2.step1.subtitle"),
-    2: t("auth.signupV2.step2.subtitle"),
-    3: t("auth.signupV2.step3.subtitle"),
-    4: t(step4SubtitleKey),
+    1: t("auth.signupV2.step1.subLabel"),
+    2: t("auth.signupV2.step2.subLabel"),
+    3: t("auth.signupV2.step3.subLabel"),
+    4: t(step4SubLabelKey),
   };
 
   let body: ReactNode = null;
@@ -255,7 +249,6 @@ export function SignupWizardShell() {
     <AuthShell
       onBack={handleBack}
       backLabel={t("auth.signupV2.back")}
-      eyebrow={eyebrow}
       title={titles[state.step]}
       subtitle={subtitles[state.step]}
       alternate={alternate}

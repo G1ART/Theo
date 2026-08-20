@@ -124,6 +124,9 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+      <p className="-mt-2 mb-6 text-sm text-zinc-500">
+        {t("auth.signupV2.step2.subtitle")}
+      </p>
       <div className="space-y-3">
         <OvalInput
           label={t("auth.signupV2.step2.passwordLabel")}
