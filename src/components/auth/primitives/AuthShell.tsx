@@ -11,10 +11,10 @@
  *
  *   - `"header"` — small mark in a top bar (legacy). Unused by the
  *     current login/signup frames.
- *   - `"hero"` — large centered mark above a quiet tagline. This is
- *     the /login composition: logo is the visual hero, "Meet your
- *     Theo. / Be our Theo." sits under it as body copy, NOT as a
- *     display H1.
+ *   - `"hero"` — logo + quiet tagline above the form (login). The
+ *     page column is centered on the viewport, but logo, catchphrase,
+ *     and fields share a **left** edge — same as signup "Step N".
+ *     Do not `text-center` the hero copy.
  *   - `"none"` — no mark. Signup steps open on a huge "Step N" title
  *     with no logo (designer frames).
  *
@@ -119,11 +119,11 @@ export function AuthShell(props: AuthShellProps) {
 
   const titleClass =
     titleTone === "quiet"
-      ? "text-center text-[13px] font-normal leading-[1.7] text-zinc-600"
+      ? "text-[13px] font-normal leading-[1.7] text-zinc-600"
       : "mt-3 text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl";
   const subtitleClass =
     titleTone === "quiet"
-      ? "mt-5 whitespace-pre-line text-center text-[13px] leading-relaxed text-zinc-600"
+      ? "mt-5 whitespace-pre-line text-[13px] leading-relaxed text-zinc-600"
       : "mt-3 whitespace-pre-line text-sm leading-relaxed text-zinc-600";
 
   const mark = logo ?? (
@@ -180,7 +180,7 @@ export function AuthShell(props: AuthShellProps) {
           <Link
             href={homeHref}
             aria-label="Theo"
-            className="mb-5 flex justify-center"
+            className="mb-5 inline-flex"
           >
             {mark}
           </Link>
