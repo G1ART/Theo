@@ -8518,6 +8518,17 @@ export const messages = {
       "여백 없이 자동 크롭된 그림이 표시되고 있어요.",
     "simulation.cutout.applied.alpha":
       "고급 투명 배경 분리가 적용된 그림이 표시되고 있어요.",
+    // 2026-08-20 (Tier 3) — 결과가 마음에 들지 않을 때 재시도/되돌리기.
+    // "다시 시도" 는 종이 배경 특화 aggressiveWhiteTrim 모드로 재실행.
+    "simulation.cutout.bbox.retry": "여백 자동 제거 다시 시도",
+    "simulation.cutout.bbox.revert": "원본으로 되돌리기",
+    "simulation.cutout.alpha.retry": "고급 배경 분리 다시 시도",
+    "simulation.cutout.alpha.revertToBbox": "여백 자동 제거로 되돌리기",
+    "simulation.cutout.alpha.revert": "원본으로 되돌리기",
+    "simulation.cutout.retry.noImprovement":
+      "이번엔 여백을 더 찾지 못했어요. 다른 각도의 사진을 업로드하면 더 나은 결과를 얻을 수 있어요.",
+    "simulation.cutout.revert.done": "원본으로 되돌렸어요",
+    "simulation.cutout.revertToBbox.done": "여백 자동 제거 상태로 되돌렸어요",
 
     // P1 (2026-08-19) — 측정 기반 스케일 보정 (AI + 수동).
     // 사진을 처음 올렸을 때, 사용자 설정이 켜져 있고 아직 보정되지

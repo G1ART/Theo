@@ -106,6 +106,9 @@ import { aiApi } from "@/lib/ai/browser";
 import type { SpaceCalibrateCandidate } from "@/lib/ai/types";
 import { useAiCalibrationPref } from "@/lib/simulation/calibrationPref";
 import {
+  deleteAllCutouts,
+  deleteAlphaCutout,
+  deleteBboxCutout,
   runPhotoroomCutout,
   runVisionBboxCrop,
 } from "@/lib/simulation/cutoutClient";
@@ -1884,7 +1887,19 @@ function SpaceEditorContent({ id }: { id: string }) {
    * flight for the same artwork.
    */
   const handleRunBboxCrop = useCallback(
-    async (artworkId: string) => {
+    async (
+      artworkId: string,
+      /**
+       * 2026-08-20 (Tier 3) — retry option: when true we invoke the
+       * bbox pipeline with `aggressiveWhiteTrim`, which relaxes the
+       * variance / luminance ceilings and widens the per-edge cap so
+       * white-paper artwork (floral drawings, watercolors on A4,
+       * etc.) gets a much tighter crop on the second pass. The
+       * regular first-run CTA leaves this false so casual uploads
+       * keep the safer defaults.
+       */
+      opts?: { aggressiveWhiteTrim?: boolean; isRetry?: boolean },
+    ) => {
       if (!state) return;
       const artwork = state.artworks.get(artworkId);
       if (!artwork?.imageUrl) return;
@@ -1898,6 +1913,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         const res = await runVisionBboxCrop({
           artworkId,
           imageUrl: artwork.imageUrl,
+          aggressiveWhiteTrim: opts?.aggressiveWhiteTrim === true,
         });
         if (res.applied) {
           // 2026-08-19 (personal cutouts fix) — swap toast copy so
@@ -1915,9 +1931,22 @@ function SpaceEditorContent({ id }: { id: string }) {
           // scene — same aspect-snap path as the auto-fire.
           await refreshArtworkThumb(artworkId);
         } else if (res.reason === "already_tight") {
-          setToast(t("simulation.cutout.bbox.alreadyTight"));
+          // 2026-08-20 (Tier 3) — during a retry, "already_tight"
+          // and "low_confidence" both mean "we tried harder and
+          // still couldn't do more". Surface a targeted toast so
+          // the user knows a fresh photo is the next step (not
+          // that the initial trim was somehow undone).
+          setToast(
+            opts?.isRetry
+              ? t("simulation.cutout.retry.noImprovement")
+              : t("simulation.cutout.bbox.alreadyTight"),
+          );
         } else if (res.reason === "low_confidence") {
-          setToast(t("simulation.cutout.bbox.lowConfidence"));
+          setToast(
+            opts?.isRetry
+              ? t("simulation.cutout.retry.noImprovement")
+              : t("simulation.cutout.bbox.lowConfidence"),
+          );
         } else {
           setToast(t("simulation.cutout.bbox.failed"));
         }
@@ -1925,6 +1954,58 @@ function SpaceEditorContent({ id }: { id: string }) {
         autoCropInFlightRef.current.delete(artworkId);
         setCutoutBusy(null);
       }
+    },
+    [state, cutoutBusy, refreshArtworkThumb, t],
+  );
+
+  /**
+   * 2026-08-20 (Tier 3) — Track 1 retry. Wipes the existing bbox
+   * cutout row (personal or global depending on ownership) then
+   * re-fires `handleRunBboxCrop` with `aggressiveWhiteTrim: true`.
+   * The two-step (delete → re-run) is unavoidable because
+   * `runVisionBboxCrop` upserts by `(user_id, artwork_id,
+   * view_type)` on the personal path and inserts on the global
+   * path — without a prior delete the "already exists" state would
+   * short-circuit the new attempt.
+   */
+  const handleRetryBboxCrop = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      if (cutoutBusy) return;
+      const del = await deleteBboxCutout(artworkId);
+      if (!del.ok) {
+        setToast(t("simulation.cutout.bbox.failed"));
+        return;
+      }
+      // Refresh so the renderer temporarily reverts to the primary
+      // while the new pipeline runs — makes the retry feel snappy
+      // even if the network round-trip takes a second.
+      await refreshArtworkThumb(artworkId);
+      await handleRunBboxCrop(artworkId, {
+        aggressiveWhiteTrim: true,
+        isRetry: true,
+      });
+    },
+    [state, cutoutBusy, handleRunBboxCrop, refreshArtworkThumb, t],
+  );
+
+  /**
+   * 2026-08-20 (Tier 3) — "원본으로 되돌리기" for the bbox track.
+   * Deletes the bbox cutout row only (Track 2 alpha is untouched
+   * because this handler is bound to the bbox-only state). Renderer
+   * falls back to the primary image after the refresh.
+   */
+  const handleRevertBboxCrop = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      if (cutoutBusy) return;
+      const del = await deleteBboxCutout(artworkId);
+      if (!del.ok) {
+        setToast(t("simulation.cutout.bbox.failed"));
+        return;
+      }
+      await refreshArtworkThumb(artworkId);
+      setToast(t("simulation.cutout.revert.done"));
     },
     [state, cutoutBusy, refreshArtworkThumb, t],
   );
@@ -1965,6 +2046,74 @@ function SpaceEditorContent({ id }: { id: string }) {
       } finally {
         setCutoutBusy(null);
       }
+    },
+    [state, cutoutBusy, refreshArtworkThumb, t],
+  );
+
+  /**
+   * 2026-08-20 (Tier 3) — Track 2 retry. Deletes the alpha row (so
+   * the server side's "already has alpha" idempotency guard clears)
+   * then re-fires the Photoroom pipeline. Photoroom itself doesn't
+   * have a client-tunable "harder" mode, but re-running is
+   * meaningful because Photoroom's output is deterministic per
+   * *primary image* — if the user rotated / cropped / replaced the
+   * primary between attempts, the second call produces a different
+   * mask. Even without a primary change, users routinely want to
+   * "just run it again" to compare against the bbox result.
+   */
+  const handleRetryPhotoroomCutout = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      if (cutoutBusy) return;
+      const del = await deleteAlphaCutout(artworkId);
+      if (!del.ok) {
+        setToast(t("simulation.cutout.alpha.failed"));
+        return;
+      }
+      await refreshArtworkThumb(artworkId);
+      await handleRunPhotoroomCutout(artworkId);
+    },
+    [state, cutoutBusy, handleRunPhotoroomCutout, refreshArtworkThumb, t],
+  );
+
+  /**
+   * 2026-08-20 (Tier 3) — "여백 자동 제거로 되돌리기". Wipes ONLY
+   * the alpha row; if a bbox row exists the renderer falls back to
+   * it, otherwise to the primary. Same delete path as
+   * `deleteAlphaCutout`.
+   */
+  const handleRevertAlphaToBbox = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      if (cutoutBusy) return;
+      const del = await deleteAlphaCutout(artworkId);
+      if (!del.ok) {
+        setToast(t("simulation.cutout.alpha.failed"));
+        return;
+      }
+      await refreshArtworkThumb(artworkId);
+      setToast(t("simulation.cutout.revertToBbox.done"));
+    },
+    [state, cutoutBusy, refreshArtworkThumb, t],
+  );
+
+  /**
+   * 2026-08-20 (Tier 3) — "원본으로 되돌리기" from the alpha state.
+   * Removes BOTH the alpha and bbox rows so the renderer falls all
+   * the way through to the primary. Reuses `deleteAllCutouts` for a
+   * single ownership-check round-trip.
+   */
+  const handleRevertAllCutouts = useCallback(
+    async (artworkId: string) => {
+      if (!state) return;
+      if (cutoutBusy) return;
+      const del = await deleteAllCutouts(artworkId);
+      if (!del.ok) {
+        setToast(t("simulation.cutout.alpha.failed"));
+        return;
+      }
+      await refreshArtworkThumb(artworkId);
+      setToast(t("simulation.cutout.revert.done"));
     },
     [state, cutoutBusy, refreshArtworkThumb, t],
   );
@@ -3652,66 +3801,175 @@ function SpaceEditorContent({ id }: { id: string }) {
                       </p>
                     </div>
                     {/*
-                      Cutout CTAs (Phase 2 painting isolation).
-                      Track 1 (bbox crop) is always visible when the
-                      artwork has no bbox cutout yet — free, one-shot,
-                      no gating. Track 2 (Photoroom alpha) is gated
-                      behind `NEXT_PUBLIC_PHOTOROOM_ENABLED` and hidden
-                      entirely (button + caption) when the environment
-                      hasn't opted in — the server key check is a
-                      belt-and-braces safety net for that gate.
-                      The section itself is hidden when there's nothing
-                      for the user to do (existing cutout + Pro
-                      disabled).
+                      Cutout CTAs (2026-08-20 — Tier 3 retry/revert
+                      redesign). Three distinct states depending on
+                      which cutout row exists for this artwork:
+                        1. NONE     → offer Track 1 (+ Track 2 if enabled)
+                        2. BBOX ONLY (Track 1 was applied) → status +
+                           "다시 시도" (bbox aggressive re-run) +
+                           "원본으로 되돌리기" + optionally upgrade to
+                           Track 2
+                        3. ALPHA (Track 2 was applied — strongest) →
+                           status + Photoroom "다시 시도" + revert-to-bbox
+                           + revert-to-original
+                      Track 2 CTAs remain fully gated by
+                      `NEXT_PUBLIC_PHOTOROOM_ENABLED`; the server key
+                      check is still a belt-and-braces safety net.
                     */}
                     {artwork?.imageUrl && (
                       <div>
                         <div className="text-xs uppercase tracking-wide text-zinc-500">
                           {t("simulation.inspector.cutout.title")}
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {!hasBboxCutout && !hasAlphaCutout && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleRunBboxCrop(selected.artworkId)
-                              }
-                              disabled={bboxBusy || Boolean(cutoutBusy)}
-                              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                            >
-                              {bboxBusy
-                                ? t("simulation.cutout.bbox.running")
-                                : t("simulation.cutout.bbox.cta")}
-                            </button>
-                          )}
-                          {photoroomEnabled && !hasAlphaCutout && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleRunPhotoroomCutout(
-                                  selected.artworkId,
-                                )
-                              }
-                              disabled={alphaBusy || Boolean(cutoutBusy)}
-                              className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
-                            >
-                              {alphaBusy
-                                ? t("simulation.cutout.alpha.running")
-                                : t("simulation.cutout.alpha.cta")}
-                            </button>
-                          )}
-                        </div>
-                        {(hasBboxCutout || hasAlphaCutout) && (
-                          <p className="mt-1.5 text-[11px] text-emerald-700">
-                            {hasAlphaCutout
-                              ? t("simulation.cutout.applied.alpha")
-                              : t("simulation.cutout.applied.bbox")}
-                          </p>
+
+                        {/* State 1 — nothing applied yet */}
+                        {!hasBboxCutout && !hasAlphaCutout && (
+                          <>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRunBboxCrop(selected.artworkId)
+                                }
+                                disabled={bboxBusy || Boolean(cutoutBusy)}
+                                className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                              >
+                                {bboxBusy
+                                  ? t("simulation.cutout.bbox.running")
+                                  : t("simulation.cutout.bbox.cta")}
+                              </button>
+                              {photoroomEnabled && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRunPhotoroomCutout(
+                                      selected.artworkId,
+                                    )
+                                  }
+                                  disabled={alphaBusy || Boolean(cutoutBusy)}
+                                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                                >
+                                  {alphaBusy
+                                    ? t("simulation.cutout.alpha.running")
+                                    : t("simulation.cutout.alpha.cta")}
+                                </button>
+                              )}
+                            </div>
+                            {photoroomEnabled && (
+                              <p className="mt-1 text-[11px] text-zinc-500">
+                                {t("simulation.cutout.alpha.betaHint")}
+                              </p>
+                            )}
+                          </>
                         )}
-                        {photoroomEnabled && !hasAlphaCutout && (
-                          <p className="mt-1 text-[11px] text-zinc-500">
-                            {t("simulation.cutout.alpha.betaHint")}
-                          </p>
+
+                        {/* State 2 — bbox applied, alpha not */}
+                        {hasBboxCutout && !hasAlphaCutout && (
+                          <>
+                            <p className="mt-1.5 text-[11px] text-emerald-700">
+                              {t("simulation.cutout.applied.bbox")} ✓
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRetryBboxCrop(selected.artworkId)
+                                }
+                                disabled={bboxBusy || Boolean(cutoutBusy)}
+                                className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                              >
+                                {bboxBusy
+                                  ? t("simulation.cutout.bbox.running")
+                                  : t("simulation.cutout.bbox.retry")}
+                              </button>
+                              {photoroomEnabled && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRunPhotoroomCutout(
+                                      selected.artworkId,
+                                    )
+                                  }
+                                  disabled={alphaBusy || Boolean(cutoutBusy)}
+                                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                                >
+                                  {alphaBusy
+                                    ? t("simulation.cutout.alpha.running")
+                                    : t("simulation.cutout.alpha.cta")}
+                                </button>
+                              )}
+                            </div>
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRevertBboxCrop(selected.artworkId)
+                                }
+                                disabled={Boolean(cutoutBusy)}
+                                className="text-[11px] font-medium text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline disabled:opacity-50"
+                              >
+                                {t("simulation.cutout.bbox.revert")}
+                              </button>
+                            </div>
+                            {photoroomEnabled && (
+                              <p className="mt-1 text-[11px] text-zinc-500">
+                                {t("simulation.cutout.alpha.betaHint")}
+                              </p>
+                            )}
+                          </>
+                        )}
+
+                        {/* State 3 — alpha applied (strongest state) */}
+                        {hasAlphaCutout && (
+                          <>
+                            <p className="mt-1.5 text-[11px] text-emerald-700">
+                              {t("simulation.cutout.applied.alpha")} ✓
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRetryPhotoroomCutout(
+                                    selected.artworkId,
+                                  )
+                                }
+                                disabled={alphaBusy || Boolean(cutoutBusy)}
+                                className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                              >
+                                {alphaBusy
+                                  ? t("simulation.cutout.alpha.running")
+                                  : t("simulation.cutout.alpha.retry")}
+                              </button>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRevertAlphaToBbox(
+                                    selected.artworkId,
+                                  )
+                                }
+                                disabled={Boolean(cutoutBusy)}
+                                className="text-[11px] font-medium text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline disabled:opacity-50"
+                              >
+                                {t(
+                                  "simulation.cutout.alpha.revertToBbox",
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRevertAllCutouts(
+                                    selected.artworkId,
+                                  )
+                                }
+                                disabled={Boolean(cutoutBusy)}
+                                className="text-[11px] font-medium text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline disabled:opacity-50"
+                              >
+                                {t("simulation.cutout.alpha.revert")}
+                              </button>
+                            </div>
+                          </>
                         )}
                       </div>
                     )}

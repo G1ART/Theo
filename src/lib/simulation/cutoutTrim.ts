@@ -39,35 +39,70 @@ export type RefinedTightBbox = CropRect & {
 export type RefineTightBboxOptions = {
   /** Cap on how much of each edge we're willing to trim, as a
    *  fraction of the initial dimension along that edge. Default
-   *  0.15 — a matte / letterbox rarely eats more than 15% of a
-   *  reasonably cropped upload, and pushing higher risks slicing
-   *  into the actual artwork on high-key paintings (a snowy
-   *  landscape could read as a "white border" to the sampler). */
+   *  0.30 (2026-08-20 — bumped from 0.15) — matte / paper padding
+   *  can eat much more than 15% on flat-artwork uploads (e.g. a
+   *  floral drawing shot on A4 with 25% margin per side). The
+   *  variance guard still prevents this from slicing into a
+   *  high-key painting body. */
   maxAdditionalTrimFrac?: number;
   /** Border strip thickness used to sample the edge signature,
    *  as a fraction of the initial dimension. Default 0.05 (5%). */
   borderSamplePct?: number;
   /** Mean luminance above this counts as "near-white matte / wall".
-   *  Default 235 (out of 255) — matches typical off-white paint. */
+   *  Default 225 (2026-08-20 — dropped from 235) so off-white
+   *  paper and slightly aged mattes read as trimmable too. */
   lightLuminanceThreshold?: number;
   /** Mean luminance below this counts as "near-black shadow /
    *  letterbox". Default 20. */
   darkLuminanceThreshold?: number;
   /** Variance ceiling for the border strip. A high-variance strip
    *  (visible artwork detail) never counts as trimmable, even if
-   *  its mean happens to fall in the light/dark band. Default 400
-   *  — comfortably above JPEG noise, well below any real painterly
-   *  gradient. */
+   *  its mean happens to fall in the light/dark band. Default 900
+   *  (2026-08-20 — bumped from 400) — JPEG noise on paper plus
+   *  faint paper grain routinely pushes variance into the
+   *  400–800 band even when the strip is obviously blank paper. */
   varianceThreshold?: number;
+  /** 2026-08-20 (Tier 3 white-paper fix) — opt-in aggressive mode
+   *  for flat artwork on white paper backgrounds (floral drawings,
+   *  watercolors, etc.). When true AND the initial-crop mean
+   *  luminance is high enough (`> 210`) to indicate a light-dominated
+   *  photo, the per-edge cap widens (0.45), the variance ceiling
+   *  lifts (1400 — accept more paper grain / faint pencil marks),
+   *  and the light-luminance threshold drops (215) to catch more
+   *  paper tones. Default false — the auto-fire path never enables
+   *  it. The "다시 시도" (retry) CTA in the Space Editor opts in so
+   *  a user who's unhappy with the first pass can push harder. */
+  aggressiveWhiteTrim?: boolean;
 };
 
-const DEFAULT_OPTIONS: Required<RefineTightBboxOptions> = {
-  maxAdditionalTrimFrac: 0.15,
+const DEFAULT_OPTIONS: Required<Omit<RefineTightBboxOptions, "aggressiveWhiteTrim">> & {
+  aggressiveWhiteTrim: boolean;
+} = {
+  maxAdditionalTrimFrac: 0.3,
   borderSamplePct: 0.05,
-  lightLuminanceThreshold: 235,
+  lightLuminanceThreshold: 225,
   darkLuminanceThreshold: 20,
-  varianceThreshold: 400,
+  varianceThreshold: 900,
+  aggressiveWhiteTrim: false,
 };
+
+/**
+ * 2026-08-20 (Tier 3) — overrides applied on top of `DEFAULT_OPTIONS`
+ * when `aggressiveWhiteTrim === true` AND the initial-crop mean
+ * luminance clears the `AGGRESSIVE_WHITE_MEAN_MIN` bar. Kept as a
+ * module constant so the unit test can pin the exact ceilings.
+ */
+export const AGGRESSIVE_WHITE_TRIM_OVERRIDES = {
+  maxAdditionalTrimFrac: 0.45,
+  varianceThreshold: 1400,
+  lightLuminanceThreshold: 215,
+} as const;
+
+/** Only apply the aggressive overrides when the initial crop is
+ *  dominated by light pixels — a mid-tone or dark composition
+ *  never gets the paper-margin treatment even if the user
+ *  opted in, so we can't accidentally trim a real subject. */
+export const AGGRESSIVE_WHITE_MEAN_MIN = 210;
 
 /**
  * Simple luminance approximation (Rec. 601 coefficients rounded to
@@ -156,15 +191,63 @@ export function isStripTrimmable(
  * carries the per-edge pixel delta so metadata can log how much
  * local trim contributed on top of the model bbox.
  */
+/**
+ * 2026-08-20 (Tier 3) — mean luminance of the initial-crop rect,
+ * used to gate the `aggressiveWhiteTrim` overrides. Returns `null`
+ * for a degenerate rectangle so callers keep the safe defaults.
+ */
+export function computeCropMeanLuminance(
+  img: ImageDataLike,
+  initialCropRect: CropRect,
+): number | null {
+  const { cropX, cropY, cropW, cropH } = initialCropRect;
+  if (cropW <= 0 || cropH <= 0) return null;
+  if (img.width <= 0 || img.height <= 0) return null;
+  const x0 = Math.max(0, Math.floor(cropX));
+  const y0 = Math.max(0, Math.floor(cropY));
+  const x1 = Math.min(img.width, Math.floor(cropX + cropW));
+  const y1 = Math.min(img.height, Math.floor(cropY + cropH));
+  const stats = stripLuminanceStats(img, x0, y0, x1, y1);
+  return stats ? stats.mean : null;
+}
+
 export function refineTightBboxByLuminanceFromImageData(
   img: ImageDataLike,
   initialCropRect: CropRect,
   options?: RefineTightBboxOptions,
 ): RefinedTightBbox {
-  const opts: Required<RefineTightBboxOptions> = {
+  // Merge caller overrides on top of the module defaults first.
+  const baseOpts: Required<RefineTightBboxOptions> = {
     ...DEFAULT_OPTIONS,
     ...(options ?? {}),
   };
+
+  // 2026-08-20 (Tier 3) — aggressive white-paper mode. Only kicks
+  // in when the caller opted in AND the initial-crop mean
+  // luminance clears the "light-dominated photo" bar. Guards a
+  // mid-tone or dark composition from ever getting the widened
+  // trim ceilings even if the flag was passed in by mistake.
+  let opts: Required<RefineTightBboxOptions> = baseOpts;
+  if (baseOpts.aggressiveWhiteTrim) {
+    const cropMean = computeCropMeanLuminance(img, initialCropRect);
+    if (cropMean !== null && cropMean > AGGRESSIVE_WHITE_MEAN_MIN) {
+      opts = {
+        ...baseOpts,
+        maxAdditionalTrimFrac: Math.max(
+          baseOpts.maxAdditionalTrimFrac,
+          AGGRESSIVE_WHITE_TRIM_OVERRIDES.maxAdditionalTrimFrac,
+        ),
+        varianceThreshold: Math.max(
+          baseOpts.varianceThreshold,
+          AGGRESSIVE_WHITE_TRIM_OVERRIDES.varianceThreshold,
+        ),
+        lightLuminanceThreshold: Math.min(
+          baseOpts.lightLuminanceThreshold,
+          AGGRESSIVE_WHITE_TRIM_OVERRIDES.lightLuminanceThreshold,
+        ),
+      };
+    }
+  }
 
   let { cropX, cropY, cropW, cropH } = initialCropRect;
   const initialW = cropW;

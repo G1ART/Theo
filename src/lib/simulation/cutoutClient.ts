@@ -219,8 +219,18 @@ export async function runVisionBboxCrop(input: {
    *  since the model only needs to see the geometry. */
   imageUrl: string;
   minConfidence?: number;
+  /**
+   * 2026-08-20 (Tier 3) — opt-in aggressive trim mode. Default
+   * `false`, matching the current auto-fire behavior. The Space
+   * Editor "다시 시도" (retry) CTA passes `true` so users unhappy
+   * with the initial bbox+trim can push harder on white-paper
+   * backgrounds. See `cutoutTrim.ts::aggressiveWhiteTrim` for the
+   * overrides this unlocks.
+   */
+  aggressiveWhiteTrim?: boolean;
 }): Promise<BboxCropResult> {
   const minConfidence = input.minConfidence ?? 0.7;
+  const aggressiveWhiteTrim = input.aggressiveWhiteTrim === true;
 
   const {
     data: { user },
@@ -307,7 +317,9 @@ export async function runVisionBboxCrop(input: {
       cropW,
       cropH,
     };
-    const refined = refineTightBboxByLuminance(canvas, initialLocalCrop);
+    const refined = refineTightBboxByLuminance(canvas, initialLocalCrop, {
+      aggressiveWhiteTrim,
+    });
     const hasTrim =
       refined.trimmed.top > 0 ||
       refined.trimmed.bottom > 0 ||
@@ -336,7 +348,9 @@ export async function runVisionBboxCrop(input: {
         finalCropH = refined.cropH;
       }
     }
-    trimMeta = summarizeTrim(initialLocalCrop, refined);
+    trimMeta = summarizeTrim(initialLocalCrop, refined, {
+      aggressiveWhiteTrim,
+    });
     dataUrl = canvasForUpload.toDataURL("image/jpeg", 0.92);
   } catch {
     return { applied: false, reason: "canvas_failed" };
@@ -510,4 +524,235 @@ export async function runPhotoroomCutout(input: {
     // the caller reloads the artwork anyway.
     return { applied: true };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 2026-08-20 (Tier 3) — Delete helpers
+//
+// The Space Editor's cutout section now surfaces retry / revert
+// affordances: after Track 1 or Track 2 runs, the user can undo the
+// cutout row (falling back to the primary or a weaker cutout) or
+// wipe all cutouts entirely. Deletion writes go to the SAME table
+// the original write landed on:
+//
+//   • global cutout (artist / claim holder) → `artwork_images` row
+//     with matching view_type
+//   • personal cutout (collector / anyone else) →
+//     `artwork_user_cutouts` row scoped to `auth.uid()`
+//
+// Each helper is best-effort: after the DB delete succeeds, we try
+// to unlink the storage object. Storage errors are swallowed
+// intentionally — a dangling object is safer than a stale row (and
+// Supabase's storage GC / manual bucket cleanup can pick it up
+// later). The DB delete is the only thing the renderer cares about.
+// All helpers never throw — every failure resolves as
+// `{ ok: false, reason }` so the enclosing CTA can toast + stay
+// interactive.
+// ─────────────────────────────────────────────────────────────────
+
+export type DeleteCutoutResult = {
+  ok: boolean;
+  reason?:
+    | "unauthorized"
+    | "not_found"
+    | "delete_failed"
+    | "unknown";
+};
+
+type CutoutViewType = "cutout" | "cutout_alpha";
+
+/**
+ * Best-effort storage unlink. Never throws — a dangling file is
+ * always safer than blocking the DB delete on a storage RLS blip.
+ */
+async function bestEffortRemoveStorage(path: string | null | undefined) {
+  if (!path) return;
+  try {
+    await supabase.storage.from(BUCKET).remove([path]);
+  } catch {
+    // ignore — see JSDoc
+  }
+}
+
+/**
+ * Core deletion: the caller has already resolved auth + scope, we
+ * just fan out to the right table. On global scope we also try to
+ * remove the storage object we owned. Personal-scope rows are
+ * always keyed by `(user_id, artwork_id, view_type)` so we don't
+ * need to know the storage path up front to delete the row, but we
+ * still SELECT it first so the storage cleanup can chain on.
+ */
+async function deleteCutoutRow(input: {
+  artworkId: string;
+  userId: string;
+  viewType: CutoutViewType;
+  scope: CutoutScope;
+}): Promise<DeleteCutoutResult> {
+  const { artworkId, userId, viewType, scope } = input;
+  try {
+    if (scope === "global") {
+      // Read the storage path first so we can best-effort unlink
+      // after the row goes away. If the SELECT fails or returns
+      // nothing, skip the storage step but keep going with the
+      // delete (the row may exist without a resolvable path if
+      // schema drifted).
+      const { data: rows } = await supabase
+        .from("artwork_images")
+        .select("storage_path")
+        .eq("artwork_id", artworkId)
+        .eq("view_type", viewType);
+      const paths = (rows ?? [])
+        .map((r) => (r as { storage_path?: string | null }).storage_path)
+        .filter((p): p is string => Boolean(p));
+
+      const { error: delErr } = await supabase
+        .from("artwork_images")
+        .delete()
+        .eq("artwork_id", artworkId)
+        .eq("view_type", viewType);
+      if (delErr) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(
+            "[cutoutClient] global cutout delete failed",
+            delErr.message,
+          );
+        }
+        return { ok: false, reason: "delete_failed" };
+      }
+      for (const p of paths) {
+        await bestEffortRemoveStorage(p);
+      }
+      return { ok: true };
+    }
+
+    // Personal scope — RLS restricts to `user_id = auth.uid()` so
+    // scoping by both user + artwork + view_type is safe (and
+    // makes the storage-path lookup deterministic).
+    const { data: rows } = await supabase
+      .from("artwork_user_cutouts")
+      .select("storage_path")
+      .eq("user_id", userId)
+      .eq("artwork_id", artworkId)
+      .eq("view_type", viewType);
+    const paths = (rows ?? [])
+      .map((r) => (r as { storage_path?: string | null }).storage_path)
+      .filter((p): p is string => Boolean(p));
+
+    const { error: delErr } = await supabase
+      .from("artwork_user_cutouts")
+      .delete()
+      .eq("user_id", userId)
+      .eq("artwork_id", artworkId)
+      .eq("view_type", viewType);
+    if (delErr) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          "[cutoutClient] personal cutout delete failed",
+          delErr.message,
+        );
+      }
+      return { ok: false, reason: "delete_failed" };
+    }
+    for (const p of paths) {
+      await bestEffortRemoveStorage(p);
+    }
+    return { ok: true };
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[cutoutClient] delete cutout threw", err);
+    }
+    return { ok: false, reason: "unknown" };
+  }
+}
+
+/**
+ * Resolve the auth'd user + scope for a delete request.
+ * `canWriteGlobalCutout` is reused here on purpose — write-scope
+ * and delete-scope must match, otherwise a collector could
+ * accidentally target a global row they can't actually delete.
+ */
+async function resolveDeleteScope(
+  artworkId: string,
+): Promise<
+  | { ok: true; userId: string; scope: CutoutScope }
+  | { ok: false; result: DeleteCutoutResult }
+> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, result: { ok: false, reason: "unauthorized" } };
+  }
+  const canGlobal = await canWriteGlobalCutout(artworkId, user.id);
+  return {
+    ok: true,
+    userId: user.id,
+    scope: canGlobal ? "global" : "personal",
+  };
+}
+
+/**
+ * Delete the bbox (Track 1) cutout for the given artwork. Routes
+ * to `artwork_images` (view_type='cutout') for artists / claim
+ * holders or `artwork_user_cutouts` for everyone else. Idempotent —
+ * absent rows still resolve `{ ok: true }` so the "revert" flows
+ * don't surface confusing "not found" toasts on double-clicks.
+ */
+export async function deleteBboxCutout(
+  artworkId: string,
+): Promise<DeleteCutoutResult> {
+  const scope = await resolveDeleteScope(artworkId);
+  if (!scope.ok) return scope.result;
+  return deleteCutoutRow({
+    artworkId,
+    userId: scope.userId,
+    viewType: "cutout",
+    scope: scope.scope,
+  });
+}
+
+/**
+ * Delete the alpha (Track 2 / Photoroom) cutout for the given
+ * artwork. Mirrors `deleteBboxCutout` but targets the
+ * `cutout_alpha` view_type.
+ */
+export async function deleteAlphaCutout(
+  artworkId: string,
+): Promise<DeleteCutoutResult> {
+  const scope = await resolveDeleteScope(artworkId);
+  if (!scope.ok) return scope.result;
+  return deleteCutoutRow({
+    artworkId,
+    userId: scope.userId,
+    viewType: "cutout_alpha",
+    scope: scope.scope,
+  });
+}
+
+/**
+ * Delete BOTH cutout variants in one shot. Returns `{ ok: true }`
+ * only when every underlying delete succeeded — if either scope
+ * write fails we surface the failing reason so the caller can
+ * decide whether to toast or stay silent.
+ */
+export async function deleteAllCutouts(
+  artworkId: string,
+): Promise<DeleteCutoutResult> {
+  const scope = await resolveDeleteScope(artworkId);
+  if (!scope.ok) return scope.result;
+  const bbox = await deleteCutoutRow({
+    artworkId,
+    userId: scope.userId,
+    viewType: "cutout",
+    scope: scope.scope,
+  });
+  const alpha = await deleteCutoutRow({
+    artworkId,
+    userId: scope.userId,
+    viewType: "cutout_alpha",
+    scope: scope.scope,
+  });
+  if (!bbox.ok) return bbox;
+  if (!alpha.ok) return alpha;
+  return { ok: true };
 }

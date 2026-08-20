@@ -247,6 +247,7 @@ import assert from "node:assert/strict";
       lightLuminanceThreshold: 235,
       darkLuminanceThreshold: 20,
       varianceThreshold: 400,
+      aggressiveWhiteTrim: false,
     };
     assert.equal(
       isStripTrimmable({ mean: 245, variance: 30 }, opts),
@@ -268,6 +269,190 @@ import assert from "node:assert/strict";
       true,
       "dark + calm → trim (letterbox)",
     );
+  }
+
+  // ── 7. Tier 3 — white-paper artwork with `aggressiveWhiteTrim` ────
+  //  500×500 where outer 20% (100 px per edge) is pure white paper
+  //  and inner 60% has strong luminance variance (a painted flower
+  //  with dark and light strokes). The inner region is deliberately
+  //  brightish (dark/light stripes L≈80 / L≈230, mean ≈155) so the
+  //  overall initial-crop mean clears the aggressive gate
+  //  (`> AGGRESSIVE_WHITE_MEAN_MIN=210`). Overall mean here:
+  //    outer 160000 px × 255 + inner 90000 px × 155 ≈ 219
+  //  Aggressive mode should trim every edge to the exact 100 px
+  //  paper boundary (well under the 45% cap = 225 px).
+  //
+  //  Shared factory for the next two cases so they exercise the
+  //  same buffer and only vary the options.
+  const makeWhitePaper500 = () => {
+    const w = 500;
+    const h = 500;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const i = (y * w + x) * 4;
+        const isInner = x >= 100 && x < 400 && y >= 100 && y < 400;
+        let rgba: Rgba;
+        if (!isInner) {
+          rgba = [255, 255, 255, 255]; // pure white paper
+        } else {
+          // High-variance strokes: L601 ≈ 80 vs 230.
+          rgba =
+            (((x >> 2) + (y >> 2)) & 1) === 0
+              ? [80, 80, 80, 255]
+              : [230, 230, 230, 255];
+        }
+        data[i] = rgba[0];
+        data[i + 1] = rgba[1];
+        data[i + 2] = rgba[2];
+        data[i + 3] = rgba[3];
+      }
+    }
+    return { data, width: w, height: h };
+  };
+
+  {
+    const img = makeWhitePaper500();
+    const refined = refineTightBboxByLuminanceFromImageData(
+      img,
+      { cropX: 0, cropY: 0, cropW: img.width, cropH: img.height },
+      { aggressiveWhiteTrim: true },
+    );
+    assert.equal(
+      refined.trimmed.top,
+      100,
+      "aggressive: trims to exact paper boundary top",
+    );
+    assert.equal(
+      refined.trimmed.bottom,
+      100,
+      "aggressive: trims to exact paper boundary bottom",
+    );
+    assert.equal(
+      refined.trimmed.left,
+      100,
+      "aggressive: trims to exact paper boundary left",
+    );
+    assert.equal(
+      refined.trimmed.right,
+      100,
+      "aggressive: trims to exact paper boundary right",
+    );
+    assert.equal(refined.cropW, 300);
+    assert.equal(refined.cropH, 300);
+  }
+
+  // ── 8. Backward-compat — explicit 15% cap still holds ─────────────
+  //  Same white-paper geometry (500×500, 100 px outer margin), but
+  //  the caller pins `maxAdditionalTrimFrac: 0.15` (the pre-tier-3
+  //  default). Trim MUST cap at 75 px per edge — proves that
+  //  callers who still want the old behavior can dial it in and
+  //  the aggressive mode isn't leaking into the defaults path.
+  {
+    const img = makeWhitePaper500();
+    const refined = refineTightBboxByLuminanceFromImageData(
+      img,
+      { cropX: 0, cropY: 0, cropW: img.width, cropH: img.height },
+      { maxAdditionalTrimFrac: 0.15 }, // explicit old cap; no aggressive
+    );
+    assert.equal(refined.trimmed.top, 75, "old cap holds top edge at 75");
+    assert.equal(refined.trimmed.bottom, 75, "old cap holds bottom edge at 75");
+    assert.equal(refined.trimmed.left, 75, "old cap holds left edge at 75");
+    assert.equal(refined.trimmed.right, 75, "old cap holds right edge at 75");
+    assert.equal(refined.cropW, 350);
+    assert.equal(refined.cropH, 350);
+  }
+
+  // ── 9. Tier 3 — off-white paper (230,230,230) still trims ─────────
+  //  Old default lightLuminanceThreshold (235) would have LEFT the
+  //  strip alone. Aggressive mode drops the threshold to 215, so
+  //  slightly aged / warm paper still reads as trimmable. Inner
+  //  region uses the same high-variance pattern from the previous
+  //  cases so the trim halts at the boundary.
+  {
+    const w = 200;
+    const h = 200;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const i = (y * w + x) * 4;
+        const isInner = x >= 20 && x < 180 && y >= 20 && y < 180;
+        let rgba: Rgba;
+        if (!isInner) {
+          rgba = [230, 230, 230, 255]; // off-white paper
+        } else {
+          rgba =
+            (((x >> 1) + (y >> 1)) & 1) === 0
+              ? [200, 30, 30, 255]
+              : [30, 90, 40, 255];
+        }
+        data[i] = rgba[0];
+        data[i + 1] = rgba[1];
+        data[i + 2] = rgba[2];
+        data[i + 3] = rgba[3];
+      }
+    }
+    const img = { data, width: w, height: h };
+    const refined = refineTightBboxByLuminanceFromImageData(
+      img,
+      { cropX: 0, cropY: 0, cropW: w, cropH: h },
+      { aggressiveWhiteTrim: true },
+    );
+    // Off-white 230 is above the aggressive threshold (215); the
+    // trim should reach the exact 20 px paper margin on every edge.
+    assert.equal(refined.trimmed.top, 20, "off-white paper trims to boundary");
+    assert.equal(
+      refined.trimmed.bottom,
+      20,
+      "off-white paper trims to boundary",
+    );
+    assert.equal(refined.trimmed.left, 20, "off-white paper trims to boundary");
+    assert.equal(
+      refined.trimmed.right,
+      20,
+      "off-white paper trims to boundary",
+    );
+    assert.equal(refined.cropW, 160);
+    assert.equal(refined.cropH, 160);
+  }
+
+  // ── 10. Tier 3 — aggressive is a NO-OP on mid-tone photos ────────
+  //  Guardrail: even when the caller opts into `aggressiveWhiteTrim`
+  //  the widened ceilings must NOT activate on a mid-tone /
+  //  dark-dominated crop (initial mean ≤ 210). This protects a
+  //  photo of e.g. a dark oil painting from having its edges
+  //  eaten by a mis-fired retry — behavior falls back to defaults.
+  {
+    const w = 100;
+    const h = 100;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const i = (y * w + x) * 4;
+        // Uniform grey (mean 80) — well below the aggressive-mode
+        // gate (mean > 210). This should behave EXACTLY like the
+        // default path with no cropping expected: mean 80 sits in
+        // the "midtone" band where neither light nor dark trim
+        // fires. If aggressive leaked through, `varianceThreshold`
+        // bumped to 1400 wouldn't matter, but the point is the
+        // luminance gate should also stay strict — we simply
+        // assert nothing is trimmed either way.
+        data[i] = 80;
+        data[i + 1] = 80;
+        data[i + 2] = 80;
+        data[i + 3] = 255;
+      }
+    }
+    const img = { data, width: w, height: h };
+    const refined = refineTightBboxByLuminanceFromImageData(
+      img,
+      { cropX: 0, cropY: 0, cropW: w, cropH: h },
+      { aggressiveWhiteTrim: true },
+    );
+    assert.equal(refined.trimmed.top, 0);
+    assert.equal(refined.trimmed.bottom, 0);
+    assert.equal(refined.trimmed.left, 0);
+    assert.equal(refined.trimmed.right, 0);
   }
 
   console.log("cutoutTrim tests passed");

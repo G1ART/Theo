@@ -2,6 +2,129 @@
 
 Last updated: 2026-08-20
 
+## 2026-08-20 (42) — Space Editor 컷아웃 재시도/되돌리기 UX + 종이-배경 대상 aggressive trim (Tier 3)
+
+> **Supabase SQL 적용 필요: 없음** — 스키마 변경 없음. 삭제 helper 들은
+> 기존 `artwork_images` / `artwork_user_cutouts` 정책 (owner /
+> user_id = auth.uid()) 위에서 그대로 동작한다.
+>
+> **환경 변수 추가/변경: 없음.**
+
+### 배경 — 유저 리포트
+
+1. Space Editor 인스펙터에서 "AI 여백 자동 제거" (Track 1) 또는
+ "고급 배경 분리 (Pro)" (Track 2) 를 한 번 실행하면, 결과가
+ 만족스럽지 않아도 **버튼이 사라져서 재실행이 불가능**했다.
+ 상태에 따라 CTA 를 숨기던 `{!hasBboxCutout && !hasAlphaCutout}`
+ 게이트가 근본 원인.
+2. 흰 종이 배경 위의 평면 아트웍 (예: 꽃 드로잉) 은 bbox crop /
+ Photoroom 이 "여백"을 그림 subject 로 오인해서 흰 종이 마진이
+ 그대로 남는 경우가 잦았다.
+
+### 스코프 (Tier 3)
+
+- **A. 컷아웃 섹션 UX 를 3-state 로 재설계** — 아무 컷아웃도 없으면
+ Track1(+Track2) CTA; bbox 만 있으면 "다시 시도 (aggressive)" + "원본
+ 되돌리기" (+ Track2 upgrade); alpha 있으면 Photoroom 다시 시도 +
+ "여백 자동 제거로 되돌리기" + "원본으로 되돌리기". 모든 되돌리기는
+ 스토리지 파일까지 best-effort 로 언링크.
+- **B. `refineTightBboxByLuminance` 기본 임계값 상향** —
+ `maxAdditionalTrimFrac 0.15 → 0.30`, `lightLuminanceThreshold
+ 235 → 225`, `varianceThreshold 400 → 900`. 종이 특유의 그레인 /
+ JPEG 노이즈를 견디도록 완화하되, 미드톤은 여전히 mean 밴드에서
+ 튕겨나가므로 진짜 그림 body 를 자르는 회귀는 없음.
+- **C. Opt-in `aggressiveWhiteTrim` 모드** — 다시 시도(retry) CTA 는
+ 이 플래그를 `true` 로 넘긴다. 초기 크롭의 mean luminance 가 210 초과
+ (밝은 종이 사진) 인 경우에만 실제로 발동해서 cap 을 0.45 까지,
+ varianceThreshold 를 1400 까지 올리고 lightLuminanceThreshold 를
+ 215 까지 낮춤. 미드톤/다크 그림에는 어떤 옵션도 안 적용되도록
+ 이중 게이트 (`aggressiveWhiteTrim=true` **AND** `cropMean > 210`).
+- **D. 신규 delete helper 3종** —
+ `deleteBboxCutout(artworkId)`, `deleteAlphaCutout(artworkId)`,
+ `deleteAllCutouts(artworkId)` — `canWriteGlobalCutout` 로 스코프를
+ 결정해 `artwork_images` (global) 또는 `artwork_user_cutouts`
+ (personal) 에서 지운 뒤 대응 스토리지 오브젝트를 best-effort 로
+ 삭제. 실패 시 `{ok:false, reason}` 를 돌려주고 절대 throw 안함.
+- **E. i18n 8 keys 신규** (EN + KO) — `simulation.cutout.bbox.retry`,
+ `.bbox.revert`, `.alpha.retry`, `.alpha.revertToBbox`,
+ `.alpha.revert`, `.retry.noImprovement`, `.revert.done`,
+ `.revertToBbox.done`. 특히 aggressive 재시도가 여전히
+ `already_tight` / `low_confidence` 로 끝났을 때 "다른 각도의
+ 사진을 올려보세요" 유도를 위한 문구가 새로 들어감.
+
+### 변경된 파일
+
+- `src/lib/simulation/cutoutTrim.ts` — 기본 옵션 상향 + `aggressiveWhiteTrim`
+ 추가 + `computeCropMeanLuminance` 헬퍼 + `AGGRESSIVE_WHITE_TRIM_OVERRIDES`
+ / `AGGRESSIVE_WHITE_MEAN_MIN` 모듈 상수. 코어 refine 함수는 aggressive
+ override 를 `Math.max/min` 으로 합쳐 caller override 를 절대 약화시키지
+ 않도록 안전.
+- `src/lib/simulation/cutoutClient.ts` — `runVisionBboxCrop` 에
+ `aggressiveWhiteTrim?: boolean` 파라미터 추가 (default false),
+ `refineTightBboxByLuminance` / `summarizeTrim` 로 그대로 전파.
+ 파일 하단에 delete helper 3종 + 내부 `deleteCutoutRow` /
+ `resolveDeleteScope` / `bestEffortRemoveStorage` 추가.
+- `src/components/simulation/SpaceEditor.tsx` — CTA 블록을 3-state
+ 로 재구성 (line 3816 근처). 새 콜백 `handleRetryBboxCrop`,
+ `handleRevertBboxCrop`, `handleRetryPhotoroomCutout`,
+ `handleRevertAlphaToBbox`, `handleRevertAllCutouts` 추가.
+ `handleRunBboxCrop` 시그니처에 optional `opts` 추가 (retry
+ 컨텍스트에서 `already_tight` / `low_confidence` toast 를 노이즈
+ 없는 "다른 각도로 시도" 문구로 스왑).
+- `src/lib/i18n/messages.ts` — EN + KO 각각 8 개 key 추가. **EN
+ 블록은 `main` 의 signup v2 pixel-fidelity 커밋 (6b4c008) 이 이미
+ 동일 키를 실었기에 diff 는 KO 쪽만 남음** (rebase 시 auto-merge
+ 가능). KO 블록은 이번 커밋에서 신규 추가.
+- `src/lib/simulation/__tests__/cutoutTrim.test.ts` — 4개 케이스
+ 추가 (#7 aggressive on white paper 500×500, #8 backward-compat
+ explicit 0.15 cap, #9 off-white paper aggressive, #10 mid-tone
+ photo aggressive-no-op guard). 기존 6개 케이스는 새 `aggressive
+ WhiteTrim: false` 필드가 `Required<>` 안에 들어가면서 옵션
+ 리터럴 하나만 갱신.
+
+### 삭제 helper 스코프 & RLS 노트
+
+- Global 스코프 (artist / claim holder): `DELETE FROM
+ artwork_images WHERE artwork_id = ? AND view_type IN
+ ('cutout','cutout_alpha')`. `Allow owner delete artwork_images`
+ 정책과 그대로 매칭.
+- Personal 스코프: `DELETE FROM artwork_user_cutouts WHERE user_id =
+ auth.uid() AND artwork_id = ? AND view_type = ?`. 마이그레이션
+ 20260819060000 에서 넣은 `artwork_user_cutouts_delete_own` 정책이
+ 커버.
+- 스토리지 unlink 는 `supabase.storage.from('artworks').remove([path])`
+ 를 try/catch 로 감싸 실패해도 DB 삭제 성공을 유지 (dangling
+ 파일은 storage GC / 수동 청소로 처리 가능).
+
+### 검증
+
+1. `npm run test:cutout-trim` → **10/10 passed** (기존 6 + 신규 4).
+2. `npx tsc --noEmit` → **0 errors**.
+3. `npx eslint src/lib/simulation src/components/simulation
+ src/lib/i18n/messages.ts` → **0 new lint** (선-존재 `SavePill.tsx`
+ setState-in-effect 에러와 `SpaceEditor.tsx:1304` exhaustive-deps
+ 경고는 이번 스코프 밖).
+4. 수동 QA (사용자 몫) 는 아래 "권장 QA" 참고. Dev server 부팅은 이
+ 커밋에 포함되지 않음.
+
+### 권장 수동 QA
+
+- Space Editor 에서 흰 종이에 그린 꽃 드로잉 업로드 → Track 1 실행
+ → 인스펙터 "여백 자동 제거 다시 시도" 로 aggressive 모드 재실행.
+ 종이 마진이 사라지는지 확인.
+- Track 1 결과가 마음에 들면 "원본으로 되돌리기" 로 primary 로 fall
+ back 되는지 확인.
+- (Photoroom key 있을 때) Track 2 실행 → "고급 배경 분리 다시 시도"
+ 는 서버 재과금이 발생 (베타 무제한이라 안전) → "여백 자동 제거로
+ 되돌리기" 시 bbox 결과 (있으면) 로 fall through, 없으면 primary.
+- 미드톤 유화 사진 등에서 "다시 시도" 를 눌러도 aggressive 오버라이드가
+ 발동하지 않아 그림 자체가 잘려나가지 않는지 확인.
+
+### Migration / Env
+
+- **Supabase migration**: 없음.
+- **환경 변수**: 없음.
+
 ## 2026-08-20 (41) — Signup v2 · 와이어프레임 픽셀 정합 리스트럭처 (구조 + 비주얼)
 
 > **Supabase SQL 적용 필요:**
