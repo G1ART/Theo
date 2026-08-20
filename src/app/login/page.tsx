@@ -451,15 +451,16 @@ function LoginV2Inner() {
     // page will re-mount and the state resets.
   }
 
+  // 2026-08-20 (OAuth cluster trim): only Google is currently
+  // configured in the Supabase Auth dashboard. Apple + Kakao are
+  // removed from the cluster to avoid dead clicks / "not configured"
+  // toasts on production. Re-add each entry as soon as its provider
+  // is wired in Supabase Dashboard → Authentication → Providers.
+  //   apple:  { provider: "apple", label: t("auth.loginV2.quickStart.apple") }
+  //   kakao:  { provider: "kakao", label: t("auth.loginV2.quickStart.kakao"),
+  //             disabled: true, disabledTooltip: t("auth.loginV2.quickStart.disabledTooltip") }
   const quickStartPills: QuickStartPill[] = [
     { provider: "google", label: t("auth.loginV2.quickStart.google") },
-    { provider: "apple", label: t("auth.loginV2.quickStart.apple") },
-    {
-      provider: "kakao",
-      label: t("auth.loginV2.quickStart.kakao"),
-      disabled: true,
-      disabledTooltip: t("auth.loginV2.quickStart.disabledTooltip"),
-    },
   ];
 
   const forgotHref = email.trim()
@@ -646,7 +647,11 @@ function LoginV2Inner() {
         <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
           {t("auth.loginV2.quickStart.label")}
         </p>
-        <div className="grid grid-cols-3 gap-2">
+        {/* 2026-08-20: flex-center replaces `grid-cols-3` while the
+            OAuth cluster is Google-only. When Apple / Kakao come
+            back online, swap this back to `grid grid-cols-3 gap-2`
+            for a 3-column layout. */}
+        <div className="flex flex-wrap justify-center gap-2">
           {quickStartPills.map((pill) => {
             if (pill.disabled) {
               return (

@@ -102,15 +102,12 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
     api.goToStep(2);
   }
 
+  // 2026-08-20 (OAuth cluster trim): only Google is currently
+  // configured in Supabase Auth. Apple + Kakao are hidden to avoid
+  // dead clicks / "not configured" toasts. Re-add each provider as
+  // it comes online (see /login page.tsx for the same treatment).
   const quickStartPills: QuickStartPill[] = [
     { provider: "google", label: t("auth.loginV2.quickStart.google") },
-    { provider: "apple", label: t("auth.loginV2.quickStart.apple") },
-    {
-      provider: "kakao",
-      label: t("auth.loginV2.quickStart.kakao"),
-      disabled: true,
-      disabledTooltip: t("auth.loginV2.quickStart.disabledTooltip"),
-    },
   ];
 
   return (
@@ -157,7 +154,10 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
         <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
           {t("auth.loginV2.quickStart.label")}
         </p>
-        <div className="grid grid-cols-3 gap-2">
+        {/* 2026-08-20: flex-center while OAuth cluster is Google-only.
+            Swap back to `grid grid-cols-3 gap-2` when Apple + Kakao
+            come online. */}
+        <div className="flex flex-wrap justify-center gap-2">
           {quickStartPills.map((pill) => {
             if (pill.disabled) {
               return (
