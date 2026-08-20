@@ -1,25 +1,35 @@
 "use client";
 
 /**
- * Existing-user login surface (Onboarding Front Door Finalization).
+ * Login surface — Signup v2 Phase 1 gap-fill + Phase 3 OAuth wiring
+ * (2026-08-19).
  *
- * Non-members never need to see this page — `/` and marketing links
- * route cold traffic to `/onboarding` (signup-first). This page is
- * dedicated to returning users; the passwordless option is retained
- * only as a quiet, collapsed secondary path behind a disclosure.
+ * Two implementations coexist behind `NEXT_PUBLIC_SIGNUP_V2`:
  *
- * Surface contract:
- *   - Primary: email + password sign-in (dominant form, single CTA)
- *   - Secondary: "Sign in without a password" disclosure → email-only
- *     form that sends a one-time sign-in link
- *   - Tertiary: "No account yet? Get started" link to `/onboarding`
+ *   - **LoginLegacyInner** — the pre-redesign returning-user surface.
+ *     Preserved verbatim (form, copy, passwordless disclosure, `?next=`
+ *     handling) so a flag flip back to OFF restores every existing
+ *     behaviour without a code revert.
  *
- * Copy rule (Track F): the word "매직링크" / "magic link" must not
- * appear in user-facing strings. Use "비밀번호 없이 로그인" and
- * "이메일 로그인 링크" instead.
+ *   - **LoginV2Inner** — the wireframe front-door (spec §2.1). Uses the
+ *     Signup v2 primitives (`AuthShell`, `OvalInput`, `PillButton`),
+ *     ships the Quick Start OAuth cluster (Google + Apple wired via
+ *     `signInWithOAuthProvider`; Kakao rendered disabled per spec §5 #5),
+ *     and reuses the exact same auth capabilities as the legacy screen:
+ *     `signInWithPassword`, `sendMagicLink`, `routeByAuthState`,
+ *     `?next=` preservation.
+ *
+ * The Quick Start pills are safe to ship live even when the Supabase
+ * Dashboard OAuth providers are not yet configured — the helper
+ * classifies `provider_not_configured` responses into a machine-readable
+ * code and the UI surfaces the `auth.loginV2.oauth.notConfigured` toast
+ * without crashing.
+ *
+ * Copy rule (Track F): the word "매직링크" / "magic link" is never
+ * user-facing. Use "비밀번호 없이 로그인" and "이메일 로그인 링크".
  */
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
@@ -29,7 +39,19 @@ import {
   sendMagicLink,
   signInWithPassword,
 } from "@/lib/supabase/auth";
-import { routeByAuthState, safeNextPath, ONBOARDING_PATH } from "@/lib/identity/routing";
+import {
+  signInWithOAuthProvider,
+  type OAuthProvider,
+} from "@/lib/supabase/oauth";
+import {
+  routeByAuthState,
+  safeNextPath,
+  ONBOARDING_PATH,
+} from "@/lib/identity/routing";
+import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
+import { AuthShell } from "@/components/auth/primitives/AuthShell";
+import { OvalInput } from "@/components/auth/primitives/OvalInput";
+import { PillButton } from "@/components/auth/primitives/PillButton";
 
 const EMAIL_COOLDOWN_SEC = 30;
 const RATE_LIMIT_PATTERNS = ["rate limit", "too many", "exceeded", "429", "email sending"];
@@ -39,7 +61,11 @@ function isRateLimitError(message: string): boolean {
   return RATE_LIMIT_PATTERNS.some((p) => lower.includes(p.toLowerCase()));
 }
 
-function LoginInner() {
+// ─────────────────────────────────────────────────────────────────────
+// Legacy screen (flag OFF)
+// ─────────────────────────────────────────────────────────────────────
+
+function LoginLegacyInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
@@ -50,9 +76,6 @@ function LoginInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Passwordless path is hidden by default — a returning user who
-  // knows they want it can expand it, but cold traffic and new
-  // members never trip over it.
   const [passwordlessOpen, setPasswordlessOpen] = useState(false);
   const [passwordlessEmail, setPasswordlessEmail] = useState("");
   const [passwordlessSent, setPasswordlessSent] = useState(false);
@@ -97,11 +120,6 @@ function LoginInner() {
       setError(err.message);
       return;
     }
-    // Route through /auth/callback — same path as email link & magic link.
-    // Calling getMyAuthState() immediately after signInWithPassword races
-    // against the session being written to storage and returns null, which
-    // falls back to /feed. /auth/callback loads with the session already
-    // stored and makes the RPC call in a stable context.
     const callbackUrl = nextPath
       ? `/auth/callback?next=${encodeURIComponent(nextPath)}`
       : `/auth/callback`;
@@ -133,9 +151,6 @@ function LoginInner() {
     <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-12">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold text-zinc-900">{t("login.title")}</h1>
-        {/* KO: narrow measure + balanced wrapping. EN: full header width so
-            "Enter your email and password to continue." stays one line on
-            typical phones (no awkward break after "and"). */}
         <p
           className={
             locale === "ko"
@@ -274,6 +289,390 @@ function LoginInner() {
       </p>
     </main>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V2 screen (flag ON, spec §2.1)
+// ─────────────────────────────────────────────────────────────────────
+
+/** Lightweight inline toast — mounted at the top of the AuthShell body.
+ *  We deliberately avoid pulling in a global toast provider (none
+ *  exists in this codebase yet); a simple auto-dismissing banner is
+ *  enough for the OAuth error / passwordless success signals. */
+function OAuthToast({
+  message,
+  onDismiss,
+  tone,
+}: {
+  message: string;
+  tone: "error" | "info";
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    const handle = window.setTimeout(onDismiss, 6000);
+    return () => window.clearTimeout(handle);
+  }, [message, onDismiss]);
+  const toneClass =
+    tone === "error"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : "border-zinc-200 bg-zinc-50 text-zinc-700";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`mb-6 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${toneClass}`}
+    >
+      <span className="flex-1">{message}</span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="text-xs font-medium text-current opacity-70 hover:opacity-100"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+type QuickStartPill = {
+  provider: OAuthProvider | "kakao";
+  label: string;
+  disabled?: boolean;
+  disabledTooltip?: string;
+};
+
+function LoginV2Inner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
+  const { t } = useT();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Passwordless swap — mirrors the legacy disclosure pattern: click
+  // "Log in without a password" and the password field is replaced by
+  // an email-only magic-link submit. "Use password instead" returns.
+  const [passwordless, setPasswordless] = useState(false);
+  const [passwordlessSent, setPasswordlessSent] = useState(false);
+  const [passwordlessCooldown, setPasswordlessCooldown] = useState(0);
+  const [passwordlessLoading, setPasswordlessLoading] = useState(false);
+
+  const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    tone: "error" | "info";
+  } | null>(null);
+
+  const signupHref = nextPath ? `/signup?next=${encodeURIComponent(nextPath)}` : "/signup";
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const {
+        data: { session },
+      } = await getSession();
+      if (cancelled || !session) return;
+      const state = await getMyAuthState();
+      if (cancelled) return;
+      const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
+      router.replace(to);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, nextPath]);
+
+  useEffect(() => {
+    if (passwordlessCooldown <= 0) return;
+    const handle = setInterval(() => setPasswordlessCooldown((c) => c - 1), 1000);
+    return () => clearInterval(handle);
+  }, [passwordlessCooldown]);
+
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  async function handlePasswordSignIn(e: FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const { error: err } = await signInWithPassword(email.trim(), password);
+    setLoading(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    const callbackUrl = nextPath
+      ? `/auth/callback?next=${encodeURIComponent(nextPath)}`
+      : `/auth/callback`;
+    router.replace(callbackUrl);
+  }
+
+  async function handleMagicLink(e: FormEvent) {
+    e.preventDefault();
+    setPasswordlessLoading(true);
+    setError(null);
+    const { error: err } = await sendMagicLink(email.trim(), nextPath ?? undefined);
+    setPasswordlessLoading(false);
+    if (err) {
+      setError(
+        isRateLimitError(err.message)
+          ? t("login.passwordlessRateLimit")
+          : err.message
+      );
+      return;
+    }
+    setPasswordlessSent(true);
+    setPasswordlessCooldown(EMAIL_COOLDOWN_SEC);
+  }
+
+  async function handleOAuth(provider: OAuthProvider) {
+    setOauthLoading(provider);
+    setError(null);
+    const { error: err } = await signInWithOAuthProvider(provider, {
+      next: nextPath,
+    });
+    if (err) {
+      setOauthLoading(null);
+      const messageKey: string =
+        err.code === "provider_not_configured"
+          ? "auth.loginV2.oauth.notConfigured"
+          : err.code === "cancelled"
+          ? "auth.loginV2.oauth.cancelled"
+          : "auth.loginV2.oauth.error";
+      setToast({ message: t(messageKey), tone: "error" });
+      return;
+    }
+    // Success = full-page redirect to provider. Keep loading state
+    // truthy so the button stays disabled until the browser navigates
+    // away. If the user comes back via the browser back button, the
+    // page will re-mount and the state resets.
+  }
+
+  const quickStartPills: QuickStartPill[] = [
+    { provider: "google", label: t("auth.loginV2.quickStart.google") },
+    { provider: "apple", label: t("auth.loginV2.quickStart.apple") },
+    {
+      provider: "kakao",
+      label: t("auth.loginV2.quickStart.kakao"),
+      disabled: true,
+      disabledTooltip: t("auth.loginV2.quickStart.disabledTooltip"),
+    },
+  ];
+
+  const forgotHref = email.trim()
+    ? `/auth/forgot?email=${encodeURIComponent(email.trim())}`
+    : "/auth/forgot";
+
+  return (
+    <AuthShell
+      title={
+        <span className="block leading-tight">
+          <span className="block">{t("auth.loginV2.tagline1")}</span>
+          <span className="block">{t("auth.loginV2.tagline2")}</span>
+        </span>
+      }
+      subtitle={t("auth.loginV2.subhead")}
+      footer={
+        <p className="text-center text-[11px] leading-relaxed text-zinc-500">
+          {t("auth.loginV2.footnote.consent")}
+        </p>
+      }
+    >
+      {toast && (
+        <OAuthToast
+          message={toast.message}
+          tone={toast.tone}
+          onDismiss={dismissToast}
+        />
+      )}
+
+      {passwordless ? (
+        <form onSubmit={handleMagicLink} className="space-y-5" noValidate>
+          <p className="text-sm text-zinc-600">
+            {t("auth.loginV2.passwordless.subhead")}
+          </p>
+          <OvalInput
+            label={t("auth.loginV2.email")}
+            type="email"
+            value={email}
+            onChange={setEmail}
+            autoComplete="email"
+            inputMode="email"
+            required
+            autoFocus
+          />
+          {passwordlessSent ? (
+            <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {t("auth.loginV2.passwordless.sent")}
+            </p>
+          ) : null}
+          {error && !passwordlessSent && (
+            <p role="alert" className="px-5 text-sm text-red-600">
+              {error}
+            </p>
+          )}
+          <PillButton
+            type="submit"
+            variant="primary"
+            fullWidth
+            loading={passwordlessLoading}
+            disabled={
+              passwordlessSent ||
+              passwordlessCooldown > 0 ||
+              !email.trim()
+            }
+          >
+            {passwordlessCooldown > 0
+              ? `${t("auth.loginV2.passwordless.submit")} (${passwordlessCooldown}s)`
+              : t("auth.loginV2.passwordless.submit")}
+          </PillButton>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-center text-xs text-zinc-500">
+            <button
+              type="button"
+              onClick={() => {
+                setPasswordless(false);
+                setPasswordlessSent(false);
+                setError(null);
+              }}
+              className="font-medium text-zinc-600 hover:text-zinc-900"
+            >
+              {t("auth.loginV2.passwordless.back")}
+            </button>
+            <span aria-hidden className="text-zinc-300">
+              ·
+            </span>
+            <Link
+              href={signupHref}
+              className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+            >
+              {t("auth.loginV2.signupLink")}
+            </Link>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={handlePasswordSignIn} className="space-y-5" noValidate>
+          <OvalInput
+            label={t("auth.loginV2.email")}
+            type="email"
+            value={email}
+            onChange={setEmail}
+            autoComplete="email"
+            inputMode="email"
+            required
+            autoFocus
+          />
+          <div>
+            <OvalInput
+              label={t("auth.loginV2.password")}
+              type="password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+              required
+            />
+            <div className="mt-1 flex justify-end px-5">
+              <Link
+                href={forgotHref}
+                className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+              >
+                {t("auth.loginV2.forgot")}
+              </Link>
+            </div>
+          </div>
+
+          {error && (
+            <p role="alert" className="px-5 text-sm text-red-600">
+              {error}
+            </p>
+          )}
+
+          <PillButton
+            type="submit"
+            variant="primary"
+            fullWidth
+            loading={loading}
+            disabled={!email.trim() || !password}
+          >
+            {loading ? t("auth.loginV2.submitting") : t("auth.loginV2.submit")}
+          </PillButton>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-center text-xs text-zinc-500">
+            <button
+              type="button"
+              onClick={() => {
+                setPasswordless(true);
+                setError(null);
+              }}
+              className="font-medium text-zinc-600 hover:text-zinc-900"
+            >
+              {t("auth.loginV2.passwordless.link")}
+            </button>
+            <span aria-hidden className="text-zinc-300">
+              ·
+            </span>
+            <Link
+              href={signupHref}
+              className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+            >
+              {t("auth.loginV2.signupLink")}
+            </Link>
+          </div>
+        </form>
+      )}
+
+      <div className="mt-10">
+        <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+          {t("auth.loginV2.quickStart.label")}
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {quickStartPills.map((pill) => {
+            if (pill.disabled) {
+              return (
+                <PillButton
+                  key={pill.provider}
+                  variant="secondary"
+                  disabled
+                  aria-disabled
+                  title={pill.disabledTooltip}
+                  className="!px-3 opacity-60"
+                >
+                  {pill.label}
+                </PillButton>
+              );
+            }
+            const provider = pill.provider as OAuthProvider;
+            const isLoading = oauthLoading === provider;
+            return (
+              <PillButton
+                key={pill.provider}
+                variant="secondary"
+                onClick={() => handleOAuth(provider)}
+                loading={isLoading}
+                disabled={oauthLoading !== null && !isLoading}
+                className="!px-3"
+              >
+                {pill.label}
+              </PillButton>
+            );
+          })}
+        </div>
+      </div>
+    </AuthShell>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Root
+// ─────────────────────────────────────────────────────────────────────
+
+function LoginInner() {
+  // `NEXT_PUBLIC_SIGNUP_V2` is inlined at build time; the branch is
+  // decided once per bundle, so the extra call is essentially free.
+  const v2 = isSignupV2Enabled();
+  return v2 ? <LoginV2Inner /> : <LoginLegacyInner />;
 }
 
 export default function LoginPage() {

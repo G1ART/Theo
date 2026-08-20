@@ -82,6 +82,59 @@
 3) Vercel will auto build
 - If build fails, use “Redeploy without cache / Clear cache” when needed
 
+## Supabase OAuth setup (Google + Apple — Signup v2 Phase 3, 2026-08-19)
+
+Signup v2 의 Quick Start pill (`/login` 리디자인 + `/signup` Step 1) 은
+`signInWithOAuthProvider("google" | "apple")` 로 Supabase Auth 의 OAuth
+플로우를 태운다. **모든 client id / secret / redirect URL 은 Supabase
+Dashboard 에서만 관리한다** — 앱 코드에는 secret 이 없다 (`NEXT_PUBLIC_*`
+prefix 도 붙지 않는다). 코드는 provider 미설정 상태에서도 안전하게
+토스트 fallback 을 낸다 ("이 로그인 방식은 아직 준비 중입니다. 이메일로
+로그인해 주세요."), 그래서 아래 세팅은 **여유 있게, 배포와 상관없이
+언제든** 진행하면 된다.
+
+Kakao 는 spec §5 #5 로 deferred — pill 이 항상 disabled 이므로
+Dashboard 에서 켜지 말 것 (지금 켜도 앱에서 클릭 안 됨).
+
+### 1) Google 세팅
+1. Google Cloud Console → APIs & Services → **OAuth consent screen** →
+   앱 이름, support email, 로고, 승인된 도메인 (`<운영 도메인>`),
+   Privacy policy / Terms 링크 (임시로 `/legal/privacy` `/legal/terms`
+   stub 도 OK — Phase 4 에서 채워짐) 를 등록.
+2. Google Cloud Console → APIs & Services → **Credentials** → "Create
+   Credentials" → OAuth client ID → Web application.
+   - **Authorized JavaScript origins**: `https://<운영 도메인>`, `http://localhost:3000` (개발용).
+   - **Authorized redirect URIs**: `https://<Supabase project>.supabase.co/auth/v1/callback` — 이 값은 Supabase Dashboard → Authentication → Providers → Google 카드 안에서 그대로 복사 (Supabase 가 표시해 준다). 이 리다이렉트는 **Google → Supabase** 구간이며, Supabase 가 그 다음에 우리 앱의 `/auth/callback?provider=google&next=…` 로 넘긴다 (앱 코드가 stamp).
+3. Supabase Dashboard → Authentication → Providers → **Google** → toggle **Enable Sign in with Google**.
+   - Client ID / Client Secret 을 붙여넣고 Save.
+   - "Skip nonce check" 는 기본값 (off) 유지.
+4. 첫 로그인 검증: 로컬 개발에서 `NEXT_PUBLIC_SIGNUP_V2=true` 로 두고 `/login` → "Google" pill → Google 계정 선택 → `/auth/callback` → `/signup?step=3` (신규 사용자) 또는 `/feed` (완성된 프로필) 로 라우팅되는지 1회 확인.
+
+### 2) Apple 세팅
+1. Apple Developer → Certificates, Identifiers & Profiles → **Identifiers** → **App IDs** 에서 Sign in with Apple capability 를 활성화한 App ID 가 없으면 새로 만든다. 이미 있으면 재사용.
+2. **Services IDs** 를 새로 만든다 (e.g. `com.<company>.web.signin`). Sign in with Apple 을 켜고 "Configure":
+   - **Primary App ID**: 위 App ID.
+   - **Domains and Subdomains**: `<Supabase project>.supabase.co` (Supabase 카드가 표시).
+   - **Return URLs**: `https://<Supabase project>.supabase.co/auth/v1/callback`.
+3. **Keys** → 새 Key → Sign in with Apple 활성화 → 키 다운로드 (`.p8` 파일). Key ID 와 Team ID 를 메모.
+4. Supabase Dashboard → Authentication → Providers → **Apple** → toggle Enable.
+   - **Services ID**: 위 Services ID 값 (`com.<company>.web.signin`).
+   - **Team ID**: Apple Developer 계정의 팀 ID.
+   - **Key ID**: 위 Key ID.
+   - **Private key**: `.p8` 파일 내용 전체 (`-----BEGIN PRIVATE KEY-----` 포함) 를 그대로 붙여넣기.
+   - Save.
+5. 첫 로그인 검증: 위 Google 케이스와 동일하게 `/login` → "Apple" pill 로 1회 검증.
+
+### 3) 앱 쪽 필요 세팅 — 이미 되어 있음
+- **Redirect URLs allowlist** (Supabase Dashboard → Authentication → URL Configuration → Redirect URLs) 에 `https://<운영 도메인>/auth/callback` 이 이미 등록되어 있어야 함 (아래 "Supabase Auth redirect URLs" 섹션 참고). OAuth flow 도 이 콜백을 쓴다.
+- `NEXT_PUBLIC_APP_URL` 이 실제 배포 도메인과 일치해야 helper 가 리다이렉트 URL 을 올바르게 조립한다 (아래 "Set Environment Variables in Vercel" 참고).
+
+### 4) 관측 / 문제 해결
+- 클릭했을 때 아무 반응 없이 토스트 "이 로그인 방식은 아직 준비 중입니다..." 가 뜨면 → Supabase Dashboard 에서 provider 가 아직 Enabled 가 아니거나 client id/secret 저장이 안 된 상태. Dashboard 재확인.
+- Google 콘센트 화면에서 "This app is blocked" 오류 → OAuth consent screen 이 "Testing" 모드이고 사용자가 test user 리스트에 없음. Google Cloud → OAuth consent screen → Test users 에 이메일 추가.
+- Apple 이 로그인 창을 띄우다가 "invalid_client" 로 실패 → Services ID / Team ID / Key ID / Private key 중 하나가 어긋남. 특히 Private key 는 `-----BEGIN PRIVATE KEY-----` 헤더/푸터 라인까지 포함되어야 함.
+- `/auth/callback` 이후 무한 스피너 → 브라우저 콘솔에서 `get_my_auth_state` RPC 응답 확인. Signup v2 마이그레이션 (`20260819180000_upsert_my_profile_signup_v2.sql`) 이 적용되지 않은 상태일 수 있음.
+
 ## Supabase Auth redirect URLs
 Supabase Dashboard → Authentication → URL Configuration
 

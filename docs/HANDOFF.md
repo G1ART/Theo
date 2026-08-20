@@ -2,6 +2,80 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (36) — Signup v2 · `/login` 리디자인 갭 메우기 + Phase 3 OAuth (Google/Apple) 배선
+
+> **Supabase SQL 적용 필요: 없음** — Phase 0 스키마 (`full_name`,
+> `tos_accepted_at`, `profile_completed_at`) 와 Phase 1 확장 RPC
+> (`upsert_my_profile` in `20260819180000_upsert_my_profile_signup_v2.sql`)
+> 를 그대로 재사용한다. 이번 라운드는 순수 프론트 배선만.
+>
+> **환경 변수 변경: 없음** — 기존 `NEXT_PUBLIC_SIGNUP_V2` 하나로 게이팅
+> 계속 관리. OAuth client id / secret / redirect URL 은 **모두 Supabase
+> Dashboard 에서만** 관리한다 (사용자 담당, 자세한 세팅 절차는
+> `docs/03_RUNBOOK.md` "Supabase OAuth setup" 섹션 참고).
+
+### 배경 — 왜 이 패치가 나왔나
+Signup v2 Phase 1 은 `/signup` wizard (Steps 1–3) 를 정상 배포했지만
+**`/login` 리디자인은 실제 코드에 반영되지 않았다.** 스펙 (§2.1) 과
+runbook 은 "shipped" 로 적혀 있었지만 실제 `src/app/login/page.tsx` 는
+레거시 폼 그대로였다. 그리고 Phase 3 (OAuth Google + Apple) 은 사용자가
+방금 승인해서 이번 라운드에 함께 랜딩한다. 사용자가 Supabase Dashboard
+provider 설정을 별도로 마무리하고 있으므로, 코드는 **provider 미설정
+상태에서도 안전하게 no-op / 토스트로 처리**되도록 짜여 있다.
+
+### 배포 파일
+**신규**
+- `src/lib/supabase/oauth.ts` — `signInWithOAuthProvider("google" | "apple", { next })` 헬퍼. `getAuthOrigin()` (auth.ts) 를 재사용해 `/auth/callback?provider=<p>&next=<…>` 로 리다이렉트. Supabase / GoTrue 응답을 `provider_not_configured` / `cancelled` / `network` / `unknown` 로 분류하는 `OAuthError` 를 반환 (`OAuthErrorCode` 유니온). Kakao 는 helper 스키마에 포함시키지 않음 — deferred.
+
+**수정**
+- `src/lib/supabase/auth.ts` — 기존 `getAuthOrigin()` 을 export 로 승격. OAuth helper 가 password / magic-link 와 동일한 redirect origin 로직을 쓰도록.
+- `src/app/login/page.tsx` — 완전 재작성. `isSignupV2Enabled()` 로 두 구현을 분기:
+  - **`LoginLegacyInner`** — 기존 스크린 (레거시 zinc DS + `/onboarding` 링크). 플래그 OFF 시 그대로 렌더.
+  - **`LoginV2Inner`** — wireframe 프론트도어 (spec §2.1). `AuthShell` + `OvalInput` + `PillButton` primitives 만 사용. 두 줄 태그라인 ("Meet your Theo. / Be our Theo.") + 서브헤드 ("Get started here."). Email/Password 오벌 인풋, 인라인 "Forgot Password?" 우측 링크, primary CTA "Log in", secondary row "Log in without a password" · "New to Theo? Sign up" (플래그 ON → `/signup` 라우팅), passive-consent 푸터. `?next=` 는 두 구현 모두 preserve.
+  - Passwordless 는 legacy `/login` 과 동일한 disclosure 패턴 — "Log in without a password" 를 누르면 password 필드가 email-only magic-link CTA 로 스왑되고 "Use password instead" 로 복귀. `sendMagicLink` 재사용, 30초 쿨다운 유지.
+  - **Quick Start** 클러스터 — Google · Apple · 카톡? 세 개 outline pill. Google/Apple 은 `signInWithOAuthProvider` 를 호출. Kakao 는 `disabled` + `title` "곧 지원 예정이에요" 툴팁 — 시각적 일관성을 위해 클러스터 안에 두되 클릭 불가.
+- `src/components/auth/steps/SignupStep1Email.tsx` — 기존 placeholder-disabled Google / Apple 버튼을 **활성화**해 동일한 `signInWithOAuthProvider` 를 호출하도록 배선. 세 번째 pill 로 카톡? 추가 (disabled). 3-column grid 로 통일해 login 화면과 시각적으로 매칭. OAuth 에러 발생 시 인라인 status message (i18n).
+- `src/app/auth/callback/page.tsx` — OAuth 브랜치 추가. `?provider=google|apple` (helper 가 stamp) 또는 `session.user.identities[].provider` 로 OAuth 세션을 감지. `profiles.full_name` 이 NULL 이면 `user_metadata.full_name || user_metadata.name` 에서 seed (기존 값이 있으면 절대 덮어쓰지 않음). `profile_completed_at` 은 **손대지 않는다** — Step 3 wizard 의 sole owner. Seed 후 `routeByAuthState` 결과가 identity 셋업을 요구하면, 플래그 ON 인 경우 `/signup?step=3` 으로 리다이렉트 (플래그 OFF 는 기존 `/onboarding/identity` fallback).
+- `src/lib/i18n/messages.ts` — `auth.loginV2.*` 아래 신규 카피 27개 (EN + KO 각각):
+  - `.tagline1` / `.tagline2` / `.subhead` — 헤더 3줄.
+  - `.email` / `.password` / `.forgot` / `.submit` / `.submitting` — 폼 라벨.
+  - `.passwordless.link` / `.subhead` / `.submit` / `.sent` / `.back` — magic-link swap.
+  - `.signupLink` — 하단 sign-up CTA.
+  - `.quickStart.label` / `.google` / `.apple` / `.kakao` / `.disabledTooltip` — OAuth pills.
+  - `.oauth.notConfigured` / `.cancelled` / `.error` — 에러 토스트 3종.
+  - `.footnote.consent` — 하단 passive-consent 문구.
+
+### OAuth pill 안전한 fallback (Dashboard 미설정 상태 안전 배포)
+사용자가 Supabase Dashboard 에서 provider 를 아직 세팅하지 않았을 수 있음. 이 상황에서 pill 을 눌러도 크래시가 안 나도록 helper 가 GoTrue 응답을 코드로 분류:
+
+- `provider_not_configured` (매치 패턴: `"provider is not enabled"`, `"provider not enabled"`, `"unsupported provider"`, `"provider_not_configured"`, `"provider disabled"`, `"not enabled"`, `"not configured"`) → 토스트 `auth.loginV2.oauth.notConfigured` ("이 로그인 방식은 아직 준비 중입니다. 이메일로 로그인해 주세요.")
+- `cancelled` (매치: `"cancel"`, `"cancelled"`, `"canceled"`, `"access_denied"`, `"user denied"`) → `auth.loginV2.oauth.cancelled`
+- `network` (매치: `"network"`, `"fetch failed"`, `"failed to fetch"`, `"networkerror"`) → `auth.loginV2.oauth.error`
+- 그 외 (`unknown`) → `auth.loginV2.oauth.error`
+
+**즉, 코드는 Dashboard 설정 없이도 안전하게 배포 가능**. 실제 provider 가 켜지는 순간 아무 재배포 없이 pill 이 작동 시작.
+
+### 피처 플래그 게이팅 요약
+- `/login` — 플래그 OFF 시 legacy 스크린 100% 보존 (레거시 zinc 인풋, `/onboarding` 링크). 플래그 ON 시 `LoginV2Inner` 렌더 + Quick Start OAuth 배선.
+- `/signup` Step 1 OAuth pills — wizard 자체가 이미 플래그 뒤에 있으므로 자동 게이팅. Kakao 는 항상 disabled.
+- `signInWithOAuthProvider` **helper 자체는 게이팅하지 않음** — 유틸이라 그냥 export. 게이팅은 UI (버튼) 레이어에서만.
+- `/auth/callback` OAuth 로직 — provider 감지 자체는 항상 실행 (email/password 세션에는 no-op). 라우팅 override (`/signup?step=3`) 만 `isSignupV2Enabled()` 로 게이팅.
+
+### 검증
+1. `npx tsc --noEmit` — 0 errors.
+2. `npx eslint src/app/login/page.tsx src/app/auth/callback/page.tsx src/components/auth/steps/SignupStep1Email.tsx src/lib/supabase/oauth.ts src/lib/supabase/auth.ts src/lib/i18n/messages.ts` — 0 new errors.
+3. Manual code review: 4개 flow 모두 확인 완료 — (a) email+password → `/auth/callback`, (b) magic link → 30초 쿨다운 + "Check your email" 배너, (c) OAuth 에러 시 provider별 토스트 + no-op, (d) "Sign up" 링크는 플래그 ON 이면 `/signup`, OFF 면 `/onboarding` 으로 정확히 라우팅.
+
+### Non-goals (이번 라운드 스코프 밖)
+- Kakao OAuth — spec §5 #5 로 deferred. 프론트에는 disabled pill 로만 존재.
+- `/signup` wizard Steps 1-3 자체는 손대지 않음 (Phase 1 worker 가 이미 배포).
+- Existing 59-profile 완성 배너 — Phase 4 스코프, 별도 worker.
+- 레거시 12-char password migration — Phase 5 스코프, 별도 worker.
+- Supabase Dashboard provider 설정 — 사용자 담당.
+- 새 DB 스키마 / RPC — 변경 없음.
+
+---
+
 ## 2026-08-19 (35) — Display Sim 여백 자동 제거 정확도 개선 (gpt-4o + prompt + local trim) + 물리 크기 인지 "Suggested size"
 
 > **Supabase SQL 적용 필요: 없음** — 스키마 변경 없음. `artwork_user_cutouts.metadata` 는 이미 `jsonb` 라 `metadata.trim` 필드만 추가로 기록 (schemaless, 마이그레이션 불필요).

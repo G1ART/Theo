@@ -2046,14 +2046,14 @@ export const messages = {
     "onboarding.labelEmail": "Email",
     "onboarding.labelPassword": "Password",
     "onboarding.labelConfirmPassword": "Confirm password",
-    "onboarding.passwordHint": "At least 8 characters.",
+    "onboarding.passwordHint": "At least {min} characters.",
     "onboarding.nextStepHint": "Next: choose your display name and username.",
     "onboarding.createAccountButton": "Get started",
     "onboarding.creatingAccount": "Getting started...",
     "onboarding.alreadyHaveAccount": "Already have an account?",
     "onboarding.checkEmailTitle": "Check your email",
     "onboarding.checkEmailBody": "We sent a confirmation link to your email. Click it to activate your account, then sign in to finish your profile.",
-    "onboarding.errorPasswordMin": "Password must be at least 8 characters",
+    "onboarding.errorPasswordMin": "Password must be at least {min} characters",
     "onboarding.errorPasswordMismatch": "Passwords do not match",
     "onboarding.duplicateEmailTitle": "This email already has an account",
     "onboarding.duplicateEmailBody":
@@ -2075,9 +2075,9 @@ export const messages = {
     "setPassword.confirm": "Confirm password",
     "setPassword.setButton": "Set password",
     "setPassword.settingButton": "Setting password...",
-    "setPassword.errorMinLength": "Password must be at least 8 characters",
+    "setPassword.errorMinLength": "Password must be at least {min} characters",
     "setPassword.errorMismatch": "Passwords do not match",
-    "setPassword.placeholderPassword": "At least 8 characters",
+    "setPassword.placeholderPassword": "At least 12 characters",
     "setPassword.placeholderConfirm": "Same as above",
 
     "login.forgotPasswordCta": "Forgot password?",
@@ -2104,9 +2104,9 @@ export const messages = {
     "resetPassword.expiredBody":
       "This reset link is no longer valid. Request a fresh one to continue.",
     "resetPassword.expiredCta": "Request a new link",
-    "resetPassword.placeholderNew": "At least 8 characters",
+    "resetPassword.placeholderNew": "At least 12 characters",
     "resetPassword.placeholderConfirm": "Repeat password",
-    "resetPassword.errorMin": "Password must be at least 8 characters",
+    "resetPassword.errorMin": "Password must be at least {min} characters",
     "resetPassword.errorMismatch": "Passwords do not match",
     "resetPassword.submit": "Set password",
     "resetPassword.submitting": "Saving...",
@@ -4305,6 +4305,40 @@ export const messages = {
     "auth.signupV2.step3.duplicateResetCta": "Reset password",
     "auth.signupV2.step3.duplicateChangeEmail": "Use a different email",
 
+    // ── 2026-08-19 — Signup v2 Phase 1 gap fill + Phase 3 OAuth wiring.
+    // `/login` redesign (spec §2.1) + Google/Apple pill cluster shared
+    // with SignupStep1Email. All keys feature-flag gated in the UI
+    // layer (`isSignupV2Enabled()`); the string bag itself is always
+    // present so the flag can flip without a redeploy.
+    "auth.loginV2.tagline1": "Meet your Theo.",
+    "auth.loginV2.tagline2": "Be our Theo.",
+    "auth.loginV2.subhead": "Get started here.",
+    "auth.loginV2.email": "Email",
+    "auth.loginV2.password": "Password",
+    "auth.loginV2.forgot": "Forgot password?",
+    "auth.loginV2.submit": "Log in",
+    "auth.loginV2.submitting": "Signing you in...",
+    "auth.loginV2.passwordless.link": "Log in without a password",
+    "auth.loginV2.passwordless.subhead":
+      "We'll email you a one-time sign-in link.",
+    "auth.loginV2.passwordless.submit": "Send sign-in link",
+    "auth.loginV2.passwordless.sent":
+      "Check your email for the sign-in link.",
+    "auth.loginV2.passwordless.back": "Use password instead",
+    "auth.loginV2.signupLink": "New to Theo? Sign up",
+    "auth.loginV2.quickStart.label": "Quick Start",
+    "auth.loginV2.quickStart.google": "Google",
+    "auth.loginV2.quickStart.apple": "Apple",
+    "auth.loginV2.quickStart.kakao": "KakaoTalk?",
+    "auth.loginV2.quickStart.disabledTooltip": "Coming soon",
+    "auth.loginV2.oauth.notConfigured":
+      "This sign-in method is not yet available. Please use email.",
+    "auth.loginV2.oauth.cancelled": "Sign-in was cancelled.",
+    "auth.loginV2.oauth.error":
+      "Something went wrong signing you in. Please try again.",
+    "auth.loginV2.footnote.consent":
+      "By continuing you agree to our Terms of Service and Privacy Policy.",
+
     // Password strength labels — surfaced under the Step 2 meter.
     "auth.password.strength.veryWeak": "Very weak",
     "auth.password.strength.weak": "Weak",
@@ -6331,14 +6365,14 @@ export const messages = {
     "onboarding.labelEmail": "이메일",
     "onboarding.labelPassword": "비밀번호",
     "onboarding.labelConfirmPassword": "비밀번호 확인",
-    "onboarding.passwordHint": "8자 이상 입력해 주세요.",
+    "onboarding.passwordHint": "{min}자 이상 입력해 주세요.",
     "onboarding.nextStepHint": "다음 단계: 표시 이름과 사용자명을 선택해요.",
     "onboarding.createAccountButton": "바로 시작하기",
     "onboarding.creatingAccount": "계정을 만드는 중...",
     "onboarding.alreadyHaveAccount": "이미 계정이 있으신가요?",
     "onboarding.checkEmailTitle": "이메일을 확인하세요",
     "onboarding.checkEmailBody": "등록한 이메일로 확인 링크를 보냈습니다. 링크로 계정을 활성화한 뒤 로그인하면 프로필 설정으로 이어집니다.",
-    "onboarding.errorPasswordMin": "비밀번호는 8자 이상이어야 합니다",
+    "onboarding.errorPasswordMin": "비밀번호는 {min}자 이상이어야 합니다",
     "onboarding.errorPasswordMismatch": "비밀번호가 일치하지 않습니다",
     "onboarding.duplicateEmailTitle": "이미 가입된 이메일이에요",
     "onboarding.duplicateEmailBody":
@@ -6360,9 +6394,9 @@ export const messages = {
     "setPassword.confirm": "비밀번호 확인",
     "setPassword.setButton": "비밀번호 설정",
     "setPassword.settingButton": "설정 중...",
-    "setPassword.errorMinLength": "비밀번호는 8자 이상이어야 합니다",
+    "setPassword.errorMinLength": "비밀번호는 {min}자 이상이어야 합니다",
     "setPassword.errorMismatch": "비밀번호가 일치하지 않습니다",
-    "setPassword.placeholderPassword": "8자 이상",
+    "setPassword.placeholderPassword": "12자 이상",
     "setPassword.placeholderConfirm": "위와 동일",
     "authReset.placeholderNewPassword": "새 비밀번호",
     "authReset.placeholderConfirmPassword": "비밀번호 확인",
@@ -6391,9 +6425,9 @@ export const messages = {
     "resetPassword.expiredBody":
       "이 재설정 링크는 더 이상 유효하지 않아요. 새로운 링크를 다시 받아 주세요.",
     "resetPassword.expiredCta": "새 링크 요청",
-    "resetPassword.placeholderNew": "8자 이상",
+    "resetPassword.placeholderNew": "12자 이상",
     "resetPassword.placeholderConfirm": "위와 동일",
-    "resetPassword.errorMin": "비밀번호는 8자 이상이어야 합니다",
+    "resetPassword.errorMin": "비밀번호는 {min}자 이상이어야 합니다",
     "resetPassword.errorMismatch": "비밀번호가 일치하지 않습니다",
     "resetPassword.submit": "비밀번호 설정",
     "resetPassword.submitting": "저장 중...",
@@ -8540,6 +8574,40 @@ export const messages = {
     "auth.signupV2.step3.duplicateLoginCta": "로그인",
     "auth.signupV2.step3.duplicateResetCta": "비밀번호 재설정",
     "auth.signupV2.step3.duplicateChangeEmail": "다른 이메일 사용",
+
+    // ── 2026-08-19 — Signup v2 Phase 1 잔여분 + Phase 3 OAuth 배선.
+    // `/login` 리디자인(spec §2.1) + SignupStep1Email 과 공유되는
+    // Google/Apple pill cluster 카피. UI 레이어에서 피처 플래그
+    // (`isSignupV2Enabled()`) 로 게이트되지만, 문자열 자체는 항상
+    // 존재해서 플래그 플립만으로 즉시 노출 가능.
+    "auth.loginV2.tagline1": "Meet your Theo.",
+    "auth.loginV2.tagline2": "Be our Theo.",
+    "auth.loginV2.subhead": "이곳에서 시작해 보세요.",
+    "auth.loginV2.email": "이메일",
+    "auth.loginV2.password": "비밀번호",
+    "auth.loginV2.forgot": "비밀번호를 잊으셨나요?",
+    "auth.loginV2.submit": "로그인",
+    "auth.loginV2.submitting": "로그인 중...",
+    "auth.loginV2.passwordless.link": "비밀번호 없이 로그인",
+    "auth.loginV2.passwordless.subhead":
+      "이메일로 일회용 로그인 링크를 보내 드려요.",
+    "auth.loginV2.passwordless.submit": "로그인 링크 보내기",
+    "auth.loginV2.passwordless.sent":
+      "이메일함에서 로그인 링크를 확인해 주세요.",
+    "auth.loginV2.passwordless.back": "비밀번호로 로그인하기",
+    "auth.loginV2.signupLink": "Theo가 처음이신가요? 회원가입",
+    "auth.loginV2.quickStart.label": "Quick Start",
+    "auth.loginV2.quickStart.google": "Google",
+    "auth.loginV2.quickStart.apple": "Apple",
+    "auth.loginV2.quickStart.kakao": "카톡?",
+    "auth.loginV2.quickStart.disabledTooltip": "곧 지원 예정이에요",
+    "auth.loginV2.oauth.notConfigured":
+      "이 로그인 방식은 아직 준비 중입니다. 이메일로 로그인해 주세요.",
+    "auth.loginV2.oauth.cancelled": "로그인이 취소됐어요.",
+    "auth.loginV2.oauth.error":
+      "로그인 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.",
+    "auth.loginV2.footnote.consent":
+      "서비스 이용약관 및 개인정보 처리방침에 동의하시게 됩니다.",
 
     // 비밀번호 강도 라벨 — Step 2 미터 아래에 노출.
     "auth.password.strength.veryWeak": "매우 약함",

@@ -2,8 +2,11 @@ import { supabase } from "./client";
 
 /** Returns the canonical app origin (NEXT_PUBLIC_APP_URL) for auth redirect URLs.
  *  Falls back to window.location.origin only in local dev (no env set).
- *  This prevents Vercel preview URLs from leaking into confirmation/magic-link emails. */
-function getAuthOrigin(): string {
+ *  This prevents Vercel preview URLs from leaking into confirmation/magic-link emails.
+ *
+ *  Exported so Phase 3 OAuth helper (`src/lib/supabase/oauth.ts`) can build the
+ *  `/auth/callback` redirect URL the same way password + magic-link flows do. */
+export function getAuthOrigin(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
   if (configured) return configured;
   return typeof window !== "undefined" ? window.location.origin : "";

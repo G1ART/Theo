@@ -7,18 +7,33 @@
  * The user always advances to Step 2. Duplicate detection lives at the
  * final submit via the Supabase "empty identities" signal (§6 Phase 1).
  *
- * "Continue with Google / Apple" buttons are placeholder-disabled
- * (Phase 3 scope, spec §5 #5) — a tooltip surfaces "곧 지원 예정".
+ * Quick Start cluster (spec §5 #5, Phase 3 wiring 2026-08-19): Google
+ * + Apple are wired to `signInWithOAuthProvider`. Kakao is rendered
+ * disabled with a "coming soon" tooltip per the deferral decision.
+ * If Supabase Dashboard OAuth providers are not yet configured, the
+ * helper classifies the response and the UI surfaces a local
+ * `notConfigured` message inline — no crash, no dead click.
  */
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { PillButton } from "@/components/auth/primitives/PillButton";
 import { useT } from "@/lib/i18n/useT";
 import { sanitizeUsernameSeed } from "@/lib/auth/signupWizardState";
+import {
+  signInWithOAuthProvider,
+  type OAuthProvider,
+} from "@/lib/supabase/oauth";
 import type { SignupStepApi } from "../SignupWizardShell";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type QuickStartPill = {
+  provider: OAuthProvider | "kakao";
+  label: string;
+  disabled?: boolean;
+  disabledTooltip?: string;
+};
 
 export function SignupStep1Email({ api }: { api: SignupStepApi }) {
   const { t } = useT();
@@ -26,9 +41,44 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null);
+  const [oauthMessage, setOauthMessage] = useState<{
+    text: string;
+    tone: "error" | "info";
+  } | null>(null);
+
   const trimmed = email.trim();
   const isValid = useMemo(() => EMAIL_REGEX.test(trimmed), [trimmed]);
   const showError = touched && trimmed.length > 0 && !isValid;
+
+  useEffect(() => {
+    if (!oauthMessage) return;
+    const handle = window.setTimeout(() => setOauthMessage(null), 6000);
+    return () => window.clearTimeout(handle);
+  }, [oauthMessage]);
+
+  const handleOAuth = useCallback(
+    async (provider: OAuthProvider) => {
+      setOauthLoading(provider);
+      setOauthMessage(null);
+      const { error } = await signInWithOAuthProvider(provider, {
+        next: api.nextPath,
+      });
+      if (error) {
+        setOauthLoading(null);
+        const key: string =
+          error.code === "provider_not_configured"
+            ? "auth.loginV2.oauth.notConfigured"
+            : error.code === "cancelled"
+            ? "auth.loginV2.oauth.cancelled"
+            : "auth.loginV2.oauth.error";
+        setOauthMessage({ text: t(key), tone: "error" });
+      }
+      // Success = full-page redirect; leave loading truthy so the
+      // button stays visually engaged until the browser navigates away.
+    },
+    [api.nextPath, t],
+  );
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -51,6 +101,17 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
     // `signUpWithPassword` submit (Step 2 → account create).
     api.goToStep(2);
   }
+
+  const quickStartPills: QuickStartPill[] = [
+    { provider: "google", label: t("auth.loginV2.quickStart.google") },
+    { provider: "apple", label: t("auth.loginV2.quickStart.apple") },
+    {
+      provider: "kakao",
+      label: t("auth.loginV2.quickStart.kakao"),
+      disabled: true,
+      disabledTooltip: t("auth.loginV2.quickStart.disabledTooltip"),
+    },
+  ];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6" noValidate>
@@ -88,28 +149,55 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
         </span>
       </div>
 
-      <div className="space-y-2">
-        <PillButton
-          variant="secondary"
-          fullWidth
-          disabled
-          title={t("auth.signupV2.step1.oauthComingSoon")}
-          aria-disabled
-        >
-          {t("auth.signupV2.step1.continueWithGoogle")}
-        </PillButton>
-        <PillButton
-          variant="secondary"
-          fullWidth
-          disabled
-          title={t("auth.signupV2.step1.oauthComingSoon")}
-          aria-disabled
-        >
-          {t("auth.signupV2.step1.continueWithApple")}
-        </PillButton>
-        <p className="pt-1 text-center text-[11px] text-zinc-400">
-          {t("auth.signupV2.step1.oauthComingSoon")}
+      <div>
+        <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+          {t("auth.loginV2.quickStart.label")}
         </p>
+        <div className="grid grid-cols-3 gap-2">
+          {quickStartPills.map((pill) => {
+            if (pill.disabled) {
+              return (
+                <PillButton
+                  key={pill.provider}
+                  variant="secondary"
+                  disabled
+                  aria-disabled
+                  title={pill.disabledTooltip}
+                  className="!px-3 opacity-60"
+                >
+                  {pill.label}
+                </PillButton>
+              );
+            }
+            const provider = pill.provider as OAuthProvider;
+            const isLoading = oauthLoading === provider;
+            return (
+              <PillButton
+                key={pill.provider}
+                variant="secondary"
+                onClick={() => handleOAuth(provider)}
+                loading={isLoading}
+                disabled={oauthLoading !== null && !isLoading}
+                className="!px-3"
+              >
+                {pill.label}
+              </PillButton>
+            );
+          })}
+        </div>
+        {oauthMessage && (
+          <p
+            role="status"
+            aria-live="polite"
+            className={`mt-3 rounded-2xl px-4 py-2 text-center text-xs ${
+              oauthMessage.tone === "error"
+                ? "bg-red-50 text-red-700"
+                : "bg-zinc-50 text-zinc-600"
+            }`}
+          >
+            {oauthMessage.text}
+          </p>
+        )}
       </div>
     </form>
   );
