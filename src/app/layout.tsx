@@ -9,6 +9,7 @@ import { HtmlLangSync } from "@/components/HtmlLangSync";
 import { MigrationGuard } from "@/components/MigrationGuard";
 import { ProfileBootstrap } from "@/components/ProfileBootstrap";
 import { RandomIdBanner } from "@/components/RandomIdBanner";
+import { BackToTopFab } from "@/components/ui/BackToTopFab";
 import { ActingAsProvider } from "@/context/ActingAsContext";
 import { TourProvider } from "@/components/tour";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
@@ -98,6 +99,12 @@ export default async function RootLayout({
               <RandomIdBanner />
               <ExistingUserCompletionBanner />
               {children}
+              {/* Global "back to top" FAB. Mounted once at the root so
+                  every tall page (feed, artwork detail, artist portfolio,
+                  exhibition detail, search) gets the affordance without
+                  per-page wiring. Threshold + z-40 chosen so it stays
+                  below drawers/dialogs (z-50). */}
+              <BackToTopFab />
             </TourProvider>
           </ActingAsProvider>
         </LocaleProvider>

@@ -8,6 +8,7 @@ import { ExploreTaxonomyContent } from "@/components/ExploreTaxonomyContent";
 import { PageShell } from "@/components/ds/PageShell";
 import { FeedHeader, type ExploreTab } from "@/components/feed/FeedHeader";
 import { BilingualDiscoveryBanner } from "@/components/bilingual/BilingualDiscoveryBanner";
+import { clearFeedSnapshot } from "@/lib/feed/scrollSnapshot";
 
 const NEW_TABS: readonly ExploreTab[] = [
   "foryou",
@@ -62,6 +63,10 @@ export function FeedClient() {
       router.push(`/onboarding?next=${encodeURIComponent("/feed?tab=foryou")}`);
       return;
     }
+    // Drop the OLD tab's scroll+state snapshot so switching tabs
+    // always gives the user a fresh view — swapping tabs is an
+    // explicit "show me something different" signal, not a return-nav.
+    clearFeedSnapshot(computeSnapshotKeyForTab(tab, sortValue));
     const params = new URLSearchParams();
     params.set("tab", next);
     if (next === "foryou" || next === "all") params.set("sort", sortValue);
@@ -69,10 +74,29 @@ export function FeedClient() {
   }
 
   function handleSortChange(next: "latest" | "popular") {
+    // Sort is a *reorder* — the paginated cursor windows are keyed on
+    // it, so the current snapshot's cursors would be invalid against
+    // the new sort. Clear before pushing so the next mount fetches
+    // fresh instead of trying to hydrate stale cursors.
+    clearFeedSnapshot(computeSnapshotKeyForTab(tab, sortValue));
     const params = new URLSearchParams();
     params.set("tab", tab);
     params.set("sort", next);
     router.push(`/feed?${params.toString()}`);
+  }
+
+  /**
+   * Mirror of the snapshot-key derivation in `FeedContent` and
+   * `ExploreTaxonomyContent`. Kept local (rather than exported from
+   * the components) so this small router-adjacent file has no
+   * cross-imports into feed body components.
+   */
+  function computeSnapshotKeyForTab(
+    currentTab: ExploreTab,
+    currentSort: "latest" | "popular"
+  ): string {
+    if (currentTab === "foryou") return "feed:foryou";
+    return `explore:${currentTab}:${currentSort}`;
   }
 
   const isPersonalized = tab === "foryou" || tab === "all";

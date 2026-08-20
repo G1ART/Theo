@@ -2,6 +2,147 @@
 
 Last updated: 2026-08-19
 
+## 2026-08-19 (39) — Feed 스크롤+상태 스냅샷 복원 + "맨 위로" FAB
+
+> **Supabase SQL 적용 필요: 없음** — DB / RPC / RLS 는 손대지 않음.
+>
+> **환경 변수 변경: 없음.**
+
+### 배경 — 왜 이 패치가 나왔나
+유저 시나리오: `/feed` 에서 IntersectionObserver 로 여러 페이지를
+로드-모어한 뒤 카드를 눌러 `/artwork/[id]` 로 이동. 브라우저 뒤로가기
+(혹은 in-app "← Feed") 로 돌아오면 피드가 재-마운트되어 페이지 1 만
+다시 fetch 하고 스크롤이 최상단으로 리셋. 유저는 다시 찾아가지 못하고
+탭을 닫는다.
+
+두 번째 UX 개선: 스크롤이 어느 정도 내려간 뒤 우측 하단에 "맨 위로"
+플로팅 버튼을 띄워 한 번의 탭으로 최상단 복귀.
+
+### 변경 요약 — A. 스크롤+상태 스냅샷 (핵심)
+- **신규 모듈** `src/lib/feed/scrollSnapshot.ts` —
+  `saveFeedSnapshot` / `readFeedSnapshot` / `clearFeedSnapshot` /
+  `clearAllFeedSnapshots`. sessionStorage 키 `feed:snapshot:v1:<key>`.
+  TTL 기본 **5분** (`SNAPSHOT_TTL_MS = 5 * 60 * 1000`). 직렬화 크기
+  캡 **500KB** — 그 이상은 dev 경고 후 저장 안 함 (다음 마운트에서
+  fresh fetch). SSR / privacy-mode / QuotaExceededError 모두 silent
+  no-op.
+- **`FeedContent.tsx` 통합** (`feed:foryou` 키, tab=`foryou` 별칭
+  집합인 `""`/`all`/`following` 을 모두 하나로 매핑) —
+  1. 첫 렌더 시 `readFeedSnapshot` 하이드레이션 → `feedEntries` /
+     4개 커서 / `discoveryData` / `likedIds` / `followingIds` /
+     `viewerRole` 을 lazy useState 로 시드.
+  2. `skipInitialFetchRef` 로 initial fetch 스킵.
+  3. `useLayoutEffect` + rAF 2연속으로 `window.scrollTo(0, scrollY)`
+     (paint 전에 앉혀서 깜빡임 방지, lazy image 로 doc height 나중에
+     자라는 케이스 방어).
+  4. `personalizedHeadLenRef` 를 하이드레이션 길이로 시드 →
+     personalize 재순열이 이미 그린 타일을 흔들지 않음.
+     `freezeSeedConsumedRef` 로 첫 tab/sort effect 실행 때 시드
+     클로버 방지.
+  5. `lastFullFetchRef` 를 `snapshot.savedAt` 으로 시드 → 마운트
+     직후 발생 가능한 `visibilitychange` / `pathname` / focus fetch
+     이 TTL(90s) 로 억제됨.
+  6. **snapshot persist**: `visibilitychange (hidden)` /
+     `pagehide` / capture-phase `document click` (a[href^="/artwork/"],
+     `/exhibition/`, `/artist/`, `/@`, `/u/`, `/e/`) / 언마운트
+     cleanup 4개 지점에서 저장. `persistStateRef` 로 최신 상태
+     캡처해서 리스너는 한 번만 등록.
+- **`ExploreTaxonomyContent.tsx` 통합** — 동일 패턴, 키
+  `explore:${tab}:${sort}`. artworks / exhibitions / artists 3-슬롯
+  스냅샷.
+- **무효화 트리거** (FeedClient.tsx):
+  - `handleTabChange` — 이전 tab 의 스냅샷 clear (탭 스위칭은
+    "다른 걸 보여줘" 신호).
+  - `handleSortChange` — 이전 (tab, sort) 스냅샷 clear (커서는
+    sort 에 종속되어 있어 재활용 불가).
+- **명시적 새로고침** — `FeedContent.handleManualRefresh` 는
+  `clearFeedSnapshot` 후 재fetch (pull-to-refresh 의미론).
+- **로그아웃** — `src/lib/supabase/auth.ts::signOut()` 가
+  `clearAllFeedSnapshots()` 호출 → 같은 탭에서 재로그인해도 이전
+  사용자의 커서/좋아요가 남지 않음.
+
+### 변경 요약 — B. Back-to-top FAB
+- **신규 컴포넌트** `src/components/ui/BackToTopFab.tsx` —
+  `"use client"`. rAF-coalesced passive scroll listener,
+  임계값 `SCROLL_THRESHOLD_PX = 800`. 아래일 땐 `translate-y-full
+  opacity-0 pointer-events-none` 로 트랜지션. `prefers-reduced-motion`
+  존중.
+- **글로벌 마운트**: `src/app/layout.tsx` 의 `TourProvider` 아래
+  `{children}` 다음에 한 번만 배치 → feed / artwork / artist /
+  exhibition / search 모두 자동 적용. **더블 마운트 없음.**
+- **스타일**: `fixed right-4`, `w-11 h-11`, `rounded-full`,
+  `bg-zinc-900/90 text-white shadow-lg backdrop-blur-sm`,
+  `bottom: calc(env(safe-area-inset-bottom, 0px) + 16px)`,
+  `z-40` (drawer / dialog `z-50` 아래). 아이콘은 inline SVG
+  up-arrow (lucide 미설치).
+- **접근성**: `aria-label` = `common.backToTop.ariaLabel` (KO
+  "최상단으로 이동" / EN "Back to top"). 숨겨진 상태에선
+  `tabIndex={-1}` + `aria-hidden` 으로 포커스 순서에서 제거.
+- **바닥 충돌 감사**: `fixed bottom-4 right-4` 로 이미 있는 곳:
+  1. `FeedContent` 디버그 패널 (`?debug=feed` 전용, dev-only) —
+     z-50 이라 잠깐 겹치지만 개발자 도구.
+  2. edit/upload 저장 토스트 (`/artwork/[id]/edit`, `/upload/bulk`,
+     `UserProfileContent`) — ephemeral, 편집 페이지 스크롤 길이도
+     제한적이라 실사용에서 겹칠 확률 낮음. 별도 조치 없음.
+
+### 변경 요약 — C. i18n
+- **추가** (EN + KO 동시): `common.backToTop.ariaLabel`.
+
+### 스냅샷 키 네이밍 컨벤션
+- **패턴**: `sessionStorage[feed:snapshot:v1:<key>]`.
+- **키 예시**:
+  - `feed:foryou` — FeedContent (For You lane). tab alias 집합
+    `foryou`/`""`/`all`/`following` 모두 하나로 매핑.
+  - `explore:artworks:latest`, `explore:artists:latest`,
+    `explore:exhibitions:popular`, `explore:all:latest` — 각각의
+    (tab, sort) 조합. Explore taxonomy 는 tab 별 fresh view 원칙.
+
+### 무효화 트리거 (TTL 외)
+- pull-to-refresh (manual refresh 버튼) → 해당 키 clear.
+- 탭 변경 (handleTabChange) → 이전 tab 키 clear.
+- Sort 변경 (handleSortChange) → 이전 (tab, sort) 키 clear.
+- 로그아웃 (signOut) → 모든 `feed:snapshot:v1:*` 키 clear.
+- TTL 초과 (5분) → `readFeedSnapshot` 자체가 stale 을 감지해
+  자동 삭제 후 null 반환.
+
+### FAB 세부값
+- **임계값**: `window.scrollY > 800px`.
+- **위치**: `right: 16px` + `bottom: env(safe-area-inset-bottom, 0px) + 16px`.
+- **z-index**: `z-40` (`< z-50` = drawers/dialogs).
+- **크기**: `w-11 h-11` (44px hit target · iOS 권장 준수).
+
+### 편집한 파일
+- **신규**
+  - `src/lib/feed/scrollSnapshot.ts`
+  - `src/components/ui/BackToTopFab.tsx`
+- **수정**
+  - `src/components/FeedContent.tsx`
+  - `src/components/ExploreTaxonomyContent.tsx`
+  - `src/app/feed/FeedClient.tsx`
+  - `src/lib/supabase/auth.ts`
+  - `src/app/layout.tsx`
+  - `src/lib/i18n/messages.ts` (EN + KO 각 1 키 추가)
+  - `docs/HANDOFF.md`
+
+### Verified
+- `npx tsc --noEmit` — 0 errors.
+- `npx eslint <touched>` — 0 errors, 0 new warnings (기존 3
+  경고: `FEED_LAYOUT_VERSION` / `onTabChange` / `onSortChange` 미사용
+  — 이번 패치 이전부터 존재).
+- 코드-트레이스: FeedContent 의 initial fetch 는 `skipInitialFetchRef`
+  로 정확히 스냅샷 하이드레이션 시에만 스킵 · BackToTopFab 의 scroll
+  리스너는 unmount 시 4개 리스너 + rAF 모두 정리됨.
+- Sanity: `feed:` 프리픽스 sessionStorage 충돌 없음 (rg 확인 완료 —
+  본 모듈이 유일한 소비자).
+
+### 비고 / 스코프 아웃
+- Living Salon grid 렌더링 로직 자체는 건드리지 않음 (스냅샷 주변만).
+- Artwork/Artist/Exhibition 상세 페이지의 스크롤 복원은 이번 스코프
+  밖 (follow-up).
+- 스냅샷은 **탭 단위**라 tab 스위칭은 여전히 fresh view — 의도된 동작.
+- Router 구조 (parallel/intercepting routes) 변경 없음.
+- localStorage 아닌 sessionStorage — 브라우저 세션 넘어 지속 안 함.
+
 ## 2026-08-19 (38) — Signup v2 · 와이어프레임 픽셀 폴리시 (기능 변경 없음)
 
 > **Supabase SQL 적용 필요: 없음** — DB / RPC / RLS 는 손대지 않음.

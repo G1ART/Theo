@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { clearAllFeedSnapshots } from "@/lib/feed/scrollSnapshot";
 
 /** Returns the canonical app origin (NEXT_PUBLIC_APP_URL) for auth redirect URLs.
  *  Falls back to window.location.origin only in local dev (no env set).
@@ -81,6 +82,10 @@ export async function sendPasswordReset(email: string) {
 }
 
 export async function signOut() {
+  // Drop any feed scroll+state snapshots from the previous session so
+  // a subsequent sign-in on the same tab lands on a fresh personalized
+  // surface instead of hydrating the outgoing user's cursors/likes.
+  clearAllFeedSnapshots();
   return supabase.auth.signOut();
 }
 

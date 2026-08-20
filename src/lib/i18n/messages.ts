@@ -780,6 +780,9 @@ export const messages = {
     "common.noChanges": "No changes to save",
     "common.tryAgain": "Please try again",
     "common.invalid": "Invalid",
+    // Aria label for the floating "back to top" FAB (mounted globally
+    // in `src/app/layout.tsx`).
+    "common.backToTop.ariaLabel": "Back to top",
     "shortlist.deleteConfirm.title": "Delete this board?",
     "shortlist.deleteConfirm.desc": "Its items and share link will be removed.",
     "shortlist.removeItem.title": "Remove this item?",
@@ -5165,6 +5168,7 @@ export const messages = {
     "common.noChanges": "저장할 변경 사항이 없습니다",
     "common.tryAgain": "다시 시도해 주세요",
     "common.invalid": "잘못됨",
+    "common.backToTop.ariaLabel": "최상단으로 이동",
     "shortlist.deleteConfirm.title": "이 보드를 삭제할까요?",
     "shortlist.deleteConfirm.desc": "포함된 항목과 공유 링크가 함께 제거돼요.",
     "shortlist.removeItem.title": "이 항목을 제거할까요?",

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
 import { markFeedPerf, readFeedPerf } from "@/lib/feed/feedPerf";
 import {
@@ -13,6 +13,12 @@ import {
 import { personalizeFeedEntries } from "@/lib/feed/personalizedSalon";
 import { readSeenItemKeys, type ViewerSignals } from "@/lib/feed/feedSignals";
 import { getViewerRoleCached } from "@/lib/feed/viewerRole";
+import {
+  clearFeedSnapshot,
+  readFeedSnapshot,
+  saveFeedSnapshot,
+  type FeedSnapshot,
+} from "@/lib/feed/scrollSnapshot";
 import { FEED_LAYOUT_VERSION, logFeedEvent } from "@/lib/feed/telemetry";
 import type { DiscoveryDatum, FeedEntry } from "@/lib/feed/types";
 import {
@@ -94,6 +100,54 @@ type Props = {
   suppressHeader?: boolean;
 };
 
+/**
+ * Shape of the sessionStorage snapshot for this component. Kept plain
+ * JSON — Sets serialize as arrays, no functions, no cyclic refs.
+ * `viewerRole` is included because refetching it costs a Supabase
+ * round-trip and blocks the personalization pass by ~1 frame.
+ */
+type FeedContentSnapshot = {
+  feedEntries: FeedEntry[];
+  discoveryData: DiscoveryDatum[];
+  likedIds: string[];
+  followingIds: string[];
+  followingProfileIds: string[];
+  artworksNextCursor: ArtworkCursor | null;
+  exhibitionsNextCursor: ExhibitionCursor | null;
+  followingArtCursor: ArtworkCursor | null;
+  followingExhCursor: ExhibitionCursor | null;
+  viewerRole: string | null;
+};
+
+/**
+ * Derive the sessionStorage key for the current feed view.
+ *
+ * FeedClient only mounts `FeedContent` for the personalized "For you"
+ * lane today (internal `tab === "all"`, URL `tab === "foryou"` — or
+ * empty/`all`/`following` which normalize into it). Keying on the
+ * *outer* tab keeps the snapshot stable across those aliases so the
+ * URL cleanup path (e.g. anonymous → `all` → sign-in → `foryou`)
+ * doesn't split into two snapshots that never restore each other.
+ * If a future consumer renders `FeedContent` under a non-foryou tab
+ * we fall back to `feed:<tab>:<sort>` to stay collision-free.
+ */
+function computeFeedContentSnapshotKey(
+  outerTab: string | null,
+  internalTab: "all" | "following",
+  sort: "latest" | "popular"
+): string {
+  const normalized = (outerTab ?? "").trim().toLowerCase();
+  if (
+    normalized === "" ||
+    normalized === "foryou" ||
+    normalized === "all" ||
+    normalized === "following"
+  ) {
+    return "feed:foryou";
+  }
+  return `feed:${internalTab}:${sort}`;
+}
+
 export function FeedContent({
   tab,
   sort = "latest",
@@ -105,6 +159,29 @@ export function FeedContent({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t } = useT();
+
+  // Snapshot key derived from the *outer* URL tab so it stays stable
+  // across the tab-alias set (`foryou` / `""` / `all` / `following`)
+  // that all funnel into the personalized surface. See
+  // `computeFeedContentSnapshotKey` above.
+  const outerTab = searchParams?.get("tab") ?? null;
+  const snapshotKey = computeFeedContentSnapshotKey(outerTab, tab, sort);
+
+  // Read the snapshot exactly once during this component's first
+  // render. Later renders reuse `initialSnapshotRef.current`, which we
+  // clear after the useLayoutEffect scroll-restore fires. Anything
+  // stateful below seeds from this snapshot if present so the first
+  // paint reproduces the pre-navigation feed instead of showing the
+  // skeleton and re-fetching page 1.
+  const initialSnapshotRef = useRef<FeedSnapshot<FeedContentSnapshot> | null | undefined>(
+    undefined
+  );
+  if (initialSnapshotRef.current === undefined) {
+    initialSnapshotRef.current = readFeedSnapshot<FeedContentSnapshot>(snapshotKey);
+  }
+  const hydrated = initialSnapshotRef.current !== null;
+  const initialState = initialSnapshotRef.current?.state;
+
   // Diagnostics panel — enabled by `?debug=feed` URL query OR by setting
   // `localStorage.debug_feed = "1"` in the browser console. Off by
   // default in production. Helps trace silent infinite-scroll halts
@@ -115,26 +192,60 @@ export function FeedContent({
     artworks: number;
     exhibitions: number;
   } | null>(null);
-  const [feedEntries, setFeedEntries] = useState<FeedEntry[]>([]);
-  const [discoveryData, setDiscoveryData] = useState<DiscoveryDatum[]>([]);
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
-  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
-  const [followingProfileIds, setFollowingProfileIds] = useState<string[]>([]);
+  const [feedEntries, setFeedEntries] = useState<FeedEntry[]>(
+    () => initialState?.feedEntries ?? []
+  );
+  const [discoveryData, setDiscoveryData] = useState<DiscoveryDatum[]>(
+    () => initialState?.discoveryData ?? []
+  );
+  const [likedIds, setLikedIds] = useState<Set<string>>(
+    () => new Set(initialState?.likedIds ?? [])
+  );
+  const [followingIds, setFollowingIds] = useState<Set<string>>(
+    () => new Set(initialState?.followingIds ?? [])
+  );
+  const [followingProfileIds, setFollowingProfileIds] = useState<string[]>(
+    () => initialState?.followingProfileIds ?? []
+  );
   const recCacheRef = useRef<{
     profiles: PeopleRec[];
     fetchedAt: number;
   } | null>(null);
-  const [artworksNextCursor, setArtworksNextCursor] = useState<ArtworkCursor | null>(null);
-  const [exhibitionsNextCursor, setExhibitionsNextCursor] = useState<ExhibitionCursor | null>(null);
-  const [followingArtCursor, setFollowingArtCursor] = useState<ArtworkCursor | null>(null);
-  const [followingExhCursor, setFollowingExhCursor] = useState<ExhibitionCursor | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [artworksNextCursor, setArtworksNextCursor] = useState<ArtworkCursor | null>(
+    () => initialState?.artworksNextCursor ?? null
+  );
+  const [exhibitionsNextCursor, setExhibitionsNextCursor] = useState<ExhibitionCursor | null>(
+    () => initialState?.exhibitionsNextCursor ?? null
+  );
+  const [followingArtCursor, setFollowingArtCursor] = useState<ArtworkCursor | null>(
+    () => initialState?.followingArtCursor ?? null
+  );
+  const [followingExhCursor, setFollowingExhCursor] = useState<ExhibitionCursor | null>(
+    () => initialState?.followingExhCursor ?? null
+  );
+  // If we hydrated from the snapshot the feed is already renderable —
+  // never show the skeleton and never let the visibility/pathname
+  // fetch effects run before the user has actually seen the restored
+  // surface.
+  const [loading, setLoading] = useState(!hydrated);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const lastFullFetchRef = useRef(0);
+  // Seed `lastFullFetchRef` to the snapshot's `savedAt` so the
+  // pathname / focus / visibilitychange TTL guards suppress the
+  // "background refresh" fetch for the first `FEED_BG_REFRESH_TTL_MS`
+  // after restore. Without this seed the first `visibilitychange`
+  // (which fires on some mobile browsers when the router restores
+  // the page) would silently clobber the restored state.
+  const lastFullFetchRef = useRef(
+    initialSnapshotRef.current ? initialSnapshotRef.current.savedAt : 0
+  );
   const dataLoadStartedRef = useRef(0);
+  // Consumed by the initial-fetch effect below: when true we ate the
+  // fetch (because we hydrated from a snapshot). Latching to false
+  // after first read so any subsequent tab/sort change refetches.
+  const skipInitialFetchRef = useRef(hydrated);
 
   useEffect(() => {
     const fromQuery = searchParams?.get("debug") === "feed";
@@ -549,8 +660,41 @@ export function FeedContent({
   }, [hasMore, loadMore]);
 
   useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      // Snapshot hydration filled `feedEntries` / cursors / discovery
+      // synchronously during the first render, so we deliberately skip
+      // the normal "on mount, refetch page 1" pass. Consuming the flag
+      // once means the next tab/sort/userId change will still refetch.
+      skipInitialFetchRef.current = false;
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[Feed] snapshot restore — skipping initial fetch");
+      }
+      return;
+    }
     void fetchArtworks({ force: true, source: "initial" });
   }, [tab, sort, userId, fetchArtworks]);
+
+  // Restore scroll position synchronously *before* the browser paints
+  // the first hydrated frame. Doing this in a plain `useEffect` would
+  // yield one paint at `scrollY = 0` and then jump, which reads as a
+  // flicker. `useLayoutEffect` blocks paint until we've moved.
+  useLayoutEffect(() => {
+    const snap = initialSnapshotRef.current;
+    if (!snap) return;
+    // Two-frame scroll: some browsers ignore programmatic scroll if
+    // the document height isn't yet at least `scrollY`. Trigger once
+    // now (in case the hydrated content is already tall enough), then
+    // once on rAF to handle the "image lazyload just measured" case.
+    window.scrollTo(0, snap.scrollY);
+    const raf = window.requestAnimationFrame(() => {
+      window.scrollTo(0, snap.scrollY);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+    // Intentionally no deps — this runs exactly once per mount and
+    // reads from the ref that captured the snapshot before first paint.
+  }, []);
 
   useEffect(() => {
     if (!pathname?.startsWith("/feed")) return;
@@ -571,6 +715,99 @@ export function FeedContent({
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [fetchArtworks]);
+
+  // ── Snapshot persist: run on every exit path so the next mount can
+  // hydrate scroll + state ──────────────────────────────────────────
+  //
+  // Latest-values indirection: `stateRef` holds the current render's
+  // slice of what we need to persist. Updating it inside a plain
+  // (no-deps) effect means the listeners registered below don't need
+  // to be re-added on every state change — we just read the ref at
+  // fire time. Persist is called from:
+  //   1. `visibilitychange` (hidden)   — mobile Safari + tab switch.
+  //   2. `pagehide`                    — the modern replacement for
+  //      `beforeunload` that also fires on bfcache-eligible unloads.
+  //   3. `click` on outbound feed links — router.push doesn't fire
+  //      `visibilitychange`, so this is the primary hook for the
+  //      back-nav flow we're actually fixing.
+  //   4. Component cleanup             — belt-and-suspenders for any
+  //      exit path the three above miss (e.g. programmatic route
+  //      changes triggered elsewhere in the tree).
+  const persistStateRef = useRef<FeedContentSnapshot>({
+    feedEntries: [],
+    discoveryData: [],
+    likedIds: [],
+    followingIds: [],
+    followingProfileIds: [],
+    artworksNextCursor: null,
+    exhibitionsNextCursor: null,
+    followingArtCursor: null,
+    followingExhCursor: null,
+    viewerRole: null,
+  });
+  useEffect(() => {
+    persistStateRef.current = {
+      feedEntries,
+      discoveryData,
+      likedIds: Array.from(likedIds),
+      followingIds: Array.from(followingIds),
+      followingProfileIds,
+      artworksNextCursor,
+      exhibitionsNextCursor,
+      followingArtCursor,
+      followingExhCursor,
+      viewerRole,
+    };
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const persist = () => {
+      const state = persistStateRef.current;
+      // Nothing meaningful to save yet — avoid clobbering an existing
+      // snapshot with an empty one before the first fetch lands.
+      if (state.feedEntries.length === 0 && state.discoveryData.length === 0) {
+        return;
+      }
+      saveFeedSnapshot(snapshotKey, state, window.scrollY);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+    const onPageHide = () => persist();
+    // Capture-phase so we snapshot before Next.js Link swallows the
+    // click and starts the client-side navigation.
+    const onClick = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      const anchor = target.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") ?? "";
+      if (
+        href.startsWith("/artwork/") ||
+        href.startsWith("/exhibition/") ||
+        href.startsWith("/artist/") ||
+        href.startsWith("/@") ||
+        href.startsWith("/u/") ||
+        href.startsWith("/e/")
+      ) {
+        persist();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("click", onClick, true);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("click", onClick, true);
+      persist();
+    };
+  }, [snapshotKey]);
 
   const handleLikeUpdate = useCallback(
     (artworkId: string, liked: boolean, count: number) => {
@@ -600,8 +837,12 @@ export function FeedContent({
   );
 
   const handleManualRefresh = useCallback(() => {
+    // Explicit refresh → user is asking to *replace* the feed they
+    // scrolled through, so drop the sessionStorage snapshot before
+    // fetching to avoid restoring stale entries on the next back nav.
+    clearFeedSnapshot(snapshotKey);
     void fetchArtworks({ force: true, source: "manual" });
-  }, [fetchArtworks]);
+  }, [fetchArtworks, snapshotKey]);
 
   // Viewer's main_role for the personalization layer. Lives in its own
   // state so the mixer can degrade to "role unknown" while the fetch is
@@ -628,8 +869,25 @@ export function FeedContent({
   // sort change, or force refresh (= dataLoadStartedRef nonce). Without
   // these resets the user would be locked into the first-paint head when
   // they're trying to ask for something different.
-  const personalizedHeadLenRef = useRef(0);
+  //
+  // Snapshot restore: seed the freeze to the hydrated entry count so
+  // the personalization pass reproduces the exact order the user saw
+  // before navigating out. Without this seed the first render after
+  // restore would re-rank the entire window with a fresh personalizer
+  // seed and shuffle tiles under the (already-scrolled) viewport.
+  const personalizedHeadLenRef = useRef(
+    initialSnapshotRef.current ? initialSnapshotRef.current.state.feedEntries.length : 0
+  );
+  // Latch consumed once the mount-time tab/sort effect has run; guards
+  // against clobbering the hydrated freeze seed on the effect's very
+  // first execution (which fires *after* useState lazy init but before
+  // any real tab/sort change).
+  const freezeSeedConsumedRef = useRef(!hydrated);
   useEffect(() => {
+    if (!freezeSeedConsumedRef.current) {
+      freezeSeedConsumedRef.current = true;
+      return;
+    }
     // Tab/sort changed → freeze must reset; the next personalize pass
     // sees an empty head and can re-rank the entire window from scratch.
     personalizedHeadLenRef.current = 0;
