@@ -151,7 +151,7 @@ export function SignupStep2Password({ api }: { api: SignupStepApi }) {
   const privacyHref = "/legal/privacy";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
       <OvalInput
         labelStyle="outer"
         label={t("auth.signupV2.step2.fullNameLabel")}

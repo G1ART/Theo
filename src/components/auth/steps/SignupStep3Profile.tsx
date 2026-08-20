@@ -462,7 +462,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
       : undefined;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
       <AvatarPickerRow
         file={avatarFile}
         previewUrl={avatarPreview}
@@ -472,7 +472,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         removeAria={t("auth.signupV2.step3.photoRemove")}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <OvalSelect
           labelStyle="outer"
           label={t("auth.signupV2.step3.gender.label")}
@@ -503,7 +503,7 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <OvalSelect
           labelStyle="outer"
           label={t("auth.signupV2.step3.primaryRoleLabel")}

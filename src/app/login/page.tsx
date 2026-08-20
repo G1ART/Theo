@@ -351,7 +351,7 @@ function LoginAltRow({
 }) {
   const { t } = useT();
   return (
-    <div className="flex items-center justify-between gap-3 pt-0.5 text-[13px] text-zinc-800">
+    <div className="flex items-center justify-between gap-3 text-[13px] text-zinc-800">
       {left}
       <span>
         {t("auth.loginV2.newToTheo")}{" "}
@@ -488,7 +488,7 @@ function LoginV2Inner() {
       brandPlacement="hero"
       titleTone="quiet"
       showLocale
-      contentWidth="xs"
+      contentWidth="sm"
       title={
         <span className="block">
           <span className="block">{t("auth.loginV2.tagline1")}</span>
@@ -507,13 +507,12 @@ function LoginV2Inner() {
       )}
 
       {passwordless ? (
-        <form onSubmit={handleMagicLink} className="space-y-3" noValidate>
+        <form onSubmit={handleMagicLink} className="space-y-5" noValidate>
           <p className="text-[13px] text-zinc-600">
             {t("auth.loginV2.passwordless.subhead")}
           </p>
           <OvalInput
             labelStyle="outer"
-            density="compact"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
@@ -542,7 +541,6 @@ function LoginV2Inner() {
               passwordlessCooldown > 0 ||
               !email.trim()
             }
-            className="!py-2.5"
           >
             {passwordlessCooldown > 0
               ? `${t("auth.loginV2.passwordless.submit")} (${passwordlessCooldown}s)`
@@ -566,10 +564,9 @@ function LoginV2Inner() {
           />
         </form>
       ) : (
-        <form onSubmit={handlePasswordSignIn} className="space-y-3" noValidate>
+        <form onSubmit={handlePasswordSignIn} className="space-y-5" noValidate>
           <OvalInput
             labelStyle="outer"
-            density="compact"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
@@ -596,7 +593,6 @@ function LoginV2Inner() {
             <OvalInput
               id="login-v2-password"
               labelStyle="outer"
-              density="compact"
               label={null}
               type="password"
               value={password}
@@ -616,7 +612,6 @@ function LoginV2Inner() {
             variant="primary"
             fullWidth
             loading={loading}
-            className="!py-2.5"
           >
             {loading ? t("auth.loginV2.submitting") : t("auth.loginV2.submit")}
           </PillButton>
@@ -639,7 +634,7 @@ function LoginV2Inner() {
         </form>
       )}
 
-      <div className="mt-8">
+      <div className="mt-12">
         <p className="mb-3 text-center text-[13px] text-zinc-700">
           {t("auth.loginV2.quickStart.label")}
         </p>

@@ -22,6 +22,13 @@
  *
  *   - `"display"` — 4xl/5xl light (signup "Step N").
  *   - `"quiet"` — small body copy (login taglines).
+ *
+ * ## Spacing
+ *
+ * The canvas is airy. Intra-cluster gaps (label→oval, oval→oval) stay
+ * moderate; **section** gaps (logo→copy, copy→form, form→footer) stay
+ * large. Do not tighten these to "fit" the viewport — the designer
+ * framed generous white around a small left-aligned stack.
  */
 
 import Link from "next/link";
@@ -45,8 +52,8 @@ export type AuthShellProps = {
   alternate?: ReactNode;
   /** Home link href for the brand mark. Defaults to `/`. */
   homeHref?: string;
-  /** Central column width. Login uses `"xs"` (wireframe ~344px).
-   *  Signup v2: Steps 1–3 stay `"sm"` (max-w-md), Step 4 `"lg"`. */
+  /** Central column width. Login and signup Steps 1–3 use `"sm"`
+   *  (max-w-md) so ovals share one measure. Step 4 uses `"lg"`. */
   contentWidth?: AuthShellContentWidth;
   /** Where the Theo mark lives. See file header. Default `"header"`. */
   brandPlacement?: AuthShellBrandPlacement;
@@ -120,11 +127,11 @@ export function AuthShell(props: AuthShellProps) {
   const titleClass =
     titleTone === "quiet"
       ? "text-[13px] font-normal leading-[1.7] text-zinc-600"
-      : "mt-3 text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl";
+      : "text-4xl font-light tracking-tight text-zinc-900 sm:text-5xl";
   const subtitleClass =
     titleTone === "quiet"
-      ? "mt-5 whitespace-pre-line text-[13px] leading-relaxed text-zinc-600"
-      : "mt-3 whitespace-pre-line text-sm leading-relaxed text-zinc-600";
+      ? "mt-6 whitespace-pre-line text-[13px] leading-relaxed text-zinc-600"
+      : "mt-4 whitespace-pre-line text-sm leading-relaxed text-zinc-600";
 
   const mark = logo ?? (
     <TheoLogo
@@ -170,24 +177,20 @@ export function AuthShell(props: AuthShellProps) {
       )}
 
       <main
-        className={`mx-auto flex w-full flex-col px-6 pb-16 ${widthClass} ${
-          isHero
-            ? "min-h-screen justify-center py-16"
-            : "justify-center pt-16 sm:pt-24"
-        }`}
+        className={`mx-auto flex min-h-screen w-full flex-col justify-center px-6 py-20 sm:py-28 ${widthClass}`}
       >
         {isHero && (
           <Link
             href={homeHref}
             aria-label="Theo"
-            className="mb-5 inline-flex"
+            className="mb-8 inline-flex"
           >
             {mark}
           </Link>
         )}
 
         {(eyebrow || title || subtitle) && (
-          <div className="mb-8">
+          <div className="mb-14">
             {eyebrow && (
               <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
                 {eyebrow}
@@ -201,7 +204,7 @@ export function AuthShell(props: AuthShellProps) {
         {children}
 
         {footer && (
-          <div className="mt-8 text-center text-[10px] leading-relaxed text-zinc-400">
+          <div className="mt-12 text-center text-[11px] leading-relaxed text-zinc-400">
             {footer}
           </div>
         )}
