@@ -4395,7 +4395,7 @@ export const messages = {
     // with SignupStep1Email. All keys feature-flag gated in the UI
     // layer (`isSignupV2Enabled()`); the string bag itself is always
     // present so the flag can flip without a redeploy.
-    "auth.loginV2.tagline1": "Meet your Theo.",
+    "auth.loginV2.tagline1": "Meet your Theo,",
     "auth.loginV2.tagline2": "Be our Theo.",
     "auth.loginV2.subhead": "Get started here.",
     "auth.loginV2.email": "Email",
@@ -8806,7 +8806,7 @@ export const messages = {
     // Google/Apple pill cluster 카피. UI 레이어에서 피처 플래그
     // (`isSignupV2Enabled()`) 로 게이트되지만, 문자열 자체는 항상
     // 존재해서 플래그 플립만으로 즉시 노출 가능.
-    "auth.loginV2.tagline1": "Meet your Theo.",
+    "auth.loginV2.tagline1": "Meet your Theo,",
     "auth.loginV2.tagline2": "Be our Theo.",
     "auth.loginV2.subhead": "이곳에서 시작해 보세요.",
     "auth.loginV2.email": "이메일",

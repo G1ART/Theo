@@ -29,7 +29,7 @@
  * user-facing. Use "비밀번호 없이 로그인" and "이메일 로그인 링크".
  */
 
-import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
@@ -342,6 +342,30 @@ type QuickStartPill = {
   disabledTooltip?: string;
 };
 
+function LoginAltRow({
+  left,
+  signupHref,
+}: {
+  left: ReactNode;
+  signupHref: string;
+}) {
+  const { t } = useT();
+  return (
+    <div className="flex items-center justify-between gap-3 pt-0.5 text-[13px] text-zinc-800">
+      {left}
+      <span>
+        {t("auth.loginV2.newToTheo")}{" "}
+        <Link
+          href={signupHref}
+          className="font-semibold underline underline-offset-2 hover:text-zinc-900"
+        >
+          {t("auth.loginV2.signUpCta")}
+        </Link>
+      </span>
+    </div>
+  );
+}
+
 function LoginV2Inner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -451,14 +475,6 @@ function LoginV2Inner() {
     // page will re-mount and the state resets.
   }
 
-  // 2026-08-20 (OAuth cluster trim): only Google is currently
-  // configured in the Supabase Auth dashboard. Apple + Kakao are
-  // removed from the cluster to avoid dead clicks / "not configured"
-  // toasts on production. Re-add each entry as soon as its provider
-  // is wired in Supabase Dashboard → Authentication → Providers.
-  //   apple:  { provider: "apple", label: t("auth.loginV2.quickStart.apple") }
-  //   kakao:  { provider: "kakao", label: t("auth.loginV2.quickStart.kakao"),
-  //             disabled: true, disabledTooltip: t("auth.loginV2.quickStart.disabledTooltip") }
   const quickStartPills: QuickStartPill[] = [
     { provider: "google", label: t("auth.loginV2.quickStart.google") },
   ];
@@ -472,7 +488,7 @@ function LoginV2Inner() {
       brandPlacement="hero"
       titleTone="quiet"
       showLocale
-      contentWidth="sm"
+      contentWidth="xs"
       title={
         <span className="block">
           <span className="block">{t("auth.loginV2.tagline1")}</span>
@@ -491,27 +507,28 @@ function LoginV2Inner() {
       )}
 
       {passwordless ? (
-        <form onSubmit={handleMagicLink} className="space-y-5" noValidate>
-          <p className="text-sm text-zinc-600">
+        <form onSubmit={handleMagicLink} className="space-y-3" noValidate>
+          <p className="text-[13px] text-zinc-600">
             {t("auth.loginV2.passwordless.subhead")}
           </p>
           <OvalInput
+            labelStyle="outer"
+            density="compact"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
             onChange={setEmail}
             autoComplete="email"
             inputMode="email"
-            required
             autoFocus
           />
           {passwordlessSent ? (
-            <p className="rounded-full bg-emerald-50 px-5 py-3 text-sm text-emerald-700">
+            <p className="text-[13px] text-emerald-700">
               {t("auth.loginV2.passwordless.sent")}
             </p>
           ) : null}
           {error && !passwordlessSent && (
-            <p role="alert" className="px-5 text-sm text-red-600">
+            <p role="alert" className="text-[13px] text-red-600">
               {error}
             </p>
           )}
@@ -525,66 +542,71 @@ function LoginV2Inner() {
               passwordlessCooldown > 0 ||
               !email.trim()
             }
+            className="!py-2.5"
           >
             {passwordlessCooldown > 0
               ? `${t("auth.loginV2.passwordless.submit")} (${passwordlessCooldown}s)`
               : t("auth.loginV2.passwordless.submit")}
           </PillButton>
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-center text-xs text-zinc-500">
-            <button
-              type="button"
-              onClick={() => {
-                setPasswordless(false);
-                setPasswordlessSent(false);
-                setError(null);
-              }}
-              className="text-zinc-600 hover:text-zinc-900"
-            >
-              {t("auth.loginV2.passwordless.back")}
-            </button>
-            <span className="text-zinc-500">
-              {t("auth.loginV2.newToTheo")}{" "}
-              <Link
-                href={signupHref}
-                className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+          <LoginAltRow
+            left={
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordless(false);
+                  setPasswordlessSent(false);
+                  setError(null);
+                }}
+                className="underline underline-offset-2 hover:text-zinc-900"
               >
-                {t("auth.loginV2.signUpCta")}
-              </Link>
-            </span>
-          </div>
+                {t("auth.loginV2.passwordless.back")}
+              </button>
+            }
+            signupHref={signupHref}
+          />
         </form>
       ) : (
-        <form onSubmit={handlePasswordSignIn} className="space-y-5" noValidate>
+        <form onSubmit={handlePasswordSignIn} className="space-y-3" noValidate>
           <OvalInput
+            labelStyle="outer"
+            density="compact"
             label={t("auth.loginV2.email")}
             type="email"
             value={email}
             onChange={setEmail}
             autoComplete="email"
             inputMode="email"
-            required
             autoFocus
           />
-          <OvalInput
-            label={t("auth.loginV2.password")}
-            type="password"
-            value={password}
-            onChange={setPassword}
-            autoComplete="current-password"
-            required
-            trailingWide
-            trailingAdornment={
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between gap-3 px-1">
+              <label
+                htmlFor="login-v2-password"
+                className="text-xs text-zinc-600"
+              >
+                {t("auth.loginV2.password")}
+              </label>
               <Link
                 href={forgotHref}
-                className="whitespace-nowrap text-[11px] text-zinc-500 hover:text-zinc-900"
+                className="text-xs text-zinc-600 hover:text-zinc-900"
               >
                 {t("auth.loginV2.forgot")}
               </Link>
-            }
-          />
+            </div>
+            <OvalInput
+              id="login-v2-password"
+              labelStyle="outer"
+              density="compact"
+              label={null}
+              type="password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+            />
+          </div>
 
           {error && (
-            <p role="alert" className="px-5 text-sm text-red-600">
+            <p role="alert" className="text-[13px] text-red-600">
               {error}
             </p>
           )}
@@ -594,36 +616,31 @@ function LoginV2Inner() {
             variant="primary"
             fullWidth
             loading={loading}
+            className="!py-2.5"
           >
             {loading ? t("auth.loginV2.submitting") : t("auth.loginV2.submit")}
           </PillButton>
 
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-center text-xs text-zinc-500">
-            <button
-              type="button"
-              onClick={() => {
-                setPasswordless(true);
-                setError(null);
-              }}
-              className="text-zinc-600 hover:text-zinc-900"
-            >
-              {t("auth.loginV2.passwordless.link")}
-            </button>
-            <span className="text-zinc-500">
-              {t("auth.loginV2.newToTheo")}{" "}
-              <Link
-                href={signupHref}
-                className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+          <LoginAltRow
+            left={
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordless(true);
+                  setError(null);
+                }}
+                className="underline underline-offset-2 hover:text-zinc-900"
               >
-                {t("auth.loginV2.signUpCta")}
-              </Link>
-            </span>
-          </div>
+                {t("auth.loginV2.passwordless.link")}
+              </button>
+            }
+            signupHref={signupHref}
+          />
         </form>
       )}
 
-      <div className="mt-10">
-        <p className="mb-3 text-center text-sm text-zinc-600">
+      <div className="mt-8">
+        <p className="mb-3 text-center text-[13px] text-zinc-700">
           {t("auth.loginV2.quickStart.label")}
         </p>
         <div className="flex flex-wrap justify-center gap-2">

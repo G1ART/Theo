@@ -2,6 +2,35 @@
 
 Last updated: 2026-08-20
 
+## 2026-08-20 (46) — /login 와이어프레임 재정렬 + 기존유저 배너 → Settings
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+### /login
+
+디자이너 시안의 미니멀 구도를 그대로 따른다. 제품 결정(Quick Start =
+Google only)은 유지.
+
+- 로고 `h-24` (기존 `h-40/h-48` 과대). 태그라인 13px 중앙, "Meet your
+  Theo," 콤마. 컬럼 `max-w-[21.5rem]`.
+- Email/Password 레이블은 캡슐 **위**. Forgot Password는 비밀번호
+  레이블 행 우측 (캡슐 안이 아님).
+- "Log in without a password" 밑줄 + "New to Theo? **Sign up**" 을
+  폼 너비 `justify-between`, 13px.
+- Quick Start는 Google 한 개만.
+
+### 기존 계정 "프로필 완성하기"
+
+계정이 이미 활성화된 사용자를 `/signup?step=3` 으로 보내면 가입
+위저드가 `signUpWithPassword` 를 다시 돌려 중복 이메일로 막힌다. CTA는
+`/settings#displayName` 으로 보낸다. Settings 저장 시
+`profile_completed_at` 을 stamp 하고 `profile-updated` 이벤트로 배너를
+즉시 내린다.
+
+---
+
 ## 2026-08-20 (45) — /signup Steps 1–4 와이어프레임 픽셀 피델리티
 
 > **Supabase SQL 적용 필요: 없음.**

@@ -1015,7 +1015,7 @@ export default function SettingsPage() {
     }
 
     const res = await saveProfileUnified({
-      basePatch,
+      basePatch: { ...basePatch, profile_completed_at: "true" },
       detailsPatch,
       completeness: computedScore,
     });
@@ -1033,6 +1033,9 @@ export default function SettingsPage() {
     }
     mediaSavedSinceSaveRef.current = false;
     try {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("profile-updated"));
+      }
       const { data: refreshed } = await getMyProfile();
       const ref = refreshed;
       const pc = ref?.profile_completeness;

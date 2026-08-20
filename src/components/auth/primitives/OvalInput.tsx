@@ -82,6 +82,9 @@ export type OvalInputProps = Omit<
   /** Widen the right padding so a text link (e.g. "Forgot Password?")
    *  can sit inside the oval without colliding with typed text. */
   trailingWide?: boolean;
+  /** `"compact"` is the login wireframe oval (thinner padding, no
+   *  focus ring). Default keeps the signup-step rhythm. */
+  density?: "default" | "compact";
 };
 
 function OvalInputInner(
@@ -106,6 +109,7 @@ function OvalInputInner(
     labelStyle = "float",
     required,
     trailingWide = false,
+    density = "default",
     ...rest
   } = props;
   const autoId = useId();
@@ -116,8 +120,11 @@ function OvalInputInner(
   const hasValue = value != null && value.length > 0;
   const isFloating = focused || hasValue;
 
+  const compact = density === "compact";
   const outlineTone = hasError
     ? "border-red-400 focus-within:border-red-500 focus-within:ring-red-100"
+    : compact
+    ? "border-zinc-400 focus-within:border-zinc-900"
     : "border-zinc-300 focus-within:border-zinc-900 focus-within:ring-zinc-100";
 
   const paddingLeft = leadingAdornment ? "pl-11" : "pl-5";
@@ -134,7 +141,7 @@ function OvalInputInner(
     labelStyle === "outer" && label !== null ? (
       <label
         htmlFor={inputId}
-        className={`mb-1.5 block px-1 text-xs font-medium ${
+        className={`mb-1.5 block px-1 text-xs ${
           hasError ? "text-red-500" : "text-zinc-600"
         }`}
       >
@@ -147,7 +154,9 @@ function OvalInputInner(
     <div className={`w-full ${wrapperClassName}`}>
       {outerLabel}
       <div
-        className={`relative flex items-stretch rounded-full border bg-white transition-shadow duration-150 focus-within:ring-2 ${outlineTone} ${
+        className={`relative flex items-stretch rounded-full border bg-white transition-colors duration-150 ${
+          compact ? "" : "focus-within:ring-2"
+        } ${outlineTone} ${
           disabled ? "opacity-60" : ""
         }`}
       >
@@ -190,7 +199,9 @@ function OvalInputInner(
           aria-describedby={
             error || hint ? `${inputId}-message` : undefined
           }
-          className={`w-full appearance-none rounded-full bg-transparent py-3.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none disabled:cursor-not-allowed ${paddingLeft} ${paddingRight} ${className}`}
+          className={`w-full appearance-none rounded-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none disabled:cursor-not-allowed ${
+            compact ? "py-2.5" : "py-3.5"
+          } ${paddingLeft} ${paddingRight} ${className}`}
           {...rest}
         />
         {(trailingAdornment || loading) && (
