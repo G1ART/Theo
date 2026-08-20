@@ -14,6 +14,7 @@ import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
 import { profileDetailsFromProfile } from "@/lib/supabase/profileDetails";
 import {
   computeProfileCompleteness,
+  listHighImpactProfileGaps,
   resolveDisplayedProfileCompleteness,
 } from "@/lib/profile/completeness";
 import { makePatch } from "@/lib/profile/diffPatch";
@@ -557,6 +558,18 @@ export default function SettingsPage() {
     { profile_completeness: dbProfileCompleteness },
     completeness
   );
+
+  const profileGaps = listHighImpactProfileGaps({
+    display_name: displayName,
+    main_role: mainRole,
+    roles,
+    age_band: ageBand,
+    avatar_url: avatarUrl,
+    bio,
+    city,
+    region,
+    country,
+  });
 
   function toggleRole(role: string) {
     setRoles((prev) =>
@@ -1180,6 +1193,25 @@ export default function SettingsPage() {
                 />
               </div>
               <p className="mt-2 text-xs text-zinc-500">{t("profile.completenessHint")}</p>
+              {profileGaps.length > 0 && profileCompletenessForDisplay != null && profileCompletenessForDisplay < 100 ? (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-zinc-600">
+                    {t("settings.completeness.next")}
+                  </p>
+                  <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                    {profileGaps.map((gap) => (
+                      <li key={gap.id}>
+                        <a
+                          href={gap.href}
+                          className="text-xs text-zinc-700 underline underline-offset-2 hover:text-zinc-900"
+                        >
+                          {t(`settings.completeness.gap.${gap.id}`)}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
 
             <SizeUnitPreference />
@@ -1797,8 +1829,9 @@ export default function SettingsPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="mb-1 block text-sm font-medium">{t("settings.ageBand")}</label>
+                        <label htmlFor="ageBand" className="mb-1 block text-sm font-medium">{t("settings.ageBand")}</label>
                         <select
+                          id="ageBand"
                           value={ageBand}
                           onChange={(e) => setAgeBand(e.target.value)}
                           className="w-full rounded border border-zinc-300 px-3 py-2"

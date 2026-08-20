@@ -174,3 +174,87 @@ export function resolveDisplayedProfileCompleteness(
   }
   return null;
 }
+
+/** Completeness at/above this is "good enough" — no global nag banner. */
+export const COMPLETION_BANNER_HIDE_AT = 70;
+
+export type ProfileBasicsForBanner = {
+  profile_completed_at?: string | null;
+  full_name?: string | null;
+  display_name?: string | null;
+  main_role?: string | null;
+  roles?: string[] | null;
+  profile_completeness?: number | null;
+};
+
+function hasText(v: string | null | undefined): boolean {
+  return !!v && v.trim().length > 0;
+}
+
+/**
+ * Global completion banner should only fire when the *basics the banner
+ * asks for* are still empty (name + role). Age is optional. A reasonably
+ * complete profile (score >= 70) also suppresses the nag even if the
+ * Signup v2 timestamp was never stamped.
+ */
+export function shouldShowExistingUserCompletionBanner(
+  p: ProfileBasicsForBanner | null
+): boolean {
+  if (!p) return false;
+  if (p.profile_completed_at) return false;
+  const completeness = p.profile_completeness;
+  if (typeof completeness === "number" && completeness >= COMPLETION_BANNER_HIDE_AT) {
+    return false;
+  }
+  const hasName = hasText(p.full_name) || hasText(p.display_name);
+  const hasRole =
+    hasText(p.main_role) ||
+    (Array.isArray(p.roles) && p.roles.some((r) => hasText(r)));
+  if (hasName && hasRole) return false;
+  return true;
+}
+
+export type ProfileGapHint = {
+  /** i18n suffix under `settings.completeness.gap.` */
+  id: "displayName" | "mainRole" | "ageBand" | "bio" | "avatar" | "location";
+  href: string;
+};
+
+/** Concrete empty fields to nudge inside Settings — not the global banner. */
+export function listHighImpactProfileGaps(p: {
+  display_name?: string | null;
+  main_role?: string | null;
+  roles?: string[] | null;
+  age_band?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+}): ProfileGapHint[] {
+  const gaps: ProfileGapHint[] = [];
+  if (!hasText(p.display_name)) {
+    gaps.push({ id: "displayName", href: "#displayName" });
+  }
+  const hasRole =
+    hasText(p.main_role) ||
+    (Array.isArray(p.roles) && p.roles.some((r) => hasText(r)));
+  if (!hasRole) {
+    gaps.push({ id: "mainRole", href: "#mainRole" });
+  }
+  if (!hasText(p.age_band)) {
+    gaps.push({ id: "ageBand", href: "#ageBand" });
+  }
+  if (!hasText(p.avatar_url)) {
+    gaps.push({ id: "avatar", href: "#statement" });
+  }
+  if (!hasText(p.bio)) {
+    gaps.push({ id: "bio", href: "#bio" });
+  }
+  const hasLocation =
+    hasText(p.city) || hasText(p.region) || hasText(p.country);
+  if (!hasLocation) {
+    gaps.push({ id: "location", href: "#ageBand" });
+  }
+  return gaps.slice(0, 4);
+}

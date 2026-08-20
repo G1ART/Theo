@@ -3,23 +3,22 @@
 /**
  * ExistingUserCompletionBanner — Signup v2 Phase 4.
  *
- * Nudges existing (already-activated) users whose
- * `profiles.profile_completed_at IS NULL` to finish the new profile
- * fields (name · age · role). CTA goes to `/settings`, not `/signup`:
- * the signup wizard is for creating an account, and sending a signed-in
- * user there re-runs `signUpWithPassword` and surfaces a duplicate-email
- * dead end.
+ * Mounted in the root layout, so it can appear on most authed surfaces
+ * (feed, studio, etc.). It is NOT a 100%-completeness nag.
  *
- * Shown when:
- *   1. `NEXT_PUBLIC_SIGNUP_V2` is enabled.
- *   2. A session exists.
- *   3. `profile_completed_at IS NULL`.
- *   4. The user hasn't dismissed the banner this session
- *      (`sessionStorage:signup:v2:completionBannerDismissed`).
- *   5. The current path is not an auth / settings / legal surface.
+ * Shown only when ALL of these hold:
+ *   1. Signup v2 flag is on and a session exists.
+ *   2. Path is not an auth / settings / legal surface.
+ *   3. Not dismissed this session.
+ *   4. `profile_completed_at` is still null (never went through the
+ *      new Step 3 / Settings stamp).
+ *   5. Name **or** primary role is still empty — the fields the banner
+ *      actually asks for. Age is optional, so a missing age band does
+ *      not keep the banner alive.
+ *   6. Stored completeness is below 70 (or unknown). A reasonably
+ *      filled profile should never see this bar.
  *
- * Saving Settings stamps `profile_completed_at` (idempotent RPC) and
- * dispatches `profile-updated` so this banner drops immediately.
+ * Remaining polish lives in Settings (completeness meter + gap links).
  */
 
 import Link from "next/link";
@@ -28,6 +27,10 @@ import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useT } from "@/lib/i18n/useT";
 import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
+import {
+  shouldShowExistingUserCompletionBanner,
+  type ProfileBasicsForBanner,
+} from "@/lib/profile/completeness";
 
 const DISMISS_KEY = "signup:v2:completionBannerDismissed";
 
@@ -46,17 +49,13 @@ function isHiddenPath(pathname: string | null): boolean {
   return HIDDEN_PATH_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-type MinimalProfile = {
-  profile_completed_at: string | null;
-};
-
 export function ExistingUserCompletionBanner() {
   const { t } = useT();
   const pathname = usePathname();
   const flagOn = useMemo(() => isSignupV2Enabled(), []);
 
   const [mounted, setMounted] = useState(false);
-  const [profile, setProfile] = useState<MinimalProfile | null>(null);
+  const [profile, setProfile] = useState<ProfileBasicsForBanner | null>(null);
   const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
@@ -85,14 +84,16 @@ export function ExistingUserCompletionBanner() {
     }
     const { data, error } = await supabase
       .from("profiles")
-      .select("profile_completed_at")
+      .select(
+        "profile_completed_at, full_name, display_name, main_role, roles, profile_completeness",
+      )
       .eq("id", session.user.id)
       .maybeSingle();
     if (error) {
       setProfile(null);
       return;
     }
-    setProfile((data ?? null) as MinimalProfile | null);
+    setProfile((data ?? null) as ProfileBasicsForBanner | null);
   }, [flagOn]);
 
   useEffect(() => {
@@ -122,8 +123,7 @@ export function ExistingUserCompletionBanner() {
   if (!mounted || !flagOn) return null;
   if (dismissed) return null;
   if (isHiddenPath(pathname)) return null;
-  if (!profile) return null;
-  if (profile.profile_completed_at) return null;
+  if (!shouldShowExistingUserCompletionBanner(profile)) return null;
 
   return (
     <div
