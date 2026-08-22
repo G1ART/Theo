@@ -144,6 +144,7 @@ function StudioResultPreview({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        key={src}
         src={src}
         alt={alt}
         className="h-full w-full object-contain"
@@ -255,13 +256,17 @@ type Props = {
   artistProfileId?: string | null;
 };
 
-/** Debounce a value change so slider drag doesn't spam parent state. */
+/** Debounce a value change so slider drag doesn't spam parent state.
+ *  Object values are compared by JSON content — a fresh `{ b, c }`
+ *  every render must not reset the timer or we never settle. */
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
+  const key = JSON.stringify(value);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(value), delayMs);
     return () => clearTimeout(t);
-  }, [value, delayMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the content identity
+  }, [key, delayMs]);
   return debounced;
 }
 
@@ -959,6 +964,7 @@ export function ImageStandardizeEditor({
   // repeat stale announcements.
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const didAutoPreviewRef = useRef<boolean>(false);
+  const enhanceGenRef = useRef(0);
   // 2026-08-06 — EXIF capture provenance + low-light warning. Reads
   // parse client-side once per file. NEVER returns GPS (see exifRead).
   const [exif, setExif] = useState<ExifReadResult | null>(null);
@@ -1136,6 +1142,7 @@ export function ImageStandardizeEditor({
     // overridden). The banner tells the artist why; silently no-op
     // here so any manual "Preview" click also respects the block.
     if (gateBlocked) return;
+    const gen = ++enhanceGenRef.current;
     setEnhanceError(null);
     setEnhanceRunning(true);
     void recordUsageEvent({
@@ -1451,6 +1458,10 @@ export function ImageStandardizeEditor({
           portfolioToastRef.current = true;
         }
       }
+      if (gen !== enhanceGenRef.current) {
+        revokeBlobUrl(finalPreviewUrl, enhancement?.previewUrl);
+        return;
+      }
       enhancePreviewUrlRef.current = finalPreviewUrl;
       setEnhancePreview({
         displayFile: finalDisplayFile,
@@ -1493,7 +1504,7 @@ export function ImageStandardizeEditor({
         },
       });
     } finally {
-      setEnhanceRunning(false);
+      if (gen === enhanceGenRef.current) setEnhanceRunning(false);
     }
   }, [
     onEnhance,
@@ -1593,9 +1604,21 @@ export function ImageStandardizeEditor({
     }
   }, [onEnhance, file, meteringSource, t, enhancement?.previewUrl]);
 
-  // F4 (2026-08-10) — auto-run a first preview as soon as the user
-  // picks the AI path (geometry + crop + standard margin). Guarded by
-  // a ref so bouncing doesn't re-fire.
+  const previewRecipeKey = JSON.stringify({
+    intensity,
+    inputType,
+    wallBrightness,
+    wallPick,
+    wizardStep,
+    pathChoice,
+    skipped: perspectiveSkipped,
+    corners: perspectiveCorners,
+  });
+  const lastPreviewRecipeKeyRef = useRef<string>("");
+
+  // First result and later strength / input-type changes share one
+  // trigger. Discrete buttons must not sit behind object-identity
+  // debounce — that timer never settled while slider debounce re-rendered.
   useEffect(() => {
     if (!onEnhance) return;
     if (pathChoice !== "ai") return;
@@ -1603,74 +1626,34 @@ export function ImageStandardizeEditor({
     if (wizardStep !== "tone") return;
     if (!perspectiveSkipped && !perspectiveCorners) return;
     if (!analysis) return;
-    if (enhancePreview) return;
-    if (enhancement) return;
-    if (enhanceRunning) return;
-    if (didAutoPreviewRef.current) return;
     if (resolvedAutoMode === "object") return;
-    // 2026-08-19 — Don't auto-run the enhance pipeline on a photo the
-    // pre-flight gate has flagged as `block` (unless the artist
-    // explicitly clicked "그래도 계속" to override). Warn severity
-    // still auto-runs — it's a soft advisory.
     if (gateBlocked) return;
+    if (enhancePreview && previewRecipeKey === lastPreviewRecipeKeyRef.current) {
+      return;
+    }
+    lastPreviewRecipeKeyRef.current = previewRecipeKey;
     didAutoPreviewRef.current = true;
     void runEnhancePreview();
   }, [
-    analysis,
+    previewRecipeKey,
     pathChoice,
     tab,
     wizardStep,
-    onEnhance,
-    enhancePreview,
-    enhancement,
-    enhanceRunning,
-    resolvedAutoMode,
-    runEnhancePreview,
-    gateBlocked,
-    perspectiveCorners,
     perspectiveSkipped,
-  ]);
-
-  // F4 — debounced re-run when the user changes intensity or wall
-  // brightness inside Step 2. Only active while the user is on the
-  // tone step so slider drag on other steps doesn't re-fire.
-  const debouncedTone = useDebounced(
-    { intensity, wallBrightness },
-    250,
-  );
-  const lastToneKeyRef = useRef<string>(
-    JSON.stringify({ intensity, wallBrightness }),
-  );
-  useEffect(() => {
-    if (!onEnhance) return;
-    if (pathChoice !== "ai") return;
-    if (tab !== "enhance") return;
-    if (wizardStep !== "tone") return;
-    if (!perspectiveSkipped && !perspectiveCorners) return;
-    if (!analysis) return;
-    if (!didAutoPreviewRef.current) return;
-    if (enhanceRunning) return;
-    if (resolvedAutoMode === "object") return;
-    const key = JSON.stringify(debouncedTone);
-    if (key === lastToneKeyRef.current) return;
-    lastToneKeyRef.current = key;
-    void runEnhancePreview();
-  }, [
-    debouncedTone,
-    pathChoice,
-    tab,
-    wizardStep,
-    onEnhance,
+    perspectiveCorners,
     analysis,
-    enhanceRunning,
     resolvedAutoMode,
+    gateBlocked,
+    onEnhance,
     runEnhancePreview,
+    enhancePreview,
   ]);
 
   // Reset the auto-preview sentinel when the underlying file changes
   // so a fresh upload gets its own first-run preview.
   useEffect(() => {
     didAutoPreviewRef.current = false;
+    lastPreviewRecipeKeyRef.current = "";
     setVisionQuad(null);
     setVisionStatus("idle");
     setDetectingArtwork(false);
