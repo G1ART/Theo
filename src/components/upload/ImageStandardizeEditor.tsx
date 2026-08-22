@@ -40,7 +40,6 @@ import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import {
   formatCaptureDevice,
-  isLowLightExif,
   readExif,
   type ExifReadResult,
 } from "@/lib/image/exifRead";
@@ -116,6 +115,7 @@ export type EnhancementDraft = {
 };
 
 const STUDIO_MATTE = "#f3f3f3";
+const PREVIEW_CROSSFADE_MS = 200;
 
 function revokeBlobUrl(url: string | null | undefined, protect?: string | null) {
   if (!url || url === protect) return;
@@ -138,11 +138,55 @@ function StudioResultPreview({
   src,
   aspect,
   alt,
+  onRetiredSrc,
 }: {
   src: string;
   aspect: number | null;
   alt: string;
+  /** Fired when a previous blob URL is no longer painted (after load + fade). */
+  onRetiredSrc?: (url: string) => void;
 }) {
+  const [baseSrc, setBaseSrc] = useState(src);
+  const [incomingSrc, setIncomingSrc] = useState<string | null>(null);
+  const [incomingVisible, setIncomingVisible] = useState(false);
+  const baseSrcRef = useRef(baseSrc);
+  const incomingSrcRef = useRef(incomingSrc);
+  const onRetiredRef = useRef(onRetiredSrc);
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  baseSrcRef.current = baseSrc;
+  incomingSrcRef.current = incomingSrc;
+  onRetiredRef.current = onRetiredSrc;
+
+  const clearFadeTimer = () => {
+    if (fadeTimerRef.current) {
+      clearTimeout(fadeTimerRef.current);
+      fadeTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (src === baseSrcRef.current) {
+      const pending = incomingSrcRef.current;
+      if (pending && pending !== src) {
+        onRetiredRef.current?.(pending);
+      }
+      clearFadeTimer();
+      setIncomingSrc(null);
+      setIncomingVisible(false);
+      return;
+    }
+    if (src === incomingSrcRef.current) return;
+    const superseded = incomingSrcRef.current;
+    if (superseded && superseded !== src && superseded !== baseSrcRef.current) {
+      onRetiredRef.current?.(superseded);
+    }
+    clearFadeTimer();
+    setIncomingSrc(src);
+    setIncomingVisible(false);
+  }, [src]);
+
+  useEffect(() => () => clearFadeTimer(), []);
+
   return (
     <div
       className="relative w-full overflow-hidden rounded-lg"
@@ -154,12 +198,41 @@ function StudioResultPreview({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        key={src}
-        src={src}
+        src={baseSrc}
         alt={alt}
-        className="h-full w-full object-contain"
+        className="absolute inset-0 h-full w-full object-contain"
         draggable={false}
       />
+      {incomingSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={incomingSrc}
+          alt=""
+          className="absolute inset-0 h-full w-full object-contain transition-opacity ease-out"
+          style={{
+            opacity: incomingVisible ? 1 : 0,
+            transitionDuration: `${PREVIEW_CROSSFADE_MS}ms`,
+          }}
+          draggable={false}
+          onLoad={(e) => {
+            const loaded =
+              (e.currentTarget as HTMLImageElement).getAttribute("src") ??
+              incomingSrc;
+            if (!loaded || loaded !== incomingSrcRef.current) return;
+            setIncomingVisible(true);
+            clearFadeTimer();
+            fadeTimerRef.current = setTimeout(() => {
+              const outgoing = baseSrcRef.current;
+              setBaseSrc(loaded);
+              setIncomingSrc(null);
+              setIncomingVisible(false);
+              if (outgoing && outgoing !== loaded) {
+                onRetiredRef.current?.(outgoing);
+              }
+            }, PREVIEW_CROSSFADE_MS);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1053,7 +1126,6 @@ export function ImageStandardizeEditor({
   // <details> section.
   const [perspectiveAdvancedOpen, setPerspectiveAdvancedOpen] =
     useState<boolean>(false);
-  const [toneAdvancedOpen, setToneAdvancedOpen] = useState<boolean>(false);
   // 2026-08-09: when an enhancement is already saved (parent supplied
   // `enhancement` OR the user just approved a preview), we render a
   // compact "saved" card. `editingAfterSave` opts the user back into
@@ -1077,8 +1149,6 @@ export function ImageStandardizeEditor({
       alive = false;
     };
   }, [file]);
-  const lowLight = exif ? isLowLightExif(exif) : false;
-  const captureDeviceLabel = exif ? formatCaptureDevice(exif) : null;
   // Capture mode — derived from the capture-setup selector. The
   // `phone` legacy value is folded into `auto` since the analyzer
   // already picks the right pipeline from EXIF.
@@ -1115,22 +1185,6 @@ export function ImageStandardizeEditor({
   // step 1 preserves the draft.
   const [wizardPerspectiveDraft, setWizardPerspectiveDraft] =
     useState<Quad | null>(null);
-
-  // 2026-08-07 — Glare heatmap toggle. Non-destructive overlay: never
-  // touches the pipeline output, just draws red rectangles over the
-  // saturated-highlight regions the analyzer surfaced.
-  const [glareOverlayOn, setGlareOverlayOn] = useState<boolean>(false);
-
-  // G1 (2026-08-10) — Wall-anchored WB pick point (normalized [0,1]
-  // in image space). `null` means the engine auto-detects the wall
-  // region; a `{ x, y }` object means the user clicked on the image
-  // to pin the sample. `pickingWall` is a transient state: while true
-  // the click surface consumes clicks into wall-pick instead of the
-  // default no-op.
-  const [wallPick, setWallPick] = useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const [pickingWall, setPickingWall] = useState<boolean>(false);
 
   // G2 (2026-08-10) — ellipse (round-subject) restoration toggle.
   // Auto-suggests when the analyzer detects a circular subject with
@@ -1251,7 +1305,6 @@ export function ImageStandardizeEditor({
   );
   const wallAutoFired = Boolean(
     enhancePreview &&
-      !wallPick &&
       captureMode !== "scanner" &&
       enhancePreview.meta.recipe.kind === "flat" &&
       enhancePreview.meta.recipe.params.awb?.source === "wall-biased",
@@ -1267,12 +1320,6 @@ export function ImageStandardizeEditor({
       const stale = () =>
         gen !== fineTuneGenRef.current ||
         baseEnhanceRef.current?.previewUrl !== base.previewUrl;
-      const revokeShownIfNot = (keep: string) => {
-        const shown = enhancePreviewUrlRef.current;
-        if (shown && shown !== base.previewUrl && shown !== keep) {
-          revokeBlobUrl(shown, protect);
-        }
-      };
       const attachedBase = withUserFineTune(
         {
           displayFile: base.displayFile,
@@ -1283,7 +1330,8 @@ export function ImageStandardizeEditor({
       );
       if (isIdentityFineTune(tone)) {
         if (stale()) return null;
-        revokeShownIfNot(base.previewUrl);
+        // Do not revoke the outgoing blob here — StudioResultPreview
+        // keeps it painted until the incoming src has loaded (and faded).
         enhancePreviewUrlRef.current = base.previewUrl;
         setEnhancePreview(attachedBase);
         return attachedBase;
@@ -1294,12 +1342,10 @@ export function ImageStandardizeEditor({
         return null;
       }
       if (!result) {
-        revokeShownIfNot(base.previewUrl);
         enhancePreviewUrlRef.current = base.previewUrl;
         setEnhancePreview(attachedBase);
         return attachedBase;
       }
-      revokeShownIfNot(result.previewUrl);
       enhancePreviewUrlRef.current = result.previewUrl;
       const draft = withUserFineTune(
         {
@@ -1488,11 +1534,9 @@ export function ImageStandardizeEditor({
                   ? seedCrop
                   : null,
               rectangleConfidence: analysis?.rectangleConfidence ?? 0,
-              // G1 wall-anchored WB. When the user clicked on the
-              // wall we send that point; otherwise the engine auto-
-              // detects the wall region. Falls back to gray-world if
-              // neither yields a stable region.
-              wallSample: wallPick ?? "auto",
+              // Engine auto-WB: detect the wall region, gray-world fallback.
+              // Wall-pick UI is not on the artist tone step.
+              wallSample: "auto",
             }
           : undefined,
         // F2 (2026-08-10) — user-facing wall-brightness chip.
@@ -1623,13 +1667,14 @@ export function ImageStandardizeEditor({
       const previousShown = enhancePreviewUrlRef.current;
       const previousBaseUrl = baseEnhanceRef.current?.previewUrl;
       const protect = parentPreviewUrlRef.current ?? finalPreviewUrl;
-      if (previousShown && previousShown !== finalPreviewUrl) {
-        revokeBlobUrl(previousShown, protect);
-      }
+      // Keep `previousShown` until StudioResultPreview retires it after
+      // the incoming image has loaded. Unused prior engine blobs that
+      // are not currently painted can go immediately.
       if (
         previousBaseUrl &&
         previousBaseUrl !== finalPreviewUrl &&
-        previousBaseUrl !== previousShown
+        previousBaseUrl !== previousShown &&
+        previousBaseUrl !== protect
       ) {
         revokeBlobUrl(previousBaseUrl, protect);
       }
@@ -1705,7 +1750,6 @@ export function ImageStandardizeEditor({
     portfolioStats,
     intensity,
     wallBrightness,
-    wallPick,
     ellipseRestored,
     perspectiveSkipped,
     keepOriginalAspect,
@@ -1787,7 +1831,6 @@ export function ImageStandardizeEditor({
     intensity,
     inputType,
     wallBrightness,
-    wallPick,
     wizardStep,
     pathChoice,
     skipped: perspectiveSkipped,
@@ -1917,7 +1960,9 @@ export function ImageStandardizeEditor({
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
     setPerspectiveAdvancedOpen(false);
-    setToneAdvancedOpen(false);
+    const recipe = draft.meta.recipe;
+    const fine =
+      recipe.kind === "flat" ? recipe.params.userFineTune : undefined;
     void recordUsageEvent({
       key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
       featureKey: "ai.image_enhance",
@@ -1926,9 +1971,17 @@ export function ImageStandardizeEditor({
         provider: draft.meta.provider,
         source: meteringSource,
         latency_ms: draft.meta.latencyMs,
+        intensity,
+        input_type: inputType,
+        fine_b: fine?.b ?? round3(fineBRef.current),
+        fine_c: fine?.c ?? round3(fineCRef.current),
+        fine_s: fine?.s ?? round3(fineSRef.current),
+        ...(draft.meta.captureDevice
+          ? { captureDevice: draft.meta.captureDevice }
+          : {}),
       },
     });
-  }, [onEnhance, meteringSource, t]);
+  }, [onEnhance, meteringSource, t, intensity, inputType]);
 
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
@@ -1950,6 +2003,9 @@ export function ImageStandardizeEditor({
     lastPreviewRecipeKeyRef.current = "";
     onEnhance(null);
     if (previous) {
+      const recipe = previous.meta.recipe;
+      const fine =
+        recipe.kind === "flat" ? recipe.params.userFineTune : undefined;
       void recordUsageEvent({
         key: USAGE_KEYS.AI_IMAGE_ENHANCE_REJECTED,
         featureKey: "ai.image_enhance",
@@ -1958,10 +2014,51 @@ export function ImageStandardizeEditor({
           provider: previous.meta.provider,
           source: meteringSource,
           latency_ms: previous.meta.latencyMs,
+          intensity,
+          input_type: inputType,
+          fine_b: fine?.b ?? round3(fineBRef.current),
+          fine_c: fine?.c ?? round3(fineCRef.current),
+          fine_s: fine?.s ?? round3(fineSRef.current),
+          ...(previous.meta.captureDevice
+            ? { captureDevice: previous.meta.captureDevice }
+            : {}),
         },
       });
     }
-  }, [enhancePreview, onEnhance, meteringSource]);
+  }, [enhancePreview, onEnhance, meteringSource, intensity, inputType]);
+
+  const lightingAtDefaults =
+    intensity === "normal" &&
+    isIdentityFineTune({ b: fineB, c: fineC, s: fineS });
+
+  const handleResetLighting = useCallback(() => {
+    // Keep confirmed crop / keystone / matte and 촬영 방식. Only
+    // lighting work (strength + B/C/S) returns to the recommended look.
+    const intensityAlreadyNormal = intensity === "normal";
+    setFineB(1);
+    setFineC(1);
+    setFineS(1);
+    fineBRef.current = 1;
+    fineCRef.current = 1;
+    fineSRef.current = 1;
+    const gen = ++fineTuneGenRef.current;
+    if (!intensityAlreadyNormal) {
+      setIntensity("normal");
+      return;
+    }
+    const base = baseEnhanceRef.current;
+    if (base) {
+      void applyFineTuneToBaseRef.current(base, { b: 1, c: 1, s: 1 }, gen);
+    }
+  }, [intensity]);
+
+  const handleRetiredPreviewSrc = useCallback((url: string) => {
+    if (!url) return;
+    if (url === parentPreviewUrlRef.current) return;
+    if (url === baseEnhanceRef.current?.previewUrl) return;
+    if (url === enhancePreviewUrlRef.current) return;
+    revokeBlobUrl(url, parentPreviewUrlRef.current);
+  }, []);
 
   // ------------------------------------------------------------------
   // Render
@@ -1994,13 +2091,15 @@ export function ImageStandardizeEditor({
                     : t("upload.imageStandardize.idleHint")}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="shrink-0 rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-          >
-            {t("upload.imageStandardize.reset")}
-          </button>
+          {!enhancementEnabled && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="shrink-0 rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+            >
+              {t("upload.imageStandardize.reset")}
+            </button>
+          )}
         </div>
       )}
 
@@ -2111,6 +2210,7 @@ export function ImageStandardizeEditor({
             src={enhancement.previewUrl}
             aspect={enhancePreviewAspect}
             alt={t("upload.imageEnhance.afterAlt")}
+            onRetiredSrc={handleRetiredPreviewSrc}
           />
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
             <div className="flex items-center gap-2">
@@ -2200,6 +2300,7 @@ export function ImageStandardizeEditor({
                       : t("upload.imageEnhance.flow.lightHint")}
                   </p>
                 </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -2218,10 +2319,22 @@ export function ImageStandardizeEditor({
                       setPathChoice(null);
                     }
                   }}
-                  className="shrink-0 rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-zinc-50"
+                  className="rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-zinc-50"
                 >
                   {t("upload.imageEnhance.flow.changePath")}
                 </button>
+                {wizardStep === "tone" && (
+                  <button
+                    type="button"
+                    onClick={handleResetLighting}
+                    disabled={lightingAtDefaults}
+                    title={t("upload.imageEnhance.flow.resetLightingHint")}
+                    className="rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t("upload.imageEnhance.flow.resetLighting")}
+                  </button>
+                )}
+                </div>
               </div>
 
               {/* ─────────────────── STEP 1 — Perspective & Crop (extra) */}
@@ -2395,44 +2508,13 @@ export function ImageStandardizeEditor({
               {wizardStep === "tone" && (
                 <div className="space-y-3">
                   {/* Never fall back to the original studio photo once
-                      corners are confirmed. Wall-pick is the only mode
-                      that shows the original so the artist can click a
-                      wall sample. */}
-                  {pickingWall && previewUrl ? (
-                    <div
-                      className="relative w-full cursor-crosshair overflow-hidden rounded-lg bg-zinc-100"
-                      style={{
-                        aspectRatio:
-                          imageAspect && Number.isFinite(imageAspect)
-                            ? `${imageAspect}`
-                            : undefined,
-                        minHeight: 192,
-                      }}
-                      onClick={(e) => {
-                        const el = e.currentTarget as HTMLDivElement;
-                        const rect = el.getBoundingClientRect();
-                        const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                        const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-                        setWallPick({ x: nx, y: ny });
-                        setPickingWall(false);
-                        setSaveStatus(null);
-                        lastPreviewRecipeKeyRef.current = "";
-                        void runEnhancePreviewRef.current();
-                      }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={previewUrl}
-                        alt=""
-                        className="h-full w-full object-contain"
-                        draggable={false}
-                      />
-                    </div>
-                  ) : enhancePreview ? (
+                      corners are confirmed. */}
+                  {enhancePreview ? (
                     <StudioResultPreview
                       src={enhancePreview.previewUrl}
                       aspect={enhancePreviewAspect}
                       alt={t("upload.imageEnhance.afterAlt")}
+                      onRetiredSrc={handleRetiredPreviewSrc}
                     />
                   ) : (
                     <div
@@ -2557,7 +2639,7 @@ export function ImageStandardizeEditor({
                     </p>
                   )}
                   {((enhanceRunning ||
-                    (!enhancePreview && !pickingWall && !enhanceError)) &&
+                    (!enhancePreview && !enhanceError)) &&
                     !detectingArtwork) && (
                     <p className="text-[11px] text-zinc-500" aria-live="polite">
                       {t("upload.imageEnhance.running")}
@@ -2573,182 +2655,6 @@ export function ImageStandardizeEditor({
                       {enhanceError}
                     </p>
                   )}
-
-                  {/* Advanced fold — step 2 */}
-                  <details
-                    open={toneAdvancedOpen}
-                    onToggle={(e) =>
-                      setToneAdvancedOpen((e.target as HTMLDetailsElement).open)
-                    }
-                    className="rounded-lg border border-zinc-200 bg-white"
-                  >
-                    <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
-                      {t("upload.imageEnhance.advancedToggle")}
-                    </summary>
-                    <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
-                      {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
-                        <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                          {t("upload.imageEnhance.reshootAdvisory")}
-                        </p>
-                      )}
-                      {lowLight && (
-                        <p
-                          className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
-                          title={t("upload.imageEnhance.lowLightAdvisory")}
-                        >
-                          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-amber-900">
-                            {t("upload.imageEnhance.lowLight")}
-                          </span>
-                          <span>{t("upload.imageEnhance.lowLightAdvisory")}</span>
-                        </p>
-                      )}
-                      {/* WB pick */}
-                      {captureMode !== "scanner" && (
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                            <span className="text-zinc-600">
-                              {t("upload.imageEnhance.wb.autoLabel")}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setWallPick(null);
-                                setPickingWall(false);
-                                setSaveStatus(null);
-                                void runEnhancePreview();
-                              }}
-                              className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
-                              title={t("upload.imageEnhance.wb.pickHint")}
-                            >
-                              {t("upload.imageEnhance.wb.rePickLabel")}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPickingWall((v) => !v);
-                              }}
-                              aria-pressed={pickingWall}
-                              className={`rounded-full border px-2.5 py-1 ${
-                                pickingWall || wallPick
-                                  ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                              }`}
-                              title={t("upload.imageEnhance.wb.pickHint")}
-                            >
-                              {t("upload.imageEnhance.wb.pickLabel")}
-                            </button>
-                            {wallPick && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setWallPick(null);
-                                  setPickingWall(false);
-                                  void runEnhancePreview();
-                                }}
-                                className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-50"
-                              >
-                                {t("upload.imageEnhance.wb.resetLabel")}
-                              </button>
-                            )}
-                          </div>
-                          {pickingWall && (
-                            <p className="text-[10.5px] text-emerald-700">
-                              {t("upload.imageEnhance.wb.pickHint")}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Glare overlay */}
-                      {analysis && analysis.glareRegions.length > 0 && (
-                        <div className="space-y-1">
-                          <button
-                            type="button"
-                            onClick={() => setGlareOverlayOn((v) => !v)}
-                            className={`rounded-full border px-2.5 py-1 text-[11px] ${
-                              glareOverlayOn
-                                ? "border-rose-500 bg-rose-50 text-rose-800"
-                                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                            }`}
-                            aria-pressed={glareOverlayOn}
-                          >
-                            {t("upload.imageEnhance.glareOverlay.toggle")}
-                          </button>
-                          <p className="text-[10.5px] leading-relaxed text-zinc-500">
-                            {t("upload.imageEnhance.controls.glare.hint")}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Portfolio coherence */}
-                      {portfolioAvailable && (
-                        <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
-                          <input
-                            type="checkbox"
-                            checked={portfolioCoherenceOn}
-                            onChange={(e) => setPortfolioCoherenceOn(e.target.checked)}
-                            className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
-                          />
-                          <span>
-                            <span className="font-medium">
-                              {t("bulk.enhance.portfolioCoherence")}
-                            </span>
-                            <span className="ml-1 text-zinc-500">
-                              {t("upload.imageEnhance.controls.portfolio.hint")}
-                            </span>
-                          </span>
-                        </label>
-                      )}
-
-                      {/* Diagnostics */}
-                      {analysis && (
-                        <div className="flex flex-wrap gap-2 text-[11px]">
-                          <span
-                            className={`rounded-full px-2 py-0.5 ${
-                              analysis.rectangleConfidence >= 0.55
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-zinc-100 text-zinc-600"
-                            }`}
-                            title={t("upload.imageEnhance.rectangleHint")}
-                          >
-                            {t("upload.imageEnhance.rectangleConfidence")}
-                            {": "}
-                            {Math.round(analysis.rectangleConfidence * 100)}%
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 ${
-                              analysis.blurScore < 0.15
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-zinc-100 text-zinc-600"
-                            }`}
-                            title={t("upload.imageEnhance.blurHint")}
-                          >
-                            {t("upload.imageEnhance.blurScore")}
-                            {": "}
-                            {Math.round(analysis.blurScore * 100)}%
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 ${
-                              analysis.glareScore > 0.05
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-zinc-100 text-zinc-600"
-                            }`}
-                            title={t("upload.imageEnhance.glareHint")}
-                          >
-                            {t("upload.imageEnhance.glareScore")}
-                            {": "}
-                            {Math.round(analysis.glareScore * 100)}%
-                          </span>
-                        </div>
-                      )}
-
-                      {captureDeviceLabel && (
-                        <p className="text-[10px] text-zinc-500">
-                          {t("upload.imageEnhance.captureDeviceLabel")}: {captureDeviceLabel}
-                        </p>
-                      )}
-                    </div>
-                  </details>
                 </div>
               )}
 
@@ -2759,6 +2665,7 @@ export function ImageStandardizeEditor({
                     src={enhancePreview.previewUrl}
                     aspect={enhancePreviewAspect}
                     alt={t("upload.imageEnhance.afterAlt")}
+                    onRetiredSrc={handleRetiredPreviewSrc}
                   />
                   {/* Summary card */}
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">

@@ -1348,6 +1348,9 @@ export const messages = {
       "Crop to the artwork, un-keystone, then add studio margins and lighting.",
     "upload.imageEnhance.flow.originalRunning": "Adding studio margins…",
     "upload.imageEnhance.flow.changePath": "Start over",
+    "upload.imageEnhance.flow.resetLighting": "Reset lighting",
+    "upload.imageEnhance.flow.resetLightingHint":
+      "Restores brightness, contrast, saturation, and strength to the recommended values. The cropped area stays the same.",
     "upload.imageEnhance.flow.lightTitle": "Corrected image",
     "upload.imageEnhance.flow.lightHint":
       "The artwork is cropped, straightened, and centered on a gallery wall. Change strength to preview a different light.",
@@ -5850,6 +5853,9 @@ export const messages = {
       "작품만 자른 뒤 기울기를 펴고, 표준 여백과 조명을 맞춥니다.",
     "upload.imageEnhance.flow.originalRunning": "표준 여백을 넣는 중…",
     "upload.imageEnhance.flow.changePath": "처음으로",
+    "upload.imageEnhance.flow.resetLighting": "작품 보정 되돌리기",
+    "upload.imageEnhance.flow.resetLightingHint":
+      "밝기·대비·채도와 보정 강도를 처음 추천값으로 되돌립니다. 자른 영역은 그대로입니다.",
     "upload.imageEnhance.flow.lightTitle": "보정 결과",
     "upload.imageEnhance.flow.lightHint":
       "작품만 남기고 정면으로 펴, 갤러리 벽에 가운데 두었습니다. 강도를 바꾸면 미리보기가 달라집니다.",
