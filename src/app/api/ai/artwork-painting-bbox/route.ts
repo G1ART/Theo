@@ -5,6 +5,7 @@ import {
   ARTWORK_PAINTING_BBOX_SYSTEM,
 } from "@/lib/ai/prompts";
 import type { ArtworkPaintingBboxResult } from "@/lib/ai/types";
+import { parseVisionCorners } from "@/lib/image/enhancement/cornerPickerGeometry";
 
 export const runtime = "nodejs";
 /** Vision + JSON completions can occasionally push past the 30s Next.js default. */
@@ -131,12 +132,14 @@ function normalizeResult(raw: unknown): {
   confidence: number;
   alreadyTight: boolean;
   hasVisibleFrame: boolean;
+  corners: ArtworkPaintingBboxResult["corners"];
 } {
   const fullFrame = {
     bbox: { x: 0, y: 0, width: 1, height: 1 },
     confidence: 0,
     alreadyTight: true,
     hasVisibleFrame: false,
+    corners: null as ArtworkPaintingBboxResult["corners"],
   };
   if (!raw || typeof raw !== "object") return fullFrame;
   const r = raw as Record<string, unknown>;
@@ -160,6 +163,7 @@ function normalizeResult(raw: unknown): {
     ? Math.min(1, Math.max(0, confRaw))
     : 0;
   const hasVisibleFrame = r.hasVisibleFrame === true;
+  const corners = parseVisionCorners(r.corners);
 
   // Degenerate crop → treat as full frame; the renderer keeps the
   // original. Preserve the model's self-reported confidence so QA
@@ -170,6 +174,7 @@ function normalizeResult(raw: unknown): {
       confidence,
       alreadyTight: true,
       hasVisibleFrame,
+      corners,
     };
   }
 
@@ -182,6 +187,7 @@ function normalizeResult(raw: unknown): {
     confidence,
     alreadyTight,
     hasVisibleFrame,
+    corners,
   };
 }
 
@@ -192,7 +198,7 @@ export async function POST(req: Request) {
     async buildPromptInput({ body }) {
       return {
         system: ARTWORK_PAINTING_BBOX_SYSTEM,
-        user: `Analyze this artwork photograph and return the normalized bounding box of the actual painting/photograph subject, excluding any surrounding wall, matte, frame, floor, or shot padding. Photo dimensions: ${Math.round(
+        user: `Analyze this artwork photograph. Identify the PRIMARY canvas (largest complete work if several are visible). Return its tight bbox AND the four keystoned corners (TL, TR, BR, BL) of that canvas, excluding wall, floor, and neighboring works. Photo dimensions: ${Math.round(
           body.imagePxWidth,
         )}x${Math.round(body.imagePxHeight)} px.`,
         schemaHint: ARTWORK_PAINTING_BBOX_SCHEMA,
@@ -201,6 +207,7 @@ export async function POST(req: Request) {
           confidence: 0,
           alreadyTight: true,
           hasVisibleFrame: false,
+          corners: null,
         }),
         imageInputs: [
           {

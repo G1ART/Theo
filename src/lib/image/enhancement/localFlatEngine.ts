@@ -194,7 +194,7 @@ const DEFAULT_MAX_LONG_EDGE = 4096;
 const DEFAULT_BEZEL = 0.02;
 /** Even studio margin around the artwork, as a fraction of the short edge.
  *  Keeps the artwork's own aspect — this is padding, not a canvas crop. */
-export const STANDARD_STUDIO_BEZEL = 0.06;
+export const STANDARD_STUDIO_BEZEL = 0.08;
 const DEFAULT_SHARPEN = 0.35;
 
 /**
@@ -801,18 +801,27 @@ export async function runFlatEnhancement(
 
   if (isAborted()) return bail("aborted");
 
-  // Bezel — even studio margin (#f3f3f3) around the artwork. The
-  // canvas keeps the artwork's own aspect; we do not force 4:3 / 4:5.
+  // Bezel — even studio margin (#f3f3f3) around the artwork, with a
+  // soft drop shadow so the canvas reads as hung on a gallery wall.
+  // The canvas keeps the artwork's own aspect; we do not force 4:3 / 4:5.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
+  const shadowBlur = Math.max(12, Math.round(bezelPx * 1.35));
+  const shadowOffsetY = Math.max(6, Math.round(bezelPx * 0.5));
+  const shadowPad = Math.round(shadowBlur + shadowOffsetY);
   const finalW = workW + bezelPx * 2;
-  const finalH = workH + bezelPx * 2;
+  const finalH = workH + bezelPx * 2 + shadowPad;
   let blob: Blob | null;
   try {
     const t0 = performance.now();
     const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
     matCtx.fillStyle = "#f3f3f3";
     matCtx.fillRect(0, 0, finalW, finalH);
+    matCtx.shadowColor = "rgba(0,0,0,0.22)";
+    matCtx.shadowBlur = shadowBlur;
+    matCtx.shadowOffsetX = 0;
+    matCtx.shadowOffsetY = shadowOffsetY;
     matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
+    matCtx.shadowColor = "transparent";
     blob = await canvasToBlob(matCanvas, "image/webp", 0.9);
     stageTimings.encodeMs = Math.max(0, Math.round(performance.now() - t0));
   } catch {

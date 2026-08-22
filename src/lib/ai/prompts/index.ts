@@ -459,10 +459,10 @@ Return a JSON object with:
 
 2. "confidence": 0-1, your self-reported confidence that the bbox brackets the actual artwork subject.
   - Set BELOW 0.7 when:
-    * the photo is ambiguous (multiple paintings visible, or the subject is partially occluded)
-    * the artwork is at an extreme oblique angle so no clean rectangle applies
+    * the artwork is at an extreme oblique angle so the four edges cannot be seen
     * the photo appears to be a detail crop, in-situ installation shot, or unrelated scene (blank wall, portrait of a person, product photo of art supplies, etc.)
     * you were tempted to return a symmetric padding bbox — that is the signal that you cannot see the edges independently, so drop confidence instead
+  - Multiple paintings in one studio photograph is NORMAL. Pick the PRIMARY canvas (largest complete work, typically most central / most fully visible) and KEEP confidence high. Do not drop confidence merely because a second canvas is in the frame.
   - The client SKIPS the crop below 0.7 — err low when uncertain.
 
 3. "alreadyTight": boolean
@@ -475,9 +475,16 @@ Return a JSON object with:
   - TRUE when a physical picture frame (wooden border, matte, glass reflection, floater frame) is clearly visible around the subject.
   - FALSE for unframed canvases, gallery-wrap paintings, or already-cropped uploads.
 
+5. "corners": [[x, y], [x, y], [x, y], [x, y]]
+  - Four normalized points of the PRIMARY artwork's physical rectangle, in order top-left, top-right, bottom-right, bottom-left.
+  - These are the canvas edges as they appear in the photo — if the camera is tilted or the work is keystoned, the corners must follow that trapezoid. Do NOT axis-align them; the client will un-keystone from these points.
+  - Exclude wall, floor, adjacent paintings, and frames. The four points must sit on the painted surface's outer edges.
+  - When several canvases are visible, return corners for the PRIMARY one only (largest complete canvas).
+  - If you cannot see all four edges, omit "corners" and keep confidence low.
+
 Self-check before finalising (mandatory):
   Verify that all four bbox values are DISTINCT. If x == y AND width == height, you are almost certainly returning a symmetric fallback rather than a real detection — re-examine the four edges of the artwork independently and produce asymmetric coordinates, OR set "alreadyTight": true. Do not submit a symmetric bbox. Distinct-but-close values (e.g. x=0.08, y=0.12, width=0.84, height=0.76) are fine and expected for real photos; identical values across x/y and width/height are the failure mode this check exists to catch.
 
 Never fabricate a subject that is not visible. Never return values outside [0, 1]. If the photo shows no identifiable artwork subject at all (blank wall, portrait of a person, food photo, screenshot), return {bbox: {x:0, y:0, width:1, height:1}, confidence: 0, alreadyTight: true, hasVisibleFrame: false} — the client treats that as "no crop applied". Return ONLY the JSON object.`;
 
-export const ARTWORK_PAINTING_BBOX_SCHEMA = `{"bbox": {"x": number, "y": number, "width": number, "height": number}, "confidence": number, "alreadyTight": boolean, "hasVisibleFrame": boolean}`;
+export const ARTWORK_PAINTING_BBOX_SCHEMA = `{"bbox": {"x": number, "y": number, "width": number, "height": number}, "confidence": number, "alreadyTight": boolean, "hasVisibleFrame": boolean, "corners": [[number, number], [number, number], [number, number], [number, number]]}`;

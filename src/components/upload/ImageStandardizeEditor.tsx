@@ -65,6 +65,7 @@ import {
   toneSignature,
 } from "@/lib/image/enhancement/coherence";
 import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
+import { detectArtworkQuad } from "@/lib/image/enhancement/detectArtworkQuad";
 import { aiApi } from "@/lib/ai/browser";
 import type { ArtworkQualityGateResult } from "@/lib/ai/types";
 import {
@@ -813,6 +814,8 @@ export function ImageStandardizeEditor({
   const [pathChoice, setPathChoice] = useState<"original" | "ai" | null>(
     enhancement ? "ai" : null,
   );
+  const [detectingArtwork, setDetectingArtwork] = useState(false);
+  const visionQuadRef = useRef<Quad | null | undefined>(undefined);
   const [enhanceMode] = useState<EnhancementMode>("auto");
   const [enhancePreview, setEnhancePreview] = useState<EnhancementDraft | null>(
     enhancement ?? null,
@@ -1098,7 +1101,7 @@ export function ImageStandardizeEditor({
     enhancePreview &&
       !perspectiveCorners &&
       captureMode !== "scanner" &&
-      autoWarpCornersMemo,
+      (autoWarpCornersMemo || visionQuadRef.current),
   );
   const wallAutoFired = Boolean(
     enhancePreview &&
@@ -1127,6 +1130,22 @@ export function ImageStandardizeEditor({
       },
     });
     try {
+      if (
+        pathChoice === "ai" &&
+        !perspectiveSkipped &&
+        !perspectiveCorners &&
+        captureMode !== "scanner" &&
+        visionQuadRef.current === undefined
+      ) {
+        setDetectingArtwork(true);
+        try {
+          visionQuadRef.current = await detectArtworkQuad(file);
+        } catch {
+          visionQuadRef.current = null;
+        } finally {
+          setDetectingArtwork(false);
+        }
+      }
       if (resolvedAutoMode === "object") {
         // The local engine only covers the flat pipeline. Object mode
         // requires the server-side Photoroom hybrid, which is wired at
@@ -1183,7 +1202,11 @@ export function ImageStandardizeEditor({
         NormalizedPoint,
       ] | null = (() => {
         if (perspectiveSkipped) return null;
-        if (perspectiveCorners || isScanner || !analysis) return null;
+        if (perspectiveCorners || isScanner) return null;
+        if (visionQuadRef.current) {
+          return visionQuadRef.current;
+        }
+        if (!analysis) return null;
         const resolved = resolveAutoCorners({
           suggestedRectangleCorners: analysis.suggestedRectangleCorners as Quad | null,
           suggestedRectangleConfidence: analysis.suggestedRectangleConfidence,
@@ -1502,6 +1525,7 @@ export function ImageStandardizeEditor({
     gateBlocked,
     qualityGate,
     qualityGateOverride,
+    pathChoice,
   ]);
 
   const runOriginalMarginPreview = useCallback(async () => {
@@ -1647,6 +1671,7 @@ export function ImageStandardizeEditor({
   // so a fresh upload gets its own first-run preview.
   useEffect(() => {
     didAutoPreviewRef.current = false;
+    visionQuadRef.current = undefined;
     setPathChoice(enhancement ? "ai" : null);
   }, [file, enhancement]);
 
@@ -2175,41 +2200,10 @@ export function ImageStandardizeEditor({
                   )}
 
                   {/* Auto-detect status chips */}
-                  {analysis && (autoWarpFired || wallAutoFired || ellipseRestored) && (
-                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                      {wallAutoFired ? (
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800">
-                          {t("imageEnhance.wizard.summaryWbWall")} ✓
-                        </span>
-                      ) : (
-                        enhancePreview && (
-                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-zinc-700">
-                            {t("imageEnhance.wizard.summaryWbFallback")}
-                          </span>
-                        )
-                      )}
-                      {autoWarpFired && (
-                        <button
-                          type="button"
-                          onClick={() => setWizardStep("perspective")}
-                          className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
-                        >
-                          {t("upload.imageEnhance.chip.autoPerspective")}
-                        </button>
-                      )}
-                      {ellipseRestored && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEllipseRestored(false);
-                            void runEnhancePreview();
-                          }}
-                          className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
-                        >
-                          {t("upload.imageEnhance.chip.autoEllipse")}
-                        </button>
-                      )}
-                    </div>
+                  {enhancePreview && autoWarpFired && (
+                    <p className="text-[11px] text-zinc-500">
+                      {t("upload.imageEnhance.flow.artworkIsolated")}
+                    </p>
                   )}
 
                   {/* Strength selector */}
@@ -2235,32 +2229,6 @@ export function ImageStandardizeEditor({
                     ))}
                   </div>
 
-                  {/* Wall brightness selector */}
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                      <span className="text-zinc-600">
-                        {t("imageEnhance.wallBrightness.label")}
-                      </span>
-                      {(["soft", "normal", "bright"] as WallBrightness[]).map((w) => (
-                        <button
-                          key={w}
-                          type="button"
-                          onClick={() => setWallBrightness(w)}
-                          className={`rounded-full border px-2.5 py-1 ${
-                            wallBrightness === w
-                              ? "border-zinc-900 bg-zinc-900 text-white"
-                              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                          }`}
-                        >
-                          {t(`imageEnhance.wallBrightness.${w}`)}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-[10.5px] leading-relaxed text-zinc-500">
-                      {t("imageEnhance.wallBrightness.hint")}
-                    </p>
-                  </div>
-
                   {/* Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <button
@@ -2281,7 +2249,12 @@ export function ImageStandardizeEditor({
                   </div>
 
                   {/* Status */}
-                  {enhanceRunning && (
+                  {detectingArtwork && (
+                    <p className="text-[11px] text-zinc-500" aria-live="polite">
+                      {t("upload.imageEnhance.flow.detectingArtwork")}
+                    </p>
+                  )}
+                  {enhanceRunning && !detectingArtwork && (
                     <p className="text-[11px] text-zinc-500" aria-live="polite">
                       {t("upload.imageEnhance.running")}
                     </p>

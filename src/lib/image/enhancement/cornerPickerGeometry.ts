@@ -189,6 +189,43 @@ export function isAxisAligned(quad: Quad): boolean {
   return true;
 }
 
+/** Reorder any 4 points into TL, TR, BR, BL. */
+export function orderQuadTlTrBrBl(quad: Quad): Quad {
+  const sorted = [...quad].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const top = sorted.slice(0, 2).sort((a, b) => a[0] - b[0]);
+  const bottom = sorted.slice(2, 4).sort((a, b) => a[0] - b[0]);
+  return [top[0], top[1], bottom[1], bottom[0]];
+}
+
+/**
+ * Parse a vision model `corners` payload (array of [x,y] or {x,y})
+ * into a TL/TR/BR/BL quad. Returns null when the shape is unusable.
+ */
+export function parseVisionCorners(raw: unknown): Quad | null {
+  if (!Array.isArray(raw) || raw.length !== 4) return null;
+  const pts: NormalizedPoint[] = [];
+  for (const p of raw) {
+    if (Array.isArray(p) && p.length >= 2) {
+      const x = Number(p[0]);
+      const y = Number(p[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      pts.push(clampNormalized([x, y]));
+      continue;
+    }
+    if (p && typeof p === "object") {
+      const o = p as { x?: unknown; y?: unknown };
+      const x = Number(o.x);
+      const y = Number(o.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      pts.push(clampNormalized([x, y]));
+      continue;
+    }
+    return null;
+  }
+  const ordered = orderQuadTlTrBrBl(pts as Quad);
+  return hasValidArea(ordered) ? ordered : null;
+}
+
 /**
  * G2/§FixB (2026-08-10) — pick a safe auto-seed for the perspective
  * warp when the user has not manually placed corners.

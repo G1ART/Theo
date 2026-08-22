@@ -23,6 +23,8 @@ import assert from "node:assert/strict";
     nextCorner,
     quadFromRect,
     tryMoveCorner,
+    orderQuadTlTrBrBl,
+    parseVisionCorners,
   } = await import("../cornerPickerGeometry");
 
   // Sanity constants.
@@ -107,6 +109,31 @@ import assert from "node:assert/strict";
   assert.equal(nullQ, null, "tiny rect rejected");
   const emptyQ = quadFromRect(null);
   assert.equal(emptyQ, null);
+
+  // Vision corners — unordered points reordered to TL TR BR BL.
+  const shuffled = orderQuadTlTrBrBl([
+    [0.8, 0.9],
+    [0.1, 0.2],
+    [0.85, 0.15],
+    [0.12, 0.88],
+  ]);
+  assert.deepEqual(shuffled[0], [0.1, 0.2], "TL");
+  assert.deepEqual(shuffled[1], [0.85, 0.15], "TR");
+  assert.deepEqual(shuffled[2], [0.8, 0.9], "BR");
+  assert.deepEqual(shuffled[3], [0.12, 0.88], "BL");
+
+  const parsed = parseVisionCorners([
+    { x: 0.2, y: 0.7 },
+    { x: 0.8, y: 0.7 },
+    { x: 0.8, y: 0.2 },
+    { x: 0.2, y: 0.2 },
+  ]);
+  assert.ok(parsed);
+  assert.deepEqual(parsed![0], [0.2, 0.2]);
+  assert.deepEqual(parsed![1], [0.8, 0.2]);
+  assert.deepEqual(parsed![2], [0.8, 0.7]);
+  assert.deepEqual(parsed![3], [0.2, 0.7]);
+  assert.equal(parseVisionCorners([[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]), null);
 
   console.log("corner picker geometry contract: OK");
 })().catch((err) => {

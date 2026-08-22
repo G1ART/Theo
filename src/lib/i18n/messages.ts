@@ -1354,6 +1354,8 @@ export const messages = {
     "upload.imageEnhance.flow.lightApply": "Use this lighting",
     "upload.imageEnhance.flow.extraToggle": "Fine-tune to match the original",
     "upload.imageEnhance.flow.intensityRecommended": "Recommended",
+    "upload.imageEnhance.flow.detectingArtwork": "Finding the artwork in the photo…",
+    "upload.imageEnhance.flow.artworkIsolated": "Artwork cropped and straightened.",
     "upload.imageEnhance.chip.autoPerspective":
       "Auto perspective · adjust",
     "upload.imageEnhance.chip.autoEllipse":
@@ -5845,6 +5847,8 @@ export const messages = {
     "upload.imageEnhance.flow.lightApply": "이 조명으로 사용",
     "upload.imageEnhance.flow.extraToggle": "원작에 더 가깝게 맞추기",
     "upload.imageEnhance.flow.intensityRecommended": "추천",
+    "upload.imageEnhance.flow.detectingArtwork": "사진 안에서 작품을 찾는 중…",
+    "upload.imageEnhance.flow.artworkIsolated": "작품을 잘라 비율을 바로잡았습니다.",
     "upload.imageEnhance.chip.autoPerspective":
       "자동 원근 보정 적용됨 · 조정",
     "upload.imageEnhance.chip.autoEllipse":

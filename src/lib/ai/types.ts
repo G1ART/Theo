@@ -590,4 +590,6 @@ export type ArtworkPaintingBboxResult = AiDegradation & {
   confidence: number;
   alreadyTight: boolean;
   hasVisibleFrame: boolean;
+  /** TL, TR, BR, BL of the primary artwork, when the model supplied them. */
+  corners?: [[number, number], [number, number], [number, number], [number, number]] | null;
 };
