@@ -5,30 +5,25 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 /**
- * Global auth state listener. On SIGNED_IN/SIGNED_OUT/USER_UPDATED:
- * - Clears profile caches (via router refresh so pages re-fetch)
- * - On SIGNED_OUT redirects to /login
- * Prevents stale session / wrong-user-id after account switch.
+ * Global auth state listener. SIGNED_OUT redirects to /login and
+ * refreshes so server components drop the old session.
  *
- * TOKEN_REFRESHED is intentionally ignored: it fires on ordinary reloads
- * when the JWT is near expiry, and router.refresh() there blanks
- * client layouts (AuthGate) on Safari.
+ * SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED must not call
+ * `router.refresh()`. supabase-js emits SIGNED_IN on every page load
+ * when it recovers a session from storage (`_recoverAndRefresh`), and
+ * TOKEN_REFRESHED when the JWT is near expiry. Refresh remounts client
+ * layouts: AuthGate resets to `ready=false`, and on `/upload` the
+ * desktop Header is hidden — a blank white canvas. The in-memory
+ * session is already updated. Login and `/auth/callback` navigate
+ * themselves after a real sign-in.
  */
 export function AuthBootstrap() {
   const router = useRouter();
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         router.replace("/login");
-        router.refresh();
-        return;
-      }
-      // TOKEN_REFRESHED fires on ordinary page load when the JWT is
-      // near expiry. Calling router.refresh() then remounts client
-      // layouts (AuthGate resets to a blank canvas) on Safari.
-      // The in-memory session is already updated; skip a full refresh.
-      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
         router.refresh();
       }
     });

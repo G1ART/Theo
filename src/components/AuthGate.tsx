@@ -29,7 +29,9 @@ import { useT } from "@/lib/i18n/useT";
  *
  * Safari with several withtheo.art tabs can hang inside supabase-js
  * `getSession()` (Navigator LockManager). Cap the wait and fail-open
- * so a refresh cannot strand the artist on a blank white canvas.
+ * so a refresh cannot strand the artist on a blank white canvas. After
+ * fail-open, keep awaiting the same session promise and still apply
+ * redirects if it later resolves.
  */
 function currentPathWithQuery(): string | null {
   if (typeof window === "undefined") return null;
@@ -99,18 +101,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     const slowTimer = window.setTimeout(() => {
       if (!cancelled) setSlow(true);
     }, SLOW_HINT_MS);
-    (async () => {
-      const sessionResult = await withTimeout(getSession(), AUTH_WAIT_MS);
+
+    async function afterSession(
+      session: Awaited<ReturnType<typeof getSession>>["data"]["session"],
+    ): Promise<void> {
       if (cancelled) return;
-      if (sessionResult === AUTH_TIMEOUT) {
-        // Hung lock / flaky Safari — do not keep a blank canvas, and do
-        // not bounce to /login (timeout is not "no session").
-        setReady(true);
-        return;
-      }
-      const {
-        data: { session },
-      } = sessionResult;
       if (!session) {
         router.replace(LOGIN_PATH);
         return;
@@ -203,6 +198,30 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       }
 
       setReady(true);
+    }
+
+    (async () => {
+      // Keep the same promise so a hung getSession can still resolve in
+      // the background after we fail-open the UI.
+      const sessionPromise = getSession();
+      const sessionResult = await withTimeout(sessionPromise, AUTH_WAIT_MS);
+      if (cancelled) return;
+      if (sessionResult === AUTH_TIMEOUT) {
+        // Hung lock / flaky Safari — do not keep a blank canvas, and do
+        // not bounce to /login (timeout is not "no session"). Retry the
+        // same promise so a late session still redirects when needed.
+        setReady(true);
+        try {
+          const late = await sessionPromise;
+          if (cancelled) return;
+          await afterSession(late.data.session);
+        } catch {
+          // Stay fail-open. A hung promise never settling is the
+          // original Safari LockManager failure mode.
+        }
+        return;
+      }
+      await afterSession(sessionResult.data.session);
     })();
     return () => {
       cancelled = true;
@@ -212,7 +231,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4 py-16">
+      <div className="flex flex-col items-center justify-center gap-4 px-4 py-12">
         <TheoLoadingMark />
         {slow && (
           <div className="flex flex-col items-center gap-2 text-center">

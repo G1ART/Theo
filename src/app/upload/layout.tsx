@@ -1,8 +1,10 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import { AuthGate } from "@/components/AuthGate";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
@@ -27,6 +29,12 @@ const TABS: ReadonlyArray<{
   { key: "exhibition", href: "/upload/exhibition", labelKey: "upload.tabExhibition", anchor: "upload-tab-exhibition" },
 ];
 
+/**
+ * Upload chrome (sidebar + title + tabs) must paint even when the
+ * session check is slow or hung. AuthGate only wraps the form body.
+ * Desktop shell routes hide the global Header, so gating the chrome
+ * used to leave a blank white canvas.
+ */
 export default function UploadLayout({
   children,
 }: {
@@ -51,27 +59,55 @@ export default function UploadLayout({
 
   return (
     <AppShell>
-      <AuthGate>
-        <TourTrigger tourId={TOUR_IDS.upload} />
-        <PageShell variant="narrow">
-          <PageHeader
-            variant="plain"
-            title={t("upload.title")}
-            lead={t("upload.layoutLead")}
-            actions={<TourHelpButton tourId={TOUR_IDS.upload} />}
-            density="tight"
-          />
-          <LaneChips
-            variant="lane"
-            options={options}
-            active={activeKey}
-            ariaLabel={t("upload.title")}
-            data-tour="upload-tabs"
-            className="mb-8"
-          />
-          {children}
-        </PageShell>
-      </AuthGate>
+      <PageShell variant="narrow">
+        <PageHeader
+          variant="plain"
+          title={t("upload.title")}
+          lead={t("upload.layoutLead")}
+          actions={<TourHelpButton tourId={TOUR_IDS.upload} />}
+          density="tight"
+        />
+        <LaneChips
+          variant="lane"
+          options={options}
+          active={activeKey}
+          ariaLabel={t("upload.title")}
+          data-tour="upload-tabs"
+          className="mb-8"
+        />
+        <ErrorBoundary
+          fallback={({ reset }) => (
+            <div>
+              <p className="text-sm font-medium text-zinc-900">
+                {t("upload.error.title")}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                {t("upload.error.body")}
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => reset()}
+                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-800"
+                >
+                  {t("common.retry")}
+                </button>
+                <Link
+                  href="/feed"
+                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+                >
+                  {t("nav.feed")}
+                </Link>
+              </div>
+            </div>
+          )}
+        >
+          <AuthGate>
+            <TourTrigger tourId={TOUR_IDS.upload} />
+            {children}
+          </AuthGate>
+        </ErrorBoundary>
+      </PageShell>
     </AppShell>
   );
 }

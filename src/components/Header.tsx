@@ -99,14 +99,25 @@ export function Header() {
   } = useActingAs();
 
   useEffect(() => {
+    let settled = false;
+    // Safari LockManager can hang getSession. Fail-open the chrome
+    // (hamburger) so /upload cannot trap the artist with a logo-only bar.
+    const failOpen = window.setTimeout(() => {
+      if (!settled) setReady(true);
+    }, 4000);
     supabase.auth.getSession().then(({ data: { session } }) => {
+      settled = true;
       setSession(session);
       setReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setReady(true);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      window.clearTimeout(failOpen);
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -646,38 +657,36 @@ export function Header() {
               logged-in and anonymous visitors so anonymous users get
               sidebar parity (primary nav + locale + Get started / Login). */}
           <div className="lg:hidden flex items-center gap-2">
-            {ready && (
-              <button
-                ref={hamburgerButtonRef}
-                type="button"
-                onClick={() => {
-                  if (mobileOpen) closeMobile();
-                  else openMobile();
-                }}
-                className={`${hitTarget} relative inline-flex items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
-                aria-expanded={mobileOpen}
-                aria-controls={mobilePanelId}
-                aria-label={
-                  inviteCount > 0
-                    ? `${t("nav.menu")} (${inviteCount})`
-                    : t("nav.menu")
-                }
-              >
-                {inviteCount > 0 && (
-                  <span
-                    aria-hidden
-                    className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-zinc-900"
-                  />
+            <button
+              ref={hamburgerButtonRef}
+              type="button"
+              onClick={() => {
+                if (mobileOpen) closeMobile();
+                else openMobile();
+              }}
+              className={`${hitTarget} relative inline-flex items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
+              aria-expanded={mobileOpen}
+              aria-controls={mobilePanelId}
+              aria-label={
+                inviteCount > 0
+                  ? `${t("nav.menu")} (${inviteCount})`
+                  : t("nav.menu")
+              }
+            >
+              {inviteCount > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-zinc-900"
+                />
+              )}
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {mobileOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 )}
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  {mobileOpen ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  )}
-                </svg>
-              </button>
-            )}
+              </svg>
+            </button>
           </div>
         </div>
 

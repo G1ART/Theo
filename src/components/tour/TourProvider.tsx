@@ -331,7 +331,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={value}>
       {children}
-      {activeTour && currentStep ? (
+      {/* Do not mount the overlay until the step has a live target
+          rect. A null-target overlay used to paint a centered white
+          card (and previously a full-viewport dim) on first paint of
+          /upload, which read as a blank or locked page. */}
+      {activeTour && currentStep && targetRect ? (
         <TourOverlay
           tour={activeTour}
           step={currentStep.step}

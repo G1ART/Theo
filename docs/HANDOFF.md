@@ -2,6 +2,35 @@
 
 Last updated: 2026-08-22
 
+## 2026-08-22 (63) — 업로드 새로고침 흰 화면·클릭 잠김 재발 차단
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+업로드를 새로고침하면 다시 흰 화면이거나, 클릭·탭이 안 먹히던 문제.
+60번 패치(셸을 AuthGate 밖에 두기, 4초 fail-open, `auth.lock` 생략)는
+코드에 남아 있었지만 **구멍이 세 곳** 있어서 같은 증상이 돌아왔다.
+
+1. **AuthGate가 제목·탭까지 가림.** 데스크톱 `/upload`는 Header를 숨기므로
+   `ready=false`면 사이드바만 남거나, 레이아웃이 다시 마운트되면 가운데가
+   빈 흰 화면이 된다. 이제 사이드바·제목·탭은 세션을 기다리지 않고 그리고,
+   AuthGate는 폼만 가린다.
+2. **세션 복구 `SIGNED_IN`이 `router.refresh()`를 다시 호출.** supabase-js는
+   탭을 열 때마다 storage에서 세션을 복구하며 `SIGNED_IN`을 보낸다. 60번은
+   `TOKEN_REFRESHED`만 건너뛰었고, 이 refresh가 AuthGate를 `ready=false`로
+   되돌렸다. 이제 `SIGNED_OUT`일 때만 refresh한다.
+3. **모바일 햄버거가 `getSession()`을 기다림.** 세션이 멈추면 로고만 있는
+   헤더 + 가운데 로딩이라 화면이 잠긴 것처럼 보였다. 햄버거는 바로 그린다.
+
+투어는 첫 페인트 뒤에만 자동 시작하고, 타깃 사각형이 있을 때만 오버레이를
+올린다. 62번의 `pointer-events-none` 스포트라이트는 그대로다.
+
+**Verified:** `npx tsx tests/upload-refresh-not-blank.test.ts`,
+`npx tsx tests/tour-nav-not-trapped.test.ts`, `npx tsc --noEmit`.
+
+---
+
 ## 2026-08-22 (62) — 이미지 보정 중에도 사이드바로 나갈 수 있음
 
 > **Supabase SQL 적용 필요: 없음.**

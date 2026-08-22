@@ -104,6 +104,11 @@ function read(rel: string): string {
   assert.match(provider, /pathnameInTourScope/);
   assert.match(provider, /MISSING_TARGET_MS/);
   assert.match(provider, /advanceOrSkipMissing/);
+  assert.match(
+    provider,
+    /activeTour && currentStep && targetRect \?/,
+    "TourOverlay mounts only when targetRect is measured",
+  );
 
   // ── ImageStandardizeEditor: no full-viewport click trap ───────────
   const editor = read("src/components/upload/ImageStandardizeEditor.tsx");
