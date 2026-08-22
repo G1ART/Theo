@@ -192,6 +192,9 @@ export type RunFlatResult = {
 
 const DEFAULT_MAX_LONG_EDGE = 4096;
 const DEFAULT_BEZEL = 0.02;
+/** Even studio margin around the artwork, as a fraction of the short edge.
+ *  Keeps the artwork's own aspect — this is padding, not a canvas crop. */
+export const STANDARD_STUDIO_BEZEL = 0.06;
 const DEFAULT_SHARPEN = 0.35;
 
 /**
@@ -798,8 +801,8 @@ export async function runFlatEnhancement(
 
   if (isAborted()) return bail("aborted");
 
-  // Bezel — draw the processed canvas onto a slightly larger white
-  // canvas so the resulting artwork sits on a clean flat mat.
+  // Bezel — even studio margin (#f3f3f3) around the artwork. The
+  // canvas keeps the artwork's own aspect; we do not force 4:3 / 4:5.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
   const finalW = workW + bezelPx * 2;
   const finalH = workH + bezelPx * 2;
@@ -807,7 +810,7 @@ export async function runFlatEnhancement(
   try {
     const t0 = performance.now();
     const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
-    matCtx.fillStyle = "#ffffff";
+    matCtx.fillStyle = "#f3f3f3";
     matCtx.fillRect(0, 0, finalW, finalH);
     matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
     blob = await canvasToBlob(matCanvas, "image/webp", 0.9);

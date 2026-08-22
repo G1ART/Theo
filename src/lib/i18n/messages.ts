@@ -1337,6 +1337,23 @@ export const messages = {
     "upload.imageEnhance.autoRunCta": "Run auto-enhance",
     "upload.imageEnhance.autoRunHint":
       "Automatically corrects phone captures toward the original artwork.",
+    "upload.imageEnhance.flow.chooseTitle": "How should this photo be used?",
+    "upload.imageEnhance.flow.chooseHint":
+      "If this is already a final studio file, keep the original. Otherwise Theo will straighten the artwork and match a standard light.",
+    "upload.imageEnhance.flow.originalTitle": "Use original",
+    "upload.imageEnhance.flow.originalHint":
+      "Only adds even studio margins. Geometry and color stay untouched.",
+    "upload.imageEnhance.flow.aiTitle": "AI artwork correction",
+    "upload.imageEnhance.flow.aiHint":
+      "Restore geometry, trim to the artwork, then recommend lighting.",
+    "upload.imageEnhance.flow.originalRunning": "Adding studio margins…",
+    "upload.imageEnhance.flow.changePath": "Choose again",
+    "upload.imageEnhance.flow.lightTitle": "Recommended lighting",
+    "upload.imageEnhance.flow.lightHint":
+      "Contrast, brightness, and saturation under a standard viewing light. The artwork’s own proportions are kept.",
+    "upload.imageEnhance.flow.lightApply": "Use this lighting",
+    "upload.imageEnhance.flow.extraToggle": "Fine-tune to match the original",
+    "upload.imageEnhance.flow.intensityRecommended": "Recommended",
     "upload.imageEnhance.chip.autoPerspective":
       "Auto perspective · adjust",
     "upload.imageEnhance.chip.autoEllipse":
@@ -5811,6 +5828,23 @@ export const messages = {
     "upload.imageEnhance.autoRunCta": "Theo 자동 보정 실행",
     "upload.imageEnhance.autoRunHint":
       "핸드폰 사진을 원작에 가깝게 자동 보정합니다.",
+    "upload.imageEnhance.flow.chooseTitle": "이 사진을 어떻게 쓸까요?",
+    "upload.imageEnhance.flow.chooseHint":
+      "이미 최종 보정본이면 원본을 그대로 두세요. 아니면 테오가 작품 형태를 바로잡고 표준 조명을 맞춰 줍니다.",
+    "upload.imageEnhance.flow.originalTitle": "원본 그대로 사용",
+    "upload.imageEnhance.flow.originalHint":
+      "표준 여백만 넣습니다. 기하와 색은 건드리지 않습니다.",
+    "upload.imageEnhance.flow.aiTitle": "AI 작품 이미지 보정",
+    "upload.imageEnhance.flow.aiHint":
+      "기울기를 펴고 작품 영역만 남긴 뒤, 조명을 추천합니다.",
+    "upload.imageEnhance.flow.originalRunning": "표준 여백을 넣는 중…",
+    "upload.imageEnhance.flow.changePath": "다시 선택",
+    "upload.imageEnhance.flow.lightTitle": "추천 조명",
+    "upload.imageEnhance.flow.lightHint":
+      "표준 조명 아래 대비·명도·채도입니다. 원작 비율은 유지합니다.",
+    "upload.imageEnhance.flow.lightApply": "이 조명으로 사용",
+    "upload.imageEnhance.flow.extraToggle": "원작에 더 가깝게 맞추기",
+    "upload.imageEnhance.flow.intensityRecommended": "추천",
     "upload.imageEnhance.chip.autoPerspective":
       "자동 원근 보정 적용됨 · 조정",
     "upload.imageEnhance.chip.autoEllipse":

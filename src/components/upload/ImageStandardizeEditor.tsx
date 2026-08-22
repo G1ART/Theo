@@ -27,7 +27,11 @@ import type {
   NormalizedPoint,
 } from "@/lib/image/enhancement/types";
 import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
-import { runFlatEnhancement, flatBlobToFile } from "@/lib/image/enhancement/localFlatEngine";
+import {
+  runFlatEnhancement,
+  flatBlobToFile,
+  STANDARD_STUDIO_BEZEL,
+} from "@/lib/image/enhancement/localFlatEngine";
 import { resolveAdaptiveProLook } from "@/lib/image/enhancement/proLook.tunables";
 import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
 import BeforeAfterCompare from "@/components/upload/BeforeAfterCompare";
@@ -339,7 +343,7 @@ export function ImageStandardizeEditor({
   const { t, locale } = useT();
   const enhancementEnabled = typeof onEnhance === "function";
   const [tab, setTab] = useState<"quick" | "enhance">(
-    enhancementEnabled && enhancement ? "enhance" : "quick",
+    enhancementEnabled ? "enhance" : "quick",
   );
   const previewUrlRef = useRef<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -801,6 +805,14 @@ export function ImageStandardizeEditor({
   // `enhanceMode` stays "auto" and the analyzer resolves flat vs object.
   // The setter is intentionally unused so we keep the pipeline API stable
   // and can re-expose the selector in Advanced without a state change.
+  /**
+   * 2026-08-22 — upload path. `null` asks original vs AI first so a
+   * already-final studio file is not forced through geometry/tone.
+   * `original` = standard margin only. `ai` = auto geometry + lighting.
+   */
+  const [pathChoice, setPathChoice] = useState<"original" | "ai" | null>(
+    enhancement ? "ai" : null,
+  );
   const [enhanceMode] = useState<EnhancementMode>("auto");
   const [enhancePreview, setEnhancePreview] = useState<EnhancementDraft | null>(
     enhancement ?? null,
@@ -1279,6 +1291,7 @@ export function ImageStandardizeEditor({
         // engine's 4096 default; bulk was already at 2560. Never
         // upscales (see `scale = longestCropEdge > maxLongEdge`).
         maxLongEdge: 2560,
+        bezel: STANDARD_STUDIO_BEZEL,
         crop: seedCrop,
         sourceCorners: sourceCornersToSend,
         targetAspect: targetAspectOverride,
@@ -1491,13 +1504,81 @@ export function ImageStandardizeEditor({
     qualityGateOverride,
   ]);
 
+  const runOriginalMarginPreview = useCallback(async () => {
+    if (!onEnhance) return;
+    setEnhanceError(null);
+    setEnhanceRunning(true);
+    void recordUsageEvent({
+      key: USAGE_KEYS.AI_IMAGE_ENHANCE_REQUESTED,
+      featureKey: "ai.image_enhance",
+      metadata: {
+        mode: "auto",
+        provider: "local_opencv",
+        source: meteringSource,
+        path: "original_margin",
+        latency_ms: null,
+      },
+    });
+    try {
+      const result = await runFlatEnhancement({
+        file,
+        maxLongEdge: 2560,
+        crop: { x: 0, y: 0, w: 1, h: 1 },
+        sourceCorners: null,
+        bezel: STANDARD_STUDIO_BEZEL,
+        sharpen: 0,
+        proLook: { enabled: false },
+        awb: { enabled: false, wallSample: "off" },
+      });
+      if (!result.blob) {
+        setEnhanceError(t("upload.imageEnhance.previewError"));
+        setPathChoice(null);
+        return;
+      }
+      const displayFile = flatBlobToFile(file.name, result.blob);
+      const sourceHash = await computeFileSha256(file);
+      const preview = URL.createObjectURL(displayFile);
+      if (enhancePreviewUrlRef.current) {
+        try {
+          URL.revokeObjectURL(enhancePreviewUrlRef.current);
+        } catch {}
+      }
+      enhancePreviewUrlRef.current = preview;
+      const draft: EnhancementDraft = {
+        displayFile,
+        previewUrl: preview,
+        meta: {
+          provider: "local_opencv",
+          mode: "auto",
+          recipe: { kind: "flat", params: result.recipe as FlatRecipe },
+          confidence: 1,
+          sourceHashSha256: sourceHash,
+          processedAtIso: new Date().toISOString(),
+          latencyMs: result.latencyMs,
+          versions: {
+            schema: ENHANCEMENT_META_SCHEMA_VERSION,
+            engine: "studio_margin_v1",
+          },
+        },
+      };
+      setEnhancePreview(draft);
+      setPathChoice("original");
+      onEnhance(draft);
+      setSaveStatus(t("upload.imageEnhance.applied.status"));
+    } catch {
+      setEnhanceError(t("upload.imageEnhance.previewError"));
+      setPathChoice(null);
+    } finally {
+      setEnhanceRunning(false);
+    }
+  }, [onEnhance, file, meteringSource, t]);
+
   // F4 (2026-08-10) — auto-run a first preview as soon as the user
-  // lands on Step 2 (tone). Guarded by a ref so bouncing back and
-  // forth between steps doesn't re-fire the pipeline. Step 1 renders
-  // the raw source under the picker, so we deliberately do NOT run
-  // the enhancement there.
+  // picks the AI path (geometry + crop + standard margin). Guarded by
+  // a ref so bouncing doesn't re-fire.
   useEffect(() => {
     if (!onEnhance) return;
+    if (pathChoice !== "ai") return;
     if (tab !== "enhance") return;
     if (wizardStep !== "tone") return;
     if (!analysis) return;
@@ -1515,6 +1596,7 @@ export function ImageStandardizeEditor({
     void runEnhancePreview();
   }, [
     analysis,
+    pathChoice,
     tab,
     wizardStep,
     onEnhance,
@@ -1538,10 +1620,11 @@ export function ImageStandardizeEditor({
   );
   useEffect(() => {
     if (!onEnhance) return;
+    if (pathChoice !== "ai") return;
     if (tab !== "enhance") return;
     if (wizardStep !== "tone") return;
     if (!analysis) return;
-    if (!didAutoPreviewRef.current) return; // wait for the initial run
+    if (!didAutoPreviewRef.current) return;
     if (enhanceRunning) return;
     if (resolvedAutoMode === "object") return;
     const key = JSON.stringify(debouncedTone);
@@ -1550,6 +1633,7 @@ export function ImageStandardizeEditor({
     void runEnhancePreview();
   }, [
     debouncedTone,
+    pathChoice,
     tab,
     wizardStep,
     onEnhance,
@@ -1563,7 +1647,8 @@ export function ImageStandardizeEditor({
   // so a fresh upload gets its own first-run preview.
   useEffect(() => {
     didAutoPreviewRef.current = false;
-  }, [file]);
+    setPathChoice(enhancement ? "ai" : null);
+  }, [file, enhancement]);
 
   const handleEnhanceApprove = useCallback(() => {
     if (!onEnhance || !enhancePreview) return;
@@ -1657,7 +1742,7 @@ export function ImageStandardizeEditor({
         verdicts (fail-open contract — degraded verdicts and ok
         verdicts are silent).
        */}
-      {qualityGateRunning && !qualityGate && (
+      {pathChoice === "ai" && qualityGateRunning && !qualityGate && (
         <p
           className="text-xs text-zinc-500"
           role="status"
@@ -1666,7 +1751,8 @@ export function ImageStandardizeEditor({
           {t("enhancement.quality.detecting")}
         </p>
       )}
-      {qualityGate &&
+      {pathChoice === "ai" &&
+        qualityGate &&
         !qualityGate.degraded &&
         (qualityGate.severity === "block" ||
           (qualityGate.severity === "warn" && !qualityGateDismissed)) && (
@@ -1684,45 +1770,73 @@ export function ImageStandardizeEditor({
           />
         )}
 
-      {enhancementEnabled && (
-        <div
-          role="tablist"
-          aria-label={t("upload.imageEnhance.tablist")}
-          className="flex items-center gap-1 border-b border-zinc-200 pb-2 text-xs"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "quick"}
-            onClick={() => setTab("quick")}
-            className={`rounded-full px-3 py-1 ${
-              tab === "quick"
-                ? "bg-zinc-900 text-white"
-                : "text-zinc-600 hover:bg-zinc-100"
-            }`}
-          >
-            {t("upload.imageEnhance.tabQuick")}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "enhance"}
-            onClick={() => setTab("enhance")}
-            className={`rounded-full px-3 py-1 ${
-              tab === "enhance"
-                ? "bg-zinc-900 text-white"
-                : "text-zinc-600 hover:bg-zinc-100"
-            }`}
-          >
-            {t("upload.imageEnhance.tabEnhance")}
-            <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">
-              {t("upload.imageEnhance.beta")}
-            </span>
-          </button>
+      {enhancementEnabled && pathChoice === null && !enhancement && (
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium text-zinc-900">
+              {t("upload.imageEnhance.flow.chooseTitle")}
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+              {t("upload.imageEnhance.flow.chooseHint")}
+            </p>
+          </div>
+          {previewUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt=""
+              className="max-h-48 w-full rounded-lg border border-zinc-200 object-contain bg-zinc-50"
+            />
+          )}
+          {enhanceRunning && (
+            <p className="text-[11px] text-zinc-500" aria-live="polite">
+              {t("upload.imageEnhance.flow.originalRunning")}
+            </p>
+          )}
+          {enhanceError && (
+            <p className="text-[11px] text-amber-700" role="alert">
+              {enhanceError}
+            </p>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={enhanceRunning}
+              onClick={() => {
+                void runOriginalMarginPreview();
+              }}
+              className="rounded-xl border border-zinc-300 bg-white px-3 py-3 text-left hover:bg-zinc-50 disabled:opacity-50"
+            >
+              <span className="block text-sm font-medium text-zinc-900">
+                {t("upload.imageEnhance.flow.originalTitle")}
+              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-zinc-500">
+                {t("upload.imageEnhance.flow.originalHint")}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={enhanceRunning}
+              onClick={() => {
+                setPathChoice("ai");
+                setTab("enhance");
+                setWizardStep("tone");
+                didAutoPreviewRef.current = false;
+              }}
+              className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-3 text-left text-white hover:bg-zinc-800 disabled:opacity-50"
+            >
+              <span className="block text-sm font-medium">
+                {t("upload.imageEnhance.flow.aiTitle")}
+              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-white/70">
+                {t("upload.imageEnhance.flow.aiHint")}
+              </span>
+            </button>
+          </div>
         </div>
       )}
 
-      {enhancementEnabled && tab === "enhance" ? (
+      {enhancementEnabled && pathChoice === "ai" && (
         <div className="space-y-3">
           {/* Aria-live region — announces save/reset transitions for
               screen readers. Kept visually hidden. */}
@@ -1792,61 +1906,31 @@ export function ImageStandardizeEditor({
                   toggle) are absorbed into the wizard; each step's
                   own Advanced fold hosts the fine-grained controls
                   that used to sit in the shared Advanced surface. */}
-              {/* Progress indicator */}
-              <nav
-                aria-label={t("imageEnhance.wizard.stepIndicatorLabel")}
-                className="flex items-center gap-1.5 text-[11px]"
-              >
-                {(
-                  [
-                    { key: "perspective" as const, num: 1, label: t("imageEnhance.wizard.step1Title") },
-                    { key: "tone" as const, num: 2, label: t("imageEnhance.wizard.step2Title") },
-                    { key: "confirm" as const, num: 3, label: t("imageEnhance.wizard.step3Title") },
-                  ]
-                ).map((step, idx) => {
-                  const currentIdx =
-                    wizardStep === "perspective" ? 0 : wizardStep === "tone" ? 1 : 2;
-                  const isCurrent = wizardStep === step.key;
-                  const isPast = currentIdx > idx;
-                  const isFuture = currentIdx < idx;
-                  const clickable = !isFuture;
-                  return (
-                    <button
-                      key={step.key}
-                      type="button"
-                      onClick={() => {
-                        if (!clickable) return;
-                        setWizardStep(step.key);
-                      }}
-                      disabled={!clickable}
-                      aria-current={isCurrent ? "step" : undefined}
-                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 transition ${
-                        isCurrent
-                          ? "border-zinc-900 bg-zinc-900 text-white"
-                          : isPast
-                            ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                            : "cursor-not-allowed border-zinc-200 bg-white text-zinc-400"
-                      }`}
-                    >
-                      <span
-                        aria-hidden
-                        className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${
-                          isCurrent
-                            ? "bg-white/20 text-white"
-                            : isPast
-                              ? "bg-emerald-600 text-white"
-                              : "bg-zinc-200 text-zinc-500"
-                        }`}
-                      >
-                        {isPast ? "✓" : step.num}
-                      </span>
-                      <span>{step.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-zinc-900">
+                    {t("upload.imageEnhance.flow.lightTitle")}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+                    {t("upload.imageEnhance.flow.lightHint")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    didAutoPreviewRef.current = false;
+                    setEnhancePreview(null);
+                    setWizardStep("tone");
+                    if (enhancement) handleEnhanceReject();
+                    else setPathChoice(null);
+                  }}
+                  className="shrink-0 rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-zinc-50"
+                >
+                  {t("upload.imageEnhance.flow.changePath")}
+                </button>
+              </div>
 
-              {/* ─────────────────── STEP 1 — Perspective & Crop */}
+              {/* ─────────────────── STEP 1 — Perspective & Crop (extra) */}
               {wizardStep === "perspective" && (
                 <div className="space-y-3">
                   {/* Chip strip — auto-seed provenance */}
@@ -2144,7 +2228,9 @@ export function ImageStandardizeEditor({
                             : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
                         }`}
                       >
-                        {t(`upload.imageEnhance.intensity.${i}`)}
+                        {i === "normal"
+                          ? t("upload.imageEnhance.flow.intensityRecommended")
+                          : t(`upload.imageEnhance.intensity.${i}`)}
                       </button>
                     ))}
                   </div>
@@ -2182,15 +2268,15 @@ export function ImageStandardizeEditor({
                       onClick={() => setWizardStep("perspective")}
                       className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
                     >
-                      {t("imageEnhance.wizard.backToPerspective")}
+                      {t("upload.imageEnhance.flow.extraToggle")}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setWizardStep("confirm")}
+                      onClick={handleEnhanceApprove}
                       disabled={!enhancePreview}
                       className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {t("imageEnhance.wizard.nextToConfirm")}
+                      {t("upload.imageEnhance.flow.lightApply")}
                     </button>
                   </div>
 
@@ -2220,7 +2306,7 @@ export function ImageStandardizeEditor({
                     className="rounded-lg border border-zinc-200 bg-white"
                   >
                     <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
-                      {t("imageEnhance.wizard.advancedToneTitle")}
+                      {t("upload.imageEnhance.flow.extraToggle")}
                     </summary>
                     <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
                       {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
@@ -2525,9 +2611,9 @@ export function ImageStandardizeEditor({
             </>
           )}
         </div>
-      ) : null}
+      )}
 
-      {enhancementEnabled && tab === "enhance" ? null : (
+      {!enhancementEnabled && (
         <>
 
       {/* 2026-08-09 Todo 7: Quick Adjust doesn't feed the enhanced

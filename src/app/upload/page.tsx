@@ -279,7 +279,7 @@ function UploadPageContent() {
           viewType: "wall_mounted",
           previewUrl: URL.createObjectURL(pending.files[0]),
           displayAdjust: null,
-          standardizeOpen: false,
+          standardizeOpen: true,
           enhancement: null,
         },
       ]);
@@ -1173,7 +1173,7 @@ function UploadPageContent() {
                             : "detail",
                         previewUrl: URL.createObjectURL(f),
                         displayAdjust: null,
-                        standardizeOpen: false,
+                        standardizeOpen: true,
                         enhancement: null,
                       });
                     });
