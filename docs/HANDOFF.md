@@ -1,6 +1,18 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-20
+Last updated: 2026-08-22
+
+## 2026-08-22 (50) — Artwork Pic example 로컬 전용
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+업로드 보정 품질 레퍼런스 폴더 `Artwork Pic example/` 을 gitignore.
+원작 비율을 4:3·4:5로 강제하는 보정은 적용하지 않음 (플랫폼 업로드
+포맷과 원작 기하를 혼동하지 말 것).
+
+---
 
 ## 2026-08-20 (49) — 프로필 완성 배너: 광역 잔소리 축소
 

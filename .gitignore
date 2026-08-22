@@ -45,3 +45,6 @@ next-env.d.ts
 
 # audit artifacts (local snapshots, dumps)
 /audit/
+
+# Local visual references — never commit
+/Artwork Pic example/
