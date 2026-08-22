@@ -45,6 +45,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.studio.title",
     introKey: "tour.studio.intro",
     requiredAnchors: ["workspace-hub", "workspace-tiles", "workspace-tile-spaces"],
+    routeScope: ["/my"],
     steps: [
       {
         id: "hero",
@@ -99,6 +100,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.upload.title",
     introKey: "tour.upload.intro",
     requiredAnchors: ["upload-tabs"],
+    routeScope: ["/upload/*"],
     steps: [
       {
         id: "tabs",
@@ -154,6 +156,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.exhibition.title",
     introKey: "tour.exhibition.intro",
     requiredAnchors: ["exhibition-form-title"],
+    routeScope: ["/my/exhibitions/new", "/upload/exhibition"],
     steps: [
       {
         id: "purpose",
@@ -192,6 +195,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.people.title",
     introKey: "tour.people.intro",
     requiredAnchors: ["people-search"],
+    routeScope: ["/people/*"],
     steps: [
       {
         id: "search",
@@ -234,6 +238,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.delegation.title",
     introKey: "tour.delegation.intro",
     requiredAnchors: ["delegation-header"],
+    routeScope: ["/my/delegations/*"],
     steps: [
       {
         id: "what",
@@ -293,6 +298,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.boardDetail.title",
     introKey: "tour.boardDetail.intro",
     requiredAnchors: ["board-detail-header"],
+    routeScope: ["/my/shortlists/*"],
     steps: [
       {
         id: "header",
@@ -331,6 +337,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.exhibitionDetail.title",
     introKey: "tour.exhibitionDetail.intro",
     requiredAnchors: ["exhibition-detail-header"],
+    routeScope: ["/my/exhibitions/*"],
     steps: [
       {
         id: "header",
@@ -362,6 +369,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.profileIdentity.title",
     introKey: "tour.profileIdentity.intro",
     requiredAnchors: ["profile-identity-avatar"],
+    routeScope: ["/settings/*"],
     steps: [
       {
         id: "avatar",
@@ -400,6 +408,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.publicProfile.title",
     introKey: "tour.publicProfile.intro",
     requiredAnchors: ["public-profile-tab-strip"],
+    routeScope: ["/u/*"],
     steps: [
       {
         id: "tabs",
@@ -444,6 +453,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
     titleKey: "tour.network.title",
     introKey: "tour.network.intro",
     requiredAnchors: ["network-tabs"],
+    routeScope: ["/my/network/*"],
     steps: [
       {
         id: "tabs",

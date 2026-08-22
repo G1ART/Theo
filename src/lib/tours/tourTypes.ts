@@ -52,6 +52,15 @@ export type TourDefinition = {
    * tour to auto-start. Prevents ghost tours on empty/conditional states.
    */
   requiredAnchors?: string[];
+  /**
+   * Pathnames this tour may remain active on. Leaving them skips/clears
+   * the overlay so it cannot follow the user around the app.
+   *
+   * Rules (see `pathnameInTourScope`):
+   *   - `"/my"` matches only `/my`
+   *   - `"/upload/*"` matches `/upload` and `/upload/bulk`, etc.
+   */
+  routeScope: readonly string[];
 };
 
 export type TourStatus = "not_seen" | "in_progress" | "completed" | "skipped";

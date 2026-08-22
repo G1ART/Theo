@@ -12,6 +12,10 @@
  * inheriting z-index/overflow from the nearest parent. Designed to be calm
  * and premium: no bouncing, no flashing; brief transitions only.
  *
+ * This is a coachmark, not a modal: the dim/spotlight layer is visual-only
+ * (`pointer-events-none`) so sidebar and other in-app nav always receive
+ * clicks. Only the popover (Skip / Next / Done) is clickable.
+ *
  * Why `"use no memo"`: React Compiler 1.0 can over-memoize text fragments
  * derived from i18n + per-step props. Combined with our portal + GPU
  * compositing, that produced visible glyph bleed across step transitions
@@ -204,8 +208,7 @@ export function TourOverlay({
   const overlayEl = (
     <div
       aria-hidden={false}
-      role="dialog"
-      aria-modal="true"
+      role="region"
       aria-labelledby="tour-title"
       lang={locale === "ko" ? "ko" : "en"}
       className="fixed inset-0 z-[1200] pointer-events-none"
@@ -310,11 +313,10 @@ function Spotlight({ rect }: { rect: TargetRect | null }) {
   const vw = typeof window !== "undefined" ? window.innerWidth : 0;
   const vh = typeof window !== "undefined" ? window.innerHeight : 0;
 
-  if (!rect) {
-    return (
-      <div className="pointer-events-auto absolute inset-0 bg-zinc-900/35" />
-    );
-  }
+  // No target: do not paint a full-screen layer. A dim here used to
+  // sit on `pointer-events-auto` and trap every click (including the
+  // main sidebar) while the step's anchor was unmounted.
+  if (!rect) return null;
 
   const x = Math.max(0, rect.left - PADDING);
   const y = Math.max(0, rect.top - PADDING);
@@ -324,7 +326,7 @@ function Spotlight({ rect }: { rect: TargetRect | null }) {
 
   return (
     <svg
-      className="pointer-events-auto absolute inset-0 h-full w-full"
+      className="pointer-events-none absolute inset-0 h-full w-full"
       aria-hidden
     >
       <defs>

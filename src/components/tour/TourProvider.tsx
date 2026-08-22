@@ -10,6 +10,11 @@
  *
  * Persistence is delegated to `tourPersistence`; this component does not
  * touch localStorage/DB directly.
+ *
+ * Overlay is a coachmark, not a modal: spotlight never captures clicks.
+ * Navigating off the tour's `routeScope` skips the tour so it cannot
+ * follow the user around the app. If a step target unmounts and stays
+ * gone, that step (or the whole tour) is skipped instead of trapping.
  */
 
 import {
@@ -22,6 +27,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { TOURS, getTour } from "@/lib/tours/tourRegistry";
 import type { TourDefinition, TourStep } from "@/lib/tours/tourTypes";
@@ -30,10 +36,14 @@ import {
   measureTarget,
   ensureTargetVisible,
   waitForTourTarget,
+  pathnameInTourScope,
   type TargetRect,
 } from "@/lib/tours/tourUtils";
 import { loadTourState, makeState, saveTourState } from "@/lib/tours/tourPersistence";
 import { TourOverlay } from "./TourOverlay";
+
+/** If a step's target stays gone this long, skip it (or the tour). */
+const MISSING_TARGET_MS = 700;
 
 type LiveStep = {
   step: TourStep;
@@ -71,6 +81,7 @@ export function useTourController(): TourContextValue {
 }
 
 export function TourProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname() ?? "";
   const [activeTour, setActiveTour] = useState<TourDefinition | null>(null);
   const [resolvedSteps, setResolvedSteps] = useState<TourStep[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
@@ -180,76 +191,6 @@ export function TourProvider({ children }: { children: ReactNode }) {
     [enterTour]
   );
 
-  // Reposition spotlight + popover on scroll / resize / step change.
-  const currentStep: LiveStep | null = useMemo(() => {
-    if (!activeTour || resolvedSteps.length === 0) return null;
-    const idx = Math.min(stepIndex, resolvedSteps.length - 1);
-    return { step: resolvedSteps[idx], index: idx, resolvedSteps };
-  }, [activeTour, resolvedSteps, stepIndex]);
-
-  useEffect(() => {
-    if (!currentStep) return;
-    const el = findTourTarget(currentStep.step.target);
-    ensureTargetVisible(el);
-    const measureNow = () => setTargetRect(measureTarget(el));
-    measureNow();
-    // A short tick after scroll/resize gives smooth tracking without jitter.
-    const onScroll = () => measureNow();
-    const onResize = () => measureNow();
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onResize);
-    const raf = requestAnimationFrame(measureNow);
-    const timer = window.setInterval(measureNow, 400);
-    return () => {
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onResize);
-      cancelAnimationFrame(raf);
-      window.clearInterval(timer);
-    };
-  }, [currentStep]);
-
-  // Keyboard: Esc skips; ArrowLeft/Right navigate.
-  useEffect(() => {
-    if (!activeTour) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        void handleSkip();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        handleNext();
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        handlePrev();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTour, stepIndex, resolvedSteps.length]);
-
-  const handleNext = useCallback(() => {
-    if (!activeTour) return;
-    if (stepIndex < resolvedSteps.length - 1) {
-      logBetaEventSync("tour_step_advanced", {
-        tourId: activeTour.id,
-        stepIndex: stepIndex + 1,
-      });
-      setStepIndex((i) => i + 1);
-    } else {
-      void handleComplete();
-    }
-    // handleComplete is declared below and only called when we're on the
-    // terminal step. Including it as a dep is safe but causes a lint
-    // circular-ish warning — explicitly acknowledge.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTour, stepIndex, resolvedSteps.length]);
-
-  const handlePrev = useCallback(() => {
-    if (!activeTour) return;
-    setStepIndex((i) => Math.max(0, i - 1));
-  }, [activeTour]);
-
   const handleSkip = useCallback(async () => {
     if (!activeTour) return;
     logBetaEventSync("tour_skipped", {
@@ -271,6 +212,111 @@ export function TourProvider({ children }: { children: ReactNode }) {
     );
     clearActive();
   }, [activeTour, resolvedSteps.length, clearActive]);
+
+  const handleNext = useCallback(() => {
+    if (!activeTour) return;
+    if (stepIndex < resolvedSteps.length - 1) {
+      logBetaEventSync("tour_step_advanced", {
+        tourId: activeTour.id,
+        stepIndex: stepIndex + 1,
+      });
+      setStepIndex((i) => i + 1);
+    } else {
+      void handleComplete();
+    }
+  }, [activeTour, stepIndex, resolvedSteps.length, handleComplete]);
+
+  const handlePrev = useCallback(() => {
+    if (!activeTour) return;
+    setStepIndex((i) => Math.max(0, i - 1));
+  }, [activeTour]);
+
+  const currentStep: LiveStep | null = useMemo(() => {
+    if (!activeTour || resolvedSteps.length === 0) return null;
+    const idx = Math.min(stepIndex, resolvedSteps.length - 1);
+    return { step: resolvedSteps[idx], index: idx, resolvedSteps };
+  }, [activeTour, resolvedSteps, stepIndex]);
+
+  useEffect(() => {
+    if (!currentStep) return;
+    let missingSince: number | null = null;
+    let dismissed = false;
+
+    const advanceOrSkipMissing = () => {
+      if (dismissed) return;
+      const steps = currentStep.resolvedSteps;
+      for (let i = currentStep.index + 1; i < steps.length; i++) {
+        const nextEl = findTourTarget(steps[i].target);
+        if (measureTarget(nextEl)) {
+          setStepIndex(i);
+          return;
+        }
+      }
+      dismissed = true;
+      void handleSkip();
+    };
+
+    const measureNow = () => {
+      if (dismissed) return;
+      const live = findTourTarget(currentStep.step.target);
+      const rect = measureTarget(live);
+      setTargetRect(rect);
+      if (rect) {
+        missingSince = null;
+        return;
+      }
+      if (missingSince == null) {
+        missingSince = Date.now();
+        return;
+      }
+      if (Date.now() - missingSince >= MISSING_TARGET_MS) {
+        advanceOrSkipMissing();
+      }
+    };
+
+    const el = findTourTarget(currentStep.step.target);
+    ensureTargetVisible(el);
+    measureNow();
+    const onScroll = () => measureNow();
+    const onResize = () => measureNow();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    const raf = requestAnimationFrame(measureNow);
+    const timer = window.setInterval(measureNow, 400);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+      cancelAnimationFrame(raf);
+      window.clearInterval(timer);
+    };
+  }, [currentStep, handleSkip]);
+
+  // TourProvider is root-mounted. Leaving the tour's page (sidebar tab,
+  // in-app Link, etc.) must drop the overlay so it cannot follow the user.
+  useEffect(() => {
+    if (!activeTour) return;
+    if (!pathnameInTourScope(pathname, activeTour.routeScope)) {
+      void handleSkip();
+    }
+  }, [pathname, activeTour, handleSkip]);
+
+  useEffect(() => {
+    if (!activeTour) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        void handleSkip();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNext();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        handlePrev();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeTour, handleSkip, handleNext, handlePrev]);
 
   const value = useMemo<TourContextValue>(
     () => ({

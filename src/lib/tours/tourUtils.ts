@@ -79,3 +79,30 @@ export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
+
+function stripTrailingSlash(value: string): string {
+  if (value.length > 1 && value.endsWith("/")) return value.slice(0, -1);
+  return value;
+}
+
+/**
+ * Whether `pathname` is still on this tour's page.
+ *
+ *   - `"/my"` matches only `/my` (not `/my/network`)
+ *   - `"/upload/*"` matches `/upload`, `/upload/bulk`, `/upload/exhibition`
+ */
+export function pathnameInTourScope(
+  pathname: string,
+  scope: readonly string[],
+): boolean {
+  if (!pathname || scope.length === 0) return false;
+  const path = stripTrailingSlash(pathname);
+  return scope.some((rule) => {
+    const wildcard = rule.endsWith("/*");
+    const base = stripTrailingSlash(wildcard ? rule.slice(0, -2) : rule);
+    if (wildcard) {
+      return path === base || path.startsWith(`${base}/`);
+    }
+    return path === base;
+  });
+}
