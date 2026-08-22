@@ -123,6 +123,15 @@ function revokeBlobUrl(url: string | null | undefined, protect?: string | null) 
   } catch {}
 }
 
+function sourceCornersFromDraft(
+  draft: EnhancementDraft | null | undefined,
+): Quad | null {
+  if (!draft) return null;
+  const recipe = draft.meta.recipe;
+  if (recipe.kind !== "flat") return null;
+  return recipe.params.sourceCorners ?? null;
+}
+
 /** Catalog preview of the converted file — never the original room shot. */
 function StudioResultPreview({
   src,
@@ -889,6 +898,8 @@ export function ImageStandardizeEditor({
   const [enhancePreview, setEnhancePreview] = useState<EnhancementDraft | null>(
     enhancement ?? null,
   );
+  const enhancePreviewRef = useRef<EnhancementDraft | null>(enhancePreview);
+  enhancePreviewRef.current = enhancePreview;
   const [enhanceRunning, setEnhanceRunning] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhancePreviewUrlRef = useRef<string | null>(null);
@@ -997,6 +1008,11 @@ export function ImageStandardizeEditor({
   const [perspectiveCorners, setPerspectiveCorners] = useState<
     [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint] | null
   >(null);
+  const perspectiveCornersRef = useRef<Quad | null>(null);
+  perspectiveCornersRef.current = perspectiveCorners;
+  const lastSuccessfulSourceCornersRef = useRef<Quad | null>(
+    sourceCornersFromDraft(enhancement ?? null),
+  );
   // Bump this integer to force PerspectiveCornerPicker to re-seed from
   // its auto-detected corners. Only bumped on explicit user actions
   // (analysis re-fires with a new rectangle, or the "자동 감지값 복원"
@@ -1075,15 +1091,21 @@ export function ImageStandardizeEditor({
   }, []);
 
   useEffect(() => {
-    // Reset preview when the underlying file swaps. Never revoke a
-    // blob the parent now owns as `enhancement.previewUrl`.
+    // Reset preview when the underlying file swaps. A flickering
+    // parent `enhancement` identity must not wipe a newer in-editor
+    // crop. Never revoke a blob the parent now owns as
+    // `enhancement.previewUrl`.
     const incoming = enhancement?.previewUrl ?? null;
     if (enhancePreviewUrlRef.current !== incoming) {
       revokeBlobUrl(enhancePreviewUrlRef.current, incoming);
     }
     enhancePreviewUrlRef.current = null;
     setEnhancePreview(enhancement ?? null);
-  }, [file, enhancement]);
+    lastSuccessfulSourceCornersRef.current = sourceCornersFromDraft(
+      enhancement ?? null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- file identity only
+  }, [file]);
 
   const resolvedAutoMode: EnhancementMode = useMemo(() => {
     if (enhanceMode !== "auto") return enhanceMode;
@@ -1121,11 +1143,12 @@ export function ImageStandardizeEditor({
     Boolean(visionQuad) ||
     perspectiveUserAdjusted;
 
-  // Honest "we isolated the canvas" only when confirmed corners drove
-  // the preview. Silent AABB/full-frame warps must not claim success.
+  // Honest "we isolated the canvas" only when the displayed draft
+  // actually warped from sourceCorners. Silent AABB/full-frame warps
+  // must not claim success.
   const autoWarpFired = Boolean(
     enhancePreview &&
-      perspectiveCorners &&
+      sourceCornersFromDraft(enhancePreview) &&
       captureMode !== "scanner",
   );
   const wallAutoFired = Boolean(
@@ -1142,6 +1165,63 @@ export function ImageStandardizeEditor({
     // overridden). The banner tells the artist why; silently no-op
     // here so any manual "Preview" click also respects the block.
     if (gateBlocked) return;
+    if (resolvedAutoMode === "object") {
+      // The local engine only covers the flat pipeline. Object mode
+      // requires the server-side Photoroom hybrid, which is wired at
+      // the parent-page level (single/bulk upload pages). Surface a
+      // gentle hint so the user knows why the "Preview" button does
+      // nothing here.
+      setEnhanceError(t("upload.imageEnhance.objectHint"));
+      void recordUsageEvent({
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: enhanceMode,
+          provider: "local_opencv",
+          source: meteringSource,
+          reason: "object_needs_server",
+          latency_ms: null,
+        },
+      });
+      return;
+    }
+    const isScanner = captureMode === "scanner";
+    const wantsEllipseRestore =
+      ellipseRestored &&
+      !isScanner &&
+      !!analysis?.ellipse &&
+      Math.abs(analysis.ellipse.aspect - 1) > 0.03 &&
+      analysis.ellipse.confidence >= 0.6;
+    const ellipseCorners: Quad | null =
+      wantsEllipseRestore && analysis?.ellipse
+        ? (ellipseRestorationCorners(analysis.ellipse) as Quad)
+        : null;
+    // Intensity re-runs can close over a stale `perspectiveCorners ===
+    // null`. Always read committed corners from the ref, never silent
+    // autoCorners on the AI path.
+    const sourceCornersToSend: Quad | null = perspectiveSkipped
+      ? null
+      : wantsEllipseRestore
+        ? ellipseCorners
+        : pathChoice === "ai"
+          ? (perspectiveCornersRef.current ??
+            lastSuccessfulSourceCornersRef.current ??
+            sourceCornersFromDraft(enhancePreviewRef.current))
+          : (perspectiveCornersRef.current ??
+            (!isScanner && analysis
+              ? (resolveAutoCorners({
+                  suggestedRectangleCorners:
+                    analysis.suggestedRectangleCorners as Quad | null,
+                  suggestedRectangleConfidence:
+                    analysis.suggestedRectangleConfidence,
+                  suggestedCrop: analysis.suggestedCrop,
+                  rectangleConfidence: analysis.rectangleConfidence,
+                }) as Quad | null)
+              : null));
+    if (pathChoice === "ai" && !perspectiveSkipped && !sourceCornersToSend) {
+      // Do not full-frame enhance over a confirmed (or pending) crop.
+      return;
+    }
     const gen = ++enhanceGenRef.current;
     setEnhanceError(null);
     setEnhanceRunning(true);
@@ -1156,33 +1236,9 @@ export function ImageStandardizeEditor({
       },
     });
     try {
-      if (resolvedAutoMode === "object") {
-        // The local engine only covers the flat pipeline. Object mode
-        // requires the server-side Photoroom hybrid, which is wired at
-        // the parent-page level (single/bulk upload pages). Surface a
-        // gentle hint so the user knows why the "Preview" button does
-        // nothing here.
-        setEnhanceError(t("upload.imageEnhance.objectHint"));
-        void recordUsageEvent({
-          key: USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
-          featureKey: "ai.image_enhance",
-          metadata: {
-            mode: enhanceMode,
-            provider: "local_opencv",
-            source: meteringSource,
-            reason: "object_needs_server",
-            latency_ms: null,
-          },
-        });
-        return;
-      }
       const seedCrop =
         crop ?? analysis?.suggestedCrop ?? { x: 0, y: 0, w: 1, h: 1 };
       const suggestion = analysis?.suggested ?? null;
-      // Capture-mode presets — the scanner path disables perspective +
-      // AWB; studio uses lighter tone; phone hand-held is the full
-      // pipeline (matches proLookOn default).
-      const isScanner = captureMode === "scanner";
       const wantsAwb = !isScanner;
       const wantsProLook = proLookEnabled;
       // Intensity multiplier: Studio is inherently gentler, so scale
@@ -1190,78 +1246,6 @@ export function ImageStandardizeEditor({
       // analyzer tone deltas AND the proLook config below.
       const iMult =
         (captureMode === "studio" ? 0.5 : 1) * intensityMultiplier(intensity);
-      // Auto keystone: when the analyzer is confident it saw a flat
-      // rectangle AND the user hasn't picked corners manually, pass the
-      // auto-detected corners so the pipeline straightens the shot on
-      // first run. Scanner input skips this.
-      //
-      // §Fix B (2026-08-10): funnel this through `resolveAutoCorners`
-      // so a low-confidence edge-detector fit can't distort a
-      // straight-on capture. The gate returns:
-      //   • the edge-based quad when both detectors agree AND the quad
-      //     is meaningfully rotated / keystoned,
-      //   • the bounding-box quad (axis-aligned) when only the
-      //     rectangle heuristic is confident — pipeline will skip the
-      //     warp since `cornersLookQuadrilateral` is now aware of
-      //     bounding-box-relative axis alignment (crop-only path),
-      //   • null when nothing is trustworthy.
-      const autoCorners: [
-        NormalizedPoint,
-        NormalizedPoint,
-        NormalizedPoint,
-        NormalizedPoint,
-      ] | null = (() => {
-        // AI path warps only from corners the user confirmed in step 1.
-        // Silent vision/AABB fallbacks pull in floor and neighboring
-        // canvases.
-        if (pathChoice === "ai") return null;
-        if (perspectiveSkipped) return null;
-        if (perspectiveCorners || isScanner) return null;
-        if (!analysis) return null;
-        const resolved = resolveAutoCorners({
-          suggestedRectangleCorners: analysis.suggestedRectangleCorners as Quad | null,
-          suggestedRectangleConfidence: analysis.suggestedRectangleConfidence,
-          suggestedCrop: analysis.suggestedCrop,
-          rectangleConfidence: analysis.rectangleConfidence,
-        });
-        return resolved as [
-          NormalizedPoint,
-          NormalizedPoint,
-          NormalizedPoint,
-          NormalizedPoint,
-        ] | null;
-      })();
-      // G2 (2026-08-10) — ellipse restoration override. When the user
-      // opts into "restore circle" and the ellipse fit deviates from
-      // 1:1 by more than 3 %, replace the source corners with the
-      // ellipse's tight rotated bounding-quad and force a 1:1 target
-      // aspect. This makes the engine warp the ellipse into an
-      // axis-aligned circle without touching any other stage.
-      const wantsEllipseRestore =
-        ellipseRestored &&
-        !isScanner &&
-        !!analysis?.ellipse &&
-        Math.abs(analysis.ellipse.aspect - 1) > 0.03 &&
-        analysis.ellipse.confidence >= 0.6;
-      const ellipseCorners: [
-        NormalizedPoint,
-        NormalizedPoint,
-        NormalizedPoint,
-        NormalizedPoint,
-      ] | null =
-        wantsEllipseRestore && analysis?.ellipse
-          ? (ellipseRestorationCorners(analysis.ellipse) as [
-              NormalizedPoint,
-              NormalizedPoint,
-              NormalizedPoint,
-              NormalizedPoint,
-            ])
-          : null;
-      const sourceCornersToSend = perspectiveSkipped
-        ? null
-        : wantsEllipseRestore
-          ? ellipseCorners
-          : (perspectiveCorners ?? autoCorners);
       // F4 advanced fold — "원본 비율 유지" overrides the estimated
       // rectified aspect with the analyzer's source aspect so
       // straight-on captures keep their exact WxH ratio.
@@ -1326,7 +1310,10 @@ export function ImageStandardizeEditor({
         // upscales (see `scale = longestCropEdge > maxLongEdge`).
         maxLongEdge: 2560,
         bezel: STANDARD_STUDIO_BEZEL,
-        crop: seedCrop,
+        // When corners exist, omit AABB crop so suggestedCrop cannot
+        // become the warp rectangle. normalizeCropFromCorners already
+        // prefers the corner AABB.
+        crop: sourceCornersToSend ? null : seedCrop,
         sourceCorners: sourceCornersToSend,
         targetAspect: targetAspectOverride,
         tone: {
@@ -1377,6 +1364,15 @@ export function ImageStandardizeEditor({
         });
         return;
       }
+      if (
+        pathChoice === "ai" &&
+        !perspectiveSkipped &&
+        perspectiveCornersRef.current &&
+        !result.recipe.sourceCorners
+      ) {
+        // Uncropped/full-frame result must not overwrite a good crop.
+        return;
+      }
       const displayFile = flatBlobToFile(file.name, result.blob);
       const sourceHash = await computeFileSha256(file);
       // Capture provenance — falls back to lastModified when EXIF is
@@ -1413,7 +1409,6 @@ export function ImageStandardizeEditor({
         captureDevice,
         ...(qualityGateProvenance ? { qualityGate: qualityGateProvenance } : {}),
       };
-      revokeBlobUrl(enhancePreviewUrlRef.current, enhancement?.previewUrl);
       let finalDisplayFile = displayFile;
       let finalPreviewUrl = URL.createObjectURL(displayFile);
       let finalMeta = meta;
@@ -1462,12 +1457,20 @@ export function ImageStandardizeEditor({
         revokeBlobUrl(finalPreviewUrl, enhancement?.previewUrl);
         return;
       }
+      const previousUrl = enhancePreviewUrlRef.current;
       enhancePreviewUrlRef.current = finalPreviewUrl;
+      lastSuccessfulSourceCornersRef.current =
+        sourceCornersFromDraft({
+          displayFile: finalDisplayFile,
+          previewUrl: finalPreviewUrl,
+          meta: finalMeta,
+        }) ?? lastSuccessfulSourceCornersRef.current;
       setEnhancePreview({
         displayFile: finalDisplayFile,
         previewUrl: finalPreviewUrl,
         meta: finalMeta,
       });
+      revokeBlobUrl(previousUrl, enhancement?.previewUrl ?? finalPreviewUrl);
       void recordUsageEvent({
         // 2026-08-07 semantic split — preview success emits `.previewed`,
         // never `.completed`. `.completed` is reserved for the moment
@@ -1521,7 +1524,6 @@ export function ImageStandardizeEditor({
     captureMode,
     exif,
     proLookEnabled,
-    perspectiveCorners,
     portfolioCoherenceOn,
     portfolioAvailable,
     portfolioStats,
@@ -1537,6 +1539,8 @@ export function ImageStandardizeEditor({
     pathChoice,
     enhancement?.previewUrl,
   ]);
+  const runEnhancePreviewRef = useRef(runEnhancePreview);
+  runEnhancePreviewRef.current = runEnhancePreview;
 
   const runOriginalMarginPreview = useCallback(async () => {
     if (!onEnhance) return;
@@ -1617,23 +1621,26 @@ export function ImageStandardizeEditor({
   const lastPreviewRecipeKeyRef = useRef<string>("");
 
   // First result and later strength / input-type changes share one
-  // trigger. Discrete buttons must not sit behind object-identity
-  // debounce — that timer never settled while slider debounce re-rendered.
+  // trigger. Drive by recipe key + guards only — never `analysis`
+  // (picker can confirm before analyze), and never `enhancePreview` /
+  // `runEnhancePreview` identity (those caused last-key races).
   useEffect(() => {
     if (!onEnhance) return;
     if (pathChoice !== "ai") return;
     if (tab !== "enhance") return;
     if (wizardStep !== "tone") return;
-    if (!perspectiveSkipped && !perspectiveCorners) return;
-    if (!analysis) return;
-    if (resolvedAutoMode === "object") return;
-    if (gateBlocked) return;
-    if (enhancePreview && previewRecipeKey === lastPreviewRecipeKeyRef.current) {
+    if (!perspectiveSkipped && !perspectiveCorners && !perspectiveCornersRef.current) {
       return;
     }
+    if (resolvedAutoMode === "object") return;
+    if (gateBlocked) return;
+    if (previewRecipeKey === lastPreviewRecipeKeyRef.current) return;
     lastPreviewRecipeKeyRef.current = previewRecipeKey;
     didAutoPreviewRef.current = true;
-    void runEnhancePreview();
+    void runEnhancePreviewRef.current();
+    // Intentionally omits `analysis`, `enhancePreview`, and
+    // `runEnhancePreview` — those identities raced last-key skips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recipe key + guards only
   }, [
     previewRecipeKey,
     pathChoice,
@@ -1641,12 +1648,9 @@ export function ImageStandardizeEditor({
     wizardStep,
     perspectiveSkipped,
     perspectiveCorners,
-    analysis,
     resolvedAutoMode,
     gateBlocked,
     onEnhance,
-    runEnhancePreview,
-    enhancePreview,
   ]);
 
   // Reset the auto-preview sentinel when the underlying file changes
@@ -1654,6 +1658,7 @@ export function ImageStandardizeEditor({
   useEffect(() => {
     didAutoPreviewRef.current = false;
     lastPreviewRecipeKeyRef.current = "";
+    perspectiveCornersRef.current = null;
     setVisionQuad(null);
     setVisionStatus("idle");
     setDetectingArtwork(false);
@@ -1730,6 +1735,9 @@ export function ImageStandardizeEditor({
     setEditingAfterSave(false);
     setWizardStep("perspective");
     setPerspectiveCorners(null);
+    perspectiveCornersRef.current = null;
+    lastSuccessfulSourceCornersRef.current = null;
+    lastPreviewRecipeKeyRef.current = "";
     onEnhance(null);
     if (previous) {
       void recordUsageEvent({
@@ -1913,11 +1921,14 @@ export function ImageStandardizeEditor({
                   setSaveStatus(null);
                   setEditingAfterSave(true);
                   if (corners) {
+                    perspectiveCornersRef.current = corners;
+                    lastSuccessfulSourceCornersRef.current = corners;
                     setPerspectiveCorners(corners);
                     setPathChoice("ai");
                     setWizardStep("tone");
                     setEnhancePreview(enhancement);
                     didAutoPreviewRef.current = true;
+                    lastPreviewRecipeKeyRef.current = "";
                   } else {
                     setPathChoice(null);
                   }
@@ -2096,29 +2107,26 @@ export function ImageStandardizeEditor({
                       disabled={detectingArtwork || !canConfirmCrop}
                       onClick={() => {
                         if (perspectiveSkipped) {
+                          perspectiveCornersRef.current = null;
                           setPerspectiveCorners(null);
                         } else {
                           const snapshot =
                             wizardPerspectiveDraft ??
                             visionQuad ??
                             wizardPerspectiveSeed;
+                          perspectiveCornersRef.current = snapshot;
                           setPerspectiveCorners(snapshot);
                         }
+                        lastPreviewRecipeKeyRef.current = "";
                         setWizardStep("tone");
                         setSaveStatus(null);
                         // Reset the auto-preview sentinel so the
                         // enhance actually re-runs when this is a
                         // second pass through step 1 → step 2.
                         didAutoPreviewRef.current = false;
-                        if (enhancePreview) {
-                          if (enhancePreviewUrlRef.current) {
-                            try {
-                              URL.revokeObjectURL(enhancePreviewUrlRef.current);
-                            } catch {}
-                            enhancePreviewUrlRef.current = null;
-                          }
-                          setEnhancePreview(null);
-                        }
+                        // Keep the last cropped blob until the new
+                        // result lands. Nulling here showed the raw
+                        // studio photo under "보정 결과".
                       }}
                       className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -2164,85 +2172,55 @@ export function ImageStandardizeEditor({
               {/* ─────────────────── STEP 2 — Tone & Wall */}
               {wizardStep === "tone" && (
                 <div className="space-y-3">
-                  {/* Preview surface */}
-                  {enhancePreview ? (
+                  {/* Never fall back to the original studio photo once
+                      corners are confirmed. Wall-pick is the only mode
+                      that shows the original so the artist can click a
+                      wall sample. */}
+                  {pickingWall && previewUrl ? (
+                    <div
+                      className="relative w-full cursor-crosshair overflow-hidden rounded-lg bg-zinc-100"
+                      style={{
+                        aspectRatio:
+                          imageAspect && Number.isFinite(imageAspect)
+                            ? `${imageAspect}`
+                            : undefined,
+                        minHeight: 192,
+                      }}
+                      onClick={(e) => {
+                        const el = e.currentTarget as HTMLDivElement;
+                        const rect = el.getBoundingClientRect();
+                        const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                        const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+                        setWallPick({ x: nx, y: ny });
+                        setPickingWall(false);
+                        setSaveStatus(null);
+                        lastPreviewRecipeKeyRef.current = "";
+                        void runEnhancePreviewRef.current();
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={previewUrl}
+                        alt=""
+                        className="h-full w-full object-contain"
+                        draggable={false}
+                      />
+                    </div>
+                  ) : enhancePreview ? (
                     <StudioResultPreview
                       src={enhancePreview.previewUrl}
                       aspect={enhancePreviewAspect}
                       alt={t("upload.imageEnhance.afterAlt")}
                     />
                   ) : (
-                    previewUrl && (
-                      <div
-                        className={`relative w-full overflow-hidden rounded-lg bg-zinc-100 ${
-                          pickingWall ? "cursor-crosshair" : ""
-                        }`}
-                        style={{
-                          aspectRatio:
-                            imageAspect && Number.isFinite(imageAspect)
-                              ? `${imageAspect}`
-                              : "4 / 3",
-                        }}
-                        onClick={(e) => {
-                          if (!pickingWall) return;
-                          const el = e.currentTarget as HTMLDivElement;
-                          const rect = el.getBoundingClientRect();
-                          const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                          const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-                          setWallPick({ x: nx, y: ny });
-                          setPickingWall(false);
-                          setSaveStatus(null);
-                          void runEnhancePreview();
-                        }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={previewUrl}
-                          alt=""
-                          className="h-full w-full object-contain"
-                          draggable={false}
-                        />
-                        {wallPick && !pickingWall && (
-                          <div
-                            aria-hidden
-                            className="pointer-events-none absolute rounded-full border-2 border-emerald-500 bg-emerald-500/20"
-                            style={{
-                              left: `calc(${wallPick.x * 100}% - 8px)`,
-                              top: `calc(${wallPick.y * 100}% - 8px)`,
-                              width: 16,
-                              height: 16,
-                            }}
-                          />
-                        )}
-                        {glareOverlayOn && analysis && analysis.glareRegions.length > 0 && (
-                          <>
-                            <svg
-                              className="pointer-events-none absolute inset-0 h-full w-full"
-                              viewBox="0 0 100 100"
-                              preserveAspectRatio="none"
-                              aria-hidden
-                            >
-                              {analysis.glareRegions.map((r, i) => (
-                                <rect
-                                  key={i}
-                                  x={r.x * 100}
-                                  y={r.y * 100}
-                                  width={r.w * 100}
-                                  height={r.h * 100}
-                                  fill="rgba(244,63,94,0.15)"
-                                  stroke="rgba(244,63,94,0.7)"
-                                  strokeWidth={0.5}
-                                  vectorEffect="non-scaling-stroke"
-                                />
-                              ))}
-                            </svg>
-                            <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-900/70 px-2 py-1 text-[10px] text-white">
-                              {t("upload.imageEnhance.glareOverlay.reshootHint")}
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    )
+                    <div
+                      className="relative w-full overflow-hidden rounded-lg"
+                      style={{
+                        backgroundColor: STUDIO_MATTE,
+                        minHeight: 192,
+                      }}
+                      aria-busy="true"
+                    />
                   )}
 
                   {/* Auto-detect status chips */}
@@ -2305,7 +2283,9 @@ export function ImageStandardizeEditor({
                       {t("upload.imageEnhance.flow.detectingArtwork")}
                     </p>
                   )}
-                  {enhanceRunning && !detectingArtwork && (
+                  {((enhanceRunning ||
+                    (!enhancePreview && !pickingWall && !enhanceError)) &&
+                    !detectingArtwork) && (
                     <p className="text-[11px] text-zinc-500" aria-live="polite">
                       {t("upload.imageEnhance.running")}
                     </p>
@@ -2372,19 +2352,7 @@ export function ImageStandardizeEditor({
                             <button
                               type="button"
                               onClick={() => {
-                                setPickingWall((v) => {
-                                  const next = !v;
-                                  if (next && enhancePreview) {
-                                    if (enhancePreviewUrlRef.current) {
-                                      try {
-                                        URL.revokeObjectURL(enhancePreviewUrlRef.current);
-                                      } catch {}
-                                      enhancePreviewUrlRef.current = null;
-                                    }
-                                    setEnhancePreview(null);
-                                  }
-                                  return next;
-                                });
+                                setPickingWall((v) => !v);
                               }}
                               aria-pressed={pickingWall}
                               className={`rounded-full border px-2.5 py-1 ${
@@ -2599,6 +2567,9 @@ export function ImageStandardizeEditor({
                             enhancePreviewUrlRef.current = null;
                           }
                           setEnhancePreview(null);
+                          perspectiveCornersRef.current = null;
+                          lastSuccessfulSourceCornersRef.current = null;
+                          lastPreviewRecipeKeyRef.current = "";
                           setPerspectiveCorners(null);
                           setWizardPerspectiveDraft(null);
                           setPerspectiveUserAdjusted(false);
