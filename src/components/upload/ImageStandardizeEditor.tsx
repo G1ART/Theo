@@ -34,7 +34,7 @@ import {
 } from "@/lib/image/enhancement/localFlatEngine";
 import { resolveAdaptiveProLook } from "@/lib/image/enhancement/proLook.tunables";
 import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
-import BeforeAfterCompare from "@/components/upload/BeforeAfterCompare";
+import { PerspectiveCornerPicker } from "@/components/upload/PerspectiveCornerPicker";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import {
@@ -43,7 +43,6 @@ import {
   readExif,
   type ExifReadResult,
 } from "@/lib/image/exifRead";
-import { PerspectiveCornerPicker } from "@/components/upload/PerspectiveCornerPicker";
 import {
   defaultInsetQuad,
   hasValidArea,
@@ -114,6 +113,38 @@ export type EnhancementDraft = {
   previewUrl: string;
   meta: EnhancementMeta;
 };
+
+const STUDIO_MATTE = "#f3f3f3";
+
+/** Catalog preview of the converted file — never the original room shot. */
+function StudioResultPreview({
+  src,
+  aspect,
+  alt,
+}: {
+  src: string;
+  aspect: number | null;
+  alt: string;
+}) {
+  return (
+    <div
+      className="relative w-full overflow-hidden rounded-lg"
+      style={{
+        backgroundColor: STUDIO_MATTE,
+        aspectRatio:
+          aspect && Number.isFinite(aspect) && aspect > 0 ? `${aspect}` : "4 / 3",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className="h-full w-full object-contain"
+        draggable={false}
+      />
+    </div>
+  );
+}
 
 /**
  * 2026-08-19 — Snapshot of the pre-flight quality gate the editor
@@ -432,6 +463,11 @@ export function ImageStandardizeEditor({
     };
     img.src = previewUrl;
   }, [previewUrl]);
+
+  const [enhancePreviewNaturalSize, setEnhancePreviewNaturalSize] = useState<{
+    w: number;
+    h: number;
+  } | null>(null);
 
   // Run the analyzer once per file. Suggestions are surfaced as chips
   // ("standard tone", "suggested crop") but NEVER auto-applied. See the
@@ -844,6 +880,29 @@ export function ImageStandardizeEditor({
   const [enhanceRunning, setEnhanceRunning] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhancePreviewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const url = enhancePreview?.previewUrl ?? null;
+    if (!url) {
+      setEnhancePreviewNaturalSize(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setEnhancePreviewNaturalSize({
+          w: img.naturalWidth,
+          h: img.naturalHeight,
+        });
+      }
+    };
+    img.src = url;
+  }, [enhancePreview?.previewUrl]);
+
+  const enhancePreviewAspect =
+    enhancePreviewNaturalSize && enhancePreviewNaturalSize.h > 0
+      ? enhancePreviewNaturalSize.w / enhancePreviewNaturalSize.h
+      : null;
   // 2026-08-09: Basic-view intensity selector.
   const [intensity, setIntensity] = useState<Intensity>("normal");
   // 2026-08-09: consolidated input-type selector living inside Advanced.
@@ -2116,12 +2175,10 @@ export function ImageStandardizeEditor({
                 <div className="space-y-3">
                   {/* Preview surface */}
                   {enhancePreview ? (
-                    <BeforeAfterCompare
-                      beforeSrc={previewUrl ?? ""}
-                      afterSrc={enhancePreview.previewUrl}
-                      beforeAlt={t("upload.imageEnhance.beforeAlt")}
-                      afterAlt={t("upload.imageEnhance.afterAlt")}
-                      aspectRatio={imageAspect}
+                    <StudioResultPreview
+                      src={enhancePreview.previewUrl}
+                      aspect={enhancePreviewAspect}
+                      alt={t("upload.imageEnhance.afterAlt")}
                     />
                   ) : (
                     previewUrl && (
@@ -2485,15 +2542,12 @@ export function ImageStandardizeEditor({
               )}
 
               {/* ─────────────────── STEP 3 — Review & Save */}
-              {wizardStep === "confirm" && enhancePreview && previewUrl && (
+              {wizardStep === "confirm" && enhancePreview && (
                 <div className="space-y-3">
-                  <BeforeAfterCompare
-                    beforeSrc={previewUrl}
-                    afterSrc={enhancePreview.previewUrl}
-                    beforeAlt={t("upload.imageEnhance.beforeAlt")}
-                    afterAlt={t("upload.imageEnhance.afterAlt")}
-                    aspectRatio={imageAspect}
-                    initialPercent={50}
+                  <StudioResultPreview
+                    src={enhancePreview.previewUrl}
+                    aspect={enhancePreviewAspect}
+                    alt={t("upload.imageEnhance.afterAlt")}
                   />
                   {/* Summary card */}
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
