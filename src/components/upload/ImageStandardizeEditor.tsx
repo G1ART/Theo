@@ -47,7 +47,6 @@ import { PerspectiveCornerPicker } from "@/components/upload/PerspectiveCornerPi
 import {
   defaultInsetQuad,
   hasValidArea,
-  quadFromRect,
   resolveAutoCorners,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
@@ -348,6 +347,10 @@ export function ImageStandardizeEditor({
   );
   const previewUrlRef = useRef<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewNaturalSize, setPreviewNaturalSize] = useState<{
+    w: number;
+    h: number;
+  } | null>(null);
   const [analysis, setAnalysis] = useState<ImageAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
@@ -415,6 +418,20 @@ export function ImageStandardizeEditor({
       previewUrlRef.current = null;
     };
   }, [file]);
+
+  useEffect(() => {
+    if (!previewUrl) {
+      setPreviewNaturalSize(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setPreviewNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+      }
+    };
+    img.src = previewUrl;
+  }, [previewUrl]);
 
   // Run the analyzer once per file. Suggestions are surfaced as chips
   // ("standard tone", "suggested crop") but NEVER auto-applied. See the
@@ -809,13 +826,17 @@ export function ImageStandardizeEditor({
   /**
    * 2026-08-22 — upload path. `null` asks original vs AI first so a
    * already-final studio file is not forced through geometry/tone.
-   * `original` = standard margin only. `ai` = auto geometry + lighting.
+   * `original` = standard margin only. `ai` = confirm canvas corners,
+   * un-keystone, gallery margin, then lighting.
    */
   const [pathChoice, setPathChoice] = useState<"original" | "ai" | null>(
     enhancement ? "ai" : null,
   );
   const [detectingArtwork, setDetectingArtwork] = useState(false);
-  const visionQuadRef = useRef<Quad | null | undefined>(undefined);
+  const [visionQuad, setVisionQuad] = useState<Quad | null>(null);
+  const [visionStatus, setVisionStatus] = useState<
+    "idle" | "loading" | "ok" | "miss"
+  >("idle");
   const [enhanceMode] = useState<EnhancementMode>("auto");
   const [enhancePreview, setEnhancePreview] = useState<EnhancementDraft | null>(
     enhancement ?? null,
@@ -844,6 +865,8 @@ export function ImageStandardizeEditor({
   // the "자동 감지값 복원" secondary action.
   const [perspectiveUserAdjusted, setPerspectiveUserAdjusted] =
     useState<boolean>(false);
+  const perspectiveUserAdjustedRef = useRef(false);
+  perspectiveUserAdjustedRef.current = perspectiveUserAdjusted;
   // Advanced-fold: "이 단계 건너뛰기" — when true, step 1 forwards to
   // step 2 without applying any perspective correction (source
   // corners forced to null so the pipeline runs crop-only).
@@ -1002,106 +1025,36 @@ export function ImageStandardizeEditor({
     return "flat";
   }, [enhanceMode]);
 
-  // 2026-08-09 corner-stick fix: stabilize the array identity so
-  // PerspectiveCornerPicker doesn't see a new prop reference every
-  // parent render. Keyed on the meaningful scalar inputs — the picker
-  // only re-seeds when THESE change (via `resetToken`).
-  //
-  // §Fix B (2026-08-10): the picker's seed is intentionally MORE
-  // permissive than the auto-warp seed. When the analyzer surfaces
-  // *any* edge-detected corners we show them in the picker so the user
-  // has a starting point close to the artwork; the safer
-  // `resolveAutoCorners` gate (below) still keeps the auto-warp from
-  // firing on those low-confidence corners. Falls back to the
-  // bounding-box quad, then to a 10 % inset quad.
-  const autoDetectedCornersMemo = useMemo<Quad | null>(() => {
-    if (!analysis) return null;
-    if (analysis.suggestedRectangleCorners) {
-      return analysis.suggestedRectangleCorners as Quad;
-    }
-    if (analysis.rectangleConfidence < 0.4) return defaultInsetQuad(0.1);
-    return quadFromRect(analysis.suggestedCrop) ?? defaultInsetQuad(0.1);
-  }, [
-    analysis,
-    analysis?.suggestedCrop?.x,
-    analysis?.suggestedCrop?.y,
-    analysis?.suggestedCrop?.w,
-    analysis?.suggestedCrop?.h,
-    analysis?.suggestedRectangleCorners,
-    analysis?.rectangleConfidence,
-  ]);
-  // Same helper the pipeline uses so the "auto perspective 적용됨"
-  // chip only appears when we're ACTUALLY going to warp. Cheap
-  // recompute — pure over the analyzer output.
-  const autoWarpCornersMemo = useMemo<Quad | null>(() => {
-    if (!analysis) return null;
-    return resolveAutoCorners({
-      suggestedRectangleCorners: analysis.suggestedRectangleCorners as Quad | null,
-      suggestedRectangleConfidence: analysis.suggestedRectangleConfidence,
-      suggestedCrop: analysis.suggestedCrop,
-      rectangleConfidence: analysis.rectangleConfidence,
-    });
-  }, [
-    analysis,
-    analysis?.suggestedRectangleCorners,
-    analysis?.suggestedRectangleConfidence,
-    analysis?.suggestedCrop?.x,
-    analysis?.suggestedCrop?.y,
-    analysis?.suggestedCrop?.w,
-    analysis?.suggestedCrop?.h,
-    analysis?.rectangleConfidence,
-  ]);
-  const perspectiveInitialCornersMemo = useMemo<Quad | null>(
-    () => perspectiveCorners,
-    [perspectiveCorners],
-  );
-
-  // F4 (2026-08-10) — step-1 auto-seed provenance for the chip strip
-  // above the picker. Follows the same priority the pipeline uses:
-  //   edge quad (resolveAutoCorners) → bbox quad → manual.
-  const perspectiveAutoSource: "edge" | "bbox" | "none" = useMemo(() => {
-    if (!analysis) return "none";
-    if (autoWarpCornersMemo) {
-      // resolveAutoCorners emits an axis-aligned bbox when it
-      // couldn't get a confident rotated edge quad. Distinguish via
-      // the raw suggestedRectangleCorners field.
-      const edge = analysis.suggestedRectangleCorners;
-      const edgeConf = analysis.suggestedRectangleConfidence ?? 0;
-      if (edge && hasValidArea(edge as Quad) && edgeConf >= 0.55) {
-        return "edge";
-      }
-      return "bbox";
-    }
-    if (analysis.suggestedCrop && quadFromRect(analysis.suggestedCrop)) {
-      return "bbox";
-    }
-    return "none";
-  }, [analysis, autoWarpCornersMemo]);
-
   // Seed the Step-1 PerspectiveCornerPicker with (in order):
   //   1. user's committed corners,
-  //   2. resolveAutoCorners edge/bbox quad,
-  //   3. quadFromRect(suggestedCrop) as a last-chance bbox,
-  //   4. defaultInsetQuad(0.1) so the picker isn't empty.
+  //   2. vision 4-corner trapezoid (canvas edges, not AABB),
+  //   3. high-confidence edge detector (not suggestedCrop AABB),
+  //   4. defaultInsetQuad as a visual starting point only.
   const wizardPerspectiveSeed = useMemo<Quad>(() => {
     if (perspectiveCorners) return perspectiveCorners;
-    if (autoWarpCornersMemo) return autoWarpCornersMemo;
-    const bbox = analysis?.suggestedCrop
-      ? quadFromRect(analysis.suggestedCrop)
-      : null;
-    if (bbox) return bbox;
-    return defaultInsetQuad(0.1);
-  }, [perspectiveCorners, autoWarpCornersMemo, analysis]);
+    if (visionQuad) return visionQuad;
+    const edge = analysis?.suggestedRectangleCorners as Quad | null | undefined;
+    const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
+    if (edge && hasValidArea(edge) && edgeConf >= 0.55) return edge;
+    return defaultInsetQuad(0.15);
+  }, [perspectiveCorners, visionQuad, analysis]);
 
-  // §Fix C (2026-08-10) — surface "auto detected" chips in the Basic
-  // view ONLY when the pipeline actually applied that auto action on
-  // the currently-rendered preview. Prevents chips ghost-lingering
-  // when a detection was possible but the user overrode it.
+  const pickerImageWidth =
+    analysis?.width || previewNaturalSize?.w || 1024;
+  const pickerImageHeight =
+    analysis?.height || previewNaturalSize?.h || 1024;
+
+  const canConfirmCrop =
+    perspectiveSkipped ||
+    Boolean(visionQuad) ||
+    perspectiveUserAdjusted;
+
+  // Honest "we isolated the canvas" only when confirmed corners drove
+  // the preview. Silent AABB/full-frame warps must not claim success.
   const autoWarpFired = Boolean(
     enhancePreview &&
-      !perspectiveCorners &&
-      captureMode !== "scanner" &&
-      (autoWarpCornersMemo || visionQuadRef.current),
+      perspectiveCorners &&
+      captureMode !== "scanner",
   );
   const wallAutoFired = Boolean(
     enhancePreview &&
@@ -1130,22 +1083,6 @@ export function ImageStandardizeEditor({
       },
     });
     try {
-      if (
-        pathChoice === "ai" &&
-        !perspectiveSkipped &&
-        !perspectiveCorners &&
-        captureMode !== "scanner" &&
-        visionQuadRef.current === undefined
-      ) {
-        setDetectingArtwork(true);
-        try {
-          visionQuadRef.current = await detectArtworkQuad(file);
-        } catch {
-          visionQuadRef.current = null;
-        } finally {
-          setDetectingArtwork(false);
-        }
-      }
       if (resolvedAutoMode === "object") {
         // The local engine only covers the flat pipeline. Object mode
         // requires the server-side Photoroom hybrid, which is wired at
@@ -1201,11 +1138,12 @@ export function ImageStandardizeEditor({
         NormalizedPoint,
         NormalizedPoint,
       ] | null = (() => {
+        // AI path warps only from corners the user confirmed in step 1.
+        // Silent vision/AABB fallbacks pull in floor and neighboring
+        // canvases.
+        if (pathChoice === "ai") return null;
         if (perspectiveSkipped) return null;
         if (perspectiveCorners || isScanner) return null;
-        if (visionQuadRef.current) {
-          return visionQuadRef.current;
-        }
         if (!analysis) return null;
         const resolved = resolveAutoCorners({
           suggestedRectangleCorners: analysis.suggestedRectangleCorners as Quad | null,
@@ -1605,6 +1543,7 @@ export function ImageStandardizeEditor({
     if (pathChoice !== "ai") return;
     if (tab !== "enhance") return;
     if (wizardStep !== "tone") return;
+    if (!perspectiveSkipped && !perspectiveCorners) return;
     if (!analysis) return;
     if (enhancePreview) return;
     if (enhancement) return;
@@ -1630,6 +1569,8 @@ export function ImageStandardizeEditor({
     resolvedAutoMode,
     runEnhancePreview,
     gateBlocked,
+    perspectiveCorners,
+    perspectiveSkipped,
   ]);
 
   // F4 — debounced re-run when the user changes intensity or wall
@@ -1647,6 +1588,7 @@ export function ImageStandardizeEditor({
     if (pathChoice !== "ai") return;
     if (tab !== "enhance") return;
     if (wizardStep !== "tone") return;
+    if (!perspectiveSkipped && !perspectiveCorners) return;
     if (!analysis) return;
     if (!didAutoPreviewRef.current) return;
     if (enhanceRunning) return;
@@ -1671,9 +1613,49 @@ export function ImageStandardizeEditor({
   // so a fresh upload gets its own first-run preview.
   useEffect(() => {
     didAutoPreviewRef.current = false;
-    visionQuadRef.current = undefined;
+    setVisionQuad(null);
+    setVisionStatus("idle");
+    setDetectingArtwork(false);
+    setPerspectiveCorners(null);
+    setWizardPerspectiveDraft(null);
+    setPerspectiveUserAdjusted(false);
+    setWizardStep("perspective");
     setPathChoice(enhancement ? "ai" : null);
-  }, [file, enhancement]);
+    // `enhancement` is read only to restore the AI path when a new file
+    // already has a saved result. Corner state must not reset when the
+    // parent merely accepts a preview.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- file identity only
+  }, [file]);
+
+  // Seed the crop picker from vision; never warp until the user confirms.
+  useEffect(() => {
+    if (pathChoice !== "ai") return;
+    if (enhancement && !editingAfterSave) return;
+    let cancelled = false;
+    setDetectingArtwork(true);
+    setVisionStatus("loading");
+    void detectArtworkQuad(file)
+      .then((quad) => {
+        if (cancelled) return;
+        setVisionQuad(quad);
+        setVisionStatus(quad ? "ok" : "miss");
+        if (quad && !perspectiveUserAdjustedRef.current) {
+          setWizardPerspectiveDraft(null);
+          setPerspectiveResetToken((n) => n + 1);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVisionQuad(null);
+        setVisionStatus("miss");
+      })
+      .finally(() => {
+        if (!cancelled) setDetectingArtwork(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathChoice, file, enhancement, editingAfterSave]);
 
   const handleEnhanceApprove = useCallback(() => {
     if (!onEnhance || !enhancePreview) return;
@@ -1845,7 +1827,7 @@ export function ImageStandardizeEditor({
               onClick={() => {
                 setPathChoice("ai");
                 setTab("enhance");
-                setWizardStep("tone");
+                setWizardStep("perspective");
                 didAutoPreviewRef.current = false;
               }}
               className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-3 text-left text-white hover:bg-zinc-800 disabled:opacity-50"
@@ -1934,10 +1916,14 @@ export function ImageStandardizeEditor({
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-zinc-900">
-                    {t("upload.imageEnhance.flow.lightTitle")}
+                    {wizardStep === "perspective"
+                      ? t("upload.imageEnhance.flow.cropTitle")
+                      : t("upload.imageEnhance.flow.lightTitle")}
                   </p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-                    {t("upload.imageEnhance.flow.lightHint")}
+                    {wizardStep === "perspective"
+                      ? t("upload.imageEnhance.flow.cropHint")
+                      : t("upload.imageEnhance.flow.lightHint")}
                   </p>
                 </div>
                 <button
@@ -1945,9 +1931,9 @@ export function ImageStandardizeEditor({
                   onClick={() => {
                     didAutoPreviewRef.current = false;
                     setEnhancePreview(null);
-                    setWizardStep("tone");
+                    setWizardStep("perspective");
                     if (enhancement) handleEnhanceReject();
-                    else setPathChoice(null);
+                    setPathChoice(null);
                   }}
                   className="shrink-0 rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-zinc-50"
                 >
@@ -1962,29 +1948,29 @@ export function ImageStandardizeEditor({
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
                     <span
                       className={`rounded-full border px-2.5 py-1 ${
-                        perspectiveAutoSource === "edge"
+                        visionStatus === "ok"
                           ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                          : perspectiveAutoSource === "bbox"
+                          : visionStatus === "miss"
                             ? "border-amber-300 bg-amber-50 text-amber-800"
                             : "border-zinc-300 bg-zinc-50 text-zinc-700"
                       }`}
                     >
-                      {perspectiveAutoSource === "edge"
+                      {visionStatus === "ok"
                         ? t("imageEnhance.wizard.perspectiveAutoDetected")
-                        : perspectiveAutoSource === "bbox"
-                          ? t("imageEnhance.wizard.cropAutoDetected")
-                          : t("imageEnhance.wizard.perspectiveManual")}
+                        : visionStatus === "miss"
+                          ? t("imageEnhance.wizard.perspectiveManual")
+                          : t("upload.imageEnhance.flow.detectingArtwork")}
                     </span>
                   </div>
 
                   {/* Picker — always inline on this step */}
-                  {previewUrl && analysis && !perspectiveSkipped && (
+                  {previewUrl && !perspectiveSkipped && (
                     <PerspectiveCornerPicker
                       imageUrl={previewUrl}
-                      imageWidth={analysis.width || 1024}
-                      imageHeight={analysis.height || 1024}
-                      initialCorners={wizardPerspectiveDraft ?? perspectiveInitialCornersMemo}
-                      autoDetectedCorners={autoDetectedCornersMemo ?? wizardPerspectiveSeed}
+                      imageWidth={pickerImageWidth}
+                      imageHeight={pickerImageHeight}
+                      initialCorners={wizardPerspectiveDraft ?? visionQuad ?? wizardPerspectiveSeed}
+                      autoDetectedCorners={visionQuad ?? wizardPerspectiveSeed}
                       resetToken={perspectiveResetToken}
                       onChange={(q) => {
                         setWizardPerspectiveDraft(q);
@@ -2022,9 +2008,21 @@ export function ImageStandardizeEditor({
                   )}
 
                   {/* Hint */}
-                  <p className="text-[11px] leading-relaxed text-zinc-500">
-                    {t("imageEnhance.wizard.perspectiveHint")}
-                  </p>
+                  {detectingArtwork && (
+                    <p className="text-[11px] leading-relaxed text-zinc-500" aria-live="polite">
+                      {t("upload.imageEnhance.flow.detectingArtwork")}
+                    </p>
+                  )}
+                  {!detectingArtwork && visionStatus === "miss" && !perspectiveUserAdjusted && (
+                    <p className="text-[11px] leading-relaxed text-amber-800" role="status">
+                      {t("upload.imageEnhance.flow.cropNeedCorners")}
+                    </p>
+                  )}
+                  {!detectingArtwork && visionStatus !== "miss" && (
+                    <p className="text-[11px] leading-relaxed text-zinc-500">
+                      {t("imageEnhance.wizard.perspectiveHint")}
+                    </p>
+                  )}
 
                   {/* Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -2045,16 +2043,16 @@ export function ImageStandardizeEditor({
                     </div>
                     <button
                       type="button"
+                      disabled={detectingArtwork || !canConfirmCrop}
                       onClick={() => {
                         if (perspectiveSkipped) {
                           setPerspectiveCorners(null);
                         } else {
-                          const snapshot = wizardPerspectiveDraft ?? wizardPerspectiveSeed;
-                          if (perspectiveUserAdjusted && snapshot) {
-                            setPerspectiveCorners(snapshot);
-                          } else {
-                            setPerspectiveCorners(null);
-                          }
+                          const snapshot =
+                            wizardPerspectiveDraft ??
+                            visionQuad ??
+                            wizardPerspectiveSeed;
+                          setPerspectiveCorners(snapshot);
                         }
                         setWizardStep("tone");
                         setSaveStatus(null);
@@ -2072,9 +2070,9 @@ export function ImageStandardizeEditor({
                           setEnhancePreview(null);
                         }
                       }}
-                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800"
+                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {t("imageEnhance.wizard.nextToTone")}
+                      {t("upload.imageEnhance.flow.cropConfirm")}
                     </button>
                   </div>
 
@@ -2236,7 +2234,7 @@ export function ImageStandardizeEditor({
                       onClick={() => setWizardStep("perspective")}
                       className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
                     >
-                      {t("upload.imageEnhance.flow.extraToggle")}
+                      {t("upload.imageEnhance.flow.cropRecrop")}
                     </button>
                     <button
                       type="button"

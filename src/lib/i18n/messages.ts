@@ -1345,7 +1345,7 @@ export const messages = {
       "Only adds even studio margins. Geometry and color stay untouched.",
     "upload.imageEnhance.flow.aiTitle": "AI artwork correction",
     "upload.imageEnhance.flow.aiHint":
-      "Restore geometry, trim to the artwork, then recommend lighting.",
+      "Crop to the artwork, un-keystone, then add studio margins and lighting.",
     "upload.imageEnhance.flow.originalRunning": "Adding studio margins…",
     "upload.imageEnhance.flow.changePath": "Choose again",
     "upload.imageEnhance.flow.lightTitle": "Recommended lighting",
@@ -1355,7 +1355,14 @@ export const messages = {
     "upload.imageEnhance.flow.extraToggle": "Fine-tune to match the original",
     "upload.imageEnhance.flow.intensityRecommended": "Recommended",
     "upload.imageEnhance.flow.detectingArtwork": "Finding the artwork in the photo…",
-    "upload.imageEnhance.flow.artworkIsolated": "Artwork cropped and straightened.",
+    "upload.imageEnhance.flow.artworkIsolated": "Cropped to the artwork and straightened.",
+    "upload.imageEnhance.flow.cropTitle": "Artwork area",
+    "upload.imageEnhance.flow.cropHint":
+      "Align the four canvas corners, then crop. Floor and neighboring works must stay out.",
+    "upload.imageEnhance.flow.cropConfirm": "Crop to this area",
+    "upload.imageEnhance.flow.cropNeedCorners":
+      "Couldn’t lock the edges. Tap the four corners of the artwork.",
+    "upload.imageEnhance.flow.cropRecrop": "Adjust artwork area",
     "upload.imageEnhance.chip.autoPerspective":
       "Auto perspective · adjust",
     "upload.imageEnhance.chip.autoEllipse":
@@ -5838,7 +5845,7 @@ export const messages = {
       "표준 여백만 넣습니다. 기하와 색은 건드리지 않습니다.",
     "upload.imageEnhance.flow.aiTitle": "AI 작품 이미지 보정",
     "upload.imageEnhance.flow.aiHint":
-      "기울기를 펴고 작품 영역만 남긴 뒤, 조명을 추천합니다.",
+      "작품만 자른 뒤 기울기를 펴고, 표준 여백과 조명을 맞춥니다.",
     "upload.imageEnhance.flow.originalRunning": "표준 여백을 넣는 중…",
     "upload.imageEnhance.flow.changePath": "다시 선택",
     "upload.imageEnhance.flow.lightTitle": "추천 조명",
@@ -5848,7 +5855,14 @@ export const messages = {
     "upload.imageEnhance.flow.extraToggle": "원작에 더 가깝게 맞추기",
     "upload.imageEnhance.flow.intensityRecommended": "추천",
     "upload.imageEnhance.flow.detectingArtwork": "사진 안에서 작품을 찾는 중…",
-    "upload.imageEnhance.flow.artworkIsolated": "작품을 잘라 비율을 바로잡았습니다.",
+    "upload.imageEnhance.flow.artworkIsolated": "작품만 자르고 정면으로 펴 두었습니다.",
+    "upload.imageEnhance.flow.cropTitle": "작품 영역",
+    "upload.imageEnhance.flow.cropHint":
+      "캔버스 네 모서리를 맞춘 뒤 잘라 주세요. 바닥·옆 작품이 들어가면 안 됩니다.",
+    "upload.imageEnhance.flow.cropConfirm": "이 영역으로 자르기",
+    "upload.imageEnhance.flow.cropNeedCorners":
+      "경계를 확신할 수 없어요. 작품 네 모서리를 직접 찍어 주세요.",
+    "upload.imageEnhance.flow.cropRecrop": "작품 영역 다시 잡기",
     "upload.imageEnhance.chip.autoPerspective":
       "자동 원근 보정 적용됨 · 조정",
     "upload.imageEnhance.chip.autoEllipse":

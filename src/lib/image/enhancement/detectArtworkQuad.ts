@@ -14,7 +14,6 @@ import {
 } from "@/lib/image/enhancement/aiClient";
 import {
   parseVisionCorners,
-  quadFromRect,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
 
@@ -40,17 +39,5 @@ export async function detectArtworkQuad(file: File | Blob): Promise<Quad | null>
   if (fromCorners && result.confidence >= MIN_CONFIDENCE) {
     return fromCorners;
   }
-  if (
-    result.alreadyTight ||
-    result.confidence < MIN_CONFIDENCE
-  ) {
-    return null;
-  }
-  const bbox = result.bbox;
-  return quadFromRect({
-    x: bbox.x,
-    y: bbox.y,
-    w: bbox.width,
-    h: bbox.height,
-  });
+  return null;
 }

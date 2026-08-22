@@ -478,7 +478,8 @@ Return a JSON object with:
 5. "corners": [[x, y], [x, y], [x, y], [x, y]]
   - Four normalized points of the PRIMARY artwork's physical rectangle, in order top-left, top-right, bottom-right, bottom-left.
   - These are the canvas edges as they appear in the photo — if the camera is tilted or the work is keystoned, the corners must follow that trapezoid. Do NOT axis-align them; the client will un-keystone from these points.
-  - Exclude wall, floor, adjacent paintings, and frames. The four points must sit on the painted surface's outer edges.
+  - Place each point ON the outer edge of the painted canvas, like tracing the stretcher bar. A few pixels of wall, floor, neighboring canvas, or rubber mat inside the quad is a FAILURE. Tighten until only the primary painting remains.
+  - The floor in front of a leaning canvas is NOT part of the artwork. The bottom two corners sit on the canvas's bottom edge, not on the floor.
   - When several canvases are visible, return corners for the PRIMARY one only (largest complete canvas).
   - If you cannot see all four edges, omit "corners" and keep confidence low.
 
