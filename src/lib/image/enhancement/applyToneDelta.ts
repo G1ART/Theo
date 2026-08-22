@@ -122,6 +122,46 @@ function isIdentityUserTone(tone: { b: number; c: number; s: number }): boolean 
 }
 
 /**
+ * Inset of the artwork rectangle inside a bezel-padded canvas.
+ * Matches `localFlatEngine`: `bezelPx = round(bezel * min(workW, workH))`
+ * with `final = work + 2 * bezelPx`.
+ */
+export function artworkBezelInsetPx(
+  width: number,
+  height: number,
+  bezel: number,
+): number {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return 0;
+  if (!Number.isFinite(bezel) || bezel <= 0) return 0;
+  const s = Math.min(width, height);
+  if (s <= 1) return 0;
+  const px = Math.round((bezel * s) / (1 + 2 * bezel));
+  return Math.max(0, Math.min(px, Math.floor((s - 1) / 2)));
+}
+
+function applyUserFineTunePixel(
+  data: Uint8ClampedArray,
+  i: number,
+  b: number,
+  c: number,
+  s: number,
+): void {
+  let r = data[i];
+  let g = data[i + 1];
+  let bl = data[i + 2];
+  r = ((r - 128) * c + 128) * b;
+  g = ((g - 128) * c + 128) * b;
+  bl = ((bl - 128) * c + 128) * b;
+  const y = 0.299 * r + 0.587 * g + 0.114 * bl;
+  r = y + (r - y) * s;
+  g = y + (g - y) * s;
+  bl = y + (bl - y) * s;
+  data[i] = Math.min(255, Math.max(0, r));
+  data[i + 1] = Math.min(255, Math.max(0, g));
+  data[i + 2] = Math.min(255, Math.max(0, bl));
+}
+
+/**
  * Multiplicative user fine-tune (2026-08-22). Same formula as
  * `applyTone` in `localFlatEngine.ts`:
  *   `((x - 128) * c + 128) * b` then saturation around luma.
@@ -129,10 +169,14 @@ function isIdentityUserTone(tone: { b: number; c: number; s: number }): boolean 
  * Clamps each channel to `TONE_MIN`..`TONE_MAX` (±30%). Do NOT use
  * `applyDeltaToImageData` here — that additive 128*b model is capped
  * at ±0.05 for portfolio coherence and cannot lift crushed whites.
+ *
+ * When `size.insetPx` is set, only the inner artwork rectangle is
+ * retouched — the gallery-wall bezel stays `#f3f3f3`.
  */
 export function applyUserFineTuneToImageData(
   data: Uint8ClampedArray,
   tone: { b: number; c: number; s: number },
+  size?: { width: number; height: number; insetPx?: number },
 ): void {
   const b = clampUserTone(tone.b);
   const c = clampUserTone(tone.c);
@@ -144,20 +188,23 @@ export function applyUserFineTuneToImageData(
   ) {
     return;
   }
+  const inset = size?.insetPx ?? 0;
+  const w = size?.width ?? 0;
+  const h = size?.height ?? 0;
+  if (inset > 0 && w > 0 && h > 0) {
+    const x0 = inset;
+    const y0 = inset;
+    const x1 = w - inset;
+    const y1 = h - inset;
+    for (let y = y0; y < y1; y += 1) {
+      for (let x = x0; x < x1; x += 1) {
+        applyUserFineTunePixel(data, (y * w + x) * 4, b, c, s);
+      }
+    }
+    return;
+  }
   for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let bl = data[i + 2];
-    r = ((r - 128) * c + 128) * b;
-    g = ((g - 128) * c + 128) * b;
-    bl = ((bl - 128) * c + 128) * b;
-    const y = 0.299 * r + 0.587 * g + 0.114 * bl;
-    r = y + (r - y) * s;
-    g = y + (g - y) * s;
-    bl = y + (bl - y) * s;
-    data[i] = Math.min(255, Math.max(0, r));
-    data[i + 1] = Math.min(255, Math.max(0, g));
-    data[i + 2] = Math.min(255, Math.max(0, bl));
+    applyUserFineTunePixel(data, i, b, c, s);
   }
 }
 
@@ -166,10 +213,14 @@ export function applyUserFineTuneToImageData(
  * display file. Returns a fresh File + previewUrl. Identity 1/1/1
  * (and any encode failure) returns `null` so the caller can keep the
  * base blob without an extra encode.
+ *
+ * `bezel` is the recipe fraction (0.08 = standard studio margin). The
+ * wall and drop shadow outside the artwork rectangle are left untouched.
  */
 export async function applyUserFineTuneToFile(
   source: File,
   tone: { b: number; c: number; s: number },
+  options?: { bezel?: number },
 ): Promise<{ file: File; previewUrl: string } | null> {
   if (isIdentityUserTone(tone)) return null;
   if (typeof createImageBitmap === "undefined") return null;
@@ -181,7 +232,16 @@ export async function applyUserFineTuneToFile(
       bitmap.close();
     } catch {}
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    applyUserFineTuneToImageData(imageData.data, tone);
+    const insetPx = artworkBezelInsetPx(
+      canvas.width,
+      canvas.height,
+      options?.bezel ?? 0,
+    );
+    applyUserFineTuneToImageData(imageData.data, tone, {
+      width: canvas.width,
+      height: canvas.height,
+      insetPx,
+    });
     ctx.putImageData(imageData, 0, 0);
     const blob = await canvasToBlob(canvas);
     if (!blob) return null;

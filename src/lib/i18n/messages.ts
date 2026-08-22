@@ -1361,7 +1361,7 @@ export const messages = {
     "upload.imageEnhance.flow.lightApply": "Use this image",
     "upload.imageEnhance.flow.extraToggle": "Fine-tune to match the original",
     "upload.imageEnhance.flow.extraHint":
-      "Nudges the recommended lighting toward the original. Limits keep highlights from blowing out.",
+      "Nudges the recommended lighting toward the original, on the artwork only. The gallery wall stays as it is.",
     "upload.imageEnhance.flow.intensityRecommended": "Recommended",
     "upload.imageEnhance.flow.detectingArtwork": "Finding the artwork in the photo…",
     "upload.imageEnhance.flow.artworkIsolated": "Cropped to the artwork and straightened.",
@@ -5870,7 +5870,7 @@ export const messages = {
     "upload.imageEnhance.flow.lightApply": "이 이미지 사용",
     "upload.imageEnhance.flow.extraToggle": "원작에 더 가깝게 맞추기",
     "upload.imageEnhance.flow.extraHint":
-      "추천 조명을 원작에 가깝게 살짝 맞춥니다. 범위가 제한되어 하얗게 날아가지 않습니다.",
+      "추천 조명을 작품에만 맞춥니다. 갤러리 벽(여백)은 그대로입니다.",
     "upload.imageEnhance.flow.intensityRecommended": "추천",
     "upload.imageEnhance.flow.detectingArtwork": "사진 안에서 작품을 찾는 중…",
     "upload.imageEnhance.flow.artworkIsolated": "작품만 자르고 정면으로 펴 두었습니다.",

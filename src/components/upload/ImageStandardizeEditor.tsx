@@ -1336,7 +1336,13 @@ export function ImageStandardizeEditor({
         setEnhancePreview(attachedBase);
         return attachedBase;
       }
-      const result = await applyUserFineTuneToFile(base.displayFile, tone);
+      const bezel =
+        base.meta.recipe.kind === "flat" || base.meta.recipe.kind === "object"
+          ? base.meta.recipe.params.bezel
+          : 0;
+      const result = await applyUserFineTuneToFile(base.displayFile, tone, {
+        bezel,
+      });
       if (stale()) {
         if (result) revokeBlobUrl(result.previewUrl, protect);
         return null;
