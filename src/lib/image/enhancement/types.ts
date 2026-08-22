@@ -98,6 +98,14 @@ export type FlatRecipe = {
   bezel: number;
   awb?: AwbRecipe;
   proLook?: ProLookRecipe;
+  /**
+   * Optional post-engine user nudge (2026-08-22). Brightness / contrast /
+   * saturation multipliers baked onto the already cropped/warped/matted
+   * result. Clamped to [0.7, 1.3] (±30%) — NOT `ENHANCEMENT_TONE_CAP`
+   * (±15%), because intensity already consumes that cap inside the
+   * engine. Neutral `{1,1,1}` is omitted so legacy rows stay compact.
+   */
+  userFineTune?: { b: number; c: number; s: number };
 };
 
 /** Object segmentation parameters. Padding + bezel are both fractions
@@ -334,6 +342,8 @@ export function normalizeEnhancementMeta(
               : undefined,
         }
       : undefined;
+    const ftRaw = p.userFineTune as Record<string, unknown> | undefined;
+    const userFineTune = normalizeUserFineTune(ftRaw);
     recipe = {
       kind: "flat",
       params: {
@@ -347,6 +357,7 @@ export function normalizeEnhancementMeta(
         bezel: clampUnit(Number(p.bezel ?? 0.02)),
         ...(awb ? { awb } : {}),
         ...(proLook ? { proLook } : {}),
+        ...(userFineTune ? { userFineTune } : {}),
       },
     };
   } else {
@@ -473,6 +484,31 @@ function normalizeQualityGate(
 function clampAwbMul(n: number): number {
   if (!Number.isFinite(n)) return 1;
   return Math.min(1.4, Math.max(0.7, n));
+}
+
+/** Post-engine slider window — same ±30% as `displayAdjust` TONE_MIN/MAX. */
+function clampUserFineTune(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(1.3, Math.max(0.7, n));
+}
+
+function normalizeUserFineTune(
+  raw: Record<string, unknown> | undefined,
+): { b: number; c: number; s: number } | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const ft = {
+    b: round3(clampUserFineTune(Number(raw.b ?? 1))),
+    c: round3(clampUserFineTune(Number(raw.c ?? 1))),
+    s: round3(clampUserFineTune(Number(raw.s ?? 1))),
+  };
+  if (
+    Math.abs(ft.b - 1) < 0.005 &&
+    Math.abs(ft.c - 1) < 0.005 &&
+    Math.abs(ft.s - 1) < 0.005
+  ) {
+    return undefined;
+  }
+  return ft;
 }
 
 function normalizeBatchNormalization(

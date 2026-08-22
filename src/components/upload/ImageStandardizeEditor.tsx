@@ -20,13 +20,14 @@ import {
 } from "@/lib/image/displayAdjust";
 import { analyzeImageFile, type ImageAnalysis } from "@/lib/image/analyze";
 import { useT } from "@/lib/i18n/useT";
-import type {
-  EnhancementMeta,
-  EnhancementMode,
-  FlatRecipe,
-  NormalizedPoint,
+import {
+  type EnhancementMeta,
+  type EnhancementMode,
+  type FlatRecipe,
+  type NormalizedPoint,
+  ENHANCEMENT_META_SCHEMA_VERSION,
+  round3,
 } from "@/lib/image/enhancement/types";
-import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
 import {
   runFlatEnhancement,
   flatBlobToFile,
@@ -62,7 +63,7 @@ import {
   computeToneDelta,
   toneSignature,
 } from "@/lib/image/enhancement/coherence";
-import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
+import { applyToneDeltaToFile, applyUserFineTuneToFile } from "@/lib/image/enhancement/applyToneDelta";
 import { detectArtworkQuad } from "@/lib/image/enhancement/detectArtworkQuad";
 import { aiApi } from "@/lib/ai/browser";
 import type { ArtworkQualityGateResult } from "@/lib/ai/types";
@@ -82,10 +83,10 @@ import { QualityGateBanner } from "@/components/upload/QualityGateBanner";
 type CaptureMode = "auto" | "studio" | "phone" | "scanner";
 
 /**
- * 2026-08-09: user-facing "input type" selector consolidates the old
- * captureMode + enhanceMode into a single Advanced control. The
- * enhanceMode "object" branch is opt-in through the Advanced fold; the
- * common Basic path stays on auto + adjustable intensity.
+ * 2026-08-09: user-facing capture-setup selector consolidates the old
+ * captureMode + enhanceMode. It records how the photo was shot
+ * (scanner / studio / auto) — not lighting. Lighting is 보정 강도 plus
+ * the post-engine B/C/S sliders.
  */
 type InputType = "auto" | "studio" | "scanner";
 
@@ -290,6 +291,77 @@ function fromSliderValue(v: number): number {
   const mid = 1;
   const halfRange = TONE_MAX - mid;
   return mid + (v / 100) * halfRange;
+}
+
+function isIdentityFineTune(tone: { b: number; c: number; s: number }): boolean {
+  return (
+    Math.abs(tone.b - 1) < 0.005 &&
+    Math.abs(tone.c - 1) < 0.005 &&
+    Math.abs(tone.s - 1) < 0.005
+  );
+}
+
+function withUserFineTune(
+  draft: EnhancementDraft,
+  tone: { b: number; c: number; s: number },
+): EnhancementDraft {
+  const recipe = draft.meta.recipe;
+  if (recipe.kind !== "flat") return draft;
+  const b = Math.min(TONE_MAX, Math.max(TONE_MIN, Number.isFinite(tone.b) ? tone.b : 1));
+  const c = Math.min(TONE_MAX, Math.max(TONE_MIN, Number.isFinite(tone.c) ? tone.c : 1));
+  const s = Math.min(TONE_MAX, Math.max(TONE_MIN, Number.isFinite(tone.s) ? tone.s : 1));
+  const next: FlatRecipe = { ...recipe.params };
+  if (isIdentityFineTune({ b, c, s })) {
+    if (!next.userFineTune) return draft;
+    const rest = { ...next };
+    delete rest.userFineTune;
+    return {
+      ...draft,
+      meta: { ...draft.meta, recipe: { kind: "flat", params: rest } },
+    };
+  }
+  return {
+    ...draft,
+    meta: {
+      ...draft.meta,
+      recipe: {
+        kind: "flat",
+        params: {
+          ...next,
+          userFineTune: { b: round3(b), c: round3(c), s: round3(s) },
+        },
+      },
+    },
+  };
+}
+
+function FineToneSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[11px] text-zinc-600">
+      <span className="w-14 shrink-0 tracking-tight">{label}</span>
+      <input
+        type="range"
+        min={-100}
+        max={100}
+        step={1}
+        value={toSliderValue(value)}
+        onChange={(e) => onChange(fromSliderValue(Number(e.target.value)))}
+        aria-label={label}
+        className="h-1 flex-1 cursor-pointer accent-zinc-800"
+      />
+      <span className="w-10 shrink-0 text-right tabular-nums text-zinc-500">
+        {Math.round((value - 1) * 100)}
+      </span>
+    </label>
+  );
 }
 
 /** Minimum crop side, normalized on the original image. Matches (and
@@ -903,6 +975,22 @@ export function ImageStandardizeEditor({
   const [enhanceRunning, setEnhanceRunning] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhancePreviewUrlRef = useRef<string | null>(null);
+  const parentPreviewUrlRef = useRef<string | null>(null);
+  parentPreviewUrlRef.current = enhancement?.previewUrl ?? null;
+  // Engine output after intensity + capture setup + portfolio coherence.
+  // Fine-tune sliders bake onto a copy of this; the base blob is never
+  // revoked until a new full pipeline result (or file change).
+  const baseEnhanceRef = useRef<EnhancementDraft | null>(null);
+  const fineTuneGenRef = useRef(0);
+  const [fineB, setFineB] = useState(1);
+  const [fineC, setFineC] = useState(1);
+  const [fineS, setFineS] = useState(1);
+  const fineBRef = useRef(fineB);
+  const fineCRef = useRef(fineC);
+  const fineSRef = useRef(fineS);
+  fineBRef.current = fineB;
+  fineCRef.current = fineC;
+  fineSRef.current = fineS;
 
   useEffect(() => {
     const url = enhancePreview?.previewUrl ?? null;
@@ -928,7 +1016,8 @@ export function ImageStandardizeEditor({
       : null;
   // 2026-08-09: Basic-view intensity selector.
   const [intensity, setIntensity] = useState<Intensity>("normal");
-  // 2026-08-09: consolidated input-type selector living inside Advanced.
+  // 2026-08-22: capture setup (how the photo was shot) on the tone step.
+  // Not lighting — brightness is 보정 강도 + the post-engine sliders.
   const [inputType, setInputType] = useState<InputType>("auto");
   // F2 (2026-08-10) — wall brightness chip. `normal` is the wizard
   // default (matte target 248 — bumped from the historical 243 so
@@ -990,9 +1079,9 @@ export function ImageStandardizeEditor({
   }, [file]);
   const lowLight = exif ? isLowLightExif(exif) : false;
   const captureDeviceLabel = exif ? formatCaptureDevice(exif) : null;
-  // Capture mode — derived from the consolidated `inputType` selector
-  // (Advanced fold). The `phone` legacy value is folded into `auto`
-  // since the analyzer already picks the right pipeline from EXIF.
+  // Capture mode — derived from the capture-setup selector. The
+  // `phone` legacy value is folded into `auto` since the analyzer
+  // already picks the right pipeline from EXIF.
   const captureMode: CaptureMode = inputType;
   // Pro-look is always on for the "auto" / "studio" path so the
   // simplified basic view is opinionated. Scanner input forces it off
@@ -1081,12 +1170,11 @@ export function ImageStandardizeEditor({
 
   useEffect(() => {
     return () => {
-      const url = enhancePreviewUrlRef.current;
-      if (url) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      }
+      const protect = parentPreviewUrlRef.current;
+      const shown = enhancePreviewUrlRef.current;
+      const baseUrl = baseEnhanceRef.current?.previewUrl;
+      revokeBlobUrl(shown, protect);
+      if (baseUrl && baseUrl !== shown) revokeBlobUrl(baseUrl, protect);
     };
   }, []);
 
@@ -1096,10 +1184,20 @@ export function ImageStandardizeEditor({
     // crop. Never revoke a blob the parent now owns as
     // `enhancement.previewUrl`.
     const incoming = enhancement?.previewUrl ?? null;
-    if (enhancePreviewUrlRef.current !== incoming) {
-      revokeBlobUrl(enhancePreviewUrlRef.current, incoming);
+    const shown = enhancePreviewUrlRef.current;
+    const baseUrl = baseEnhanceRef.current?.previewUrl;
+    if (shown !== incoming) {
+      revokeBlobUrl(shown, incoming);
+    }
+    if (baseUrl && baseUrl !== incoming && baseUrl !== shown) {
+      revokeBlobUrl(baseUrl, incoming);
     }
     enhancePreviewUrlRef.current = null;
+    baseEnhanceRef.current = null;
+    fineTuneGenRef.current += 1;
+    setFineB(1);
+    setFineC(1);
+    setFineS(1);
     setEnhancePreview(enhancement ?? null);
     lastSuccessfulSourceCornersRef.current = sourceCornersFromDraft(
       enhancement ?? null,
@@ -1158,6 +1256,66 @@ export function ImageStandardizeEditor({
       enhancePreview.meta.recipe.kind === "flat" &&
       enhancePreview.meta.recipe.params.awb?.source === "wall-biased",
   );
+
+  const applyFineTuneToBase = useCallback(
+    async (
+      base: EnhancementDraft,
+      tone: { b: number; c: number; s: number },
+      gen: number,
+    ): Promise<EnhancementDraft | null> => {
+      const protect = parentPreviewUrlRef.current;
+      const stale = () =>
+        gen !== fineTuneGenRef.current ||
+        baseEnhanceRef.current?.previewUrl !== base.previewUrl;
+      const revokeShownIfNot = (keep: string) => {
+        const shown = enhancePreviewUrlRef.current;
+        if (shown && shown !== base.previewUrl && shown !== keep) {
+          revokeBlobUrl(shown, protect);
+        }
+      };
+      const attachedBase = withUserFineTune(
+        {
+          displayFile: base.displayFile,
+          previewUrl: base.previewUrl,
+          meta: base.meta,
+        },
+        tone,
+      );
+      if (isIdentityFineTune(tone)) {
+        if (stale()) return null;
+        revokeShownIfNot(base.previewUrl);
+        enhancePreviewUrlRef.current = base.previewUrl;
+        setEnhancePreview(attachedBase);
+        return attachedBase;
+      }
+      const result = await applyUserFineTuneToFile(base.displayFile, tone);
+      if (stale()) {
+        if (result) revokeBlobUrl(result.previewUrl, protect);
+        return null;
+      }
+      if (!result) {
+        revokeShownIfNot(base.previewUrl);
+        enhancePreviewUrlRef.current = base.previewUrl;
+        setEnhancePreview(attachedBase);
+        return attachedBase;
+      }
+      revokeShownIfNot(result.previewUrl);
+      enhancePreviewUrlRef.current = result.previewUrl;
+      const draft = withUserFineTune(
+        {
+          displayFile: result.file,
+          previewUrl: result.previewUrl,
+          meta: base.meta,
+        },
+        tone,
+      );
+      setEnhancePreview(draft);
+      return draft;
+    },
+    [],
+  );
+  const applyFineTuneToBaseRef = useRef(applyFineTuneToBase);
+  applyFineTuneToBaseRef.current = applyFineTuneToBase;
 
   const runEnhancePreview = useCallback(async () => {
     if (!onEnhance) return;
@@ -1454,23 +1612,41 @@ export function ImageStandardizeEditor({
         }
       }
       if (gen !== enhanceGenRef.current) {
-        revokeBlobUrl(finalPreviewUrl, enhancement?.previewUrl);
+        revokeBlobUrl(finalPreviewUrl, parentPreviewUrlRef.current);
         return;
       }
-      const previousUrl = enhancePreviewUrlRef.current;
-      enhancePreviewUrlRef.current = finalPreviewUrl;
-      lastSuccessfulSourceCornersRef.current =
-        sourceCornersFromDraft({
-          displayFile: finalDisplayFile,
-          previewUrl: finalPreviewUrl,
-          meta: finalMeta,
-        }) ?? lastSuccessfulSourceCornersRef.current;
-      setEnhancePreview({
+      const baseDraft: EnhancementDraft = {
         displayFile: finalDisplayFile,
         previewUrl: finalPreviewUrl,
         meta: finalMeta,
-      });
-      revokeBlobUrl(previousUrl, enhancement?.previewUrl ?? finalPreviewUrl);
+      };
+      const previousShown = enhancePreviewUrlRef.current;
+      const previousBaseUrl = baseEnhanceRef.current?.previewUrl;
+      const protect = parentPreviewUrlRef.current ?? finalPreviewUrl;
+      if (previousShown && previousShown !== finalPreviewUrl) {
+        revokeBlobUrl(previousShown, protect);
+      }
+      if (
+        previousBaseUrl &&
+        previousBaseUrl !== finalPreviewUrl &&
+        previousBaseUrl !== previousShown
+      ) {
+        revokeBlobUrl(previousBaseUrl, protect);
+      }
+      baseEnhanceRef.current = baseDraft;
+      enhancePreviewUrlRef.current = finalPreviewUrl;
+      lastSuccessfulSourceCornersRef.current =
+        sourceCornersFromDraft(baseDraft) ?? lastSuccessfulSourceCornersRef.current;
+      const tone = {
+        b: fineBRef.current,
+        c: fineCRef.current,
+        s: fineSRef.current,
+      };
+      const fineGen = ++fineTuneGenRef.current;
+      setEnhancePreview(withUserFineTune(baseDraft, tone));
+      if (!isIdentityFineTune(tone)) {
+        void applyFineTuneToBaseRef.current(baseDraft, tone, fineGen);
+      }
       void recordUsageEvent({
         // 2026-08-07 semantic split — preview success emits `.previewed`,
         // never `.completed`. `.completed` is reserved for the moment
@@ -1537,7 +1713,6 @@ export function ImageStandardizeEditor({
     qualityGate,
     qualityGateOverride,
     pathChoice,
-    enhancement?.previewUrl,
   ]);
   const runEnhancePreviewRef = useRef(runEnhancePreview);
   runEnhancePreviewRef.current = runEnhancePreview;
@@ -1620,10 +1795,11 @@ export function ImageStandardizeEditor({
   });
   const lastPreviewRecipeKeyRef = useRef<string>("");
 
-  // First result and later strength / input-type changes share one
+  // First result and later strength / capture-setup changes share one
   // trigger. Drive by recipe key + guards only — never `analysis`
-  // (picker can confirm before analyze), and never `enhancePreview` /
-  // `runEnhancePreview` identity (those caused last-key races).
+  // (picker can confirm before analyze), never `enhancePreview` /
+  // `runEnhancePreview` identity (those caused last-key races), and
+  // never fineB/C/S (those bake as a post-pass on the base blob).
   useEffect(() => {
     if (!onEnhance) return;
     if (pathChoice !== "ai") return;
@@ -1652,6 +1828,16 @@ export function ImageStandardizeEditor({
     gateBlocked,
     onEnhance,
   ]);
+
+  const debouncedFine = useDebounced({ b: fineB, c: fineC, s: fineS }, 120);
+  useEffect(() => {
+    const base = baseEnhanceRef.current;
+    if (!base) return;
+    if (pathChoice !== "ai") return;
+    if (wizardStep !== "tone") return;
+    const gen = ++fineTuneGenRef.current;
+    void applyFineTuneToBaseRef.current(base, debouncedFine, gen);
+  }, [debouncedFine, pathChoice, wizardStep]);
 
   // Reset the auto-preview sentinel when the underlying file changes
   // so a fresh upload gets its own first-run preview.
@@ -1704,11 +1890,30 @@ export function ImageStandardizeEditor({
     };
   }, [pathChoice, file, enhancement, editingAfterSave, perspectiveCorners]);
 
-  const handleEnhanceApprove = useCallback(() => {
-    if (!onEnhance || !enhancePreview) return;
-    // Parent takes ownership of the preview blob URL.
+  const handleEnhanceApprove = useCallback(async () => {
+    if (!onEnhance) return;
+    const base = baseEnhanceRef.current;
+    const tone = {
+      b: fineBRef.current,
+      c: fineCRef.current,
+      s: fineSRef.current,
+    };
+    let draft: EnhancementDraft | null = null;
+    if (base) {
+      const gen = ++fineTuneGenRef.current;
+      draft = await applyFineTuneToBaseRef.current(base, tone, gen);
+    }
+    draft = draft ?? enhancePreviewRef.current;
+    if (!draft) return;
+    const handed = draft.previewUrl;
+    const baseUrl = baseEnhanceRef.current?.previewUrl;
+    if (baseUrl && baseUrl !== handed) {
+      revokeBlobUrl(baseUrl, parentPreviewUrlRef.current ?? handed);
+    }
+    baseEnhanceRef.current = null;
+    // Parent takes ownership of the (possibly fine-tuned) preview blob.
     enhancePreviewUrlRef.current = null;
-    onEnhance(enhancePreview);
+    onEnhance(draft);
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
     setPerspectiveAdvancedOpen(false);
@@ -1717,19 +1922,24 @@ export function ImageStandardizeEditor({
       key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
       featureKey: "ai.image_enhance",
       metadata: {
-        mode: enhancePreview.meta.mode,
-        provider: enhancePreview.meta.provider,
+        mode: draft.meta.mode,
+        provider: draft.meta.provider,
         source: meteringSource,
-        latency_ms: enhancePreview.meta.latencyMs,
+        latency_ms: draft.meta.latencyMs,
       },
     });
-  }, [enhancePreview, onEnhance, meteringSource, t]);
+  }, [onEnhance, meteringSource, t]);
 
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
     const previous = enhancePreview;
-    revokeBlobUrl(enhancePreviewUrlRef.current, enhancement?.previewUrl);
+    const protect = parentPreviewUrlRef.current;
+    const shown = enhancePreviewUrlRef.current;
+    const baseUrl = baseEnhanceRef.current?.previewUrl;
+    revokeBlobUrl(shown, protect);
+    if (baseUrl && baseUrl !== shown) revokeBlobUrl(baseUrl, protect);
     enhancePreviewUrlRef.current = null;
+    baseEnhanceRef.current = null;
     setEnhancePreview(null);
     setPathChoice(null);
     setEditingAfterSave(false);
@@ -1751,7 +1961,7 @@ export function ImageStandardizeEditor({
         },
       });
     }
-  }, [enhancePreview, onEnhance, meteringSource, enhancement?.previewUrl]);
+  }, [enhancePreview, onEnhance, meteringSource]);
 
   // ------------------------------------------------------------------
   // Render
@@ -1918,6 +2128,11 @@ export function ImageStandardizeEditor({
                   const recipe = enhancement.meta.recipe;
                   const corners =
                     recipe.kind === "flat" ? recipe.params.sourceCorners : null;
+                  const savedFine =
+                    recipe.kind === "flat" ? recipe.params.userFineTune : undefined;
+                  setFineB(savedFine?.b ?? 1);
+                  setFineC(savedFine?.c ?? 1);
+                  setFineS(savedFine?.s ?? 1);
                   setSaveStatus(null);
                   setEditingAfterSave(true);
                   if (corners) {
@@ -1991,6 +2206,13 @@ export function ImageStandardizeEditor({
                     didAutoPreviewRef.current = false;
                     if (enhancement) handleEnhanceReject();
                     else {
+                      const protect = parentPreviewUrlRef.current;
+                      const shown = enhancePreviewUrlRef.current;
+                      const baseUrl = baseEnhanceRef.current?.previewUrl;
+                      revokeBlobUrl(shown, protect);
+                      if (baseUrl && baseUrl !== shown) revokeBlobUrl(baseUrl, protect);
+                      enhancePreviewUrlRef.current = null;
+                      baseEnhanceRef.current = null;
                       setEnhancePreview(null);
                       setWizardStep("perspective");
                       setPathChoice(null);
@@ -2258,6 +2480,57 @@ export function ImageStandardizeEditor({
                     </p>
                   </div>
 
+                  {/* Capture setup — how the photo was shot, not lighting */}
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="text-zinc-600">
+                        {t("upload.imageEnhance.inputType.label")}
+                      </span>
+                      {(["auto", "studio", "scanner"] as InputType[]).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setInputType(m)}
+                          className={`rounded-full border px-2.5 py-1 ${
+                            inputType === m
+                              ? "border-zinc-900 bg-zinc-900 text-white"
+                              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                          }`}
+                        >
+                          {t(`upload.imageEnhance.inputType.${m}`)}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-zinc-500">
+                      {t("upload.imageEnhance.inputType.hint")}
+                    </p>
+                  </div>
+
+                  {/* Post-engine fine-tune — always visible, does not re-run crop */}
+                  <div className="space-y-2 rounded-lg border border-zinc-200 bg-white px-3 py-3">
+                    <p className="text-[11px] font-medium text-zinc-700">
+                      {t("upload.imageEnhance.flow.extraToggle")}
+                    </p>
+                    <p className="text-[10.5px] leading-relaxed text-zinc-500">
+                      {t("upload.imageEnhance.flow.extraHint")}
+                    </p>
+                    <FineToneSlider
+                      label={t("upload.imageStandardize.brightness")}
+                      value={fineB}
+                      onChange={setFineB}
+                    />
+                    <FineToneSlider
+                      label={t("upload.imageStandardize.contrast")}
+                      value={fineC}
+                      onChange={setFineC}
+                    />
+                    <FineToneSlider
+                      label={t("upload.imageStandardize.saturation")}
+                      value={fineS}
+                      onChange={setFineS}
+                    />
+                  </div>
+
                   {/* Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <button
@@ -2270,7 +2543,7 @@ export function ImageStandardizeEditor({
                     <button
                       type="button"
                       onClick={handleEnhanceApprove}
-                      disabled={!enhancePreview}
+                      disabled={!enhancePreview || enhanceRunning}
                       className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {t("upload.imageEnhance.flow.lightApply")}
@@ -2310,7 +2583,7 @@ export function ImageStandardizeEditor({
                     className="rounded-lg border border-zinc-200 bg-white"
                   >
                     <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
-                      {t("upload.imageEnhance.flow.extraToggle")}
+                      {t("upload.imageEnhance.advancedToggle")}
                     </summary>
                     <div className="space-y-3 border-t border-zinc-200 px-3 py-3">
                       {analysis && (analysis.blurScore < 0.1 || analysis.glareScore > 0.1) && (
@@ -2385,32 +2658,6 @@ export function ImageStandardizeEditor({
                           )}
                         </div>
                       )}
-
-                      {/* Input type */}
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                          <span className="text-zinc-600">
-                            {t("upload.imageEnhance.inputType.label")}
-                          </span>
-                          {(["auto", "studio", "scanner"] as InputType[]).map((m) => (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => setInputType(m)}
-                              className={`rounded-full border px-2.5 py-1 ${
-                                inputType === m
-                                  ? "border-zinc-900 bg-zinc-900 text-white"
-                                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                              }`}
-                            >
-                              {t(`upload.imageEnhance.inputType.${m}`)}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[10.5px] leading-relaxed text-zinc-500">
-                          {t("upload.imageEnhance.inputType.hint")}
-                        </p>
-                      </div>
 
                       {/* Glare overlay */}
                       {analysis && analysis.glareRegions.length > 0 && (
@@ -2560,12 +2807,16 @@ export function ImageStandardizeEditor({
                           // Wipe the transient preview and drop the
                           // user back to step 1 (auto-preview
                           // re-fires on step 2 entry).
-                          if (enhancePreviewUrlRef.current) {
-                            try {
-                              URL.revokeObjectURL(enhancePreviewUrlRef.current);
-                            } catch {}
-                            enhancePreviewUrlRef.current = null;
+                          const protect = parentPreviewUrlRef.current;
+                          const shown = enhancePreviewUrlRef.current;
+                          const baseUrl = baseEnhanceRef.current?.previewUrl;
+                          revokeBlobUrl(shown, protect);
+                          if (baseUrl && baseUrl !== shown) {
+                            revokeBlobUrl(baseUrl, protect);
                           }
+                          enhancePreviewUrlRef.current = null;
+                          baseEnhanceRef.current = null;
+                          fineTuneGenRef.current += 1;
                           setEnhancePreview(null);
                           perspectiveCornersRef.current = null;
                           lastSuccessfulSourceCornersRef.current = null;

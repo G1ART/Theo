@@ -1353,6 +1353,8 @@ export const messages = {
       "The artwork is cropped, straightened, and centered on a gallery wall. Change strength to preview a different light.",
     "upload.imageEnhance.flow.lightApply": "Use this image",
     "upload.imageEnhance.flow.extraToggle": "Fine-tune to match the original",
+    "upload.imageEnhance.flow.extraHint":
+      "Nudges the recommended lighting toward the original. Limits keep highlights from blowing out.",
     "upload.imageEnhance.flow.intensityRecommended": "Recommended",
     "upload.imageEnhance.flow.detectingArtwork": "Finding the artwork in the photo…",
     "upload.imageEnhance.flow.artworkIsolated": "Cropped to the artwork and straightened.",
@@ -1375,7 +1377,7 @@ export const messages = {
     "upload.imageEnhance.intensity.strong": "Strong",
     "upload.imageEnhance.intensity.hint":
       "Light preserves your original tone. Strong pushes contrast, saturation, and warmth further.",
-    "upload.imageEnhance.advancedToggle": "Advanced settings (WB · input type · diagnostics)",
+    "upload.imageEnhance.advancedToggle": "Advanced settings (WB · diagnostics)",
     "upload.imageEnhance.quickHint":
       "Changes here don't affect the enhanced file that will be saved. Use the Theo Enhance tab if you want your edits kept.",
     "upload.imageEnhance.applied.title": "This version is applied",
@@ -1386,12 +1388,12 @@ export const messages = {
     "upload.imageEnhance.rerunCta": "Run again",
     "upload.imageEnhance.cancelCta": "Cancel",
     "upload.imageEnhance.perspective.openBtn": "Perspective correction (adjust corners)",
-    "upload.imageEnhance.inputType.label": "Input type",
+    "upload.imageEnhance.inputType.label": "How it was shot",
     "upload.imageEnhance.inputType.auto": "Auto",
     "upload.imageEnhance.inputType.scanner": "Scanner",
     "upload.imageEnhance.inputType.studio": "Studio",
     "upload.imageEnhance.inputType.hint":
-      "Scanner disables perspective correction and white balance; Studio uses a lighter tone; Auto picks a preset from the file.",
+      "Scanner, studio, and auto change perspective correction and white-balance strength. Brightness is set with Strength and the sliders below.",
     "upload.imageEnhance.controls.glare.hint":
       "Highlights bright reflection patches so you can decide whether to re-shoot from a slight angle.",
     "upload.imageEnhance.controls.portfolio.hint":
@@ -5853,6 +5855,8 @@ export const messages = {
       "작품만 남기고 정면으로 펴, 갤러리 벽에 가운데 두었습니다. 강도를 바꾸면 미리보기가 달라집니다.",
     "upload.imageEnhance.flow.lightApply": "이 이미지 사용",
     "upload.imageEnhance.flow.extraToggle": "원작에 더 가깝게 맞추기",
+    "upload.imageEnhance.flow.extraHint":
+      "추천 조명을 원작에 가깝게 살짝 맞춥니다. 범위가 제한되어 하얗게 날아가지 않습니다.",
     "upload.imageEnhance.flow.intensityRecommended": "추천",
     "upload.imageEnhance.flow.detectingArtwork": "사진 안에서 작품을 찾는 중…",
     "upload.imageEnhance.flow.artworkIsolated": "작품만 자르고 정면으로 펴 두었습니다.",
@@ -5875,7 +5879,7 @@ export const messages = {
     "upload.imageEnhance.intensity.strong": "강하게",
     "upload.imageEnhance.intensity.hint":
       "약하게는 원본에 가깝게, 강하게는 대비·채도·온도를 더 살립니다.",
-    "upload.imageEnhance.advancedToggle": "고급 설정 (WB · 입력 유형 · 진단)",
+    "upload.imageEnhance.advancedToggle": "고급 설정 (WB · 진단)",
     "upload.imageEnhance.quickHint":
       "여기서 조정한 값은 저장에 반영되지 않아요. 저장하려면 Theo 자동 보정 탭을 이용하세요.",
     "upload.imageEnhance.applied.title": "이 보정이 적용되었습니다",
@@ -5886,12 +5890,12 @@ export const messages = {
     "upload.imageEnhance.rerunCta": "다시 실행",
     "upload.imageEnhance.cancelCta": "취소",
     "upload.imageEnhance.perspective.openBtn": "원근 보정 (코너 조정)",
-    "upload.imageEnhance.inputType.label": "입력 유형",
+    "upload.imageEnhance.inputType.label": "촬영 방식",
     "upload.imageEnhance.inputType.auto": "자동",
     "upload.imageEnhance.inputType.scanner": "스캐너",
     "upload.imageEnhance.inputType.studio": "스튜디오",
     "upload.imageEnhance.inputType.hint":
-      "스캐너는 원근 보정과 화이트밸런스를 끕니다. 스튜디오는 톤을 더 가볍게 손봅니다. 자동은 파일에 맞춰 프리셋을 선택합니다.",
+      "스캐너·스튜디오·자동은 원근 보정과 화이트밸런스 세기를 바꿉니다. 밝기는 보정 강도와 아래 슬라이더로 맞춥니다.",
     "upload.imageEnhance.controls.glare.hint":
       "반사광이 심한 영역을 표시해서 다시 촬영할지 판단할 수 있어요.",
     "upload.imageEnhance.controls.portfolio.hint":

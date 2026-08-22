@@ -23,6 +23,7 @@
  * any previous object URLs.
  */
 
+import { TONE_MAX, TONE_MIN } from "@/lib/image/displayAdjust";
 import { flatBlobToFile } from "./localFlatEngine";
 
 /** Maximum absolute delta accepted by this helper. Anything larger is
@@ -105,6 +106,91 @@ function canvasToBlob(
   return new Promise((resolve) => {
     canvas.toBlob((b) => resolve(b), "image/webp", 0.9);
   });
+}
+
+function clampUserTone(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(TONE_MAX, Math.max(TONE_MIN, n));
+}
+
+function isIdentityUserTone(tone: { b: number; c: number; s: number }): boolean {
+  return (
+    Math.abs(clampUserTone(tone.b) - 1) < 0.005 &&
+    Math.abs(clampUserTone(tone.c) - 1) < 0.005 &&
+    Math.abs(clampUserTone(tone.s) - 1) < 0.005
+  );
+}
+
+/**
+ * Multiplicative user fine-tune (2026-08-22). Same formula as
+ * `applyTone` in `localFlatEngine.ts`:
+ *   `((x - 128) * c + 128) * b` then saturation around luma.
+ *
+ * Clamps each channel to `TONE_MIN`..`TONE_MAX` (±30%). Do NOT use
+ * `applyDeltaToImageData` here — that additive 128*b model is capped
+ * at ±0.05 for portfolio coherence and cannot lift crushed whites.
+ */
+export function applyUserFineTuneToImageData(
+  data: Uint8ClampedArray,
+  tone: { b: number; c: number; s: number },
+): void {
+  const b = clampUserTone(tone.b);
+  const c = clampUserTone(tone.c);
+  const s = clampUserTone(tone.s);
+  if (
+    Math.abs(b - 1) < 0.005 &&
+    Math.abs(c - 1) < 0.005 &&
+    Math.abs(s - 1) < 0.005
+  ) {
+    return;
+  }
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let bl = data[i + 2];
+    r = ((r - 128) * c + 128) * b;
+    g = ((g - 128) * c + 128) * b;
+    bl = ((bl - 128) * c + 128) * b;
+    const y = 0.299 * r + 0.587 * g + 0.114 * bl;
+    r = y + (r - y) * s;
+    g = y + (g - y) * s;
+    bl = y + (bl - y) * s;
+    data[i] = Math.min(255, Math.max(0, r));
+    data[i + 1] = Math.min(255, Math.max(0, g));
+    data[i + 2] = Math.min(255, Math.max(0, bl));
+  }
+}
+
+/**
+ * Bake user brightness/contrast/saturation onto an already-enhanced
+ * display file. Returns a fresh File + previewUrl. Identity 1/1/1
+ * (and any encode failure) returns `null` so the caller can keep the
+ * base blob without an extra encode.
+ */
+export async function applyUserFineTuneToFile(
+  source: File,
+  tone: { b: number; c: number; s: number },
+): Promise<{ file: File; previewUrl: string } | null> {
+  if (isIdentityUserTone(tone)) return null;
+  if (typeof createImageBitmap === "undefined") return null;
+  try {
+    const bitmap = await createImageBitmap(source);
+    const { canvas, ctx } = makeCanvas(bitmap.width, bitmap.height);
+    ctx.drawImage(bitmap as CanvasImageSource, 0, 0);
+    try {
+      bitmap.close();
+    } catch {}
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    applyUserFineTuneToImageData(imageData.data, tone);
+    ctx.putImageData(imageData, 0, 0);
+    const blob = await canvasToBlob(canvas);
+    if (!blob) return null;
+    const file = flatBlobToFile(source.name, blob);
+    const previewUrl = URL.createObjectURL(file);
+    return { file, previewUrl };
+  } catch {
+    return null;
+  }
 }
 
 /**

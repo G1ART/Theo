@@ -48,6 +48,7 @@ import assert from "node:assert/strict";
         tone: { b: 1.05, c: 1.1, s: 0.95 },
         sharpen: 0.4,
         bezel: 0.02,
+        userFineTune: { b: 1.2, c: 0.85, s: 1.1 },
       },
     },
     confidence: 0.82,
@@ -71,6 +72,11 @@ import assert from "node:assert/strict";
       );
       assert.ok(flatMeta.recipe.params.sourceCorners, "corners preserved");
       assert.equal(flatMeta.recipe.params.sourceCorners?.length, 4);
+      assert.deepEqual(
+        flatMeta.recipe.params.userFineTune,
+        { b: 1.2, c: 0.85, s: 1.1 },
+        "userFineTune roundtrips outside the engine ±15% cap",
+      );
     }
     // JSON stability: encode → decode → re-normalize should give the same shape.
     const roundtrip = JSON.parse(JSON.stringify(flatMeta));
@@ -112,6 +118,60 @@ import assert from "node:assert/strict";
   );
   assert.equal(normalizeEnhancementMeta(null), null);
   assert.equal(normalizeEnhancementMeta("garbage"), null);
+
+  // ── userFineTune: omitted on legacy rows; clamped to ±30%; identity dropped ─
+  const withoutFine = normalizeEnhancementMeta({
+    ...flatInput,
+    recipe: {
+      ...flatInput.recipe,
+      params: {
+        ...flatInput.recipe.params,
+        userFineTune: undefined,
+      },
+    },
+  });
+  assert.ok(withoutFine && withoutFine.recipe.kind === "flat");
+  if (withoutFine && withoutFine.recipe.kind === "flat") {
+    assert.equal(
+      withoutFine.recipe.params.userFineTune,
+      undefined,
+      "legacy rows omit userFineTune",
+    );
+  }
+  const clampedFine = normalizeEnhancementMeta({
+    ...flatInput,
+    recipe: {
+      ...flatInput.recipe,
+      params: {
+        ...flatInput.recipe.params,
+        userFineTune: { b: 2, c: 0.1, s: 1 },
+      },
+    },
+  });
+  assert.ok(clampedFine && clampedFine.recipe.kind === "flat");
+  if (clampedFine && clampedFine.recipe.kind === "flat") {
+    assert.equal(clampedFine.recipe.params.userFineTune?.b, 1.3);
+    assert.equal(clampedFine.recipe.params.userFineTune?.c, 0.7);
+    assert.equal(clampedFine.recipe.params.userFineTune?.s, 1);
+  }
+  const identityFine = normalizeEnhancementMeta({
+    ...flatInput,
+    recipe: {
+      ...flatInput.recipe,
+      params: {
+        ...flatInput.recipe.params,
+        userFineTune: { b: 1, c: 1, s: 1 },
+      },
+    },
+  });
+  assert.ok(identityFine && identityFine.recipe.kind === "flat");
+  if (identityFine && identityFine.recipe.kind === "flat") {
+    assert.equal(
+      identityFine.recipe.params.userFineTune,
+      undefined,
+      "neutral userFineTune is omitted",
+    );
+  }
 
   console.log("enhancement recipe/meta contract: OK");
 })().catch((err) => {
