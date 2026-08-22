@@ -25,7 +25,6 @@ import { setArtworkBack } from "@/lib/artworkBack";
 import { addWorkToExhibition } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
-import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
@@ -721,7 +720,6 @@ function UploadPageContent() {
   }
 
   return (
-    <AuthGate>
       <div>
         {/*
           QA 2026-07 Phase 2-2: dismissible confirmation card that replaces
@@ -1814,7 +1812,6 @@ function UploadPageContent() {
           </div>
         )}
       </div>
-    </AuthGate>
   );
 }
 

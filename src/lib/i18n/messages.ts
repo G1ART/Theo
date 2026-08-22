@@ -758,6 +758,7 @@ export const messages = {
     "common.save": "Save",
     "common.saved": "Saved",
     "common.loading": "Loading...",
+    "auth.gate.slow": "This is taking longer than usual.",
     "common.confirmDelete":
       "This can't be undone. Are you sure you want to delete this?",
     "common.confirmDeleteShort": "Are you sure you want to delete this artwork?",
@@ -1131,6 +1132,9 @@ export const messages = {
     "me.improveProfile": "Improve profile",
     "me.completenessHint": "More details → higher quality connections & recommendations",
     "upload.title": "Upload",
+    "upload.error.title": "Upload couldn’t load.",
+    "upload.error.body":
+      "Something went wrong on this page. Your files were not uploaded. You can try again, or go back to the feed.",
     "upload.layoutLead": "Add a single work, bulk import a series, or build an exhibition page.",
     "upload.tabSingle": "Single upload",
     "upload.tabBulk": "Bulk upload",
@@ -5267,6 +5271,7 @@ export const messages = {
     "common.save": "저장",
     "common.saved": "저장됨",
     "common.loading": "로딩 중...",
+    "auth.gate.slow": "화면을 불러오는 데 시간이 걸리고 있어요.",
     "common.confirmDelete": "삭제 후에는 되돌릴 수 없어요. 정말 삭제하시겠습니까?",
     "common.confirmDeleteShort": "이 작품을 삭제하시겠습니까?",
     "common.delete": "삭제",
@@ -5637,6 +5642,9 @@ export const messages = {
     "me.improveProfile": "프로필 개선하기",
     "me.completenessHint": "상세할수록 더 나은 연결과 추천을 받을 수 있습니다",
     "upload.title": "업로드",
+    "upload.error.title": "업로드 화면을 열지 못했어요.",
+    "upload.error.body":
+      "이 페이지에서 문제가 생겼어요. 파일은 올라가지 않았습니다. 다시 시도하거나 피드로 돌아갈 수 있어요.",
     "upload.layoutLead": "한 점씩 올리거나, 일괄로 등록하거나, 전시 게시물을 만들어 공유합니다.",
     "upload.tabSingle": "개별 업로드",
     "upload.tabBulk": "일괄 업로드",

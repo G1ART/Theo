@@ -29,5 +29,10 @@ export const supabase = createClient(url, anonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    // Safari + several withtheo.art tabs can hang forever on
+    // Navigator LockManager (`getSession` never resolves → AuthGate
+    // paints a blank white page). In-tab races on token refresh are
+    // rarer than a stuck upload refresh; skip the exclusive lock.
+    lock: async (_name, _acquireTimeout, fn) => fn(),
   },
 });

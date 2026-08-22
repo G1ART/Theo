@@ -12,6 +12,7 @@ import {
   LOGIN_PATH,
 } from "@/lib/identity/routing";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
+import { useT } from "@/lib/i18n/useT";
 
 /**
  * Client-side gate that guards protected product surfaces. It only
@@ -25,6 +26,10 @@ import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
  *   2. needs_identity_setup  → /onboarding/identity?next=<current>
  *   3. needs_onboarding      → /onboarding
  *   4. !has_password         → /set-password
+ *
+ * Safari with several withtheo.art tabs can hang inside supabase-js
+ * `getSession()` (Navigator LockManager). Cap the wait and fail-open
+ * so a refresh cannot strand the artist on a blank white canvas.
  */
 function currentPathWithQuery(): string | null {
   if (typeof window === "undefined") return null;
@@ -40,6 +45,29 @@ type ProfileIdentityFields = {
   roles?: string[] | null;
   main_role?: string | null;
 };
+
+const AUTH_WAIT_MS = 4000;
+const SLOW_HINT_MS = 2000;
+const AUTH_TIMEOUT = Symbol("auth-timeout");
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | typeof AUTH_TIMEOUT> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(AUTH_TIMEOUT), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(AUTH_TIMEOUT);
+      },
+    );
+  });
+}
 
 /**
  * Positive incompleteness check against a *loaded* profile row. Mirrors the
@@ -62,22 +90,34 @@ function profileIsIncomplete(p: ProfileIdentityFields): boolean {
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useT();
   const [ready, setReady] = useState(false);
+  const [slow, setSlow] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    const slowTimer = window.setTimeout(() => {
+      if (!cancelled) setSlow(true);
+    }, SLOW_HINT_MS);
     (async () => {
+      const sessionResult = await withTimeout(getSession(), AUTH_WAIT_MS);
+      if (cancelled) return;
+      if (sessionResult === AUTH_TIMEOUT) {
+        // Hung lock / flaky Safari — do not keep a blank canvas, and do
+        // not bounce to /login (timeout is not "no session").
+        setReady(true);
+        return;
+      }
       const {
         data: { session },
-      } = await getSession();
-      if (cancelled) return;
+      } = sessionResult;
       if (!session) {
         router.replace(LOGIN_PATH);
         return;
       }
-      const state = await getMyAuthState();
+      const state = await withTimeout(getMyAuthState(), AUTH_WAIT_MS);
       if (cancelled) return;
-      if (!state) {
+      if (state === AUTH_TIMEOUT || !state) {
         // RPC failed transiently (schema cache miss, migration lag, token
         // refresh in flight, flaky mobile network). Fall back to a direct
         // profile read — but FAIL SAFE. If that read also fails or returns no
@@ -86,21 +126,24 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         // transient null was the mobile "re-login → identity setup" leak; a
         // genuinely-incomplete user still has a real row with empty fields and
         // is caught below (and on the next navigation).
-        const { data: profile, error } = await getMyProfile();
+        const profileResult = await withTimeout(getMyProfile(), AUTH_WAIT_MS);
         if (cancelled) return;
-        if (
-          !error &&
-          profile &&
-          profileIsIncomplete(profile as ProfileIdentityFields)
-        ) {
-          const next = currentPathWithQuery();
-          const isAlreadyFinish =
-            pathname === IDENTITY_FINISH_PATH ||
-            (pathname?.startsWith(`${IDENTITY_FINISH_PATH}/`) ?? false);
-          if (!isAlreadyFinish) {
-            const q = next ? `?next=${encodeURIComponent(next)}` : "";
-            router.replace(`${IDENTITY_FINISH_PATH}${q}`);
-            return;
+        if (profileResult !== AUTH_TIMEOUT) {
+          const { data: profile, error } = profileResult;
+          if (
+            !error &&
+            profile &&
+            profileIsIncomplete(profile as ProfileIdentityFields)
+          ) {
+            const next = currentPathWithQuery();
+            const isAlreadyFinish =
+              pathname === IDENTITY_FINISH_PATH ||
+              (pathname?.startsWith(`${IDENTITY_FINISH_PATH}/`) ?? false);
+            if (!isAlreadyFinish) {
+              const q = next ? `?next=${encodeURIComponent(next)}` : "";
+              router.replace(`${IDENTITY_FINISH_PATH}${q}`);
+              return;
+            }
           }
         }
         setReady(true);
@@ -124,12 +167,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         // errors or returns no row (transient token-refresh race, common on
         // mobile), we do NOT bounce — a stale `needs_identity_setup=true`
         // combined with a transient null must not trap a complete user.
-        const { data: profile, error } = await getMyProfile();
+        const profileResult = await withTimeout(getMyProfile(), AUTH_WAIT_MS);
         if (cancelled) return;
+        const profileBundle =
+          profileResult === AUTH_TIMEOUT ? null : profileResult;
         const confirmedIncomplete =
-          !error &&
-          !!profile &&
-          profileIsIncomplete(profile as ProfileIdentityFields);
+          !!profileBundle &&
+          !profileBundle.error &&
+          !!profileBundle.data &&
+          profileIsIncomplete(profileBundle.data as ProfileIdentityFields);
         if (confirmedIncomplete) {
           const next = currentPathWithQuery();
           const isAlreadyFinish =
@@ -160,18 +206,26 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(slowTimer);
     };
   }, [router, pathname]);
 
   if (!ready) {
-    // Strategy "C" — branded loading canvas. The auth check is one of
-    // the highest-traffic waiting moments in the app, so we turn it
-    // into a quiet mark familiarization opportunity instead of a bare
-    // "Loading…" line. `TheoLoadingMark` pulls its own copy from
-    // `common.loading` so this component no longer needs `useT`.
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center">
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4 py-16">
         <TheoLoadingMark />
+        {slow && (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <p className="text-sm text-zinc-500">{t("auth.gate.slow")}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+            >
+              {t("common.retry")}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

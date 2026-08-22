@@ -50,8 +50,8 @@ export default function UploadLayout({
   }));
 
   return (
-    <AuthGate>
-      <AppShell>
+    <AppShell>
+      <AuthGate>
         <TourTrigger tourId={TOUR_IDS.upload} />
         <PageShell variant="narrow">
           <PageHeader
@@ -71,7 +71,7 @@ export default function UploadLayout({
           />
           {children}
         </PageShell>
-      </AppShell>
-    </AuthGate>
+      </AuthGate>
+    </AppShell>
   );
 }

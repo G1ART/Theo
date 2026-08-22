@@ -63,7 +63,6 @@ import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
 import { createExternalArtist } from "@/lib/provenance/rpc";
-import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { useT } from "@/lib/i18n/useT";
@@ -1990,7 +1989,6 @@ export default function BulkUploadPage() {
   }
 
   return (
-    <AuthGate>
       <div>
         {/*
           Post-publish confirmation card (QA 2026-07 Phase 2-2). Rendered
@@ -3273,6 +3271,5 @@ export default function BulkUploadPage() {
         )}
         <BetaFeedbackPrompt pageKey="bulk_upload" />
       </div>
-    </AuthGate>
   );
 }
