@@ -1303,6 +1303,11 @@ function UploadPageContent() {
                             const removed = prev.find((p) => p.id === img.id);
                             if (removed) {
                               try { URL.revokeObjectURL(removed.previewUrl); } catch {}
+                              if (removed.enhancement?.previewUrl) {
+                                try {
+                                  URL.revokeObjectURL(removed.enhancement.previewUrl);
+                                } catch {}
+                              }
                             }
                             return prev.filter((p) => p.id !== img.id);
                           });
@@ -1359,22 +1364,21 @@ function UploadPageContent() {
                           enhancement={img.enhancement}
                           onEnhance={(next) => {
                             setImages((prev) =>
-                              prev.map((p) =>
-                                p.id === img.id
-                                  ? {
-                                      ...p,
-                                      enhancement: next,
-                                      // 2026-08-09 Todo 6: collapse
-                                      // the editor after the user
-                                      // approves an enhancement so
-                                      // the list shows the "저장됨"
-                                      // chip + thumbnail instead of
-                                      // the still-open tools.
-                                      standardizeOpen:
-                                        next != null ? false : p.standardizeOpen,
-                                    }
-                                  : p,
-                              ),
+                              prev.map((p) => {
+                                if (p.id !== img.id) return p;
+                                if (
+                                  p.enhancement?.previewUrl &&
+                                  p.enhancement.previewUrl !== next?.previewUrl
+                                ) {
+                                  try {
+                                    URL.revokeObjectURL(p.enhancement.previewUrl);
+                                  } catch {}
+                                }
+                                return {
+                                  ...p,
+                                  enhancement: next,
+                                };
+                              }),
                             );
                           }}
                           meteringSource={fromExhibition ? "exhibition_single" : "single"}

@@ -1193,7 +1193,7 @@ export const messages = {
     "upload.imageStandardize.appliedChip": "Adjusted",
     "upload.imageStandardize.title": "Image Enhance",
     "upload.imageStandardize.idleHint":
-      "The image is uploaded as-is. Use the sliders below to nudge brightness, contrast, or saturation; open the crop tool to trim on your own terms. Nothing is saved until you move something.",
+      "Choose whether to keep the photo as-is or let Theo crop the artwork, straighten it, and match studio lighting. You can keep editing after you apply a result.",
     "upload.imageStandardize.appliedHint":
       "Only feed and grid thumbnails use these tweaks. The artwork detail page always shows your original file.",
     "upload.imageStandardize.analyzing": "Reading the image…",
@@ -1347,11 +1347,11 @@ export const messages = {
     "upload.imageEnhance.flow.aiHint":
       "Crop to the artwork, un-keystone, then add studio margins and lighting.",
     "upload.imageEnhance.flow.originalRunning": "Adding studio margins…",
-    "upload.imageEnhance.flow.changePath": "Choose again",
-    "upload.imageEnhance.flow.lightTitle": "Recommended lighting",
+    "upload.imageEnhance.flow.changePath": "Start over",
+    "upload.imageEnhance.flow.lightTitle": "Corrected image",
     "upload.imageEnhance.flow.lightHint":
-      "Contrast, brightness, and saturation under a standard viewing light. The artwork’s own proportions are kept.",
-    "upload.imageEnhance.flow.lightApply": "Use this lighting",
+      "The artwork is cropped, straightened, and centered on a gallery wall. Change strength to preview a different light.",
+    "upload.imageEnhance.flow.lightApply": "Use this image",
     "upload.imageEnhance.flow.extraToggle": "Fine-tune to match the original",
     "upload.imageEnhance.flow.intensityRecommended": "Recommended",
     "upload.imageEnhance.flow.detectingArtwork": "Finding the artwork in the photo…",
@@ -1378,8 +1378,8 @@ export const messages = {
     "upload.imageEnhance.advancedToggle": "Advanced settings (WB · input type · diagnostics)",
     "upload.imageEnhance.quickHint":
       "Changes here don't affect the enhanced file that will be saved. Use the Theo Enhance tab if you want your edits kept.",
-    "upload.imageEnhance.applied.title": "Enhanced version saved",
-    "upload.imageEnhance.applied.reopen": "Edit again",
+    "upload.imageEnhance.applied.title": "This version is applied",
+    "upload.imageEnhance.applied.reopen": "Keep editing",
     "upload.imageEnhance.applied.revert": "Revert to original",
     "upload.imageEnhance.applied.status": "Enhanced version saved for this image.",
     "upload.imageEnhance.saveCta": "Save this",
@@ -5693,7 +5693,7 @@ export const messages = {
     "upload.imageStandardize.appliedChip": "직접 조정됨",
     "upload.imageStandardize.title": "이미지 보정",
     "upload.imageStandardize.idleHint":
-      "이미지는 원본 그대로 업로드돼요. 아래 슬라이더로 밝기·대비·채도를 살짝 손보거나, 크롭 버튼으로 원하는 영역만 남길 수 있어요. 직접 움직인 값만 저장돼요.",
+      "원본을 그대로 쓸지, 테오가 작품만 자르고 정면으로 편 뒤 조명을 맞출지 고르세요. 적용한 뒤에도 이어서 다듬을 수 있습니다.",
     "upload.imageStandardize.appliedHint":
       "피드·그리드 썸네일에만 적용돼요. 작품 상세 페이지는 항상 원본을 보여드려요.",
     "upload.imageStandardize.analyzing": "이미지를 읽는 중…",
@@ -5847,11 +5847,11 @@ export const messages = {
     "upload.imageEnhance.flow.aiHint":
       "작품만 자른 뒤 기울기를 펴고, 표준 여백과 조명을 맞춥니다.",
     "upload.imageEnhance.flow.originalRunning": "표준 여백을 넣는 중…",
-    "upload.imageEnhance.flow.changePath": "다시 선택",
-    "upload.imageEnhance.flow.lightTitle": "추천 조명",
+    "upload.imageEnhance.flow.changePath": "처음으로",
+    "upload.imageEnhance.flow.lightTitle": "보정 결과",
     "upload.imageEnhance.flow.lightHint":
-      "표준 조명 아래 대비·명도·채도입니다. 원작 비율은 유지합니다.",
-    "upload.imageEnhance.flow.lightApply": "이 조명으로 사용",
+      "작품만 남기고 정면으로 펴, 갤러리 벽에 가운데 두었습니다. 강도를 바꾸면 미리보기가 달라집니다.",
+    "upload.imageEnhance.flow.lightApply": "이 이미지 사용",
     "upload.imageEnhance.flow.extraToggle": "원작에 더 가깝게 맞추기",
     "upload.imageEnhance.flow.intensityRecommended": "추천",
     "upload.imageEnhance.flow.detectingArtwork": "사진 안에서 작품을 찾는 중…",
@@ -5878,8 +5878,8 @@ export const messages = {
     "upload.imageEnhance.advancedToggle": "고급 설정 (WB · 입력 유형 · 진단)",
     "upload.imageEnhance.quickHint":
       "여기서 조정한 값은 저장에 반영되지 않아요. 저장하려면 Theo 자동 보정 탭을 이용하세요.",
-    "upload.imageEnhance.applied.title": "향상본이 저장되었어요",
-    "upload.imageEnhance.applied.reopen": "다시 편집",
+    "upload.imageEnhance.applied.title": "이 보정이 적용되었습니다",
+    "upload.imageEnhance.applied.reopen": "이어서 보정",
     "upload.imageEnhance.applied.revert": "원본으로 되돌리기",
     "upload.imageEnhance.applied.status": "이 이미지에 향상본이 저장되었습니다.",
     "upload.imageEnhance.saveCta": "이걸로 저장",

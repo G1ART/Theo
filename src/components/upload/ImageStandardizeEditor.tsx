@@ -116,6 +116,13 @@ export type EnhancementDraft = {
 
 const STUDIO_MATTE = "#f3f3f3";
 
+function revokeBlobUrl(url: string | null | undefined, protect?: string | null) {
+  if (!url || url === protect) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch {}
+}
+
 /** Catalog preview of the converted file — never the original room shot. */
 function StudioResultPreview({
   src,
@@ -1062,13 +1069,13 @@ export function ImageStandardizeEditor({
   }, []);
 
   useEffect(() => {
-    // Reset preview when the underlying file swaps.
-    if (enhancePreviewUrlRef.current) {
-      try {
-        URL.revokeObjectURL(enhancePreviewUrlRef.current);
-      } catch {}
-      enhancePreviewUrlRef.current = null;
+    // Reset preview when the underlying file swaps. Never revoke a
+    // blob the parent now owns as `enhancement.previewUrl`.
+    const incoming = enhancement?.previewUrl ?? null;
+    if (enhancePreviewUrlRef.current !== incoming) {
+      revokeBlobUrl(enhancePreviewUrlRef.current, incoming);
     }
+    enhancePreviewUrlRef.current = null;
     setEnhancePreview(enhancement ?? null);
   }, [file, enhancement]);
 
@@ -1277,14 +1284,8 @@ export function ImageStandardizeEditor({
                 paintingMode,
               },
               {
-                exposureLumaTarget: Math.round(
-                  118 +
-                    (intensity === "strong"
-                      ? 8
-                      : intensity === "light"
-                      ? -6
-                      : 0),
-                ),
+                exposureLumaTarget:
+                  intensity === "strong" ? 136 : intensity === "light" ? 108 : 122,
                 warmthBias: Math.max(-0.05, Math.min(0.05, 0.02 * iMult)),
               },
             )
@@ -1304,6 +1305,12 @@ export function ImageStandardizeEditor({
       // corners via `PerspectiveCornerPicker`, pass them through. The
       // engine warps automatically. See homography.ts + the picker
       // component for the geometry contract.
+      const toneBias =
+        intensity === "strong"
+          ? { b: 0.07, c: 0.1, s: 0.06 }
+          : intensity === "light"
+            ? { b: -0.05, c: -0.06, s: -0.04 }
+            : { b: 0.02, c: 0.03, s: 0.01 };
       const result = await runFlatEnhancement({
         file,
         // G5 (2026-08-10): unify long-edge cap to 2560 across every
@@ -1315,13 +1322,11 @@ export function ImageStandardizeEditor({
         crop: seedCrop,
         sourceCorners: sourceCornersToSend,
         targetAspect: targetAspectOverride,
-        tone: suggestion
-          ? {
-              b: 1 + ((suggestion.b ?? 1) - 1) * iMult,
-              c: 1 + ((suggestion.c ?? 1) - 1) * iMult,
-              s: 1 + ((suggestion.s ?? 1) - 1) * iMult,
-            }
-          : undefined,
+        tone: {
+          b: 1 + ((suggestion?.b ?? 1) - 1) * iMult + toneBias.b,
+          c: 1 + ((suggestion?.c ?? 1) - 1) * iMult + toneBias.c,
+          s: 1 + ((suggestion?.s ?? 1) - 1) * iMult + toneBias.s,
+        },
         proLook: proLookConfigOverrides,
         awb: wantsAwb
           ? {
@@ -1401,11 +1406,7 @@ export function ImageStandardizeEditor({
         captureDevice,
         ...(qualityGateProvenance ? { qualityGate: qualityGateProvenance } : {}),
       };
-      if (enhancePreviewUrlRef.current) {
-        try {
-          URL.revokeObjectURL(enhancePreviewUrlRef.current);
-        } catch {}
-      }
+      revokeBlobUrl(enhancePreviewUrlRef.current, enhancement?.previewUrl);
       let finalDisplayFile = displayFile;
       let finalPreviewUrl = URL.createObjectURL(displayFile);
       let finalMeta = meta;
@@ -1523,6 +1524,7 @@ export function ImageStandardizeEditor({
     qualityGate,
     qualityGateOverride,
     pathChoice,
+    enhancement?.previewUrl,
   ]);
 
   const runOriginalMarginPreview = useCallback(async () => {
@@ -1559,11 +1561,7 @@ export function ImageStandardizeEditor({
       const displayFile = flatBlobToFile(file.name, result.blob);
       const sourceHash = await computeFileSha256(file);
       const preview = URL.createObjectURL(displayFile);
-      if (enhancePreviewUrlRef.current) {
-        try {
-          URL.revokeObjectURL(enhancePreviewUrlRef.current);
-        } catch {}
-      }
+      revokeBlobUrl(enhancePreviewUrlRef.current, enhancement?.previewUrl);
       enhancePreviewUrlRef.current = preview;
       const draft: EnhancementDraft = {
         displayFile,
@@ -1584,6 +1582,7 @@ export function ImageStandardizeEditor({
       };
       setEnhancePreview(draft);
       setPathChoice("original");
+      enhancePreviewUrlRef.current = null;
       onEnhance(draft);
       setSaveStatus(t("upload.imageEnhance.applied.status"));
     } catch {
@@ -1592,7 +1591,7 @@ export function ImageStandardizeEditor({
     } finally {
       setEnhanceRunning(false);
     }
-  }, [onEnhance, file, meteringSource, t]);
+  }, [onEnhance, file, meteringSource, t, enhancement?.previewUrl]);
 
   // F4 (2026-08-10) — auto-run a first preview as soon as the user
   // picks the AI path (geometry + crop + standard margin). Guarded by
@@ -1690,6 +1689,7 @@ export function ImageStandardizeEditor({
   useEffect(() => {
     if (pathChoice !== "ai") return;
     if (enhancement && !editingAfterSave) return;
+    if (perspectiveCorners) return;
     let cancelled = false;
     setDetectingArtwork(true);
     setVisionStatus("loading");
@@ -1714,10 +1714,12 @@ export function ImageStandardizeEditor({
     return () => {
       cancelled = true;
     };
-  }, [pathChoice, file, enhancement, editingAfterSave]);
+  }, [pathChoice, file, enhancement, editingAfterSave, perspectiveCorners]);
 
   const handleEnhanceApprove = useCallback(() => {
     if (!onEnhance || !enhancePreview) return;
+    // Parent takes ownership of the preview blob URL.
+    enhancePreviewUrlRef.current = null;
     onEnhance(enhancePreview);
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
@@ -1738,13 +1740,13 @@ export function ImageStandardizeEditor({
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
     const previous = enhancePreview;
-    if (enhancePreviewUrlRef.current) {
-      try {
-        URL.revokeObjectURL(enhancePreviewUrlRef.current);
-      } catch {}
-      enhancePreviewUrlRef.current = null;
-    }
+    revokeBlobUrl(enhancePreviewUrlRef.current, enhancement?.previewUrl);
+    enhancePreviewUrlRef.current = null;
     setEnhancePreview(null);
+    setPathChoice(null);
+    setEditingAfterSave(false);
+    setWizardStep("perspective");
+    setPerspectiveCorners(null);
     onEnhance(null);
     if (previous) {
       void recordUsageEvent({
@@ -1758,7 +1760,7 @@ export function ImageStandardizeEditor({
         },
       });
     }
-  }, [enhancePreview, onEnhance, meteringSource]);
+  }, [enhancePreview, onEnhance, meteringSource, enhancement?.previewUrl]);
 
   // ------------------------------------------------------------------
   // Render
@@ -1836,7 +1838,7 @@ export function ImageStandardizeEditor({
           />
         )}
 
-      {enhancementEnabled && pathChoice === null && !enhancement && (
+      {enhancementEnabled && pathChoice === null && (!enhancement || editingAfterSave) && (
         <div className="space-y-3">
           <div>
             <p className="text-sm font-medium text-zinc-900">
@@ -1902,7 +1904,61 @@ export function ImageStandardizeEditor({
         </div>
       )}
 
-      {enhancementEnabled && pathChoice === "ai" && (
+      {enhancementEnabled && enhancement && !editingAfterSave && (
+        <div className="space-y-3">
+          <StudioResultPreview
+            src={enhancement.previewUrl}
+            aspect={enhancePreviewAspect}
+            alt={t("upload.imageEnhance.afterAlt")}
+          />
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium text-white">
+                {t("upload.imageEnhance.appliedChip")}
+              </span>
+              <span className="text-xs font-medium text-emerald-900">
+                {t("upload.imageEnhance.applied.title")}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+              <button
+                type="button"
+                onClick={() => {
+                  const recipe = enhancement.meta.recipe;
+                  const corners =
+                    recipe.kind === "flat" ? recipe.params.sourceCorners : null;
+                  setSaveStatus(null);
+                  setEditingAfterSave(true);
+                  if (corners) {
+                    setPerspectiveCorners(corners);
+                    setPathChoice("ai");
+                    setWizardStep("tone");
+                    setEnhancePreview(enhancement);
+                    didAutoPreviewRef.current = true;
+                  } else {
+                    setPathChoice(null);
+                  }
+                }}
+                className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
+              >
+                {t("upload.imageEnhance.applied.reopen")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleEnhanceReject();
+                  setSaveStatus(null);
+                }}
+                className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-100"
+              >
+                {t("upload.imageEnhance.applied.revert")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {enhancementEnabled && pathChoice === "ai" && (!enhancement || editingAfterSave) && (
         <div className="space-y-3">
           {/* Aria-live region — announces save/reset transitions for
               screen readers. Kept visually hidden. */}
@@ -1914,57 +1970,7 @@ export function ImageStandardizeEditor({
             {saveStatus ?? ""}
           </p>
 
-          {/* SAVED VIEW — parent already has an approved enhancement.
-              Compact confirmation card + "다시 편집" / "원본으로 되돌리기"
-              affordances. User has to explicitly opt back in to see the
-              full tools. */}
-          {enhancement && !editingAfterSave ? (
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={enhancement.previewUrl}
-                  alt=""
-                  className="h-16 w-16 shrink-0 rounded-md border border-white object-cover"
-                  draggable={false}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium text-white">
-                      {t("upload.imageEnhance.appliedChip")}
-                    </span>
-                    <span className="text-xs font-medium text-emerald-900">
-                      {t("upload.imageEnhance.applied.title")}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingAfterSave(true);
-                        setSaveStatus(null);
-                      }}
-                      className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-emerald-800 hover:bg-emerald-100"
-                    >
-                      {t("upload.imageEnhance.applied.reopen")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleEnhanceReject();
-                        setEditingAfterSave(false);
-                        setSaveStatus(null);
-                      }}
-                      className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-zinc-700 hover:bg-zinc-100"
-                    >
-                      {t("upload.imageEnhance.applied.revert")}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <>
+          <>
               {/* F4 (2026-08-10) — wizard-by-default. The Basic view
                   is a 3-step flow (원근·크롭 → 톤·벽 색 → 확인·저장)
                   with a persistent progress indicator. Legacy top-
@@ -1989,10 +1995,12 @@ export function ImageStandardizeEditor({
                   type="button"
                   onClick={() => {
                     didAutoPreviewRef.current = false;
-                    setEnhancePreview(null);
-                    setWizardStep("perspective");
                     if (enhancement) handleEnhanceReject();
-                    setPathChoice(null);
+                    else {
+                      setEnhancePreview(null);
+                      setWizardStep("perspective");
+                      setPathChoice(null);
+                    }
                   }}
                   className="shrink-0 rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-zinc-50"
                 >
@@ -2262,26 +2270,31 @@ export function ImageStandardizeEditor({
                   )}
 
                   {/* Strength selector */}
-                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <span className="text-zinc-600">
-                      {t("upload.imageEnhance.intensity.label")}
-                    </span>
-                    {(["light", "normal", "strong"] as Intensity[]).map((i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setIntensity(i)}
-                        className={`rounded-full border px-2.5 py-1 ${
-                          intensity === i
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-                        }`}
-                      >
-                        {i === "normal"
-                          ? t("upload.imageEnhance.flow.intensityRecommended")
-                          : t(`upload.imageEnhance.intensity.${i}`)}
-                      </button>
-                    ))}
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="text-zinc-600">
+                        {t("upload.imageEnhance.intensity.label")}
+                      </span>
+                      {(["light", "normal", "strong"] as Intensity[]).map((i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setIntensity(i)}
+                          className={`rounded-full border px-2.5 py-1 ${
+                            intensity === i
+                              ? "border-zinc-900 bg-zinc-900 text-white"
+                              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                          }`}
+                        >
+                          {i === "normal"
+                            ? t("upload.imageEnhance.flow.intensityRecommended")
+                            : t(`upload.imageEnhance.intensity.${i}`)}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-zinc-500">
+                      {t("upload.imageEnhance.intensity.hint")}
+                    </p>
                   </div>
 
                   {/* Actions */}
@@ -2634,7 +2647,6 @@ export function ImageStandardizeEditor({
                 </div>
               )}
             </>
-          )}
         </div>
       )}
 

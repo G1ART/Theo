@@ -801,15 +801,15 @@ export async function runFlatEnhancement(
 
   if (isAborted()) return bail("aborted");
 
-  // Bezel — even studio margin (#f3f3f3) around the artwork, with a
-  // soft drop shadow so the canvas reads as hung on a gallery wall.
-  // The canvas keeps the artwork's own aspect; we do not force 4:3 / 4:5.
+  // Bezel — even studio margin (#f3f3f3) on all four sides so the
+  // artwork sits in the center of the gallery wall. Drop shadow is
+  // drawn into that margin (not extra canvas below), otherwise the
+  // bottom matte reads larger than the top.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
-  const shadowBlur = Math.max(12, Math.round(bezelPx * 1.35));
-  const shadowOffsetY = Math.max(6, Math.round(bezelPx * 0.5));
-  const shadowPad = Math.round(shadowBlur + shadowOffsetY);
+  const shadowBlur = Math.max(8, Math.round(bezelPx * 0.4));
+  const shadowOffsetY = Math.max(4, Math.round(bezelPx * 0.18));
   const finalW = workW + bezelPx * 2;
-  const finalH = workH + bezelPx * 2 + shadowPad;
+  const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
   try {
     const t0 = performance.now();
