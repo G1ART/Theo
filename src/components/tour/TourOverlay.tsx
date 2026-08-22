@@ -12,9 +12,9 @@
  * inheriting z-index/overflow from the nearest parent. Designed to be calm
  * and premium: no bouncing, no flashing; brief transitions only.
  *
- * This is a coachmark, not a modal: the dim/spotlight layer is visual-only
- * (`pointer-events-none`) so sidebar and other in-app nav always receive
- * clicks. Only the popover (Skip / Next / Done) is clickable.
+ * This is a coachmark, not a modal. Dim is a `box-shadow` on the small
+ * halo only — no full-viewport SVG (WebKit can still hit-test masked
+ * SVGs). Only the popover (Skip / Next / Done) is `pointer-events-auto`.
  *
  * Why `"use no memo"`: React Compiler 1.0 can over-memoize text fragments
  * derived from i18n + per-step props. Combined with our portal + GPU
@@ -206,17 +206,7 @@ export function TourOverlay({
   const cta = step.ctaKey ? t(step.ctaKey) : null;
 
   const overlayEl = (
-    <div
-      aria-hidden={false}
-      role="region"
-      aria-labelledby="tour-title"
-      lang={locale === "ko" ? "ko" : "en"}
-      className="fixed inset-0 z-[1200] pointer-events-none"
-    >
-      {/* Backdrop with spotlight cutout via SVG mask */}
-      <Spotlight rect={targetRect} />
-
-      {/* Subtle halo ring around target */}
+    <>
       {targetRect ? <Halo rect={targetRect} /> : null}
 
       {/* Popover. The `key` forces a fresh DOM node per step so neither React
@@ -226,13 +216,17 @@ export function TourOverlay({
       <div
         key={`${tour.id}:${step.id}:${locale}`}
         ref={popoverRef}
+        aria-hidden={false}
+        role="region"
+        aria-labelledby="tour-title"
+        lang={locale === "ko" ? "ko" : "en"}
         style={{
           top: position.top,
           left: position.left,
           maxWidth: `min(${POPOVER_WIDTH}px, ${POPOVER_MAX_WIDTH_VW}vw)`,
           fontFamily: TOUR_POPOVER_FONT_FAMILY,
         }}
-        className="pointer-events-auto absolute w-[min(340px,92vw)] rounded-2xl bg-white text-zinc-900 shadow-[0_20px_60px_-20px_rgba(24,24,27,0.35),0_8px_18px_-8px_rgba(24,24,27,0.25)] ring-1 ring-zinc-200/80"
+        className="pointer-events-auto fixed z-[1200] w-[min(340px,92vw)] rounded-2xl bg-white text-zinc-900 shadow-[0_20px_60px_-20px_rgba(24,24,27,0.35),0_8px_18px_-8px_rgba(24,24,27,0.25)] ring-1 ring-zinc-200/80"
       >
         {/* Arrow */}
         <ArrowIndicator direction={position.arrow} />
@@ -302,62 +296,25 @@ export function TourOverlay({
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 
   return createPortal(overlayEl, document.body);
 }
 
-// ─── Spotlight (dimmed layer with rounded cutout around target) ─────────
-function Spotlight({ rect }: { rect: TargetRect | null }) {
-  const vw = typeof window !== "undefined" ? window.innerWidth : 0;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 0;
-
-  // No target: do not paint a full-screen layer. A dim here used to
-  // sit on `pointer-events-auto` and trap every click (including the
-  // main sidebar) while the step's anchor was unmounted.
-  if (!rect) return null;
-
-  const x = Math.max(0, rect.left - PADDING);
-  const y = Math.max(0, rect.top - PADDING);
-  const w = Math.min(vw - x, rect.width + PADDING * 2);
-  const h = Math.min(vh - y, rect.height + PADDING * 2);
-  const r = 14;
-
-  return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      aria-hidden
-    >
-      <defs>
-        <mask id="tour-mask">
-          <rect x={0} y={0} width={vw} height={vh} fill="white" />
-          <rect x={x} y={y} width={w} height={h} rx={r} ry={r} fill="black" />
-        </mask>
-      </defs>
-      <rect
-        x={0}
-        y={0}
-        width={vw}
-        height={vh}
-        fill="rgba(24,24,27,0.55)"
-        mask="url(#tour-mask)"
-      />
-    </svg>
-  );
-}
-
-// ─── Halo (soft highlight ring around target) ───────────────────────────
+// ─── Halo + dim (small hit box; dim is box-shadow only) ─────────────────
 function Halo({ rect }: { rect: TargetRect }) {
   return (
     <div
-      className="pointer-events-none absolute rounded-2xl ring-1 ring-white/70 shadow-[0_0_0_3px_rgba(255,255,255,0.35),0_0_24px_4px_rgba(255,255,255,0.25)]"
+      className="pointer-events-none fixed z-[1199] rounded-2xl ring-1 ring-white/70"
       style={{
         top: rect.top - PADDING,
         left: rect.left - PADDING,
         width: rect.width + PADDING * 2,
         height: rect.height + PADDING * 2,
         borderRadius: 14,
+        boxShadow:
+          "0 0 0 9999px rgba(24,24,27,0.55), 0 0 0 3px rgba(255,255,255,0.35), 0 0 24px 4px rgba(255,255,255,0.25)",
       }}
       aria-hidden
     />

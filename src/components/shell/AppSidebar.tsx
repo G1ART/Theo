@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ShellNavLink } from "@/components/shell/ShellNavLink";
 import { TheoLogo } from "@/components/brand/TheoLogo";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -184,7 +184,7 @@ export function AppSidebar({
         : onboardingUrlWithNext({ nextPath: item.href });
     const badgeCount = resolveBadge(item);
     return (
-      <Link
+      <ShellNavLink
         key={item.key}
         href={href}
         className={`relative flex items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[15px] transition-colors ${
@@ -202,7 +202,7 @@ export function AppSidebar({
             {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         )}
-      </Link>
+      </ShellNavLink>
     );
   }
 
@@ -219,7 +219,7 @@ export function AppSidebar({
       aria-label="Primary"
       className="flex h-full min-h-screen flex-col gap-6 py-8 pr-6 text-[15px]"
     >
-      <Link
+      <ShellNavLink
         href="/feed?tab=all&sort=latest"
         aria-label="Theo"
         className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
@@ -227,7 +227,7 @@ export function AppSidebar({
         {/* Brand mark — official raster with session-once reveal + settle
             animation (see TheoLogo). Above-the-fold, so `priority`. */}
         <TheoLogo className="h-12" size="md" priority />
-      </Link>
+      </ShellNavLink>
 
       <div className="flex flex-col gap-1">
         {PRIMARY_NAV.map(renderNavRow)}
@@ -302,18 +302,18 @@ export function AppSidebar({
           // (cold-visitor convention), login secondary for returning
           // members. Both preserve the current location as `next`.
           <div className="mt-3 flex flex-col gap-2 pl-3 pr-2">
-            <Link
+            <ShellNavLink
               href={onboardingUrlWithNext({ nextPath: pathname || null })}
               className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
             >
               {t("nav.getStarted")}
-            </Link>
-            <Link
+            </ShellNavLink>
+            <ShellNavLink
               href="/login"
               className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
             >
               {t("nav.login")}
-            </Link>
+            </ShellNavLink>
           </div>
         )}
       </div>

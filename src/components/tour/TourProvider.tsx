@@ -29,7 +29,11 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
-import { TOURS, getTour } from "@/lib/tours/tourRegistry";
+import { TOURS, TOUR_IDS, getTour } from "@/lib/tours/tourRegistry";
+import {
+  ENHANCE_WIZARD_EVENT,
+  isEnhanceWizardActive,
+} from "@/lib/tours/enhanceWizardTour";
 import type { TourDefinition, TourStep } from "@/lib/tours/tourTypes";
 import {
   findTourTarget,
@@ -102,6 +106,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
   // silently bails (we don't want empty overlays).
   const enterTour = useCallback(
     async (tour: TourDefinition, startStep = 0) => {
+      if (tour.id === TOUR_IDS.upload && isEnhanceWizardActive()) return;
       const requiredPresent =
         !tour.requiredAnchors ||
         tour.requiredAnchors.some((a) => !!findTourTarget(a));
@@ -172,6 +177,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
         // the overlay from landing on a loading skeleton.
         window.setTimeout(() => {
           if (cancelled) return;
+          if (tour.id === TOUR_IDS.upload && isEnhanceWizardActive()) return;
           void enterTour(tour, 0);
         }, 400);
       })();
@@ -299,6 +305,21 @@ export function TourProvider({ children }: { children: ReactNode }) {
       void handleSkip();
     }
   }, [pathname, activeTour, handleSkip]);
+
+  // Crop / lighting is the focus. Pause the upload tour (do not persist
+  // skip) so the overlay cannot sit on the editor or eat sidebar clicks.
+  useEffect(() => {
+    const pauseUploadTour = () => {
+      if (!isEnhanceWizardActive()) return;
+      if (activeTour?.id !== TOUR_IDS.upload) return;
+      clearActive();
+    };
+    pauseUploadTour();
+    window.addEventListener(ENHANCE_WIZARD_EVENT, pauseUploadTour);
+    return () => {
+      window.removeEventListener(ENHANCE_WIZARD_EVENT, pauseUploadTour);
+    };
+  }, [activeTour, clearActive]);
 
   useEffect(() => {
     if (!activeTour) return;

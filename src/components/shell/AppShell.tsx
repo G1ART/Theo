@@ -56,8 +56,8 @@ export function AppShell({
   }, [pathname]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1440px]">
-      <aside className="hidden w-52 shrink-0 pl-6 lg:block">
+    <div className="relative mx-auto flex w-full max-w-[1440px]">
+      <aside className="relative z-30 hidden w-52 shrink-0 pl-6 pointer-events-auto lg:block">
         <div className="sticky top-0 max-h-screen overflow-y-auto">
           <AppSidebar onOpenNotifications={() => setDrawerOpen(true)} />
         </div>
@@ -65,8 +65,9 @@ export function AppShell({
 
       {/* Center keeps each page's own <main>/container (padding, max-width,
           centering), so wrapping a page in <AppShell> needs no internal edits
-          and avoids nested <main> landmarks. */}
-      <div className="min-w-0 flex-1">{children}</div>
+          and avoids nested <main> landmarks. z-0 + clip so a wide child
+          cannot paint over the left rail and steal nav clicks. */}
+      <div className="relative z-0 min-w-0 flex-1 overflow-x-clip">{children}</div>
 
       {showRail && (
         <aside className="hidden w-[340px] shrink-0 pr-6 xl:block">

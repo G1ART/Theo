@@ -8,7 +8,7 @@
  * line each. Invitation count can badge the hamburger; Board never does.
  */
 
-import Link from "next/link";
+import { ShellNavLink } from "@/components/shell/ShellNavLink";
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
@@ -100,7 +100,7 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
       className="my-2 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3"
     >
       {loggedIn && (
-        <Link
+        <ShellNavLink
           href="/my/network"
           onClick={onNavigate}
           className="block rounded-xl px-1 py-1.5 hover:bg-white"
@@ -116,17 +116,17 @@ export function HamburgerContextPeek({ loggedIn, onNavigate }: Props) {
             )}
           </div>
           <p className="mt-0.5 truncate text-xs text-zinc-500">{networkHint}</p>
-        </Link>
+        </ShellNavLink>
       )}
 
-      <Link
+      <ShellNavLink
         href={boardHref}
         onClick={onNavigate}
         className={`block rounded-xl px-1 py-1.5 hover:bg-white ${loggedIn ? "mt-1" : ""}`}
       >
         <p className="text-sm font-medium text-zinc-900">{t("nav.theoBoard")}</p>
         <p className="mt-0.5 truncate text-xs text-zinc-500">{boardHint}</p>
-      </Link>
+      </ShellNavLink>
       {/* 2026-08-18: "내 공간" (My Spaces) preview row removed. Spaces
           is now a tile in the `/my` workspace hub instead of a
           top-level nav slot, so the mobile hamburger no longer needs

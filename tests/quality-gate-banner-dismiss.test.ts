@@ -85,9 +85,11 @@ function warnResult(): ArtworkQualityGateResult {
     /shouldShowQualityGateBanner/,
     "editor must use the shared visibility helper",
   );
+  assert.match(editor, /fileIdentityKey/);
+  assert.match(editor, /rememberQualityGateAck/);
   assert.match(
     editor,
-    /onUseAnyway=\{\(\) => \{\s*setQualityGateOverride\(true\);\s*setQualityGateDismissed\(true\);/,
+    /onUseAnyway=\{\(\) => \{[\s\S]*setQualityGateOverride\(true\);[\s\S]*setQualityGateDismissed\(true\);/,
     "그래도 계속 must record override AND dismiss the banner",
   );
   assert.equal(

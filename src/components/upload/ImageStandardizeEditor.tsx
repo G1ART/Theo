@@ -72,7 +72,13 @@ import {
 } from "@/lib/image/enhancement/aiClient";
 import { useQualityGatePref } from "@/lib/image/enhancement/qualityGatePref";
 import { QualityGateBanner } from "@/components/upload/QualityGateBanner";
-import { shouldShowQualityGateBanner } from "@/lib/image/enhancement/qualityGateBannerVisibility";
+import {
+  fileIdentityKey,
+  getQualityGateAck,
+  rememberQualityGateAck,
+  shouldShowQualityGateBanner,
+} from "@/lib/image/enhancement/qualityGateBannerVisibility";
+import { setEnhanceWizardActive } from "@/lib/tours/enhanceWizardTour";
 
 /**
  * Capture-mode chip (2026-08-06). Pre-seeds the enhance pipeline so
@@ -679,15 +685,24 @@ export function ImageStandardizeEditor({
   const [qualityGate, setQualityGate] =
     useState<ArtworkQualityGateResult | null>(null);
   const [qualityGateRunning, setQualityGateRunning] = useState(false);
-  const [qualityGateOverride, setQualityGateOverride] = useState(false);
-  const [qualityGateDismissed, setQualityGateDismissed] = useState(false);
+  const [qualityGateOverride, setQualityGateOverride] = useState(
+    () => getQualityGateAck(file).override,
+  );
+  const [qualityGateDismissed, setQualityGateDismissed] = useState(
+    () => getQualityGateAck(file).dismissed,
+  );
+  const fileKey = fileIdentityKey(file);
 
   useEffect(() => {
-    // Reset per-file so a new upload gets a fresh verdict.
+    // Identity (name+size+lastModified), not File object reference —
+    // parent re-renders that wrap a new File for the same photo must
+    // not resurrect the banner.
+    const ack = getQualityGateAck(file);
     setQualityGate(null);
-    setQualityGateOverride(false);
-    setQualityGateDismissed(false);
-  }, [file]);
+    setQualityGateOverride(ack.override);
+    setQualityGateDismissed(ack.dismissed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fileKey is the identity
+  }, [fileKey]);
 
   useEffect(() => {
     // Wait for the DSP analyzer to succeed — we key on `analysis.mode`
@@ -1036,6 +1051,11 @@ export function ImageStandardizeEditor({
   const [pathChoice, setPathChoice] = useState<"original" | "ai" | null>(
     enhancement ? "ai" : null,
   );
+  useEffect(() => {
+    const active = pathChoice !== null;
+    setEnhanceWizardActive(active);
+    return () => setEnhanceWizardActive(false);
+  }, [pathChoice]);
   const [detectingArtwork, setDetectingArtwork] = useState(false);
   const [visionQuad, setVisionQuad] = useState<Quad | null>(null);
   const [visionStatus, setVisionStatus] = useState<
@@ -2141,10 +2161,20 @@ export function ImageStandardizeEditor({
             locale={locale}
             onReshoot={() => {
               if (onReshootRequest) onReshootRequest();
-              else setQualityGateDismissed(true);
+              else {
+                rememberQualityGateAck(file, { dismissed: true });
+                setQualityGateDismissed(true);
+              }
             }}
-            onProceed={() => setQualityGateDismissed(true)}
+            onProceed={() => {
+              rememberQualityGateAck(file, { dismissed: true });
+              setQualityGateDismissed(true);
+            }}
             onUseAnyway={() => {
+              rememberQualityGateAck(file, {
+                override: true,
+                dismissed: true,
+              });
               setQualityGateOverride(true);
               setQualityGateDismissed(true);
             }}

@@ -127,15 +127,19 @@ body {
 /* Hamburger open (and a short linger after close): the feed must not
    receive the same tap that dismissed the menu. Artwork cards use
    article onClick + router.push, so a ghost click after the sheet
-   unmounts would otherwise open the work. */
-html.theo-nav-blocked {
-  overflow: hidden;
-}
-html.theo-nav-blocked body * {
-  pointer-events: none;
-}
-html.theo-nav-blocked [data-mobile-nav],
-html.theo-nav-blocked [data-mobile-nav] *,
-html.theo-nav-blocked [data-mobile-scrim] {
-  pointer-events: auto;
+   unmounts would otherwise open the work.
+   Scope to below `lg` (1024px) — the hamburger is `lg:hidden`. If the
+   class sticks on desktop, the left sidebar must stay clickable. */
+@media (max-width: 1023px) {
+  html.theo-nav-blocked {
+    overflow: hidden;
+  }
+  html.theo-nav-blocked body * {
+    pointer-events: none;
+  }
+  html.theo-nav-blocked [data-mobile-nav],
+  html.theo-nav-blocked [data-mobile-nav] *,
+  html.theo-nav-blocked [data-mobile-scrim] {
+    pointer-events: auto;
+  }
 }

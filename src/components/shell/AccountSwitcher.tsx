@@ -23,8 +23,8 @@
  * self-row.
  */
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { leaveUploadOrAssign } from "@/lib/shell/leaveUploadNav";
 import { signOut } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
@@ -104,6 +104,7 @@ export function AccountSwitcher({
 }: Props) {
   const { t, locale } = useT();
   const router = useRouter();
+  const pathname = usePathname() ?? "";
   const {
     actingAsProfileId,
     actingAsLabel,
@@ -123,6 +124,7 @@ export function AccountSwitcher({
   function switchToOwn() {
     clearActingAs();
     onNavigate?.();
+    if (leaveUploadOrAssign(pathname, "/my")) return;
     router.push("/my");
     router.refresh();
   }
@@ -135,6 +137,7 @@ export function AccountSwitcher({
       formatDisplayName(p as IdentityInput, t, locale) || formatUsername(p),
     );
     onNavigate?.();
+    if (leaveUploadOrAssign(pathname, "/my")) return;
     router.push("/my");
     router.refresh();
   }
@@ -142,6 +145,7 @@ export function AccountSwitcher({
   async function handleLogout() {
     onNavigate?.();
     await signOut();
+    if (leaveUploadOrAssign(pathname, "/login")) return;
     router.replace("/login");
   }
 
@@ -166,6 +170,7 @@ export function AccountSwitcher({
                   switchToOwn();
                 } else {
                   onNavigate?.();
+                  if (leaveUploadOrAssign(pathname, profileHref)) return;
                   router.push(profileHref);
                 }
               }}

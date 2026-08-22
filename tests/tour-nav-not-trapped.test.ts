@@ -64,23 +64,19 @@ function read(rel: string): string {
     );
   }
 
-  // ── TourOverlay: visual-only dim, not a modal, no null-target trap ─
+  // ── TourOverlay: halo box-shadow dim, no full-viewport SVG ─────────
   const overlay = read("src/components/tour/TourOverlay.tsx");
   assert.equal(
     /pointer-events-auto absolute inset-0/.test(overlay),
     false,
     "Spotlight must not use a full-screen pointer-events-auto layer",
   );
-  assert.match(
-    overlay,
-    /className="pointer-events-none absolute inset-0 h-full w-full"/,
-    "SVG spotlight must be pointer-events-none",
+  assert.equal(
+    /<svg/.test(overlay),
+    false,
+    "full-viewport SVG spotlight is gone (WebKit hit-test)",
   );
-  assert.match(
-    overlay,
-    /if \(!rect\) return null/,
-    "missing target must not render a full-screen dim",
-  );
+  assert.match(overlay, /0 0 0 9999px rgba\(24,24,27,0\.55\)/);
   assert.equal(
     /aria-modal="true"/.test(overlay),
     false,
@@ -94,7 +90,7 @@ function read(rel: string): string {
   assert.match(overlay, /role="region"/);
   assert.match(
     overlay,
-    /className="pointer-events-auto absolute w-\[min\(340px,92vw\)\]/,
+    /className="pointer-events-auto fixed z-\[1200\] w-\[min\(340px,92vw\)\]/,
     "only the popover should capture clicks",
   );
 

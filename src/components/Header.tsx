@@ -1,7 +1,7 @@
 "use client";
 
 import { TheoLogo } from "@/components/brand/TheoLogo";
-import Link from "next/link";
+import { ShellNavLink } from "@/components/shell/ShellNavLink";
 import { usePathname, useRouter } from "next/navigation";
 import { isAuthFrontDoorRoute, isShellRoute } from "@/lib/shell/routes";
 import { useEffect, useId, useRef, useState, useCallback } from "react";
@@ -382,7 +382,7 @@ export function Header() {
     const badgeCount = resolveBadge(item);
     const active = isNavItemActive(item, pathname ?? "");
     return (
-      <Link
+      <ShellNavLink
         key={item.key}
         href={href}
         onClick={closeMobile}
@@ -398,7 +398,7 @@ export function Header() {
             {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         )}
-      </Link>
+      </ShellNavLink>
     );
   }
 
@@ -461,12 +461,12 @@ export function Header() {
             </span>
           </span>
           <span className="ml-auto flex flex-wrap items-center gap-3">
-            <Link
+            <ShellNavLink
               href="/my/delegations"
               className="font-medium hover:underline"
             >
               {t("delegation.banner.viewPermissions")}
-            </Link>
+            </ShellNavLink>
             <button
               type="button"
               onClick={handleSwitchToOperator}
@@ -483,7 +483,7 @@ export function Header() {
         }`}
       >
         <div className="flex items-center gap-6">
-          <Link
+          <ShellNavLink
             href="/feed?tab=all&sort=latest"
             aria-label="Theo"
             className="inline-flex items-center text-zinc-900 hover:opacity-80"
@@ -492,7 +492,7 @@ export function Header() {
             {/* Brand mark — official raster with session-once reveal + settle
                 animation (see TheoLogo). Header appears on every route so `priority`. */}
             <TheoLogo className="h-9" size="sm" priority />
-          </Link>
+          </ShellNavLink>
         </div>
 
         <div className="flex items-center gap-3">
@@ -521,7 +521,7 @@ export function Header() {
               {/* Below-lg avatar: direct link to /u/{username}. The
                   hamburger owns the full menu surface. The avatar still
                   carries the unread badge as a visual cue. */}
-              <Link
+              <ShellNavLink
                 href={mobileProfileHref}
                 className={`lg:hidden relative flex ${hitTarget} items-center justify-center rounded-full hover:opacity-90`}
                 aria-label={avatarAriaLabel}
@@ -547,7 +547,7 @@ export function Header() {
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
-              </Link>
+              </ShellNavLink>
 
               {/* Desktop avatar dropdown (`lg+`, non-shell routes).
                   Shares the same AccountSwitcher + SECONDARY_NAV data
@@ -595,7 +595,7 @@ export function Header() {
                     {SECONDARY_NAV.map((item) => {
                       const badgeCount = resolveBadge(item);
                       return (
-                        <Link
+                        <ShellNavLink
                           key={item.key}
                           href={item.href}
                           className="flex items-center justify-between px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
@@ -608,7 +608,7 @@ export function Header() {
                               {badgeCount > 99 ? "99+" : badgeCount}
                             </span>
                           )}
-                        </Link>
+                        </ShellNavLink>
                       );
                     })}
                     <div className="my-1 border-t border-zinc-100" />
@@ -644,12 +644,12 @@ export function Header() {
                   KO
                 </button>
               </span>
-              <Link
+              <ShellNavLink
                 href="/login"
                 className="hidden lg:inline-flex rounded px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
               >
                 {t("nav.login")}
-              </Link>
+              </ShellNavLink>
             </>
           )}
 
@@ -754,20 +754,20 @@ export function Header() {
 
               {!loggedIn && (
                 <div className="mt-3 flex flex-col gap-2 px-1">
-                  <Link
+                  <ShellNavLink
                     href={onboardingUrlWithNext({ nextPath: pathname || null })}
                     onClick={closeMobile}
                     className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
                   >
                     {t("nav.getStarted")}
-                  </Link>
-                  <Link
+                  </ShellNavLink>
+                  <ShellNavLink
                     href="/login"
                     onClick={closeMobile}
                     className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
                   >
                     {t("nav.login")}
-                  </Link>
+                  </ShellNavLink>
                 </div>
               )}
             </nav>

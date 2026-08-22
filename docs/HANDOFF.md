@@ -2,6 +2,38 @@
 
 Last updated: 2026-08-22
 
+## 2026-08-22 (65) — 이미지 보정 중에도 사이드바·탭이 동작하고 배너가 닫힘
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+업로드 **이미지 보정**(크롭) 중에 왼쪽 메인/서브 탭이 안 눌리던 문제.
+투어 SVG에 `pointer-events-none`만 준 62·63번은 부족했다. 크롭은 되고
+사이드바만 죽은 것은 전역 `pointer-events: none`이 아니라, 덮는 레이어·
+스택 순서·멈춘 App Router `<Link>` 쪽이다.
+
+- 투어: 전체 화면 SVG 제거. 타깃 할로에만 `box-shadow: 0 0 0 9999px`.
+  팝오버만 `pointer-events-auto`. AI 마법사(`pathChoice !== null`)면
+  업로드 투어를 즉시 멈춤(스킵 저장 안 함).
+- AppShell: 왼쪽 `aside`에 `relative z-30 pointer-events-auto`. 가운데는
+  `z-0 overflow-x-clip`이라 넓은 자식이 레일을 덮지 않음.
+- `/upload*`에서 `/upload` 밖 탭은 `window.location.assign`으로 하드
+  이동(초안 버림). 개별/일괄/전시는 클라이언트 이동 유지.
+- `html.theo-nav-blocked` 잠금은 `max-width: 1023px`만. 데스크톱 레일은
+  클래스가 남아도 클릭 가능.
+- 「그래도 계속」은 배너를 닫고, 닫힘은 파일 identity(name+size+
+  lastModified)로 세션 유지. `File` 객체 교체로 다시 안 뜸.
+
+떠나기 확인 대화상자는 넣지 않음.
+
+**Verified:** `npx tsx tests/upload-nav-always-clickable.test.ts`,
+`npx tsx tests/tour-nav-not-trapped.test.ts`,
+`npx tsx tests/quality-gate-banner-dismiss.test.ts`,
+`npx tsc --noEmit`.
+
+---
+
 ## 2026-08-22 (64) — 「그래도 계속」이 품질 경고 배너를 닫음
 
 > **Supabase SQL 적용 필요: 없음.**
