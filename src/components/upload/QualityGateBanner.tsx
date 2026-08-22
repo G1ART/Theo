@@ -17,10 +17,10 @@ import type {
  *   - `warn`  → yellow banner. `[재촬영]` clears the file (via
  *     `onReshoot`), `[계속 진행]` dismisses the banner and keeps
  *     Save enabled (`onProceed`).
- *   - `block` → red banner. `[재촬영]` clears the file. The secondary
- *     `[그래도 계속]` link records an override (`onUseAnyway`) so QA
- *     can slice on `enhancement_meta.qualityGate.override = true` for
- *     systemic false-block regressions.
+ *   - `block` → red banner. `[재촬영]` clears the file. `[그래도 계속]`
+ *     dismisses the banner (`onUseAnyway`) and records override so QA
+ *     can slice on `enhancement_meta.qualityGate.override = true`.
+ *     Parent must stop rendering this banner after that click.
  *   - `ok` / `degraded` → the parent should not render this banner at
  *     all. The component still guards against it (returns `null`).
  */
@@ -47,8 +47,8 @@ type Props = {
   onReshoot: () => void;
   /** Called when the user clicks "계속 진행" (warn banner only). */
   onProceed?: () => void;
-  /** Called when the user clicks the "그래도 계속" escape hatch
-   *  (block banner only). Records `override = true` upstream. */
+  /** Called when the user clicks "그래도 계속" (block banner only).
+   *  Parent records `override = true` and hides this banner. */
   onUseAnyway?: () => void;
 };
 
@@ -128,7 +128,7 @@ export function QualityGateBanner({
               <button
                 type="button"
                 onClick={onUseAnyway}
-                className="text-xs font-medium text-red-800 underline decoration-red-400 underline-offset-2 hover:text-red-900"
+                className="rounded-full border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-900 hover:bg-red-100"
               >
                 {t("enhancement.quality.useAnyway")}
               </button>

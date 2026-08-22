@@ -72,6 +72,7 @@ import {
 } from "@/lib/image/enhancement/aiClient";
 import { useQualityGatePref } from "@/lib/image/enhancement/qualityGatePref";
 import { QualityGateBanner } from "@/components/upload/QualityGateBanner";
+import { shouldShowQualityGateBanner } from "@/lib/image/enhancement/qualityGateBannerVisibility";
 
 /**
  * Capture-mode chip (2026-08-06). Pre-seeds the enhance pipeline so
@@ -243,9 +244,10 @@ function StudioResultPreview({
  * CTA can gate itself on a `block` severity that the artist has not
  * overridden.
  *
- * `dismissed` is true after the artist explicitly acknowledges a
- * `warn` banner via "계속 진행". Parents should treat dismissed warns
- * exactly like `severity: "ok"` (upload proceeds normally).
+ * `dismissed` is true after the artist acknowledges a warn ("계속
+ * 진행") or a block ("그래도 계속"). Parents should treat dismissed
+ * gates like `severity: "ok"` for the banner; block still records
+ * `override: true` when they used the escape hatch.
  *
  * `degraded` mirrors the AI degradation flag — the parent should
  * NEVER block on a degraded gate.
@@ -764,9 +766,9 @@ export function ImageStandardizeEditor({
   }, [qualityGate, qualityGateOverride, qualityGateDismissed, onQualityGate]);
 
   // Effective severity — a degraded verdict or a dismissed warn is
-  // treated as `ok` for banner rendering AND for auto-preview
-  // gating. Block+override still surfaces the enhance flow, but the
-  // meta records `override: true` for QA visibility.
+  // treated as `ok` for auto-preview gating. Block+override still
+  // surfaces the enhance flow; the banner itself is hidden via
+  // `shouldShowQualityGateBanner` once dismissed / overridden.
   const effectiveGateSeverity: "ok" | "warn" | "block" = (() => {
     if (!qualityGate) return "ok";
     if (qualityGate.degraded) return "ok";
@@ -2125,11 +2127,13 @@ export function ImageStandardizeEditor({
           {t("enhancement.quality.detecting")}
         </p>
       )}
-      {pathChoice === "ai" &&
-        qualityGate &&
-        !qualityGate.degraded &&
-        (qualityGate.severity === "block" ||
-          (qualityGate.severity === "warn" && !qualityGateDismissed)) && (
+      {shouldShowQualityGateBanner({
+        pathChoice,
+        result: qualityGate,
+        dismissed: qualityGateDismissed,
+        override: qualityGateOverride,
+      }) &&
+        qualityGate && (
           <QualityGateBanner
             severity={qualityGate.severity}
             issues={qualityGate.issues}
@@ -2140,7 +2144,10 @@ export function ImageStandardizeEditor({
               else setQualityGateDismissed(true);
             }}
             onProceed={() => setQualityGateDismissed(true)}
-            onUseAnyway={() => setQualityGateOverride(true)}
+            onUseAnyway={() => {
+              setQualityGateOverride(true);
+              setQualityGateDismissed(true);
+            }}
           />
         )}
 
