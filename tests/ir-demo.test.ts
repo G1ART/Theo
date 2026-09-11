@@ -20,7 +20,9 @@ const storage = read("src/lib/supabase/storage.ts");
 const seed = read("scripts/seed-ir-demo-personas.ts");
 const artistInvite = read("src/app/api/artist-invite-email/route.ts");
 const delegationInvite = read("src/app/api/delegation-invite-email/route.ts");
+const nextConfig = read("next.config.ts");
 const layout = read("src/app/layout.tsx");
+const irPage = read("src/app/ir/page.tsx");
 const config = read("src/lib/irDemo/config.ts");
 const messages = read("src/lib/i18n/messages.ts");
 
@@ -58,11 +60,13 @@ assert.match(storage, /irDemoAssetUrl\(path, BUCKET\)/);
 
 assert.match(artistInvite, /skipped: "ir_demo"/);
 assert.match(delegationInvite, /skipped: "ir_demo"/);
+assert.match(nextConfig, /pathname: "\/api\/ir\/asset"/);
+assert.match(nextConfig, /unoptimized: process\.env\.NEXT_PUBLIC_IR_DEMO === "true"/);
 
-const irPage = read("src/app/ir/page.tsx");
 assert.match(irPage, /await supabase\.auth\.signOut\(\)/);
 assert.match(irPage, /setSession/);
 assert.match(layout, /robots: \{ index: false, follow: false \}/);
+assert.match(layout, /IrDemoBanner/);
 
 assert.match(seed, /PRODUCTION_PROJECT_REF = "sgufonscldvdwfgzltfw"/);
 assert.match(seed, /IR_DEMO_SUPABASE_URL/);
