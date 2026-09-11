@@ -12,6 +12,7 @@ import { RandomIdBanner } from "@/components/RandomIdBanner";
 import { BackToTopFab } from "@/components/ui/BackToTopFab";
 import { ActingAsProvider } from "@/context/ActingAsContext";
 import { TourProvider } from "@/components/tour";
+import { IrDemoBanner } from "@/components/irDemo/IrDemoBanner";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import {
   LOCALE_COOKIE,
@@ -51,6 +52,9 @@ const suit = localFont({
 export const metadata: Metadata = {
   title: "Theo — Artist-centric community",
   description: "Share works, connect with artists and collectors.",
+  ...(process.env.NEXT_PUBLIC_IR_DEMO === "true"
+    ? { robots: { index: false, follow: false } }
+    : {}),
 };
 
 export const viewport: Viewport = {
@@ -95,6 +99,7 @@ export default async function RootLayout({
           <ProfileBootstrap />
           <ActingAsProvider>
             <TourProvider>
+              <IrDemoBanner />
               <Header />
               <RandomIdBanner />
               <ExistingUserCompletionBanner />

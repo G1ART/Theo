@@ -2,6 +2,45 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 (68) — 비공개 IR 데모 (`/ir`, 프로덕션 격리)
+
+> **Supabase SQL 적용 필요: 없음.** (프로덕션 DB/Storage에 쓰지 않음)
+>
+> **환경 변수: Preview 전용.** Production Environment에
+> `NEXT_PUBLIC_IR_DEMO=true` 를 넣으면 라이브 사이트가 `/ir` 뒤로
+> 잠긴다. `.env.example` 및 Runbook 갱신됨.
+
+별도 Supabase preview branch(데이터 클론) + Vercel Preview. 코드는
+같은 앱이고 플래그가 꺼진 Production은 기존과 같다.
+
+- 시크릿 `/ir` — 작가(현혜명) / 갤러리스트(The GREEN) / 컬렉터(김현민)
+- 쿠키는 `IR_DEMO_SECRET` 해시. `theo_ir=1` 로는 통과 불가
+- 온보딩·비밀번호 게이트 스킵. 매직링크·SendGrid no-op
+- 이미지: 데모 Storage 다음 프로덕션 public origin 폴백
+  (`IR_DEMO_ASSET_ORIGIN`)
+- 시드: `npm run seed:ir-demo` — `IR_DEMO_SUPABASE_URL` 만 사용.
+  프로덕션 ref `sgufonscldvdwfgzltfw` 거부
+
+**HITL (아직 자동으로 못 끝낸 것):**
+1. 로컬 `supabase branches create/list` 가 네트워크 없이 멈춰서
+   이 세션에서 데이터 클론을 못 만듦. Dashboard → Branches 에서
+   `ir-demo` 를 **persistent + with data** 로 만든다. 빈 스키마
+   브랜치(마이그레이션만)는 쓰지 않음.
+2. 클론 URL + service role 로 `npm run seed:ir-demo`
+3. Vercel **Preview(또는 Custom Environment)** 에만 클론 URL/키 +
+   `NEXT_PUBLIC_IR_DEMO=true` + `IR_DEMO_SECRET` + `IR_DEMO_PASSWORD` +
+   `IR_DEMO_ASSET_ORIGIN` + Preview `NEXT_PUBLIC_APP_URL`.
+   **Production에 넣지 말 것. 모든 Preview에 일괄 적용하지 말 것.**
+   `SENDGRID_API_KEY` 는 빼 둘 것. 보정·공간 시뮬은 `PHOTOROOM_API_KEY` /
+   `OPENAI_API_KEY` 를 Preview에 복사하면 산다.
+4. 클론은 persistent라 켜 두면 시간당 과금 (~$0.013/h, 24시간이면
+   약 $10/월). 끝나면 pause/delete.
+
+**Verified:** `npm run test:ir-demo`. 클론 HEALTHY + Preview URL 실기기는
+이 세션에서 못 함.
+
+---
+
 ## 2026-09-10 (67) — 업로드 보정 미리보기가 원본 대신 게시되게
 
 > **Supabase SQL 적용 필요: 없음.**

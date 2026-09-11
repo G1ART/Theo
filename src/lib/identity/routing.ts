@@ -15,6 +15,7 @@
 
 import type { MyAuthState } from "@/lib/supabase/auth";
 import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
+import { isIrDemo, IR_PATH } from "@/lib/irDemo/config";
 
 export const DEFAULT_DESTINATION = "/feed?tab=all&sort=latest";
 export const IDENTITY_FINISH_PATH = "/onboarding/identity";
@@ -50,6 +51,7 @@ function identityFinishUrl(opts?: RouteOpts): string {
 
 /** Build the path for an unauthenticated user, preserving `next`. */
 export function loginUrlWithNext(opts?: RouteOpts): string {
+  if (isIrDemo()) return IR_PATH;
   const safe = safeNextPath(opts?.nextPath);
   if (!safe) return LOGIN_PATH;
   return `${LOGIN_PATH}?next=${encodeURIComponent(safe)}`;
@@ -73,6 +75,7 @@ export function loginUrlWithNext(opts?: RouteOpts): string {
  * a rename across ~8 callers.
  */
 export function onboardingUrlWithNext(opts?: RouteOpts): string {
+  if (isIrDemo()) return IR_PATH;
   const base = isSignupV2Enabled() ? SIGNUP_V2_PATH : ONBOARDING_PATH;
   const safe = safeNextPath(opts?.nextPath);
   if (!safe) return base;
@@ -104,6 +107,10 @@ export function routeByAuthState(
   if (!state) {
     if (opts?.sessionPresent) return { to: pickNext(opts) };
     return { to: loginUrlWithNext(opts) };
+  }
+
+  if (isIrDemo()) {
+    return { to: pickNext(opts) };
   }
 
   if (state.needs_identity_setup) {

@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { clearAllFeedSnapshots } from "@/lib/feed/scrollSnapshot";
+import { isIrDemo } from "@/lib/irDemo/config";
 
 /** Returns the canonical app origin (NEXT_PUBLIC_APP_URL) for auth redirect URLs.
  *  Falls back to window.location.origin only in local dev (no env set).
@@ -65,6 +66,9 @@ export async function signUpWithPassword(
 
 /** @param redirectTo - Optional path (or full URL) to redirect after auth (e.g. /invites/delegation?token=...) */
 export async function sendMagicLink(email: string, redirectTo?: string) {
+  if (isIrDemo()) {
+    return { data: { user: null, session: null }, error: null };
+  }
   let url = `${getAuthOrigin()}/auth/callback`;
   if (redirectTo && typeof redirectTo === "string" && redirectTo.startsWith("/")) {
     url += "?next=" + encodeURIComponent(redirectTo);
@@ -76,6 +80,9 @@ export async function sendMagicLink(email: string, redirectTo?: string) {
 }
 
 export async function sendPasswordReset(email: string) {
+  if (isIrDemo()) {
+    return { data: { user: null, session: null }, error: null };
+  }
   return supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${getAuthOrigin()}/auth/reset`,
   });

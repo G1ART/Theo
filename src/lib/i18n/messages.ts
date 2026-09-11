@@ -4537,6 +4537,27 @@ export const messages = {
     "auth.signupV2.completionBanner.cta": "Complete profile",
     "auth.signupV2.completionBanner.dismiss": "Later",
     "auth.signupV2.completionBanner.dismissAria": "Dismiss for this session",
+
+    "irDemo.notEnabled": "This preview is not enabled.",
+    "irDemo.eyebrow": "Private preview",
+    "irDemo.title": "Enter Theo",
+    "irDemo.body":
+      "This is a private walkthrough of live product, not a public site. Pick a seat after the shared passphrase.",
+    "irDemo.secretLabel": "Passphrase",
+    "irDemo.badSecret": "That passphrase does not match.",
+    "irDemo.enterFailed": "Could not open that seat. Try again in a moment.",
+    "irDemo.entering": "Opening…",
+    "irDemo.banner": "Private IR preview — not production.",
+    "irDemo.switchPersona": "Switch seat",
+    "irDemo.persona.artist.title": "Artist — Hyun Hyemyung",
+    "irDemo.persona.artist.hint":
+      "Start on the public profile. Upload, enhance, and hang a work in a space.",
+    "irDemo.persona.curator.title": "Gallerist — The GREEN",
+    "irDemo.persona.curator.hint":
+      "Start in exhibitions. Host, invite, and walk the live show.",
+    "irDemo.persona.collector.title": "Collector — Hyunmin Kim",
+    "irDemo.persona.collector.hint":
+      "Start on the feed. Follow, inquire, and see people recommendations.",
   },
   ko: {
     "nav.feed": "피드",
@@ -8989,6 +9010,27 @@ export const messages = {
     "auth.signupV2.completionBanner.cta": "프로필 완성하기",
     "auth.signupV2.completionBanner.dismiss": "나중에",
     "auth.signupV2.completionBanner.dismissAria": "이번 세션 동안 숨기기",
+
+    "irDemo.notEnabled": "이 미리보기는 켜져 있지 않습니다.",
+    "irDemo.eyebrow": "비공개 미리보기",
+    "irDemo.title": "Theo 들어가기",
+    "irDemo.body":
+      "공개 사이트가 아니라 비공개 제품 시연입니다. 공유받은 암호를 넣은 뒤 자리를 고르세요.",
+    "irDemo.secretLabel": "암호",
+    "irDemo.badSecret": "암호가 맞지 않습니다.",
+    "irDemo.enterFailed": "그 자리로 들어가지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    "irDemo.entering": "들어가는 중…",
+    "irDemo.banner": "비공개 IR 미리보기 — 프로덕션이 아닙니다.",
+    "irDemo.switchPersona": "자리 바꾸기",
+    "irDemo.persona.artist.title": "작가 — 현혜명",
+    "irDemo.persona.artist.hint":
+      "공개 프로필에서 시작합니다. 업로드·보정, 공간에 걸어보기를 보여 주세요.",
+    "irDemo.persona.curator.title": "갤러리스트 — The GREEN",
+    "irDemo.persona.curator.hint":
+      "전시 목록에서 시작합니다. 호스트·초대·라이브 전시를 보여 주세요.",
+    "irDemo.persona.collector.title": "컬렉터 — 김현민",
+    "irDemo.persona.collector.hint":
+      "피드에서 시작합니다. 팔로우·문의·사람 추천을 보여 주세요.",
   },
 } as const;
 

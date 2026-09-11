@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isIrDemo } from "@/lib/irDemo/config";
 
 type InvitePayload = {
   toEmail: string;
@@ -126,6 +127,9 @@ function parseFromHeader(raw: string) {
 
 export async function POST(req: Request) {
   try {
+    if (isIrDemo()) {
+      return NextResponse.json({ ok: true, skipped: "ir_demo" });
+    }
     const body = (await req.json()) as InvitePayload;
 
     if (!body.toEmail || typeof body.toEmail !== "string") {

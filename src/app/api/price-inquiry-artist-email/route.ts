@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
+import { isIrDemo } from "@/lib/irDemo/config";
 
 /**
  * QA 2026-07-29 (Part A) — opt-in price-inquiry email to external artists.
@@ -131,6 +132,9 @@ async function sendOne(row: DispatchRow, apiKey: string, fromRaw: string) {
 
 export async function POST(req: Request) {
   try {
+    if (isIrDemo()) {
+      return NextResponse.json({ ok: true, sent: 0, skipped: "ir_demo" });
+    }
     const body = (await req.json().catch(() => null)) as { inquiryId?: string } | null;
     const inquiryId = body?.inquiryId;
     if (!inquiryId || typeof inquiryId !== "string") {

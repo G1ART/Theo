@@ -13,6 +13,7 @@ import {
 } from "@/lib/identity/routing";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 import { useT } from "@/lib/i18n/useT";
+import { IR_PATH, isIrDemo } from "@/lib/irDemo/config";
 
 /**
  * Client-side gate that guards protected product surfaces. It only
@@ -107,7 +108,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     ): Promise<void> {
       if (cancelled) return;
       if (!session) {
-        router.replace(LOGIN_PATH);
+        router.replace(isIrDemo() ? IR_PATH : LOGIN_PATH);
+        return;
+      }
+      if (isIrDemo()) {
+        setReady(true);
         return;
       }
       const state = await withTimeout(getMyAuthState(), AUTH_WAIT_MS);

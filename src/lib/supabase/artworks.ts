@@ -4,10 +4,14 @@ import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { recordActingContextEvent } from "@/lib/delegation/actingContext";
 import { isPublicSurfaceVisible } from "@/lib/feed/visibility";
+import { irDemoAssetUrl, isIrDemo } from "@/lib/irDemo/config";
 
 const BUCKET = "artworks";
 
 export function getStorageUrl(path: string): string {
+  if (isIrDemo() && path && !/^https?:\/\//i.test(path)) {
+    return irDemoAssetUrl(path, BUCKET);
+  }
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
@@ -28,6 +32,9 @@ export function getArtworkImageUrl(
   path: string,
   variant: ImageVariant = "original"
 ): string {
+  if (isIrDemo() && path && !/^https?:\/\//i.test(path)) {
+    return irDemoAssetUrl(path, BUCKET);
+  }
   if (variant === "original") {
     return getStorageUrl(path);
   }

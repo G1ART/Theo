@@ -4,6 +4,7 @@ import { renderPdfFirstPageAsWebp } from "@/lib/pdf/renderThumbnail";
 import type { EnhancementMeta } from "@/lib/image/enhancement/types";
 import { scrubJpegGps } from "@/lib/image/exifScrub";
 import { scrubHeicGps } from "@/lib/image/heicExifScrub";
+import { irDemoAssetUrl, isIrDemo } from "@/lib/irDemo/config";
 
 /**
  * Best-effort GPS scrub of the untouched original before it lands in
@@ -605,6 +606,9 @@ export async function removeStorageFiles(paths: string[]): Promise<{ error: unkn
 }
 
 export function getPublicImageUrl(path: string): string {
+  if (isIrDemo() && path && !/^https?:\/\//i.test(path)) {
+    return irDemoAssetUrl(path, BUCKET);
+  }
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }

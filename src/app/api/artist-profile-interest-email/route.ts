@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
+import { isIrDemo } from "@/lib/irDemo/config";
 
 /**
  * QA 2026-07-29 (PART E.1) — opt-in "someone's interested in your profile"
@@ -143,6 +144,9 @@ async function sendOne(row: DispatchRow, apiKey: string, fromRaw: string) {
 
 export async function POST(req: Request) {
   try {
+    if (isIrDemo()) {
+      return NextResponse.json({ ok: true, skipped: "ir_demo" });
+    }
     const body = (await req.json().catch(() => null)) as RequestBody | null;
     const externalArtistId = body?.externalArtistId;
     const triggerKind = body?.triggerKind;
