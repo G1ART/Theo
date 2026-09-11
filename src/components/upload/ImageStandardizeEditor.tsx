@@ -111,9 +111,10 @@ function intensityMultiplier(i: Intensity): number {
 }
 
 /**
- * Enhancement preview state — held by `ImageStandardizeEditor` while
- * the user reviews a local flat pass. Once approved it becomes the
- * `EnhancementDraft` handed back to the caller through `onEnhance`.
+ * Enhancement preview state. The local flat pass is pushed to the
+ * parent through `onEnhance` as soon as a preview blob exists, so
+ * Publish cannot silently ship the phone original. 「이 이미지 사용」
+ * still locks the wizard; it is not the only commit.
  */
 export type EnhancementDraft = {
   displayFile: File;
@@ -1072,6 +1073,21 @@ export function ImageStandardizeEditor({
   const enhancePreviewUrlRef = useRef<string | null>(null);
   const parentPreviewUrlRef = useRef<string | null>(null);
   parentPreviewUrlRef.current = enhancement?.previewUrl ?? null;
+  const onEnhanceRef = useRef(onEnhance);
+  onEnhanceRef.current = onEnhance;
+  const pushDraftToParent = useCallback((draft: EnhancementDraft) => {
+    const fn = onEnhanceRef.current;
+    if (!fn) return;
+    // Parent owns the blob URL so hiding the editor cannot drop it.
+    enhancePreviewUrlRef.current = null;
+    fn(draft);
+  }, []);
+  useEffect(() => {
+    return () => {
+      const draft = enhancePreviewRef.current;
+      if (draft) onEnhanceRef.current?.(draft);
+    };
+  }, []);
   // Engine output after intensity + capture setup + portfolio coherence.
   // Fine-tune sliders bake onto a copy of this; the base blob is never
   // revoked until a new full pipeline result (or file change).
@@ -1356,6 +1372,7 @@ export function ImageStandardizeEditor({
         // keeps it painted until the incoming src has loaded (and faded).
         enhancePreviewUrlRef.current = base.previewUrl;
         setEnhancePreview(attachedBase);
+        pushDraftToParent(attachedBase);
         return attachedBase;
       }
       const bezel =
@@ -1372,6 +1389,7 @@ export function ImageStandardizeEditor({
       if (!result) {
         enhancePreviewUrlRef.current = base.previewUrl;
         setEnhancePreview(attachedBase);
+        pushDraftToParent(attachedBase);
         return attachedBase;
       }
       enhancePreviewUrlRef.current = result.previewUrl;
@@ -1384,9 +1402,10 @@ export function ImageStandardizeEditor({
         tone,
       );
       setEnhancePreview(draft);
+      pushDraftToParent(draft);
       return draft;
     },
-    [],
+    [pushDraftToParent],
   );
   const applyFineTuneToBaseRef = useRef(applyFineTuneToBase);
   applyFineTuneToBaseRef.current = applyFineTuneToBase;
@@ -1716,9 +1735,12 @@ export function ImageStandardizeEditor({
         s: fineSRef.current,
       };
       const fineGen = ++fineTuneGenRef.current;
-      setEnhancePreview(withUserFineTune(baseDraft, tone));
+      const shown = withUserFineTune(baseDraft, tone);
+      setEnhancePreview(shown);
       if (!isIdentityFineTune(tone)) {
         void applyFineTuneToBaseRef.current(baseDraft, tone, fineGen);
+      } else {
+        pushDraftToParent(shown);
       }
       void recordUsageEvent({
         // 2026-08-07 semantic split — preview success emits `.previewed`,
@@ -1785,6 +1807,7 @@ export function ImageStandardizeEditor({
     qualityGate,
     qualityGateOverride,
     pathChoice,
+    pushDraftToParent,
   ]);
   const runEnhancePreviewRef = useRef(runEnhancePreview);
   runEnhancePreviewRef.current = runEnhancePreview;

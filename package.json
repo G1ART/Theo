@@ -44,6 +44,7 @@
     "test:external-artist-dedupe-phase1": "tsx tests/external-artist-dedupe-phase1.test.ts",
     "test:external-artist-link-phase2": "tsx tests/external-artist-link-phase2.test.ts",
     "test:external-artist-onboarding-merge": "tsx tests/external-artist-onboarding-merge.test.ts",
+    "test:enhance-preview-commits": "tsx tests/enhance-preview-commits-to-parent.test.ts",
     "test:claims-integrity-phase3": "tsx tests/claims-integrity-phase3.test.ts",
     "test:onboarding-banner-refresh": "tsx tests/onboarding-banner-refresh.test.ts",
     "test:size-unit-toggle": "tsx tests/size-unit-toggle.test.ts",

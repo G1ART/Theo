@@ -2,6 +2,30 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 (67) — 업로드 보정 미리보기가 원본 대신 게시되게
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+작업실에서 폰으로 찍어 크롭·보정한 뒤 올렸는데 **원본 사진**이
+게시되던 문제. AI 결과는 에디터 로컬 `enhancePreview`에만 있고,
+「이 이미지 사용」을 눌러야 부모의 `enhancement.displayFile`로 갔다.
+Publish는 그 필드만 본다. 미리보기만 보고 폼을 내리거나 바로
+올리면 `pending.file`(폰 원본)이 그대로 올라갔다. 원본 경로
+(여백만)은 이미 미리보기 시점에 `onEnhance`를 치고 있었다.
+
+- 보정 미리보기·슬라이더 결과가 나오는 즉시 부모로 커밋
+- 에디터를 접어도 언마운트 시 마지막 미리보기를 flush
+- 「이 이미지 사용」은 위자드 확정용으로 유지
+- `/artwork/[id]/edit`에는 이미지 교체 UI가 없음 (이번에 안 넣음.
+  잘못 올라간 작품은 삭제 후 재업로드)
+
+**Verified:** `npx tsx tests/enhance-preview-commits-to-parent.test.ts`.
+폰 스튜디오 재현은 이 세션에서 못 함.
+
+---
+
 ## 2026-09-10 (66) — 초대 이메일로 온보딩하면 작품·전시 크레딧이 병합됨
 
 > **Supabase SQL 적용 필요:** `supabase/migrations/20260911055301_link_external_artists_on_onboarding.sql`
