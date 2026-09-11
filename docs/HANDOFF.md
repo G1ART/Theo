@@ -1,6 +1,42 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-08-22
+Last updated: 2026-09-10
+
+## 2026-09-10 (66) — 초대 이메일로 온보딩하면 작품·전시 크레딧이 병합됨
+
+> **Supabase SQL 적용 필요:** `supabase/migrations/20260911055301_link_external_artists_on_onboarding.sql`
+> Dashboard SQL Editor에서 **섹션 단위로 highlight → Run**. 한꺼번에 paste 하지 않음.
+>
+> **환경 변수 추가/변경: 없음.**
+
+전시·단일·벌크 업로드에서 비온보딩 작가에게 초대 메일이 갔는데, 그
+작가가 나중에 같은 이메일로 온보딩해도 포트폴리오가 비던 문제.
+원인은 병합이 `auth.users` AFTER INSERT 한 곳뿐인 것. 초대
+`signInWithOtp`가 INSERT를 먼저 써 버리고, 온보딩은 confirm +
+프로필 저장만 타면 매칭이 영원히 비었다. 현혜명
+(`heimyunghyun@gmail.com`)이 그 케이스.
+
+고스트 계정을 안 만드는 쪽으로 고치지 않는다. 예전에 가입 시점에
+프로필이 없어 위임 초대가 "Database error saving new user"로 깨진
+적이 있다. OTP 사전 생성은 유지하고, 가계정이든 진계정이든 **그
+이메일로 온보딩이 끝나면** 같은 함수가 작품을 `artist_id`로 옮기고
+클레임을 프로필로 옮긴다.
+
+- SSOT: `link_matching_external_artists_for_user(uuid)` (이메일 =
+  `auth.users.email`만. user_metadata 금지)
+- 호출: auth INSERT(기존), auth UPDATE(email / confirm),
+  `profiles` INSERT OR UPDATE (`upsert_my_profile` 포함)
+- `ensure_created_claims_for_linked_artist`가 `artist_profile_id`를
+  넣도록 수정 (`claims_created_requires_artist`)
+- 이미 온보딩된 미클레임 이메일은 SECTION 6 백필
+- 이름만 있는 orphan UI는 열지 않음. 이메일 초대는 자동 병합이 SSOT
+
+**Verified:** `npx tsx tests/external-artist-onboarding-merge.test.ts`.
+프로덕션 적용 후 `/u/heimyunghyun`에 **All (19) / My work (19) /
+Exhibitions (1)** (`A Garden That Remembers Moments of Light`).
+초대 이메일↔유저 미클레임 잔여 0.
+
+---
 
 ## 2026-08-22 (65) — 이미지 보정 중에도 사이드바·탭이 동작하고 배너가 닫힘
 
