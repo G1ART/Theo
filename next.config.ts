@@ -5,9 +5,14 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   serverExternalPackages: ["sharp", "cheerio"],
   images: {
-    // IR demo serves public blobs through /api/ir/asset?p=&b=. Next 16
-    // rejects query strings on local Image src unless listed here.
-    localPatterns: [{ pathname: "/api/ir/asset" }],
+    // Next 16 treats localPatterns as a whitelist. Listing only the IR
+    // proxy blocked `/theo-logo.png` (Header / TheoLoadingMark) on
+    // production. Keep static public files allowed; the IR route is
+    // the only local src that carries a query string.
+    localPatterns: [
+      { pathname: "/**", search: "" },
+      { pathname: "/api/ir/asset" },
+    ],
     // Optimizer fetches without the IR cookie and would 401; the
     // browser already sends the cookie on the raw /api/ir/asset URL.
     unoptimized: process.env.NEXT_PUBLIC_IR_DEMO === "true",

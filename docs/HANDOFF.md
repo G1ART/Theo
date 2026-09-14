@@ -1,6 +1,24 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-09-11
+Last updated: 2026-09-13
+
+## 2026-09-13 (69) — 프로덕션 헤더 로고가 안 보이던 문제
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+IR 데모 때 Next 16 `images.localPatterns` 를
+`/api/ir/asset` 한 줄로만 넣었다. 이 배열은 화이트리스트라
+`TheoLogo` / `TheoLoadingMark` 의 `/theo-logo.png` 가 최적화
+단계에서 거절되고, 헤더에 빈 네모만 남았다. 피드 작품 사진은
+Supabase `remotePatterns` 라 그대로였다.
+
+- `localPatterns`: `/**` (쿼리 없음) + `/api/ir/asset` (IR 쿼리)
+
+**Verified:** `npm run test:ir-demo`. 배포 후 `withtheo.art` 헤더 로고.
+
+---
 
 ## 2026-09-11 (68) — 비공개 IR 데모 (`/ir`, 프로덕션 격리)
 

@@ -60,6 +60,8 @@ assert.match(storage, /irDemoAssetUrl\(path, BUCKET\)/);
 
 assert.match(artistInvite, /skipped: "ir_demo"/);
 assert.match(delegationInvite, /skipped: "ir_demo"/);
+assert.match(nextConfig, /pathname: "\/\*\*"/);
+assert.match(nextConfig, /search: ""/);
 assert.match(nextConfig, /pathname: "\/api\/ir\/asset"/);
 assert.match(nextConfig, /unoptimized: process\.env\.NEXT_PUBLIC_IR_DEMO === "true"/);
 
