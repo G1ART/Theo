@@ -1,4 +1,4 @@
-// Private IR demo: secret gate, persona seats, no production writes,
+// IR demo room: persona seats, no passphrase, no production writes,
 // no outbound email, storage URLs rewrite through the asset proxy.
 
 import assert from "node:assert/strict";
@@ -40,6 +40,8 @@ assert.match(middleware, /IR_PATH/);
 assert.match(enter, /signInWithPassword/);
 assert.match(enter, /irDemoCookieToken/);
 assert.match(enter, /persona\.email/);
+assert.doesNotMatch(enter, /body\.secret/);
+assert.doesNotMatch(enter, /secretsMatch/);
 assert.doesNotMatch(enter, /sgufonscldvdwfgzltfw/);
 
 assert.match(asset, /irDemoCookieIsValid/);
@@ -67,6 +69,9 @@ assert.match(nextConfig, /unoptimized: process\.env\.NEXT_PUBLIC_IR_DEMO === "tr
 
 assert.match(irPage, /await supabase\.auth\.signOut\(\)/);
 assert.match(irPage, /setSession/);
+assert.match(irPage, /JSON\.stringify\(\{ persona \}\)/);
+assert.doesNotMatch(irPage, /secretLabel/);
+assert.doesNotMatch(irPage, /type="password"/);
 assert.match(layout, /robots: \{ index: false, follow: false \}/);
 assert.match(layout, /IrDemoBanner/);
 

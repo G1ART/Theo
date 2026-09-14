@@ -9,7 +9,6 @@ import { IR_PERSONAS, isIrDemo, type IrPersonaKey } from "@/lib/irDemo/config";
 export default function IrDemoGatePage() {
   const { t } = useT();
   const router = useRouter();
-  const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState<IrPersonaKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +27,7 @@ export default function IrDemoGatePage() {
       const res = await fetch("/api/ir/enter", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ secret, persona }),
+        body: JSON.stringify({ persona }),
       });
       const json = (await res.json()) as {
         error?: string;
@@ -37,11 +36,7 @@ export default function IrDemoGatePage() {
         home?: string;
       };
       if (!res.ok || !json.access_token || !json.refresh_token) {
-        setError(
-          json.error === "forbidden"
-            ? t("irDemo.badSecret")
-            : t("irDemo.enterFailed"),
-        );
+        setError(t("irDemo.enterFailed"));
         return;
       }
       await supabase.auth.signOut();
@@ -67,17 +62,6 @@ export default function IrDemoGatePage() {
       <h1 className="mt-2 text-2xl font-semibold text-zinc-900">{t("irDemo.title")}</h1>
       <p className="mt-2 text-sm leading-relaxed text-zinc-600">{t("irDemo.body")}</p>
 
-      <label className="mt-8 block text-sm font-medium text-zinc-800">
-        {t("irDemo.secretLabel")}
-        <input
-          type="password"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          autoComplete="off"
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-        />
-      </label>
-
       {error && (
         <p className="mt-3 text-sm text-amber-800" role="alert">
           {error}
@@ -89,7 +73,7 @@ export default function IrDemoGatePage() {
           <button
             key={p.key}
             type="button"
-            disabled={!!busy || secret.trim() === ""}
+            disabled={!!busy}
             onClick={() => void enter(p.key)}
             className="rounded-xl border border-zinc-200 bg-white px-4 py-4 text-left hover:bg-zinc-50 disabled:opacity-50"
           >

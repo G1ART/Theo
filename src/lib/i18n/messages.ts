@@ -4539,15 +4539,15 @@ export const messages = {
     "auth.signupV2.completionBanner.dismissAria": "Dismiss for this session",
 
     "irDemo.notEnabled": "This preview is not enabled.",
-    "irDemo.eyebrow": "Private preview",
+    "irDemo.eyebrow": "Demo room",
     "irDemo.title": "Enter Theo",
     "irDemo.body":
-      "This is a private walkthrough of live product, not a public site. Pick a seat after the shared passphrase.",
+      "This is the live product on a copy of the data. Production is untouched. Pick a seat — no login.",
     "irDemo.secretLabel": "Passphrase",
     "irDemo.badSecret": "That passphrase does not match.",
     "irDemo.enterFailed": "Could not open that seat. Try again in a moment.",
     "irDemo.entering": "Opening…",
-    "irDemo.banner": "Private IR preview — not production.",
+    "irDemo.banner": "Demo room — not production.",
     "irDemo.switchPersona": "Switch seat",
     "irDemo.persona.artist.title": "Artist — Hyun Hyemyung",
     "irDemo.persona.artist.hint":
@@ -9012,15 +9012,15 @@ export const messages = {
     "auth.signupV2.completionBanner.dismissAria": "이번 세션 동안 숨기기",
 
     "irDemo.notEnabled": "이 미리보기는 켜져 있지 않습니다.",
-    "irDemo.eyebrow": "비공개 미리보기",
+    "irDemo.eyebrow": "데모 룸",
     "irDemo.title": "Theo 들어가기",
     "irDemo.body":
-      "공개 사이트가 아니라 비공개 제품 시연입니다. 공유받은 암호를 넣은 뒤 자리를 고르세요.",
+      "실서비스와 같은 제품입니다. 데이터는 복제본이라 프로덕션에 영향이 없습니다. 로그인 없이 자리를 고르면 바로 둘러볼 수 있습니다.",
     "irDemo.secretLabel": "암호",
     "irDemo.badSecret": "암호가 맞지 않습니다.",
     "irDemo.enterFailed": "그 자리로 들어가지 못했습니다. 잠시 후 다시 시도해 주세요.",
     "irDemo.entering": "들어가는 중…",
-    "irDemo.banner": "비공개 IR 미리보기 — 프로덕션이 아닙니다.",
+    "irDemo.banner": "데모 룸 — 프로덕션이 아닙니다.",
     "irDemo.switchPersona": "자리 바꾸기",
     "irDemo.persona.artist.title": "작가 — 현혜명",
     "irDemo.persona.artist.hint":

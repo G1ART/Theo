@@ -2,6 +2,31 @@
 
 Last updated: 2026-09-13
 
+## 2026-09-13 (70) — IR 데모 룸을 QR로 바로 들어가게
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.** (`IR_DEMO_SECRET` 은 쿠키 서명으로만 남김. 입장 암호 아님.)
+> Production Environment에 `NEXT_PUBLIC_IR_DEMO=true` 넣지 말 것.
+
+피칭용 입구는 로그인·Vercel SSO·암호 없이 자리만 고르면 된다.
+쓰기는 클론 DB (`ir-demo` / `nwklugvxukfxwrkxfkyk`) 에만 남는다.
+
+- `/ir` 에서 암호 필드 제거. 작가 / 갤러리스트 / 컬렉터 클릭이 입장
+- `demo.withtheo.art` 를 git branch `ir-demo` 에 연결 (커스텀 도메인은 SSO 제외)
+- Preview alias `theo-git-ir-demo-…vercel.app` 에 protection override (SSO 없이 열림)
+- `withtheo.art` 프로덕션은 그대로. `/ir` 는 계속 "not enabled"
+
+**QR 지금:** https://theo-git-ir-demo-henry-kims-projects-49d3c47b.vercel.app
+(루트는 `/ir` 로 보냄)
+
+**QR 예쁜 주소 (Porkbun 한 줄):** `demo` CNAME → `cname.vercel-dns.com`
+(www 와 같이 `de9cc0a7052a8d44.vercel-dns-016.com` 도 됨)
+
+**Verified:** `npm run test:ir-demo`. SSO 없이 git alias `/ir` 200.
+
+---
+
 ## 2026-09-13 (69) — 프로덕션 헤더 로고가 안 보이던 문제
 
 > **Supabase SQL 적용 필요: 없음.**

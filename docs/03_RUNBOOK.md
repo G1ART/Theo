@@ -17,7 +17,7 @@
   - (optional) `PHOTOROOM_API_KEY` — Theo Image Enhance (Beta) 의 "Object" 파이프라인 + Display Simulation Phase 2 의 Track 2 (`/api/ai/artwork-cutout-alpha`, 투명 PNG cutout). 서버 전용 (NEXT_PUBLIC_ prefix 붙이지 말 것). 미설정 시 Object 모드는 `provider_unauthorized` fallback 을 반환하고, Track 2 cutout 라우트는 501 을 반환한다. Track 1 (무료 Vision bbox 크롭) 은 영향 없음.
   - `NEXT_PUBLIC_PHOTOROOM_ENABLED` — Space Editor 의 "고급 배경 분리 (Pro)" 버튼 노출 여부. 초기값 `false` (버튼 완전히 숨김). `PHOTOROOM_API_KEY` 를 서버에 설정한 다음에만 `true` 로 뒤집는다. false 인데 true 로 두면 UI 는 뜨지만 클릭 시 501 토스트만 뜨므로 사용자가 "기능 고장" 으로 오인함. 두 환경변수는 항상 함께 뒤집는다.
   - Theo Board 발행 시: `THEO_BOARD_PUBLISH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` (서버 전용). 발행: `THEO_BOARD_PUBLISH_TOKEN=... npm run publish:theo -- --title "..." --type announcement`
-  - **Private IR demo (Preview 전용, Production에 넣지 말 것):** `NEXT_PUBLIC_IR_DEMO=true`, `IR_DEMO_SECRET`, `IR_DEMO_PASSWORD`, `IR_DEMO_ASSET_ORIGIN` (프로덕션 Storage origin). Preview의 `NEXT_PUBLIC_SUPABASE_URL` / `ANON` / `SUPABASE_SERVICE_ROLE_KEY` 는 **클론 프로젝트** 값이어야 한다. `SENDGRID_API_KEY` 는 데모에 넣지 않는다. 페르소나 시드: `IR_DEMO_SUPABASE_URL` + `IR_DEMO_SERVICE_ROLE_KEY` + `IR_DEMO_PASSWORD` 로 `npm run seed:ir-demo` (프로덕션 ref `sgufonscldvdwfgzltfw` 거부). 상세는 `docs/HANDOFF.md` 2026-09-10 (68).
+  - **IR demo room (Preview 전용, Production에 넣지 말 것):** `NEXT_PUBLIC_IR_DEMO=true`, `IR_DEMO_SECRET` (쿠키 서명, 입장 암호 아님), `IR_DEMO_PASSWORD`, `IR_DEMO_ASSET_ORIGIN` (프로덕션 Storage origin). Preview의 `NEXT_PUBLIC_SUPABASE_URL` / `ANON` / `SUPABASE_SERVICE_ROLE_KEY` 는 **클론 프로젝트** 값이어야 한다. `SENDGRID_API_KEY` 는 데모에 넣지 않는다. 공개 호스트: `demo.withtheo.art` (git branch `ir-demo`). Porkbun에 `demo` CNAME → `cname.vercel-dns.com` (또는 Vercel이 준 `*.vercel-dns-016.com`). 페르소나 시드: `IR_DEMO_SUPABASE_URL` + `IR_DEMO_SERVICE_ROLE_KEY` + `IR_DEMO_PASSWORD` 로 `npm run seed:ir-demo` (프로덕션 ref `sgufonscldvdwfgzltfw` 거부). 상세는 `docs/HANDOFF.md`.
 
 3) Run
 - npm run dev
@@ -56,9 +56,9 @@
 - (optional) **NEXT_PUBLIC_DIAGNOSTICS** — `1`이면 `/my/diagnostics` 노출(베타 이벤트 테이블 필요)
 - **NEXT_PUBLIC_SIGNUP_V2** — Signup v2 wizard 피처 플래그 (2026-08-20 도입). 초기 배포는 `false` 로 세팅 (레거시 `/onboarding` + `/login` 유지). Phase 1 QA 이후 `true` 로 램프. Preview 환경에서 먼저 `true` 로 두고 내부 검증하는 것을 권장. 상세: `docs/SIGNUP_REDESIGN_SPEC.md` §6/§11.
 
-  **Private IR demo — Production Environment 에는 절대 넣지 말 것** (넣으면 라이브 사이트가 `/ir` 뒤로 잠김):
-- **NEXT_PUBLIC_IR_DEMO** — Preview에서만 `true`
-- **IR_DEMO_SECRET** — `/ir` 입장 암호 (서버 전용)
+  **IR demo room — Production Environment 에는 절대 넣지 말 것** (넣으면 라이브 사이트가 `/ir` 뒤로 잠김):
+- **NEXT_PUBLIC_IR_DEMO** — git branch `ir-demo` Preview에서만 `true`. 공개 호스트 `demo.withtheo.art`.
+- **IR_DEMO_SECRET** — `theo_ir` 쿠키 서명 (서버 전용). 입장 화면 암호가 아님.
 - **IR_DEMO_PASSWORD** — 세 페르소나 공통 비밀번호 (서버 전용, 시드 스크립트와 동일)
 - **IR_DEMO_ASSET_ORIGIN** — 프로덕션 Storage origin `https://sgufonscldvdwfgzltfw.supabase.co` (읽기 전용 폴백)
 - Preview의 **NEXT_PUBLIC_SUPABASE_URL** / **NEXT_PUBLIC_SUPABASE_ANON_KEY** / **SUPABASE_SERVICE_ROLE_KEY** 는 클론 브랜치 값. `SENDGRID_API_KEY` 는 데모 Preview에 넣지 않음.

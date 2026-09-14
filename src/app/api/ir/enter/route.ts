@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -8,34 +7,24 @@ import {
 } from "@/lib/irDemo/config";
 import { irDemoCookieToken } from "@/lib/irDemo/gate";
 
-function secretsMatch(a: string, b: string): boolean {
-  const ha = createHash("sha256").update(a).digest();
-  const hb = createHash("sha256").update(b).digest();
-  return timingSafeEqual(ha, hb);
-}
-
 export async function POST(req: Request) {
   if (!isIrDemo()) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  const expected = process.env.IR_DEMO_SECRET?.trim() ?? "";
+  const cookieSecret = process.env.IR_DEMO_SECRET?.trim() ?? "";
   const password = process.env.IR_DEMO_PASSWORD?.trim() ?? "";
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "";
-  if (!expected || !password || !url || !anon) {
+  if (!cookieSecret || !password || !url || !anon) {
     return NextResponse.json({ error: "demo_not_configured" }, { status: 503 });
   }
 
-  let body: { secret?: string; persona?: string } = {};
+  let body: { persona?: string } = {};
   try {
-    body = (await req.json()) as { secret?: string; persona?: string };
+    body = (await req.json()) as { persona?: string };
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
-  }
-
-  if (!secretsMatch(body.secret ?? "", expected)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 401 });
   }
 
   const persona = irPersona(body.persona);
