@@ -3,10 +3,12 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { loginUrlWithNext } from "@/lib/identity/routing";
 
 /**
- * Global auth state listener. SIGNED_OUT redirects to /login and
- * refreshes so server components drop the old session.
+ * Global auth state listener. SIGNED_OUT redirects to login (or `/ir`
+ * in the demo room) and refreshes so server components drop the old
+ * session.
  *
  * SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED must not call
  * `router.refresh()`. supabase-js emits SIGNED_IN on every page load
@@ -23,7 +25,7 @@ export function AuthBootstrap() {
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        router.replace("/login");
+        router.replace(loginUrlWithNext());
         router.refresh();
       }
     });

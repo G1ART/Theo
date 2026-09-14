@@ -39,7 +39,8 @@ export default function IrDemoGatePage() {
         setError(t("irDemo.enterFailed"));
         return;
       }
-      await supabase.auth.signOut();
+      // Do not signOut first: AuthBootstrap treats SIGNED_OUT as a
+      // bounce to login and that race aborts the seat switch.
       const { error: sessionErr } = await supabase.auth.setSession({
         access_token: json.access_token,
         refresh_token: json.refresh_token,
@@ -49,6 +50,8 @@ export default function IrDemoGatePage() {
         return;
       }
       router.replace(json.home || "/feed");
+    } catch {
+      setError(t("irDemo.enterFailed"));
     } finally {
       setBusy(null);
     }

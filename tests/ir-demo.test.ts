@@ -23,6 +23,7 @@ const delegationInvite = read("src/app/api/delegation-invite-email/route.ts");
 const nextConfig = read("next.config.ts");
 const layout = read("src/app/layout.tsx");
 const irPage = read("src/app/ir/page.tsx");
+const authBootstrap = read("src/components/AuthBootstrap.tsx");
 const config = read("src/lib/irDemo/config.ts");
 const messages = read("src/lib/i18n/messages.ts");
 
@@ -67,8 +68,9 @@ assert.match(nextConfig, /search: ""/);
 assert.match(nextConfig, /pathname: "\/api\/ir\/asset"/);
 assert.match(nextConfig, /unoptimized: process\.env\.NEXT_PUBLIC_IR_DEMO === "true"/);
 
-assert.match(irPage, /await supabase\.auth\.signOut\(\)/);
+assert.doesNotMatch(irPage, /await supabase\.auth\.signOut\(\)/);
 assert.match(irPage, /setSession/);
+assert.match(authBootstrap, /loginUrlWithNext/);
 assert.match(irPage, /JSON\.stringify\(\{ persona \}\)/);
 assert.doesNotMatch(irPage, /secretLabel/);
 assert.doesNotMatch(irPage, /type="password"/);

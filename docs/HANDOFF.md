@@ -1,6 +1,23 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
+
+## 2026-09-14 (71) — 데모 룸에서 작가 자리가 안 열리던 문제
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+`/ir` 입장 API는 200인데, 클릭 직후 `signOut()` 이 `SIGNED_OUT` 을
+쏴서 `AuthBootstrap` 이 `/login` 으로 보내 세션 세팅과 레이스했다.
+에러 카피만 남고 프로필로 못 갔다.
+
+- 자리 전환은 `setSession` 만. 먼저 로그아웃하지 않음
+- 데모에서 로그아웃은 `/ir` 로 (loginUrlWithNext)
+
+**Verified:** `npm run test:ir-demo`.
+
+---
 
 ## 2026-09-13 (70) — IR 데모 룸을 QR로 바로 들어가게
 
