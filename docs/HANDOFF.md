@@ -1,6 +1,25 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-09-14
+Last updated: 2026-09-23
+
+## 2026-09-23 (72) — Safari 탭 아이콘이 Vercel 삼각형이던 문제
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+`src/app/favicon.ico` 가 Create Next App 기본값(Vercel 삼각형) 그대로였다.
+Safari는 `/favicon.ico` 를 탭 아이콘으로 쓴다.
+
+- `favicon.ico` 를 Theo 로고로 교체 (16/32/48, 흰 배경)
+- `icon.png` 32px, `apple-icon.png` 180px 추가 (Safari / iOS)
+
+배포 후에도 Safari는 파비콘을 오래 캐시한다. 안 바뀌면
+`withtheo.art/favicon.ico` 를 직접 연 다음 탭을 새로 열 것.
+
+**Verified:** 로고 PNG에서 생성, `file` 로 ICO 3사이즈 확인.
+
+---
 
 ## 2026-09-14 (71) — 데모 룸에서 작가 자리가 안 열리던 문제
 
