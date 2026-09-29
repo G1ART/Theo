@@ -98,6 +98,7 @@ import {
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleMime } from "@/lib/image/compress";
+import { parseArtworkCsv, csvFilenameMatchesDraft, type ArtworkCsvRow } from "@/lib/csv/artworkCsv";
 import {
   fileLooksLikeImage,
   summarizeBulkResult,
@@ -1625,73 +1626,117 @@ export default function BulkUploadPage() {
     }
   }
 
-  function parseCsvLine(line: string): string[] {
-    const out: string[] = [];
-    let cur = "";
-    let inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"') {
-        inQ = !inQ;
-        continue;
-      }
-      if (!inQ && c === ",") {
-        out.push(cur.trim());
-        cur = "";
-        continue;
-      }
-      cur += c;
-    }
-    out.push(cur.trim());
-    return out;
+  function draftFileView(d: ArtworkWithLikes) {
+    return {
+      title: d.title,
+      storagePaths: (d.artwork_images ?? []).map((img) => img.storage_path),
+    };
   }
 
-  async function importCsvDrafts() {
-    const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length < 2) {
+  async function writeCsvOntoDraft(id: string, row: ArtworkCsvRow) {
+    const patch: UpdateArtworkPayload = {};
+    if (row.title && row.title !== "Untitled") {
+      patch.title = row.title;
+      if (locale === "ko") patch.title_ko = row.title;
+      else patch.title_en = row.title;
+    }
+    if (row.year) patch.year = row.year;
+    if (row.medium) {
+      patch.medium = row.medium;
+      if (locale === "ko") patch.medium_ko = row.medium;
+      else patch.medium_en = row.medium;
+    }
+    if (row.size) patch.size = row.size;
+    if (row.sizeUnit) patch.size_unit = row.sizeUnit;
+    if (row.price) {
+      patch.pricing_mode = "fixed";
+      patch.price_input_amount = row.price;
+      patch.price_input_currency = row.currency || (locale === "ko" ? "KRW" : "USD");
+    }
+    if (Object.keys(patch).length === 0) return;
+    await updateArtwork(id, patch, {
+      actingSubjectProfileId: actingAsProfileId ?? null,
+      auditAction: "bulk.artwork.update",
+    });
+  }
+
+  function csvOrderReady() {
+    const { rows, hasFilename } = parseArtworkCsv(csvText);
+    if (hasFilename || rows.length === 0) return false;
+    const n = selected.size > 0 ? selected.size : drafts.length;
+    return n > 0 && n === rows.length;
+  }
+
+  async function importCsvDrafts(mode: "auto" | "order") {
+    const { rows, hasFilename } = parseArtworkCsv(csvText);
+    if (rows.length === 0) {
       setToast(t("bulk.csvRequiredTitle"));
       setTimeout(() => setToast(null), 3000);
       return;
     }
-    const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
-    const ti = header.findIndex((h) => h === "title" || h === "name");
-    if (ti < 0) {
-      setToast(t("bulk.csvRequiredTitle"));
-      setTimeout(() => setToast(null), 3000);
-      return;
-    }
-    const yi = header.findIndex((h) => h === "year");
-    const mi = header.findIndex((h) => h === "medium");
+    const orderedDrafts =
+      selected.size > 0
+        ? drafts.filter((d) => selected.has(d.id))
+        : drafts;
     setCsvBusy(true);
     try {
-      let ok = 0;
-      for (let r = 1; r < lines.length; r++) {
-        const cells = parseCsvLine(lines[r]);
-        const title = (cells[ti] ?? "").trim() || "Untitled";
-        const yearRaw = yi >= 0 ? cells[yi] : "";
-        const year = yearRaw ? parseInt(yearRaw, 10) : null;
-        const medium = mi >= 0 ? (cells[mi] ?? "").trim() || null : null;
-        const { data: id, error } = await createDraftArtwork(
-          { title },
-          { forProfileId: actingAsProfileId ?? undefined }
-        );
-        if (!error && id) {
-          const patch: UpdateArtworkPayload = {};
-          if (Number.isFinite(year as number)) patch.year = year as number;
-          if (medium) patch.medium = medium;
-          if (Object.keys(patch).length > 0) {
-            await updateArtwork(id, patch, {
-              actingSubjectProfileId: actingAsProfileId ?? null,
-              auditAction: "bulk.artwork.update",
-            });
+      let matched = 0;
+      let created = 0;
+      if (mode === "order") {
+        if (orderedDrafts.length !== rows.length) {
+          setToast(t("bulk.csvOrderMismatch"));
+          setTimeout(() => setToast(null), 3500);
+          return;
+        }
+        for (let i = 0; i < rows.length; i++) {
+          await writeCsvOntoDraft(orderedDrafts[i]!.id, rows[i]!);
+          matched += 1;
+        }
+      } else if (hasFilename) {
+        const used = new Set<string>();
+        for (const row of rows) {
+          const hit = row.filename
+            ? drafts.find(
+                (d) => !used.has(d.id) && csvFilenameMatchesDraft(row.filename!, draftFileView(d)),
+              )
+            : undefined;
+          if (hit) {
+            used.add(hit.id);
+            await writeCsvOntoDraft(hit.id, row);
+            matched += 1;
+            continue;
           }
-          ok += 1;
+          const { data: id, error } = await createDraftArtwork(
+            { title: row.title },
+            { forProfileId: actingAsProfileId ?? undefined },
+          );
+          if (!error && id) {
+            await writeCsvOntoDraft(id, row);
+            created += 1;
+          }
+        }
+      } else {
+        for (const row of rows) {
+          const { data: id, error } = await createDraftArtwork(
+            { title: row.title },
+            { forProfileId: actingAsProfileId ?? undefined },
+          );
+          if (!error && id) {
+            await writeCsvOntoDraft(id, row);
+            created += 1;
+          }
         }
       }
       setCsvText("");
       await fetchDrafts();
-      setToast(t("bulk.csvImported").replace("{n}", String(ok)));
-      setTimeout(() => setToast(null), 3000);
+      setToast(
+        mode === "order"
+          ? t("bulk.csvOrderApplied").replace("{n}", String(matched))
+          : t("bulk.csvImported")
+              .replace("{matched}", String(matched))
+              .replace("{created}", String(created)),
+      );
+      setTimeout(() => setToast(null), 4000);
     } finally {
       setCsvBusy(false);
     }
@@ -3049,6 +3094,17 @@ export default function BulkUploadPage() {
             <div className="mt-4 border-t border-zinc-200 pt-3">
               <p className="mb-2 text-xs font-medium text-zinc-700">{t("bulk.csvTitle")}</p>
               <p className="mb-2 text-xs text-zinc-500">{t("bulk.csvHint")}</p>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="mb-2 block text-xs text-zinc-600"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  void file.text().then(setCsvText);
+                }}
+              />
               <textarea
                 value={csvText}
                 onChange={(e) => setCsvText(e.target.value)}
@@ -3056,14 +3112,24 @@ export default function BulkUploadPage() {
                 rows={5}
                 className="mb-2 w-full rounded border border-zinc-300 px-2 py-1 font-mono text-xs"
               />
-              <button
-                type="button"
-                disabled={csvBusy}
-                onClick={() => void importCsvDrafts()}
-                className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                {csvBusy ? "…" : t("bulk.csvImport")}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={csvBusy}
+                  onClick={() => void importCsvDrafts("auto")}
+                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm text-white disabled:opacity-50"
+                >
+                  {csvBusy ? "…" : t("bulk.csvImport")}
+                </button>
+                <button
+                  type="button"
+                  disabled={csvBusy || !csvOrderReady()}
+                  onClick={() => void importCsvDrafts("order")}
+                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-800 disabled:opacity-50"
+                >
+                  {t("bulk.csvApplyInOrder")}
+                </button>
+              </div>
             </div>
           </div>
         )}
