@@ -599,6 +599,29 @@ export async function removeStorageFile(path: string): Promise<void> {
   await supabase.storage.from(BUCKET).remove([path]);
 }
 
+/** Bytes of an artwork storage object, as a File the enhance editor can open. */
+export async function downloadArtworkFile(path: string): Promise<File> {
+  const { data, error } = await supabase.storage.from(BUCKET).download(path);
+  if (error || !data) throw error ?? new Error("download failed");
+  const name = path.split("/").pop() || "artwork";
+  return new File([data], name, { type: data.type || "application/octet-stream" });
+}
+
+/** Display-only upload. Does not write a second original backup. */
+export async function uploadReplacementDisplay(
+  file: File,
+  ownerId: string,
+): Promise<{ path: string; bytes: number }> {
+  const uuid = crypto.randomUUID();
+  const displayPath = `${ownerId}/${uuid}-${sanitizeFilename(file.name)}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
+    upsert: false,
+    contentType: file.type || "image/webp",
+  });
+  if (error) throw error;
+  return { path: displayPath, bytes: file.size };
+}
+
 export async function removeStorageFiles(paths: string[]): Promise<{ error: unknown }> {
   if (paths.length === 0) return { error: null };
   const { error } = await supabase.storage.from(BUCKET).remove(paths);

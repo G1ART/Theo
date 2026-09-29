@@ -1,10 +1,12 @@
 import { supabase } from "./client";
-import { removeStorageFiles } from "./storage";
+import { removeStorageFile, removeStorageFiles, uploadReplacementDisplay } from "./storage";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { recordActingContextEvent } from "@/lib/delegation/actingContext";
 import { isPublicSurfaceVisible } from "@/lib/feed/visibility";
 import { irDemoAssetUrl, isIrDemo } from "@/lib/irDemo/config";
+import { planDisplayReplacement } from "@/lib/image/replaceDisplayPlan";
+import type { EnhancementMeta } from "@/lib/image/enhancement/types";
 
 const BUCKET = "artworks";
 
@@ -101,6 +103,12 @@ export type ArtworkImage = {
    * `src/lib/image/enhancement/types.ts`.
    */
   enhancement_meta?: import("@/lib/image/enhancement/types").EnhancementMeta | null;
+  /**
+   * Untouched upload backup. Present when compression or a later
+   * correction stored a separate display file. Re-opening correction
+   * starts from this path so a second pass does not edit the webp.
+   */
+  original_storage_path?: string | null;
 };
 export type ArtistProfile = {
   id?: string;
@@ -535,7 +543,7 @@ const ARTWORK_SELECT = `
   provenance_visible,
   website_import_provenance,
   likes_count,
-  artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta),
+  artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
   profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles, is_public),
   artwork_likes(count),
   claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
@@ -1322,7 +1330,7 @@ export async function getArtworkById(
       artist_sort_order,
       created_at,
       provenance_visible,
-      artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta),
+      artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
@@ -1372,7 +1380,7 @@ export async function getArtworksByIds(
       artist_sort_order,
       created_at,
       provenance_visible,
-      artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta),
+      artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
@@ -1470,6 +1478,56 @@ export async function updateArtworkImageDisplayAdjust(
     .update({ display_adjust: displayAdjust })
     .eq("artwork_id", artworkId)
     .eq("storage_path", storagePath);
+}
+
+/**
+ * Point one draft image at a corrected display file. The phone original
+ * stays. A previous corrected display is removed after the row updates.
+ */
+export async function replaceArtworkDisplayImage(input: {
+  artworkId: string;
+  ownerId: string;
+  currentStoragePath: string;
+  currentOriginalPath?: string | null;
+  displayFile: File;
+  enhancementMeta: EnhancementMeta;
+}): Promise<{ error: unknown; storagePath: string | null }> {
+  let uploaded: { path: string; bytes: number };
+  try {
+    uploaded = await uploadReplacementDisplay(input.displayFile, input.ownerId);
+  } catch (error) {
+    return { error, storagePath: null };
+  }
+  const plan = planDisplayReplacement(
+    {
+      storage_path: input.currentStoragePath,
+      original_storage_path: input.currentOriginalPath,
+    },
+    uploaded.path,
+  );
+  const { data, error } = await supabase
+    .from("artwork_images")
+    .update({
+      storage_path: uploaded.path,
+      display_bytes: uploaded.bytes,
+      enhancement_meta: input.enhancementMeta,
+      original_storage_path: plan.original_storage_path,
+    })
+    .eq("artwork_id", input.artworkId)
+    .eq("storage_path", input.currentStoragePath)
+    .select("storage_path");
+  if (error || !data?.length) {
+    try {
+      await removeStorageFile(uploaded.path);
+    } catch {}
+    return { error: error ?? new Error("image row not updated"), storagePath: null };
+  }
+  if (plan.retire_storage_path) {
+    try {
+      await removeStorageFile(plan.retire_storage_path);
+    } catch {}
+  }
+  return { error: null, storagePath: uploaded.path };
 }
 
 export async function deleteArtwork(artworkId: string) {

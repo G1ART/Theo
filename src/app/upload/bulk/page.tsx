@@ -22,6 +22,7 @@ import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import type { EnhancementDraft } from "@/components/upload/ImageStandardizeEditor";
+import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import type { EnhancementMode } from "@/lib/image/enhancement/types";
 import {
   runFlatEnhancement,
@@ -155,6 +156,7 @@ export default function BulkUploadPage() {
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [drafts, setDrafts] = useState<ArtworkWithLikes[]>([]);
+  const [enhanceDraft, setEnhanceDraft] = useState<ArtworkWithLikes | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
@@ -2534,110 +2536,9 @@ export default function BulkUploadPage() {
           <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
             <h3 className="mb-2 text-sm font-medium">{t("bulk.pendingFiles")} ({pendingFiles.length})</h3>
 
-            {/* Theo Image Enhance (Beta) — selection + mode + run bar */}
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2 text-xs">
-              <button
-                type="button"
-                onClick={selectAllPending}
-                className="rounded-full border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-50"
-              >
-                {t("bulk.enhance.selectAll")}
-              </button>
-              <button
-                type="button"
-                onClick={clearPendingSelection}
-                className="rounded-full border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-50"
-              >
-                {t("bulk.enhance.clearSelection")}
-              </button>
-              <span className="text-zinc-500">
-                {t("bulk.enhance.selectedCount").replace("{n}", String(pendingSelected.size))}
-              </span>
-              <div className="ml-2 flex items-center gap-1">
-                {(["auto", "flat", "object"] as EnhancementMode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setBulkEnhanceMode(m)}
-                    className={`rounded-full border px-2 py-1 ${
-                      bulkEnhanceMode === m
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {t(`upload.imageEnhance.mode.${m}`)}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={enhanceSelectedPending}
-                disabled={bulkEnhanceRunning || pendingSelected.size === 0}
-                className="ml-auto rounded-full bg-zinc-900 px-3 py-1 font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {bulkEnhanceRunning
-                  ? t("bulk.enhance.running")
-                  : t("bulk.enhance.action")}
-              </button>
-            </div>
-
-            {/* 2026-08-06 — Batch uniformity + portfolio coherence chips.
-                Both are opt-in nudges applied to the final enhancement
-                meta. Clamped to ±5 % / ±4 % respectively so the artist's
-                creative intent is preserved.
-                UI wired minimally in this patch — the deltas are stored
-                on `enhancement_meta.batchNormalization` /
-                `enhancement_meta.portfolioCoherence` when applied.
-                Larger UI (per-row deltas panel) tracked in follow-up. */}
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2 text-xs">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={bulkUniformity}
-                  onChange={(e) => setBulkUniformity(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-zinc-900"
-                />
-                <span className="font-medium text-zinc-800">
-                  {t("bulk.enhance.uniformity")}
-                </span>
-                <span
-                  className="text-zinc-500"
-                  title={t("bulk.enhance.uniformityHint")}
-                >
-                  ({t("bulk.enhance.uniformityHint")})
-                </span>
-              </label>
-              {/* 2026-08-07 — Chip is HIDDEN when the RPC returned
-                  sample_count < 3 (artist has fewer than 3 public works).
-                  We show it when we haven't fetched yet OR when we have
-                  enough samples to run coherence. */}
-              {(() => {
-                const stats = artistIdForCoherence
-                  ? portfolioStatsRef.current.get(artistIdForCoherence)
-                  : undefined;
-                const hasEnoughSamples = !stats || stats.sampleCount >= 3;
-                if (!hasEnoughSamples) return null;
-                return (
-                  <label className="ml-3 flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={portfolioCoherence}
-                      onChange={(e) => setPortfolioCoherence(e.target.checked)}
-                      className="h-3.5 w-3.5 accent-zinc-900"
-                    />
-                    <span className="font-medium text-zinc-800">
-                      {t("bulk.enhance.portfolioCoherence")}
-                    </span>
-                    <span
-                      className="text-zinc-500"
-                      title={t("bulk.enhance.portfolioCoherenceHint")}
-                    >
-                      ({t("bulk.enhance.portfolioCoherenceHint")})
-                    </span>
-                  </label>
-                );
-              })()}
-            </div>
+            <p className="mb-3 text-xs leading-relaxed text-zinc-500">
+              {t("bulk.enhance.rowAfterUpload")}
+            </p>
 
             <div className="mb-3 flex flex-wrap gap-2">
               {pendingFiles.map(({ id, file }) => {
@@ -3134,6 +3035,22 @@ export default function BulkUploadPage() {
           </div>
         )}
 
+        {enhanceDraft && (enhanceDraft.artwork_images ?? [])[0]?.storage_path && (
+          <BulkEnhanceDialog
+            artworkId={enhanceDraft.id}
+            artistProfileId={enhanceDraft.artist_id ?? null}
+            storageOwnerId={actingAsProfileId}
+            image={(enhanceDraft.artwork_images ?? [])[0]!}
+            onClose={() => setEnhanceDraft(null)}
+            onSaved={() => {
+              setEnhanceDraft(null);
+              setToast(t("bulk.enhance.rowSaved"));
+              setTimeout(() => setToast(null), 3200);
+              void fetchDrafts({ silent: true });
+            }}
+          />
+        )}
+
         {pendingBulk && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="max-w-md rounded-lg bg-white p-6 shadow-lg">
@@ -3243,11 +3160,29 @@ export default function BulkUploadPage() {
                         />
                       </td>
                       <td className="p-2">
-                        <div className="h-12 w-12 overflow-hidden rounded bg-zinc-200">
-                          {thumb ? (
-                            <Image src={thumb} alt="" width={48} height={48} sizes="48px" loading="lazy" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-zinc-400 text-xs">—</div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-12 w-12 overflow-hidden rounded bg-zinc-200">
+                            {thumb ? (
+                              <Image src={thumb} alt="" width={48} height={48} sizes="48px" loading="lazy" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-zinc-400 text-xs">—</div>
+                            )}
+                          </div>
+                          {img?.storage_path && (
+                            <div className="flex flex-col items-start gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEnhanceDraft(d)}
+                                className="rounded-full border border-zinc-300 px-2.5 py-1 text-xs text-zinc-800 hover:bg-zinc-50"
+                              >
+                                {t("bulk.enhance.row")}
+                              </button>
+                              {img.enhancement_meta && (
+                                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
+                                  {t("bulk.enhance.rowDone")}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>
