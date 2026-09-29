@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isIrDemo } from "@/lib/irDemo/config";
 import { getServiceClient } from "@/lib/supabase/serviceClient";
+import { appOrigin } from "@/lib/appOrigin";
 
 /**
  * Send the account-activation link through SendGrid.
@@ -17,13 +18,6 @@ import { getServiceClient } from "@/lib/supabase/serviceClient";
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function appOrigin() {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
-    "https://withtheo.art"
-  );
-}
 
 function parseFromHeader(raw: string) {
   const trimmed = raw.trim();

@@ -38,6 +38,8 @@ import {
   getMyAuthState,
   sendMagicLink,
   signInWithPassword,
+  isUnconfirmedAuthError,
+  deliverSignupConfirmation,
 } from "@/lib/supabase/auth";
 import {
   signInWithOAuthProvider,
@@ -65,6 +67,40 @@ function isRateLimitError(message: string): boolean {
 // Legacy screen (flag OFF)
 // ─────────────────────────────────────────────────────────────────────
 
+function UnconfirmedNotice({
+  email,
+  nextPath,
+}: {
+  email: string;
+  nextPath: string | null;
+}) {
+  const { t } = useT();
+  const [sending, setSending] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+      <p>{t("onboarding.checkEmailBody")}</p>
+      <p className="mt-1 text-xs text-zinc-500">{t("onboarding.checkEmailSpamHint")}</p>
+      <button
+        type="button"
+        disabled={sending}
+        onClick={() => {
+          setSending(true);
+          setNote(null);
+          void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
+            setSending(false);
+            setNote(res.error ? t("onboarding.checkEmailResendFailed") : t("onboarding.checkEmailResent"));
+          });
+        }}
+        className="mt-3 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+      >
+        {sending ? t("onboarding.checkEmailResending") : t("onboarding.checkEmailResend")}
+      </button>
+      {note ? <p className="mt-2 text-xs text-zinc-600">{note}</p> : null}
+    </div>
+  );
+}
+
 function LoginLegacyInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,6 +111,7 @@ function LoginLegacyInner() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState(false);
 
   const [passwordlessOpen, setPasswordlessOpen] = useState(false);
   const [passwordlessEmail, setPasswordlessEmail] = useState("");
@@ -117,6 +154,13 @@ function LoginLegacyInner() {
     const { error: err } = await signInWithPassword(email, password);
     setLoading(false);
     if (err) {
+      if (isUnconfirmedAuthError(err)) {
+        setUnconfirmed(true);
+        setError(null);
+        void deliverSignupConfirmation(email.trim(), nextPath);
+        return;
+      }
+      setUnconfirmed(false);
       setError(err.message);
       return;
     }
@@ -218,6 +262,7 @@ function LoginLegacyInner() {
             {error}
           </p>
         )}
+        {unconfirmed ? <UnconfirmedNotice email={email} nextPath={nextPath} /> : null}
 
         <button
           type="submit"
@@ -376,6 +421,7 @@ function LoginV2Inner() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState(false);
 
   // Passwordless swap — mirrors the legacy disclosure pattern: click
   // "Log in without a password" and the password field is replaced by
@@ -425,6 +471,13 @@ function LoginV2Inner() {
     const { error: err } = await signInWithPassword(email.trim(), password);
     setLoading(false);
     if (err) {
+      if (isUnconfirmedAuthError(err)) {
+        setUnconfirmed(true);
+        setError(null);
+        void deliverSignupConfirmation(email.trim(), nextPath);
+        return;
+      }
+      setUnconfirmed(false);
       setError(err.message);
       return;
     }
@@ -606,6 +659,7 @@ function LoginV2Inner() {
               {error}
             </p>
           )}
+          {unconfirmed ? <UnconfirmedNotice email={email} nextPath={nextPath} /> : null}
 
           <PillButton
             type="submit"

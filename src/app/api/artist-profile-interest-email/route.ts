@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
 import { isIrDemo } from "@/lib/irDemo/config";
+import { appOrigin } from "@/lib/appOrigin";
 
 /**
  * QA 2026-07-29 (PART E.1) — opt-in "someone's interested in your profile"
@@ -22,8 +23,6 @@ import { isIrDemo } from "@/lib/irDemo/config";
  * viewer's flow. Missing SendGrid config, RPC errors, or SendGrid send
  * failures are all logged server-side and answered with 200.
  */
-
-const APP_URL = "https://abstract-mvp-dxfn.vercel.app";
 
 type DispatchRow = {
   external_artist_id: string;
@@ -53,8 +52,9 @@ function parseFromHeader(raw: string) {
 
 function buildEmailHtml(row: DispatchRow) {
   const artist = row.display_name?.trim() || "Artist";
-  const onboardingUrl = `${APP_URL}/onboarding`;
-  const unsubscribeUrl = `${APP_URL}/unsubscribe/profile-interest-email/${row.unsubscribe_token}`;
+  const origin = appOrigin();
+  const onboardingUrl = `${origin}/onboarding?email=${encodeURIComponent(row.invite_email)}`;
+  const unsubscribeUrl = `${origin}/unsubscribe/profile-interest-email/${row.unsubscribe_token}`;
   const countLineEn =
     row.distinct_viewer_count > 1
       ? `${row.distinct_viewer_count} people have`

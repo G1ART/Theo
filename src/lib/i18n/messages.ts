@@ -3131,10 +3131,10 @@ export const messages = {
 
     "tour.network.title": "Network",
     "tour.network.intro":
-      "One hub for the whole people graph: followers, following, your relationship desk, and incoming access requests.",
+      "Followers, following, relationships, and access requests, in one place.",
     "tour.network.tabs.title": "Four tabs, one place",
     "tour.network.tabs.body":
-      "Followers and Following are your follow graph. Access requests is the inbox where new connections start. Relationships, on the right, gathers everyone you've already exchanged something with — a request, an inquiry, a granted view, a private room. Reads left-to-right: who is watching, who you watch, who is asking, who you've already begun something with.",
+      "Followers and Following are the people connected to you. Access requests is the inbox where new connections start. Relationships, on the right, gathers everyone you've already exchanged something with — a request, an inquiry, a granted view, a private room. Reads left-to-right: who is watching, who you watch, who is asking, who you've already begun something with.",
     "tour.network.search.title": "Search & sort",
     "tour.network.search.body":
       "On the follower / following tabs you can trim by name or sort by recency to find someone fast.",
@@ -3149,7 +3149,7 @@ export const messages = {
       "Switch to the Access requests tab to see every pending request for your visibility-locked artworks and profile fields. Approve and the requester immediately sees the field; decline and they get a calm 'not now'. Resolved requests stay listed below pending ones so you have an audit trail.",
     "tour.network.activityDot.title": "Requests and relationships are tabs",
     "tour.network.activityDot.body":
-      "Access requests and Relationships used to be separate pages. They now live here as tabs, next to Followers and Following — one people-graph home.",
+      "Access requests and Relationships used to be separate pages. They now live here as tabs, next to Followers and Following.",
 
     "feedback.promptTitle": "How is this page working for you?",
     "feedback.promptHint":
@@ -3876,7 +3876,7 @@ export const messages = {
     "connections.suggestions.empty": "No suggestions yet.",
     "connections.suggestions.dismiss": "Not now",
     "connections.suggestions.recentJob": "Recent work",
-    "connections.suggestions.mutual": "{count} mutual",
+    "connections.suggestions.mutual": "Followed by {count}",
     "connections.suggestions.loadMore": "Show more",
     "connections.suggestions.exhausted": "That's everyone in this circle for now",
     "connections.suggestions.countBadge": "{count} people",
@@ -7668,10 +7668,10 @@ export const messages = {
 
     "tour.network.title": "네트워크 안내",
     "tour.network.intro":
-      "사람 그래프 전부를 한 곳에서 관리해요. 팔로워·팔로잉·관계 데스크·접근 요청까지요.",
+      "팔로우와 관계를 한 곳에서 봐요. 팔로워·팔로잉·관계·접근 요청까지요.",
     "tour.network.tabs.title": "네 개의 탭, 한 곳에서",
     "tour.network.tabs.body":
-      "팔로워·팔로잉은 팔로우 그래프예요. 접근 요청은 새로운 연결이 시작되는 받은 함이고, 맨 오른쪽 관계 탭은 이미 한 번이라도 무언가를 주고받은 사람(요청·문의·접근 권한·프라이빗 룸 초대)이 모이는 곳이에요. 왼쪽에서 오른쪽으로 자연스럽게 읽혀요. 누가 보고 있는지, 내가 누구를 보고 있는지, 지금 누가 다가오려 하는지, 그리고 이미 함께 무언가를 시작한 사람은 누구인지.",
+      "팔로워·팔로잉은 서로 연결된 사람 목록이에요. 접근 요청은 새로운 연결이 시작되는 받은 함이고, 맨 오른쪽 관계 탭은 이미 한 번이라도 무언가를 주고받은 사람(요청·문의·접근 권한·프라이빗 룸 초대)이 모이는 곳이에요. 왼쪽에서 오른쪽으로 자연스럽게 읽혀요. 누가 보고 있는지, 내가 누구를 보고 있는지, 지금 누가 다가오려 하는지, 그리고 이미 함께 무언가를 시작한 사람은 누구인지.",
     "tour.network.search.title": "검색 · 정렬",
     "tour.network.search.body":
       "팔로워·팔로잉 탭에서는 이름으로 좁히거나 최근 순으로 정렬해 빠르게 찾을 수 있어요.",
@@ -7686,7 +7686,7 @@ export const messages = {
       "접근 요청 탭에서는 공개 범위가 잠긴 작품·프로필 항목에 들어온 모든 요청을 볼 수 있어요. 수락하면 요청자가 즉시 해당 항목을 볼 수 있고, 거절하면 차분한 '지금은 어렵다'는 응답이 전달돼요. 처리된 요청은 대기 요청 아래에 그대로 남아 기록으로 쓰여요.",
     "tour.network.activityDot.title": "요청과 관계는 탭이에요",
     "tour.network.activityDot.body":
-      "접근 요청과 관계는 예전엔 따로 떨어진 페이지였어요. 지금은 팔로워·팔로잉 옆 탭으로, 사람 그래프를 한곳에서 다뤄요.",
+      "접근 요청과 관계는 예전엔 따로 떨어진 페이지였어요. 지금은 팔로워·팔로잉 옆 탭이에요.",
 
     "feedback.promptTitle": "이 화면, 어떻게 느껴지세요?",
     "feedback.promptHint":

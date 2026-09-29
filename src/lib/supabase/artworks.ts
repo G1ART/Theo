@@ -415,7 +415,8 @@ export function getArtworkArtistGroupKey(
     if (externalClaim.external_artist_id) {
       return `ext:${externalClaim.external_artist_id}`;
     }
-    const name = externalClaim.external_artists?.display_name?.trim().toLowerCase();
+    const ext = externalClaim.external_artists as ExternalArtistLocalized | undefined;
+    const name = ext ? externalArtistDisplayName(ext).toLowerCase() : "";
     if (name) return `extname:${name}`;
   }
   const artistId = artwork.artist_id;

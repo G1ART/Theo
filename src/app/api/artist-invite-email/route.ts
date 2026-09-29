@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isIrDemo } from "@/lib/irDemo/config";
+import { appOrigin } from "@/lib/appOrigin";
 
 type InvitePayload = {
   toEmail: string;
@@ -52,11 +53,7 @@ function buildEmailHtml(payload: InvitePayload) {
   const inviterIntroEn = `A ${inviterRole} ${inviter} has added your work to their program on Theo and would like to invite you to join the platform.`;
   const inviterIntroKo = `${inviterRoleKo} ${inviter} 님이 Theo에서 ${artist} 님의 작품을 전시 프로그램에 포함하며, 함께 플랫폼에 참여해 주시기를 정중히 초청드립니다.`;
 
-  const origin = (
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
-    "https://withtheo.art"
-  );
-  const onboardingUrl = `${origin}/onboarding?email=${encodeURIComponent(
+  const onboardingUrl = `${appOrigin()}/onboarding?email=${encodeURIComponent(
     payload.toEmail.trim(),
   )}`;
 

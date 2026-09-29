@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isIrDemo } from "@/lib/irDemo/config";
+import { appOrigin } from "@/lib/appOrigin";
 
 type Payload = {
   toEmail: string;
@@ -73,40 +74,8 @@ function buildHtmlKo(payload: Payload, acceptUrl: string) {
   `;
 }
 
-const FALLBACK_APP_BASE = "https://abstract-mvp-dxfn.vercel.app";
-
-/**
- * Returns the app base URL used in invite links.
- *
- * Hard rules:
- *  - must be absolute http(s) URL
- *  - hostname must not be the Vercel marketing site (`vercel.com`)
- *  - production deploys must be https
- *
- * Any violation falls back to `FALLBACK_APP_BASE` so misconfigured envs
- * never ship users to a marketing page or a non-clickable link.
- */
 function getAppBase(): string {
-  const raw =
-    (typeof process.env.NEXT_PUBLIC_APP_URL === "string" && process.env.NEXT_PUBLIC_APP_URL.trim()) ||
-    (process.env.VERCEL_URL ? `https://${String(process.env.VERCEL_URL).trim()}` : null) ||
-    FALLBACK_APP_BASE;
-  const base = raw.startsWith("http") ? raw : `https://${raw}`;
-  try {
-    const parsed = new URL(base);
-    const hostname = parsed.hostname.toLowerCase();
-    if (hostname === "vercel.com" || hostname === "www.vercel.com") {
-      console.warn("delegation-invite-email: base was vercel.com, using fallback", { raw });
-      return FALLBACK_APP_BASE;
-    }
-    if (parsed.protocol !== "https:" && hostname !== "localhost" && !hostname.startsWith("127.")) {
-      console.warn("delegation-invite-email: non-https base rejected, using fallback", { raw });
-      return FALLBACK_APP_BASE;
-    }
-    return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
-  } catch {
-    return FALLBACK_APP_BASE;
-  }
+  return appOrigin();
 }
 
 export async function POST(req: Request) {

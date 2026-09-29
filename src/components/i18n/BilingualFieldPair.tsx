@@ -34,7 +34,7 @@
  */
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { Locale } from "@/lib/i18n/locale";
 import { useT } from "@/lib/i18n/useT";
 
@@ -128,20 +128,19 @@ export function BilingualFieldPair(props: BilingualFieldPairProps) {
   const setSecondary = primaryLang === "ko" ? onChangeEn : onChangeKo;
 
   const hasSecondaryContent = secondaryValue.trim().length > 0;
+  const dismissed = useRef(false);
   const [expanded, setExpanded] = useState<boolean>(
     Boolean(forceExpanded) || hasSecondaryContent,
   );
 
   useEffect(() => {
-    if (forceExpanded) {
-      setExpanded(true);
-    }
+    if (dismissed.current) return;
+    if (forceExpanded) setExpanded(true);
   }, [forceExpanded]);
 
   useEffect(() => {
-    if (hasSecondaryContent && !expanded) {
-      setExpanded(true);
-    }
+    if (dismissed.current) return;
+    if (hasSecondaryContent && !expanded) setExpanded(true);
   }, [hasSecondaryContent, expanded]);
 
   const applyExpanded = (next: boolean) => {
@@ -255,12 +254,7 @@ export function BilingualFieldPair(props: BilingualFieldPairProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    // QA 2026-09-17: "지우기" after typing one or two
-                    // characters did nothing. The auto-expand effect
-                    // reopened the slot whenever secondary text was
-                    // non-empty, so the click and the effect cancelled
-                    // each other. Clearing the value is what the label
-                    // promises, and it lets the slot stay closed.
+                    dismissed.current = true;
                     setSecondary("");
                     applyExpanded(false);
                   }}
@@ -273,7 +267,10 @@ export function BilingualFieldPair(props: BilingualFieldPairProps) {
           ) : (
             <button
               type="button"
-              onClick={() => applyExpanded(true)}
+              onClick={() => {
+                dismissed.current = false;
+                applyExpanded(true);
+              }}
               className="text-xs text-zinc-500 underline hover:text-zinc-800"
             >
               {addSecondaryLabel}

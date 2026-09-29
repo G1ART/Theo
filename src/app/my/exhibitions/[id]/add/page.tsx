@@ -89,6 +89,13 @@ type ExternalRow = {
   savedSnapshot: { name_ko: string; name_en: string; email: string } | null;
 };
 
+function externalArtistReady(row: Pick<ExternalRow, "name_ko" | "name_en" | "email" | "linkLater">): boolean {
+  const name = row.name_ko.trim() || row.name_en.trim();
+  if (name.length < 2) return true;
+  if (row.linkLater) return true;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email.trim());
+}
+
 function emptyExternalRow(): ExternalRow {
   return {
     clientId:
@@ -900,7 +907,19 @@ export default function AddWorkToExhibitionPage() {
           </button>
           <button
             type="button"
-            onClick={() => setStep("works")}
+            onClick={() => {
+              const blocked = externalRows.some((r) => !externalArtistReady(r));
+              if (blocked) {
+                setStep("artists");
+                setExternalRows((prev) =>
+                  prev.map((r) =>
+                    externalArtistReady(r) ? r : { ...r, saveStatus: "saved", saveError: null },
+                  ),
+                );
+                return;
+              }
+              setStep("works");
+            }}
             className={`ml-1 rounded-full px-3 py-1 ${
               step === "works" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500"
             }`}
@@ -1273,12 +1292,9 @@ export default function AddWorkToExhibitionPage() {
               <button
                 type="button"
                 onClick={async () => {
-                  const namedWithoutChoice = externalRowsRef.current.filter((r) => {
-                    const name = (r.name_ko.trim() || r.name_en.trim());
-                    if (name.length < 2) return false;
-                    if (r.linkLater) return false;
-                    return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email.trim());
-                  });
+                  const namedWithoutChoice = externalRowsRef.current.filter(
+                    (r) => !externalArtistReady(r),
+                  );
                   if (namedWithoutChoice.length > 0) {
                     setExternalRows((prev) =>
                       prev.map((r) =>
@@ -1450,9 +1466,13 @@ export default function AddWorkToExhibitionPage() {
                       if (r.linkLater) singleQs.set("linkLater", "1");
                       if (exhibitionTitle) singleQs.set("exhibitionTitle", exhibitionTitle);
                       const bulkQs = new URLSearchParams(singleQs);
+                      const ready =
+                        r.linkLater || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email);
                       return (
                         <li key={bucketKey} className="rounded-xl border-2 border-zinc-200 bg-white p-4">
                           <p className="mb-3 font-medium text-zinc-900">{r.name}</p>
+                          {ready ? (
+                          <>
                           <div
                             onDragOver={(e) => {
                               e.preventDefault();
@@ -1501,6 +1521,10 @@ export default function AddWorkToExhibitionPage() {
                               {t("exhibition.uploadBulkWorks")}
                             </Link>
                           </div>
+                          </>
+                          ) : (
+                            <p className="text-xs text-amber-800">{t("exhibition.participants.needEmail")}</p>
+                          )}
                         </li>
                       );
                     })}

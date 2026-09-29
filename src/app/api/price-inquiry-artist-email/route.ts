@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
 import { isIrDemo } from "@/lib/irDemo/config";
+import { appOrigin } from "@/lib/appOrigin";
 
 /**
  * QA 2026-07-29 (Part A) — opt-in price-inquiry email to external artists.
@@ -17,8 +18,6 @@ import { isIrDemo } from "@/lib/irDemo/config";
  * inquirer's flow. Missing SendGrid config, RPC errors, or SendGrid
  * send failures are all logged server-side and answered with 200.
  */
-
-const APP_URL = "https://abstract-mvp-dxfn.vercel.app";
 
 type DispatchRow = {
   external_artist_id: string;
@@ -45,8 +44,9 @@ function buildEmailHtml(row: DispatchRow) {
   const artist = row.display_name?.trim() || "Artist";
   const artworkTitle = row.artwork_title?.trim() || "your work";
   const inviter = row.inviter_display_name?.trim() || "A gallery/curator";
-  const onboardingUrl = `${APP_URL}/onboarding`;
-  const unsubscribeUrl = `${APP_URL}/unsubscribe/inquiry-email/${row.unsubscribe_token}`;
+  const origin = appOrigin();
+  const onboardingUrl = `${origin}/onboarding?email=${encodeURIComponent(row.invite_email)}`;
+  const unsubscribeUrl = `${origin}/unsubscribe/inquiry-email/${row.unsubscribe_token}`;
 
   return `
   <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #111827;">
