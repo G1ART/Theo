@@ -1711,6 +1711,10 @@ export const messages = {
       "Origin {domain} · pages fetched {pages} · candidate images {images} · captions parsed for {parsed} image(s).",
     "bulk.wi.warningNearCap":
       "We stopped adding more site images at the safety cap. Re-run on a narrower section of your site if needed.",
+    "bulk.wi.warningTimeBudget":
+      "The scan stopped at the time limit and kept the pages it had already read. A work-section URL usually covers the rest.",
+    "bulk.wi.errScanTimeout":
+      "The scan ran out of time before it could finish. Try the address of your works page, then scan again.",
     "bulk.wi.scanDetailsShow": "Show technical details",
     "bulk.wi.scanDetailsHide": "Hide technical details",
     "bulk.wi.scanNoImages":
@@ -6253,6 +6257,10 @@ export const messages = {
       "출처 {domain} · 가져온 페이지 {pages}장 · 후보 이미지 {images}개 · 캡션에서 필드 추출 {parsed}개.",
     "bulk.wi.warningNearCap":
       "안전 한도에 도달해 더 이상 사이트 이미지를 추가하지 않았습니다. 필요하면 사이트의 일부만 다시 시도해 보세요.",
+    "bulk.wi.warningTimeBudget":
+      "시간 한도에서 스캔을 멈췄고, 그때까지 읽은 페이지는 남겨 두었어요. 작품 목록 주소로 한 번 더 스캔하면 나머지를 채울 수 있어요.",
+    "bulk.wi.errScanTimeout":
+      "스캔이 끝나기 전에 시간이 다 됐어요. 작품이 있는 페이지 주소로 다시 시도해 주세요.",
     "bulk.wi.scanDetailsShow": "기술 정보 보기",
     "bulk.wi.scanDetailsHide": "기술 정보 숨기기",
     "bulk.wi.scanNoImages":

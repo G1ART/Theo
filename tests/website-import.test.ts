@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { parseMetadataLine } from "../src/lib/websiteImport/metadataParse";
 import { hammingDistanceHex, bucketMatch } from "../src/lib/websiteImport/dhash";
-import { normalizeWebsiteUrl, isBlockedHostname } from "../src/lib/websiteImport/urlSafety";
+import { normalizeWebsiteUrl, isBlockedHostname, isSameSiteHost } from "../src/lib/websiteImport/urlSafety";
 
 // ── URL safety ─────────────────────────────────────────────
 {
@@ -25,6 +25,9 @@ import { normalizeWebsiteUrl, isBlockedHostname } from "../src/lib/websiteImport
   assert.equal(isBlockedHostname("169.254.169.254"), true, "AWS metadata blocked");
   assert.equal(isBlockedHostname("metadata.google.internal"), true, "GCP metadata blocked");
   assert.equal(isBlockedHostname("public.example.com"), false);
+  assert.equal(isSameSiteHost("www.studio.com", "studio.com"), true);
+  assert.equal(isSameSiteHost("work.studio.com", "www.studio.com"), true);
+  assert.equal(isSameSiteHost("other.com", "studio.com"), false);
 }
 
 // ── Metadata parse (deterministic, source-backed) ───────────

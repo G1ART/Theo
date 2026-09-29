@@ -12,11 +12,13 @@ import { dhashAndMetadataFromImageBuffer } from "./dhash";
 import type { WebsiteImportCandidate, WebsiteImportScanMeta } from "./types";
 import { randomUUID } from "crypto";
 
-const MAX_PAGES = 28;
-const MAX_QUEUE = 80;
-const MAX_CANDIDATES = 180;
-const PAGE_TIMEOUT_MS = 7500;
-const IMAGE_TIMEOUT_MS = 9500;
+const MAX_PAGES = 40;
+const MAX_QUEUE = 160;
+const MAX_CANDIDATES = 120;
+const PAGE_TIMEOUT_MS = 6000;
+const IMAGE_TIMEOUT_MS = 5000;
+const CRAWL_BUDGET_MS = 42_000;
+const HASH_BUDGET_MS = 22_000;
 const MAX_HTML_BYTES = 1_400_000;
 const MAX_IMAGE_BYTES = 4_000_000;
 const MAX_CONCURRENT_PAGE_FETCH = 3;
@@ -43,11 +45,12 @@ const HTML_CONTENT_TYPE_RE = /^(text\/html|application\/xhtml\+xml)\b/i;
 async function safeFetchBuffer(
   startUrl: URL,
   originHostname: string,
-  kind: "page" | "image",
+  kind: "page" | "image" | "xml",
 ): Promise<Buffer> {
   let current = startUrl;
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
     if (kind === "page") assertFetchablePageUrl(current, originHostname);
+    else if (kind === "xml") assertFetchablePageUrl(current, originHostname);
     else assertFetchableImageUrl(current, originHostname);
 
     await assertResolvedHostSafe(current.hostname);
@@ -55,7 +58,7 @@ async function safeFetchBuffer(
     const ctrl = new AbortController();
     const timeout = setTimeout(
       () => ctrl.abort(),
-      kind === "page" ? PAGE_TIMEOUT_MS : IMAGE_TIMEOUT_MS,
+      kind === "image" ? IMAGE_TIMEOUT_MS : PAGE_TIMEOUT_MS,
     );
     try {
       const res = await fetch(current.toString(), {
@@ -87,11 +90,13 @@ async function safeFetchBuffer(
 
       // For pages we additionally insist on text/html-ish responses so a
       // tarball or PDF doesn't land in cheerio.
-      if (kind === "page") {
+      if (kind === "page" || kind === "xml") {
         const ct = res.headers.get("content-type") ?? "";
-        if (ct && !HTML_CONTENT_TYPE_RE.test(ct)) {
-          throw new Error("page_non_html");
-        }
+        const okType =
+          kind === "xml"
+            ? !ct || /xml|text\/plain|text\/html/i.test(ct)
+            : HTML_CONTENT_TYPE_RE.test(ct);
+        if (ct && !okType) throw new Error("page_non_html");
       }
 
       const cap = kind === "page" ? MAX_HTML_BYTES : MAX_IMAGE_BYTES;
@@ -155,21 +160,26 @@ function extractLinks(html: string, pageUrl: string, originHostname: string): st
   return [...new Set(out)];
 }
 
-function prioritizeLinks(urls: string[]): string[] {
-  const scored = urls.map((u) => {
+function pageKey(raw: string): string {
+  const url = new URL(raw);
+  url.hash = "";
+  url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
+  return url.toString();
+}
+
+function linkScore(raw: string): number {
+  try {
+    const p = new URL(raw).pathname;
     let s = 0;
-    try {
-      const p = new URL(u).pathname;
-      if (GALLERY_PATH_HINTS.test(p)) s += 4;
-      if (p === "/" || p === "") s += 2;
-      if (p.split("/").filter(Boolean).length <= 2) s += 1;
-    } catch {
-      return { u, s: -99 };
-    }
-    return { u, s };
-  });
-  scored.sort((a, b) => b.s - a.s);
-  return scored.map((x) => x.u);
+    if (GALLERY_PATH_HINTS.test(p)) s += 4;
+    const depth = p.split("/").filter(Boolean).length;
+    if (depth >= 1 && depth <= 3) s += 2;
+    if (depth > 4) s -= 1;
+    return s;
+  } catch {
+    return -99;
+  }
 }
 
 /** Down-rank favicons, sprites, logos, social badges, and tiny layout images. */
@@ -448,7 +458,9 @@ async function extractCandidatesFromPage(
 async function hashCandidateImage(
   c: Omit<WebsiteImportCandidate, "id" | "dhash_hex">,
   originHostname: string,
+  deadlineMs: number,
 ): Promise<WebsiteImportCandidate | null> {
+  if (Date.now() > deadlineMs) return null;
   try {
     const buf = await safeFetchBuffer(new URL(c.image_url), originHostname, "image");
     const { dhash_hex, width, height } = await dhashAndMetadataFromImageBuffer(buf);
@@ -497,43 +509,88 @@ export type CrawlSiteResult =
     }
   | { ok: false; error: string };
 
+async function loadSitemapLocs(startUrl: URL, originHostname: string): Promise<string[]> {
+  const bare = startUrl.hostname.replace(/^www\./, "");
+  const origins = [
+    `${startUrl.protocol}//${bare}`,
+    `${startUrl.protocol}//www.${bare}`,
+  ];
+  const xmlQueue = origins.flatMap((origin) => [
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+  ]);
+  const locs: string[] = [];
+  const seenXml = new Set<string>();
+  let fetched = 0;
+  while (xmlQueue.length > 0 && fetched < 4 && locs.length < MAX_QUEUE) {
+    const xmlUrl = xmlQueue.shift()!;
+    if (seenXml.has(xmlUrl)) continue;
+    seenXml.add(xmlUrl);
+    fetched += 1;
+    try {
+      const buf = await safeFetchBuffer(new URL(xmlUrl), originHostname, "xml");
+      const text = buf.toString("utf8");
+      for (const match of text.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
+        const loc = match[1];
+        if (!loc) continue;
+        if (/\.xml(\?|$)/i.test(loc)) {
+          if (xmlQueue.length < 8) xmlQueue.push(loc);
+        } else {
+          locs.push(loc);
+        }
+      }
+    } catch {
+      /* a missing sitemap is normal */
+    }
+  }
+  return locs;
+}
+
 export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult> {
   const originHostname = startUrl.hostname;
   const seenPages = new Set<string>();
-  const queue: string[] = [startUrl.toString()];
+  const queue: string[] = [];
   const candidatesMap = new Map<string, Omit<WebsiteImportCandidate, "id" | "dhash_hex">>();
   let pagesFetched = 0;
   let fetchFailures = 0;
   let rawImageCount = 0;
   let jsShellHits = 0;
+  const started = Date.now();
+
+  const enqueue = (raw: string) => {
+    let key: string;
+    try {
+      key = pageKey(raw);
+      assertFetchablePageUrl(new URL(raw), originHostname);
+    } catch {
+      return;
+    }
+    if (seenPages.has(key)) return;
+    if (queue.some((u) => pageKey(u) === key)) return;
+    if (queue.length + seenPages.size >= MAX_QUEUE) return;
+    queue.push(raw);
+  };
+
+  enqueue(startUrl.toString());
+  for (const loc of await loadSitemapLocs(startUrl, originHostname)) enqueue(loc);
 
   try {
-    while (queue.length > 0 && pagesFetched < MAX_PAGES && seenPages.size < MAX_QUEUE) {
+    while (queue.length > 0 && pagesFetched < MAX_PAGES && Date.now() - started < CRAWL_BUDGET_MS) {
+      queue.sort((a, b) => linkScore(b) - linkScore(a));
       const batch = queue.splice(0, MAX_CONCURRENT_PAGE_FETCH);
       await Promise.all(
         batch.map(async (pageUrlStr) => {
-          if (seenPages.has(pageUrlStr)) return;
-          seenPages.add(pageUrlStr);
+          const key = pageKey(pageUrlStr);
+          if (seenPages.has(key)) return;
+          seenPages.add(key);
           const pageUrl = new URL(pageUrlStr);
-          try {
-            assertFetchablePageUrl(pageUrl, originHostname);
-          } catch {
-            return;
-          }
           try {
             const buf = await safeFetchBuffer(pageUrl, originHostname, "page");
             const html = buf.toString("utf8");
             pagesFetched += 1;
-            const links = extractLinks(html, pageUrlStr, originHostname);
-            for (const u of prioritizeLinks(links)) {
-              if (!seenPages.has(u) && queue.length + seenPages.size < MAX_QUEUE) queue.push(u);
-            }
+            for (const u of extractLinks(html, pageUrlStr, originHostname)) enqueue(u);
             const extracted = await extractCandidatesFromPage(html, pageUrlStr, originHostname);
             rawImageCount += extracted.rawImageCount;
-            // `extracted.skippedCount` is intentionally ignored at the
-            // crawler level — the per-page filter count is not surfaced
-            // in `scan_meta` today. Kept accessible on the extractor
-            // return so future observability can plumb it through.
             if (extracted.jsShell) jsShellHits += 1;
             for (const c of extracted.found) {
               if (!candidatesMap.has(c.image_url)) candidatesMap.set(c.image_url, c);
@@ -548,17 +605,18 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
     return { ok: false, error: e instanceof Error ? e.message : "crawl_failed" };
   }
 
-  // Prioritize images that look "art-sized" via attribute hints so the
-  // 180-cap never trims real artwork in favor of tiny layout images.
   const rawList = [...candidatesMap.values()].sort((a, b) => {
     const areaA = (a.width ?? 0) * (a.height ?? 0);
     const areaB = (b.width ?? 0) * (b.height ?? 0);
-    return areaB - areaA;
+    const capA = a.caption_blob ? 1 : 0;
+    const capB = b.caption_blob ? 1 : 0;
+    return capB - capA || areaB - areaA;
   });
 
-  const slice = rawList.slice(0, MAX_CANDIDATES + 40);
+  const hashDeadline = Date.now() + HASH_BUDGET_MS;
+  const slice = rawList.slice(0, MAX_CANDIDATES + 20);
   const hashedAll = await runWithLimit(slice, MAX_CONCURRENT_IMAGE_HASH, (c) =>
-    hashCandidateImage(c, originHostname),
+    hashCandidateImage(c, originHostname, hashDeadline),
   );
   const hashedRaw = hashedAll.filter((c): c is WebsiteImportCandidate => Boolean(c));
 
@@ -583,8 +641,9 @@ export async function crawlPortfolioSite(startUrl: URL): Promise<CrawlSiteResult
     return !!(p.title || p.year != null || p.medium || p.size || p.story);
   }).length;
   const warnings: string[] = [];
-  if (candidatesMap.size >= MAX_CANDIDATES) {
-    warnings.push("near_candidate_cap");
+  if (candidatesMap.size >= MAX_CANDIDATES) warnings.push("near_candidate_cap");
+  if (Date.now() - started >= CRAWL_BUDGET_MS || Date.now() >= hashDeadline) {
+    warnings.push("time_budget");
   }
 
   let empty_reason: WebsiteImportScanMeta["empty_reason"];

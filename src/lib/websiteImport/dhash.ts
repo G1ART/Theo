@@ -15,7 +15,7 @@ import type { WebsiteImportCandidate } from "./types";
 export async function dhashFromImageBuffer(buf: Buffer): Promise<string> {
   const { data } = await sharp(buf, { failOnError: false })
     .rotate()
-    .resize(9, 8, { fit: "fill" })
+    .resize(9, 8, { fit: "cover", position: "centre" })
     .grayscale()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -39,7 +39,7 @@ export async function dhashAndMetadataFromImageBuffer(
   const metaPromise = pipeline.clone().metadata();
   const dataPromise = pipeline
     .clone()
-    .resize(9, 8, { fit: "fill" })
+    .resize(9, 8, { fit: "cover", position: "centre" })
     .grayscale()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -152,14 +152,14 @@ export function bucketMatch(
   const best = ranked[0]!;
   const second = ranked[1];
   const gap = second ? second.hamming - best.hamming : 99;
-  if (best.hamming <= 10 && (gap >= 5 || !second || second.hamming > 16)) {
+  if (best.hamming <= 12 && (gap >= 5 || !second || second.hamming > 16)) {
     return { status: "high_confidence", confidence: Math.max(0.55, 1 - best.hamming / 24) };
   }
-  if (best.hamming <= 18 && (gap < 4 || best.hamming > 10)) {
+  if (best.hamming <= 18 && (gap < 4 || best.hamming > 12)) {
     return { status: "review_needed", confidence: Math.max(0.25, 1 - best.hamming / 28) };
   }
-  if (best.hamming <= 22) {
-    return { status: "review_needed", confidence: 0.35 };
+  if (best.hamming <= 28) {
+    return { status: "review_needed", confidence: 0.3 };
   }
   return { status: "no_match", confidence: 0 };
 }

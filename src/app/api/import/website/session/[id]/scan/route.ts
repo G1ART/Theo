@@ -6,17 +6,15 @@ import { recordUsageEvent } from "@/lib/metering/recordUsageEvent";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * If a session has been stuck in `scanning` for more than this window we
  * treat the prior run as dead (Vercel function timeout, container kill,
- * etc.) and allow a fresh scan to take over. We pick 90s on purpose: it's
- * longer than the route's hard `maxDuration = 60s` plus a generous buffer
- * for clock skew, but short enough that the user isn't stuck waiting if
- * something genuinely went wrong server-side.
+ * etc.) and allow a fresh scan to take over. Longer than `maxDuration`
+ * so a live scan is not interrupted by a retry.
  */
-const STALE_SCAN_MS = 90_000;
+const STALE_SCAN_MS = 150_000;
 
 const SCAN_RATE_WINDOW_MS = 60_000;
 const SCAN_RATE_MAX_PER_WINDOW = 2;

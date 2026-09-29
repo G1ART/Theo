@@ -85,6 +85,8 @@ function wiErrorMessage(code: string | undefined, phase: WiErrPhase, t: (key: st
       return t("bulk.wi.errorNoCandidates");
     case "delegation_not_authorized":
       return t("bulk.wi.errCreateSession");
+    case "scan_timeout":
+      return t("bulk.wi.errScanTimeout");
     case "rate_limited":
       return t("bulk.wi.errScanFailed");
     case "scan_in_progress":
@@ -223,6 +225,7 @@ export function WebsiteImportPanel(props: {
         headers: h,
       });
       if (!sr.ok) {
+        if (sr.status === 504 || sr.status === 502) throw new Error("scan_timeout");
         const j = await sr.json().catch(() => ({}));
         throw new Error((j as { error?: string }).error ?? "scan_failed");
       }
@@ -650,6 +653,9 @@ export function WebsiteImportPanel(props: {
               ) : null}
               {scanMeta?.warnings?.includes("near_candidate_cap") ? (
                 <p className="text-xs text-amber-900">{t("bulk.wi.warningNearCap")}</p>
+              ) : null}
+              {scanMeta?.warnings?.includes("time_budget") ? (
+                <p className="text-xs text-amber-900">{t("bulk.wi.warningTimeBudget")}</p>
               ) : null}
               <button
                 type="button"

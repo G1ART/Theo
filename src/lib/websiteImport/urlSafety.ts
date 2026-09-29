@@ -150,12 +150,25 @@ const IMAGE_HOST_SUFFIX_ALLOW = [
   "supabase.co",
   "cloudfront.net",
   "akamaized.net",
+  "cargo.site",
+  "format.com",
+  "shopifycdn.com",
+  "shopify.com",
+  "wsimg.com",
+  "cdn.sanity.io",
+  "graphassets.com",
 ];
+
+export function isSameSiteHost(host: string, originHostname: string): boolean {
+  const h = host.toLowerCase().replace(/^www\./, "");
+  const o = originHostname.toLowerCase().replace(/^www\./, "");
+  return h === o || h.endsWith("." + o);
+}
 
 export function assertFetchablePageUrl(pageUrl: URL, originHostname: string): void {
   const host = pageUrl.hostname.toLowerCase();
   if (isBlockedHostname(host)) throw new Error("blocked_target");
-  if (host !== originHostname.toLowerCase()) throw new Error("cross_origin_page");
+  if (!isSameSiteHost(host, originHostname)) throw new Error("cross_origin_page");
   if (pageUrl.protocol !== "http:" && pageUrl.protocol !== "https:") throw new Error("unsupported_scheme");
 }
 
@@ -164,7 +177,7 @@ export function assertFetchableImageUrl(imageUrl: URL, originHostname: string): 
   if (isBlockedHostname(host)) throw new Error("blocked_target");
   if (imageUrl.protocol !== "https:" && imageUrl.protocol !== "http:") throw new Error("unsupported_scheme");
   const origin = originHostname.toLowerCase();
-  if (host === origin) return;
+  if (isSameSiteHost(host, origin)) return;
   const allowedCdn = IMAGE_HOST_SUFFIX_ALLOW.some((suffix) => host === suffix || host.endsWith("." + suffix));
   if (!allowedCdn) throw new Error("image_host_not_allowed");
 }
