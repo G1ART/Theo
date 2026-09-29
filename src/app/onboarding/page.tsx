@@ -20,7 +20,7 @@
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getSession, getMyAuthState, signUpWithPassword } from "@/lib/supabase/auth";
+import { getSession, getMyAuthState, signUpWithPassword, signInWithPassword, isUnconfirmedAuthError, deliverSignupConfirmation } from "@/lib/supabase/auth";
 import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { useT } from "@/lib/i18n/useT";
 import { routeByAuthState, safeNextPath, loginUrlWithNext } from "@/lib/identity/routing";
@@ -39,12 +39,15 @@ function OnboardingInner() {
   const { t } = useT();
 
   const [mode, setMode] = useState<Mode>("check");
-  const [email, setEmail] = useState("");
+  const presetEmail = searchParams.get("email")?.trim() ?? "";
+  const [email, setEmail] = useState(presetEmail);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signupEmailSent, setSignupEmailSent] = useState(false);
+  const [confirmSending, setConfirmSending] = useState(false);
+  const [confirmNote, setConfirmNote] = useState<string | null>(null);
   const [duplicateEmailFor, setDuplicateEmailFor] = useState<string | null>(null);
 
   // Signed-in arrivals short-circuit through the unified gate. This
@@ -132,6 +135,22 @@ function OnboardingInner() {
     const isDuplicateEmail =
       !!data?.user && Array.isArray(identities) && identities.length === 0;
     if (isDuplicateEmail) {
+      const { data: loginData, error: loginErr } = await signInWithPassword(
+        email.trim(),
+        password,
+      );
+      if (!loginErr && loginData?.session?.user?.id) {
+        await ensureFreeEntitlement(loginData.session.user.id);
+        const state = await getMyAuthState();
+        const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
+        router.replace(to);
+        return;
+      }
+      if (isUnconfirmedAuthError(loginErr)) {
+        setSignupEmailSent(true);
+        void deliverSignupConfirmation(email.trim(), nextPath);
+        return;
+      }
       setDuplicateEmailFor(email.trim());
       return;
     }
@@ -139,6 +158,7 @@ function OnboardingInner() {
     // Email-confirmation mode: no session yet.
     if (data?.user && !data?.session) {
       setSignupEmailSent(true);
+      void deliverSignupConfirmation(email.trim(), nextPath);
       return;
     }
 
@@ -213,9 +233,42 @@ function OnboardingInner() {
             {t("onboarding.checkEmailTitle")}
           </p>
           <p className="mt-2 text-sm text-zinc-600">{t("onboarding.checkEmailBody")}</p>
+          <p className="mt-2 text-xs text-zinc-500">{t("onboarding.checkEmailSpamHint")}</p>
+          <button
+            type="button"
+            disabled={confirmSending}
+            onClick={() => {
+              setConfirmSending(true);
+              setConfirmNote(null);
+              void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
+                setConfirmSending(false);
+                setConfirmNote(
+                  res.error
+                    ? t("onboarding.checkEmailResendFailed")
+                    : t("onboarding.checkEmailResent"),
+                );
+              });
+            }}
+            className="mt-4 inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {confirmSending ? t("onboarding.checkEmailResending") : t("onboarding.checkEmailResend")}
+          </button>
+          {confirmNote ? (
+            <p className="mt-2 text-xs text-zinc-600">{confirmNote}</p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setSignupEmailSent(false);
+              setConfirmNote(null);
+            }}
+            className="mt-3 block text-xs font-medium text-zinc-500 hover:text-zinc-700"
+          >
+            {t("onboarding.duplicateEmailUseDifferent")}
+          </button>
           <Link
             href={loginHref}
-            className="mt-5 inline-block text-sm font-medium text-zinc-700 hover:text-zinc-900"
+            className="mt-3 inline-block text-sm font-medium text-zinc-700 hover:text-zinc-900"
           >
             ← {t("auth.backToSignIn")}
           </Link>

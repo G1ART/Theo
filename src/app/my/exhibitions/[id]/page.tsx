@@ -168,7 +168,7 @@ export default function ExhibitionDetailPage() {
     const artistNameById = new Map<string, string>();
     const artistOrder: string[] = [];
     for (const art of orderedArtworks) {
-      const { label } = getArtworkArtistLabel(art);
+      const { label } = getArtworkArtistLabel(art, locale);
       // Group by external_artist_id when present so multiple invited artists
       // uploaded by one gallery don't collapse into a single section.
       const key = getArtworkArtistGroupKey(art);
@@ -184,7 +184,7 @@ export default function ExhibitionDetailPage() {
       artistName: artistNameById.get(key) ?? t("artwork.artistFallback"),
       list: listByArtist.get(key) ?? [],
     }));
-  }, [orderedArtworks]);
+  }, [orderedArtworks, locale, t]);
 
   const mediaBucketsBase = useMemo(
     () => groupExhibitionMediaByBucket(media, (k) => t(k), mediaBucketRows),

@@ -55,6 +55,8 @@ import { ROLE_KEYS } from "@/lib/identity/roles";
 import {
   signUpWithPassword,
   signInWithPassword,
+  deliverSignupConfirmation,
+  isUnconfirmedAuthError,
 } from "@/lib/supabase/auth";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
 import {
@@ -138,6 +140,9 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     kind: "idle",
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [confirmSending, setConfirmSending] = useState(false);
+  const [confirmNote, setConfirmNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const usernameSeqRef = useRef(0);
@@ -348,6 +353,12 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         await routeAfterAccount(loginData.session.user.id, rolesToWrite);
         return;
       }
+      if (isUnconfirmedAuthError(loginErr)) {
+        setSubmitting(false);
+        setAwaitingConfirmation(true);
+        void deliverSignupConfirmation(api.state.email, api.nextPath);
+        return;
+      }
       setSubmitting(false);
       api.updateState({ duplicateEmail: api.state.email });
       api.goToStep(1);
@@ -357,7 +368,8 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     // Email-confirmation mode: show the "check your email" state.
     if (data?.user && !data?.session) {
       setSubmitting(false);
-      setSubmitError(t("auth.signupV2.step3.checkEmail"));
+      setAwaitingConfirmation(true);
+      void deliverSignupConfirmation(api.state.email, api.nextPath);
       return;
     }
 
@@ -579,6 +591,38 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         error={usernameError}
         loading={usernameStatus.kind === "checking"}
       />
+
+      {awaitingConfirmation ? (
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-center">
+          <p className="text-sm font-semibold text-zinc-900">
+            {t("onboarding.checkEmailTitle")}
+          </p>
+          <p className="mt-2 text-xs text-zinc-600">{t("onboarding.checkEmailBody")}</p>
+          <p className="mt-2 text-xs text-zinc-500">{t("onboarding.checkEmailSpamHint")}</p>
+          <button
+            type="button"
+            disabled={confirmSending}
+            onClick={() => {
+              setConfirmSending(true);
+              setConfirmNote(null);
+              void deliverSignupConfirmation(api.state.email, api.nextPath).then((res) => {
+                setConfirmSending(false);
+                setConfirmNote(
+                  res.error
+                    ? t("onboarding.checkEmailResendFailed")
+                    : t("onboarding.checkEmailResent"),
+                );
+              });
+            }}
+            className="mt-3 rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {confirmSending
+              ? t("onboarding.checkEmailResending")
+              : t("onboarding.checkEmailResend")}
+          </button>
+          {confirmNote ? <p className="mt-2 text-xs text-zinc-600">{confirmNote}</p> : null}
+        </div>
+      ) : null}
 
       {submitError && (
         <p role="alert" className="text-center text-xs text-red-600">

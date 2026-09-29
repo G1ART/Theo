@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { getSession, sendMagicLink } from "@/lib/supabase/auth";
+import { getSession } from "@/lib/supabase/auth";
 import {
   type ArtworkWithLikes,
   canEditArtwork,
@@ -433,16 +433,13 @@ function EditArtworkContent() {
         }
         if (!existingExtId && externalArtistEmail?.trim()) {
           const email = externalArtistEmail.trim();
-          const { error: inviteErr } = await sendMagicLink(email);
-          inviteSent = !inviteErr;
-          if (inviteErr) inviteSendFailed = true;
-          if (!inviteErr) {
-            await sendArtistInviteEmailClient({
-              toEmail: email,
-              artistName: externalArtistName.trim() || null,
-              exhibitionTitle: null,
-            });
-          }
+          const invite = await sendArtistInviteEmailClient({
+            toEmail: email,
+            artistName: externalArtistName.trim() || null,
+            exhibitionTitle: null,
+          });
+          inviteSent = invite.ok;
+          if (!invite.ok) inviteSendFailed = true;
         }
       } else {
         const { error: claimErr } = await createExternalArtistAndClaim({
@@ -460,16 +457,13 @@ function EditArtworkContent() {
         }
         if (externalArtistEmail?.trim()) {
           const email = externalArtistEmail.trim();
-          const { error: inviteErr } = await sendMagicLink(email);
-          inviteSent = !inviteErr;
-          if (inviteErr) inviteSendFailed = true;
-          if (!inviteErr) {
-            await sendArtistInviteEmailClient({
-              toEmail: email,
-              artistName: externalArtistName.trim() || null,
-              exhibitionTitle: null,
-            });
-          }
+          const invite = await sendArtistInviteEmailClient({
+            toEmail: email,
+            artistName: externalArtistName.trim() || null,
+            exhibitionTitle: null,
+          });
+          inviteSent = invite.ok;
+          if (!invite.ok) inviteSendFailed = true;
         }
       }
     } else {

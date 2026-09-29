@@ -254,7 +254,16 @@ export function BilingualFieldPair(props: BilingualFieldPairProps) {
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => applyExpanded(false)}
+                  onClick={() => {
+                    // QA 2026-09-17: "지우기" after typing one or two
+                    // characters did nothing. The auto-expand effect
+                    // reopened the slot whenever secondary text was
+                    // non-empty, so the click and the effect cancelled
+                    // each other. Clearing the value is what the label
+                    // promises, and it lets the slot stay closed.
+                    setSecondary("");
+                    applyExpanded(false);
+                  }}
                   className="text-[11px] text-zinc-500 underline hover:text-zinc-800"
                 >
                   {t("bilingual.removeSecondary")}

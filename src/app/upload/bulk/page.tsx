@@ -143,6 +143,12 @@ export default function BulkUploadPage() {
   const preselectedArtistUsername = searchParams.get("artistUsername");
   const preselectedExternalName = searchParams.get("externalName");
   const preselectedExternalEmail = searchParams.get("externalEmail");
+  const preselectedExternalId = searchParams.get("externalId");
+  const linkLaterFromExhibition = searchParams.get("linkLater") === "1";
+  const externalEmailReady =
+    !!preselectedExternalEmail &&
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(preselectedExternalEmail.trim());
+  const exhibitionTitleParam = searchParams.get("exhibitionTitle");
   const preservedFromBoard = searchParams.get("fromBoard");
 
   const { t, locale } = useT();
@@ -312,7 +318,9 @@ export default function BulkUploadPage() {
    * instead of dedupe-by-name. Cleared whenever the operator manually
    * edits `externalArtistName` (drift → we can no longer trust the id).
    */
-  const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(null);
+  const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(
+    preselectedExternalId,
+  );
   /**
    * QA 2026-07-28 Phase B: PII-safe existence probe. Fires whenever the
    * operator has typed a valid email in the invite path AND has not just
@@ -325,11 +333,16 @@ export default function BulkUploadPage() {
     { worksCount: number; latestCovers: string[] } | null
   >(null);
   // Soft-required email (2026-07-01) — opt out to link manually later via /my/artists.
-  const [externalNoEmail, setExternalNoEmail] = useState(false);
+  const [externalNoEmail, setExternalNoEmail] = useState(linkLaterFromExhibition);
   const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
   /** Attribution 단계를 '다음' 버튼으로 완료했을 때만 true. 전시에서 진입 시 작가/외부 이미 선택됨 → 바로 업로드 단계. */
   const [attributionStepDone, setAttributionStepDone] = useState(
-    !!(fromExhibition && addToExhibitionId && (preselectedArtistId || preselectedExternalName))
+    !!(
+      fromExhibition &&
+      addToExhibitionId &&
+      (preselectedArtistId ||
+        (preselectedExternalName && (externalEmailReady || linkLaterFromExhibition)))
+    ),
   );
 
   const needsAttribution = intent !== null && intent !== "CREATED";
@@ -1769,7 +1782,7 @@ export default function BulkUploadPage() {
         // projectId to the claim RPC; the server rejects work_id +
         // project_id together. Exhibition linking happens below via
         // addWorkToExhibition, but only for SUCCEEDED ids.
-        const { results, firstError, error, inviteSent, inviteFailed } =
+        const { results, firstError, error } =
           await publishArtworksWithProvenance(ids, opts);
         if (error) {
           logSupabaseError("publishArtworksWithProvenance.setup", error);
@@ -1786,27 +1799,6 @@ export default function BulkUploadPage() {
             t,
             "upload.publishFallback"
           );
-        }
-        if (inviteSent) {
-          // QA 2026-07 Phase 2-2: replace fleeting 3s toast with a
-          // dismissible confirmation card so the operator has a clear
-          // record + one-click path to /my/artists.
-          setInviteCard({
-            kind: "sent",
-            artistName: (useExternalArtist ? externalArtistName : "").trim() || t("upload.externalArtistNamePlaceholder"),
-          });
-          if (useExternalArtist && externalArtistEmail.trim()) {
-            await sendArtistInviteEmailClient({
-              toEmail: externalArtistEmail.trim(),
-              artistName: externalArtistName.trim() || null,
-              exhibitionTitle: null,
-            });
-          }
-        } else if (inviteFailed) {
-          setInviteCard({
-            kind: "failed",
-            artistName: (useExternalArtist ? externalArtistName : "").trim() || t("upload.externalArtistNamePlaceholder"),
-          });
         }
       } else {
         const { error } = await publishArtworks(ids, {
@@ -1856,6 +1848,17 @@ export default function BulkUploadPage() {
             .replace("{reason}", reason)
         );
         setTimeout(() => setToast(null), 6000);
+      }
+
+      if (useExternalArtist && externalArtistEmail.trim() && publishedIds.length > 0) {
+        const artistName =
+          externalArtistName.trim() || t("upload.externalArtistNamePlaceholder");
+        const invite = await sendArtistInviteEmailClient({
+          toEmail: externalArtistEmail.trim(),
+          artistName: externalArtistName.trim() || null,
+          exhibitionTitle: exhibitionTitleParam,
+        });
+        setInviteCard({ kind: invite.ok ? "sent" : "failed", artistName });
       }
 
       // Navigate / refetch ONLY when at least one work landed publicly.

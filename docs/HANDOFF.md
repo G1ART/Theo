@@ -1,6 +1,27 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-09-23
+Last updated: 2026-09-29
+
+## 2026-09-29 (73) — 초대·가입 확인 메일, 전시 작가 연결, 매체 지우기, 네트워크 문구
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.** 활성화 메일은 기존 `SENDGRID_API_KEY`, `INVITE_FROM_EMAIL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_APP_URL` 을 사용한다. `NEXT_PUBLIC_APP_URL` 이 비어 있으면 초대 링크는 `https://withtheo.art` 로 간다.
+
+QA에서 겹쳐 보이던 문제는 한 흐름이었다. 갤러리가 작가를 올리면 초대가 안 가거나 옛 Vercel 주소로 갔고, 작가는 가입 뒤 "Check your email"에서 멈췄다. 이메일 없이 저장하면 작품이 갤러리 계정 이름으로 붙었다.
+
+- 작가 초대 메일의 가입 버튼을 `/onboarding?email=` (현재 앱 주소)로 교체. 예전 `abstract-mvp-dxfn.vercel.app` 제거
+- 일괄 업로드도 게시가 성공하면 초대 메일을 보낸다. Supabase 매직링크는 더 이상 초대에 쓰지 않음
+- 가입 확인 링크는 SendGrid로 다시 보낼 수 있다 (`/api/auth/signup-link`). 확인 화면에서 재전송
+- 이미 가입을 시작했지만 확인 전인 이메일은 로그인으로만 보내지 않고, 확인 링크를 다시 보낸다
+- 전시 참여 작가: 이메일 없이 이름만 저장되면 그 사실을 말하고, 이메일 또는 "나중에 연결"을 고르기 전에는 작품 단계로 못 간다. 일괄/개별 업로드는 그 작가 id를 이어서 쓴다
+- 초대 작가 이름이 KO/EN 슬롯에만 있어도 전시 묶음이 갤러리 이름으로 떨어지지 않음
+- 이중 언어 필드의 "지우기"는 보조 칸을 비우고 닫는다
+- 네트워크 "N명의 뮤추얼" / "가까운 그래프"를 "OO님도 팔로우해요" 같은 문장으로 바꿈
+
+**Verified:** `tsc --noEmit`.
+
+---
 
 ## 2026-09-23 (72) — Safari 탭 아이콘이 Vercel 삼각형이던 문제
 

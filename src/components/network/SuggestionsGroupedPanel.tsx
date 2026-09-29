@@ -294,9 +294,13 @@ export function SuggestionCard({
   const roleLabel = roleChips[0]?.label ?? null;
   const mutualCount = row.mutual_follow_sources ?? 0;
   const signalCount = row.signal_count ?? 0;
+  const mutualNames = (row.mutual_avatars ?? [])
+    .map((source) => formatDisplayName(source, t, locale) || source.username || "")
+    .filter(Boolean);
   const reasonLine = pickReasonLine(t, lane, {
     mutualCount,
     signalCount,
+    mutualNames,
   });
 
   return (
@@ -440,9 +444,19 @@ export function SuggestionCardCompact({
 function pickReasonLine(
   t: (key: string) => string,
   lane: LaneKey | "role",
-  ctx: { mutualCount: number; signalCount: number },
+  ctx: { mutualCount: number; signalCount: number; mutualNames: string[] },
 ): string | null {
   if (ctx.mutualCount > 0) {
+    const name = ctx.mutualNames[0];
+    const others = Math.max(ctx.mutualCount - 1, 0);
+    if (name && others > 0) {
+      return t("connections.suggestions.reason.mutualNamedMore")
+        .replace("{name}", name)
+        .replace("{count}", String(others));
+    }
+    if (name) {
+      return t("connections.suggestions.reason.mutualNamed").replace("{name}", name);
+    }
     return t("connections.suggestions.reason.mutual").replace(
       "{count}",
       String(ctx.mutualCount),

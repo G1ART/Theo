@@ -79,6 +79,40 @@ export async function sendMagicLink(email: string, redirectTo?: string) {
   });
 }
 
+/** Supabase returns this when the account exists but the inbox link was never opened. */
+export function isUnconfirmedAuthError(error: { message?: string } | null | undefined): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return message.includes("email not confirmed") || message.includes("email_not_confirmed");
+}
+
+/**
+ * Deliver the activation link. Prefers the SendGrid route (same path as
+ * gallery invites). Falls back to Supabase's own resend when that route
+ * isn't configured.
+ */
+export async function deliverSignupConfirmation(email: string, nextPath?: string | null) {
+  const trimmed = email.trim();
+  try {
+    const res = await fetch("/api/auth/signup-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: trimmed }),
+    });
+    if (res.ok) return { error: null };
+  } catch {
+    /* fall through to Supabase resend */
+  }
+  const base = `${getAuthOrigin()}/auth/callback`;
+  const emailRedirectTo = nextPath
+    ? `${base}?next=${encodeURIComponent(nextPath)}`
+    : base;
+  return supabase.auth.resend({
+    type: "signup",
+    email: trimmed,
+    options: { emailRedirectTo },
+  });
+}
+
 export async function sendPasswordReset(email: string) {
   if (isIrDemo()) {
     return { data: { user: null, session: null }, error: null };

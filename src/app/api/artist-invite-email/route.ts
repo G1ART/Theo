@@ -52,7 +52,13 @@ function buildEmailHtml(payload: InvitePayload) {
   const inviterIntroEn = `A ${inviterRole} ${inviter} has added your work to their program on Theo and would like to invite you to join the platform.`;
   const inviterIntroKo = `${inviterRoleKo} ${inviter} 님이 Theo에서 ${artist} 님의 작품을 전시 프로그램에 포함하며, 함께 플랫폼에 참여해 주시기를 정중히 초청드립니다.`;
 
-  const onboardingUrl = "https://abstract-mvp-dxfn.vercel.app/onboarding";
+  const origin = (
+    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
+    "https://withtheo.art"
+  );
+  const onboardingUrl = `${origin}/onboarding?email=${encodeURIComponent(
+    payload.toEmail.trim(),
+  )}`;
 
   return `
   <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #111827;">
@@ -72,7 +78,7 @@ function buildEmailHtml(payload: InvitePayload) {
       <li>keep a growing record of your exhibitions and provenance in one place</li>
     </ul>
 
-    <p>To get started, please create your account with this email address on Theo using the button below.</p>
+    <p>To get started, create your account with <strong>this same email address</strong> using the button below. After you choose a password, open the activation email (check spam) before signing in.</p>
 
     <p style="margin:24px 0;">
       <a href="${onboardingUrl}"
@@ -98,8 +104,9 @@ function buildEmailHtml(payload: InvitePayload) {
       <li>전시 이력과 프로비넌스(소장·전시 기록)를 한 곳에 쌓아두실 수 있습니다.</li>
     </ul>
 
-    <p>이 이메일 주소로 Theo 계정을 만들어 주시면,<br/>
-    이미 업로드된 작품과 전시가 자연스럽게 연동되도록 도와드리겠습니다.</p>
+    <p>아래 버튼으로 <strong>이 이메일 주소 그대로</strong> 계정을 만들어 주세요.<br/>
+    비밀번호를 정한 뒤 도착하는 활성화 메일(스팸함도 확인해 주세요)을 열어야 로그인됩니다.<br/>
+    이미 올라간 작품과 전시는 그 계정으로 연결됩니다.</p>
 
     <p style="margin:24px 0;">
       <a href="${onboardingUrl}"

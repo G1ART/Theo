@@ -3,7 +3,7 @@
 import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getSession, sendMagicLink } from "@/lib/supabase/auth";
+import { getSession } from "@/lib/supabase/auth";
 import {
   attachArtworkImage,
   createArtwork,
@@ -103,11 +103,24 @@ function UploadPageContent() {
   const preselectedArtistUsername = searchParams.get("artistUsername");
   const preselectedExternalName = searchParams.get("externalName");
   const preselectedExternalEmail = searchParams.get("externalEmail");
+  const preselectedExternalId = searchParams.get("externalId");
+  const linkLaterFromExhibition = searchParams.get("linkLater") === "1";
+  const externalEmailReady =
+    !!preselectedExternalEmail &&
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(preselectedExternalEmail.trim());
   const preservedFromBoard = searchParams.get("fromBoard");
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [userId, setUserId] = useState<string | null>(null);
-  const [step, setStep] = useState<UploadStep>(fromExhibition ? "form" : "intent");
+  const [step, setStep] = useState<UploadStep>(() => {
+    if (!fromExhibition) return "intent";
+    if (preselectedArtistId) return "form";
+    if (preselectedExternalName && (externalEmailReady || linkLaterFromExhibition)) {
+      return "form";
+    }
+    if (preselectedExternalName) return "attribution";
+    return "form";
+  });
   const [intent, setIntent] = useState<IntentType | null>(fromExhibition ? "CURATED" : null);
 
   // Attribution (non-CREATED)
@@ -119,7 +132,9 @@ function UploadPageContent() {
    * an already-invited artist. Forwarded straight to the create claim RPC
    * so the same external_artists row is reused (no duplicate email).
    */
-  const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(null);
+  const [preselectedExternalArtistId, setPreselectedExternalArtistId] = useState<string | null>(
+    preselectedExternalId,
+  );
   const [reselectedExternalMeta, setReselectedExternalMeta] = useState<
     { worksCount: number; latestCovers: string[] } | null
   >(null);
@@ -170,7 +185,7 @@ function UploadPageContent() {
   // Soft-required email (2026-07-01): default we ask for the artist's email so
   // they auto-link their works on signup. The owner can opt out explicitly
   // ("no email / link later"), in which case linking happens via /my/artists.
-  const [externalNoEmail, setExternalNoEmail] = useState(false);
+  const [externalNoEmail, setExternalNoEmail] = useState(linkLaterFromExhibition);
 
   // Form — QA 2026-06-26 (#2/#5): support multiple images per work,
   // each tagged with a `view_type`. Order in the array becomes the
@@ -530,16 +545,13 @@ function UploadPageContent() {
         }
         if (externalArtistEmail?.trim()) {
           const email = externalArtistEmail.trim();
-          const { error: inviteErr } = await sendMagicLink(email);
-          inviteSent = !inviteErr;
-          if (inviteErr) inviteSendFailed = true;
-          if (!inviteErr) {
-            await sendArtistInviteEmailClient({
-              toEmail: email,
-              artistName: externalArtistName.trim() || null,
-              exhibitionTitle: null,
-            });
-          }
+          const invite = await sendArtistInviteEmailClient({
+            toEmail: email,
+            artistName: externalArtistName.trim() || null,
+            exhibitionTitle: searchParams.get("exhibitionTitle"),
+          });
+          inviteSent = invite.ok;
+          if (!invite.ok) inviteSendFailed = true;
         }
       } else {
         // CREATED intent ≡ "I made this work". When acting-as a principal,

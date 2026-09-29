@@ -301,6 +301,23 @@ type ExternalArtistLocalized = {
   display_name_en?: string | null;
 };
 
+/**
+ * Invited artists often have a name only in the KO or EN slot. Treating
+ * a blank legacy `display_name` as "no external artist" made the
+ * exhibition fall back to the uploading gallery's account name.
+ */
+function externalArtistDisplayName(
+  ext: ExternalArtistLocalized,
+  locale?: import("@/lib/i18n/locale").Locale,
+): string {
+  const legacy = (ext.display_name ?? "").trim();
+  const ko = (ext.display_name_ko ?? "").trim();
+  const en = (ext.display_name_en ?? "").trim();
+  if (locale === "ko") return ko || en || legacy;
+  if (locale === "en") return en || ko || legacy;
+  return legacy || ko || en;
+}
+
 export function getArtworkArtistLabel(
   artwork: Artwork | ArtworkWithLikes,
   locale?: import("@/lib/i18n/locale").Locale,
@@ -308,24 +325,13 @@ export function getArtworkArtistLabel(
   const claims = artwork.claims ?? undefined;
   if (claims && claims.length > 0) {
     // Use first external artist name if present (invited, not yet onboarded).
-    const withExternal = claims.find(
-      (c) =>
-        !!c.external_artists &&
-        typeof c.external_artists.display_name === "string" &&
-        c.external_artists.display_name.trim() !== ""
-    ) as (ArtworkClaim & { external_artists?: ExternalArtistLocalized }) | undefined;
+    const withExternal = claims.find((c) => {
+      const ext = c.external_artists as ExternalArtistLocalized | undefined;
+      if (!ext) return false;
+      return externalArtistDisplayName(ext, locale).length > 0;
+    }) as (ArtworkClaim & { external_artists?: ExternalArtistLocalized }) | undefined;
     if (withExternal && withExternal.external_artists) {
-      const ext = withExternal.external_artists;
-      let name = "";
-      if (locale) {
-        if (locale === "ko") {
-          name = (ext.display_name_ko ?? ext.display_name_en ?? ext.display_name ?? "").trim();
-        } else {
-          name = (ext.display_name_en ?? ext.display_name_ko ?? ext.display_name ?? "").trim();
-        }
-      } else {
-        name = (ext.display_name ?? "").trim();
-      }
+      const name = externalArtistDisplayName(withExternal.external_artists, locale);
       if (name) {
         return { label: name, profileUsername: null };
       }
@@ -368,12 +374,10 @@ export function getExternalArtistClaim(
 ): (ArtworkClaim & { external_artists?: { display_name?: string | null } }) | null {
   const claims = artwork.claims ?? undefined;
   if (!claims || claims.length === 0) return null;
-  const found = claims.find(
-    (c) =>
-      !!c.external_artists &&
-      typeof c.external_artists.display_name === "string" &&
-      c.external_artists.display_name.trim() !== ""
-  );
+  const found = claims.find((c) => {
+    const ext = c.external_artists as ExternalArtistLocalized | undefined;
+    return !!ext && externalArtistDisplayName(ext).length > 0;
+  });
   return (found as (ArtworkClaim & { external_artists?: { display_name?: string | null } }) | undefined) ?? null;
 }
 
@@ -1949,9 +1953,9 @@ export async function publishArtworksWithProvenance(
         subjectProfileId: subjectOverride ?? undefined,
       });
       claimErr = error;
-    } else if (opts.externalArtistDisplayName) {
+    } else if (opts.externalArtistDisplayName?.trim() || opts.externalArtistId) {
       const { error } = await createExternalArtistAndClaim({
-        displayName: opts.externalArtistDisplayName,
+        displayName: opts.externalArtistDisplayName?.trim() || "Artist",
         // QA 2026-07-28 (240005) — bilingual pair forwarded.
         displayNameKo: opts.externalArtistDisplayNameKo ?? null,
         displayNameEn: opts.externalArtistDisplayNameEn ?? null,
@@ -2012,15 +2016,18 @@ export async function publishArtworksWithProvenance(
     results.push({ id, ok: true });
   }
 
-  let inviteSent = false;
-  let inviteFailed = false;
-  if (opts.externalArtistEmail?.trim() && opts.externalArtistDisplayName) {
-    const { sendMagicLink } = await import("@/lib/supabase/auth");
-    const { error: inviteErr } = await sendMagicLink(opts.externalArtistEmail.trim());
-    inviteSent = !inviteErr;
-    if (inviteErr) inviteFailed = true;
-  }
-  return { results, firstError, error: null, inviteSent, inviteFailed };
+  // Invite email is sent by the caller (SendGrid), not as a Supabase
+  // magic link. A magic link to the same address was burning the auth
+  // mail quota and landing artists on "Check your email" with nothing
+  // in the inbox. `inviteSent` stays false here so older callers that
+  // still branch on it don't pretend a mail went out.
+  return {
+    results,
+    firstError,
+    error: null,
+    inviteSent: false,
+    inviteFailed: false,
+  };
 }
 
 export async function recordArtworkView(artworkId: string) {

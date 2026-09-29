@@ -79,6 +79,8 @@ type ExternalRow = {
   name_ko: string;
   name_en: string;
   email: string;
+  /** User chose to keep the name without an invite address. */
+  linkLater: boolean;
   showOther: boolean;
   saveStatus: "idle" | "saving" | "saved" | "duplicate" | "error";
   saveError: string | null;
@@ -98,6 +100,7 @@ function emptyExternalRow(): ExternalRow {
     name_ko: "",
     name_en: "",
     email: "",
+    linkLater: false,
     showOther: false,
     saveStatus: "idle",
     saveError: null,
@@ -205,6 +208,7 @@ export default function AddWorkToExhibitionPage() {
           name_ko: p.displayNameKo ?? "",
           name_en: p.displayNameEn ?? "",
           email: p.inviteEmail ?? "",
+          linkLater: false,
           showOther: !!(p.displayNameKo && p.displayNameEn),
           saveStatus: "saved",
           saveError: null,
@@ -1118,10 +1122,13 @@ export default function AddWorkToExhibitionPage() {
                           <input
                             type="email"
                             value={row.email}
-                            onChange={(e) => setField({ email: e.target.value })}
+                            onChange={(e) =>
+                              setField({ email: e.target.value, linkLater: false })
+                            }
                             onBlur={() => scheduleExternalRowSave(row.clientId, 0)}
                             placeholder={t("upload.externalArtistEmailPlaceholder")}
-                            className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm"
+                            disabled={row.linkLater}
+                            className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
                           />
                           {isRemovable && (
                             <button
@@ -1134,6 +1141,22 @@ export default function AddWorkToExhibitionPage() {
                             </button>
                           )}
                         </div>
+                        <label className="flex items-start gap-2 text-xs text-zinc-600">
+                          <input
+                            type="checkbox"
+                            checked={row.linkLater}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              setField({
+                                linkLater: on,
+                                email: on ? "" : row.email,
+                              });
+                              if (on) scheduleExternalRowSave(row.clientId, 0);
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>{t("exhibition.participants.linkLater")}</span>
+                        </label>
                         {row.showOther ? (
                           <>
                             <div className="relative">
@@ -1199,7 +1222,17 @@ export default function AddWorkToExhibitionPage() {
                           {row.saveStatus === "error" && row.saveError && (
                             <span className="text-red-600">{row.saveError}</span>
                           )}
-                          {row.saveStatus === "saved" && row.worksCount > 0 && (
+                          {row.saveStatus === "saved" &&
+                            !row.email.trim() &&
+                            !row.linkLater &&
+                            (row.name_ko.trim().length >= 2 || row.name_en.trim().length >= 2) && (
+                              <span className="text-amber-800">
+                                {t("exhibition.participants.needEmail")}
+                              </span>
+                            )}
+                          {row.saveStatus === "saved" &&
+                            row.worksCount > 0 &&
+                            (row.email.trim() || row.linkLater) && (
                             <span className="text-zinc-400">
                               {t("exhibition.participants.savedInline")}
                             </span>
@@ -1240,6 +1273,22 @@ export default function AddWorkToExhibitionPage() {
               <button
                 type="button"
                 onClick={async () => {
+                  const namedWithoutChoice = externalRowsRef.current.filter((r) => {
+                    const name = (r.name_ko.trim() || r.name_en.trim());
+                    if (name.length < 2) return false;
+                    if (r.linkLater) return false;
+                    return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email.trim());
+                  });
+                  if (namedWithoutChoice.length > 0) {
+                    setExternalRows((prev) =>
+                      prev.map((r) =>
+                        namedWithoutChoice.some((b) => b.clientId === r.clientId)
+                          ? { ...r, saveStatus: "saved", saveError: null }
+                          : r,
+                      ),
+                    );
+                    return;
+                  }
                   // QA 2026-07-28: 참여자 명단은 이미 blur 마다 서버로
                   // 저장됨. 여기서는 미저장 dirty 행만 flush 후 step 전환.
                   const pending = externalRowsRef.current.filter((r) => {
@@ -1384,6 +1433,8 @@ export default function AddWorkToExhibitionPage() {
                       return {
                         name: primary || fallback,
                         email: r.email.trim(),
+                        externalArtistId: r.externalArtistId,
+                        linkLater: r.linkLater,
                       };
                     })
                     .filter((r) => r.name)
@@ -1395,12 +1446,10 @@ export default function AddWorkToExhibitionPage() {
                         externalName: r.name,
                       });
                       if (r.email) singleQs.set("externalEmail", r.email);
-                      const bulkQs = new URLSearchParams({
-                        addToExhibition: id,
-                        from: "exhibition",
-                        externalName: r.name,
-                      });
-                      if (r.email) bulkQs.set("externalEmail", r.email);
+                      if (r.externalArtistId) singleQs.set("externalId", r.externalArtistId);
+                      if (r.linkLater) singleQs.set("linkLater", "1");
+                      if (exhibitionTitle) singleQs.set("exhibitionTitle", exhibitionTitle);
+                      const bulkQs = new URLSearchParams(singleQs);
                       return (
                         <li key={bucketKey} className="rounded-xl border-2 border-zinc-200 bg-white p-4">
                           <p className="mb-3 font-medium text-zinc-900">{r.name}</p>

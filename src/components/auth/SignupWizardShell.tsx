@@ -123,33 +123,32 @@ export function SignupWizardShell() {
   useEffect(() => {
     if (restoreDoneRef.current) return;
     restoreDoneRef.current = true;
-    const draft = loadSignupDraft();
-    if (draft) {
+      const draft = loadSignupDraft();
+      const queryEmail = searchParams.get("email")?.trim() ?? "";
+      const emailSeed =
+        queryEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(queryEmail)
+          ? queryEmail
+          : "";
+      if (draft || emailSeed) {
       setState((prev) => ({
         ...prev,
-        email: draft.email ?? prev.email,
-        fullName: draft.fullName ?? prev.fullName,
-        usernameSeed: draft.usernameSeed ?? prev.usernameSeed,
-        username: draft.username ?? prev.username,
-        ageBand: draft.ageBand ?? prev.ageBand,
+        email: emailSeed || draft?.email || prev.email,
+        fullName: draft?.fullName ?? prev.fullName,
+        usernameSeed: draft?.usernameSeed ?? prev.usernameSeed,
+        username: draft?.username ?? prev.username,
+        ageBand: draft?.ageBand ?? prev.ageBand,
         mainRole:
-          draft.mainRole ?? (prev.mainRole as SignupWizardState["mainRole"]),
+          draft?.mainRole ?? (prev.mainRole as SignupWizardState["mainRole"]),
         secondaryRole:
-          draft.secondaryRole ??
+          draft?.secondaryRole ??
           (prev.secondaryRole as SignupWizardState["secondaryRole"]),
         gender:
-          draft.gender ?? (prev.gender as SignupWizardState["gender"]),
+          draft?.gender ?? (prev.gender as SignupWizardState["gender"]),
         isPublic:
-          typeof draft.isPublic === "boolean" ? draft.isPublic : prev.isPublic,
-        // If the URL explicitly says a step, it wins (link with
-        // `?step=` was clicked). Otherwise fall back to whatever the
-        // draft last saw. This preserves both "resume after refresh"
-        // and "linked-from-banner-to-step-3" scenarios.
-        step: hasExplicitStep ? urlStep : draft.step,
+          typeof draft?.isPublic === "boolean" ? draft.isPublic : prev.isPublic,
+        step: hasExplicitStep ? urlStep : (draft?.step ?? 1),
       }));
-      // Reflect the resolved step in the URL so the browser back stack
-      // is coherent from the first render onward.
-      if (!hasExplicitStep && draft.step !== 1) {
+      if (!hasExplicitStep && draft && draft.step !== 1) {
         const query = new URLSearchParams(searchParams.toString());
         query.set("step", String(draft.step));
         router.replace(`/signup?${query.toString()}`, { scroll: false });
