@@ -32,6 +32,7 @@
 import { FormEvent, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { EmailConfirmWait } from "@/components/auth/EmailConfirmWait";
 import { useT } from "@/lib/i18n/useT";
 import {
   getSession,
@@ -69,35 +70,22 @@ function isRateLimitError(message: string): boolean {
 
 function UnconfirmedNotice({
   email,
+  password,
   nextPath,
+  onConfirmed,
 }: {
   email: string;
+  password: string;
   nextPath: string | null;
+  onConfirmed: (userId: string) => void;
 }) {
-  const { t } = useT();
-  const [sending, setSending] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
   return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
-      <p>{t("onboarding.checkEmailBody")}</p>
-      <p className="mt-1 text-xs text-zinc-500">{t("onboarding.checkEmailSpamHint")}</p>
-      <button
-        type="button"
-        disabled={sending}
-        onClick={() => {
-          setSending(true);
-          setNote(null);
-          void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
-            setSending(false);
-            setNote(res.error ? t("onboarding.checkEmailResendFailed") : t("onboarding.checkEmailResent"));
-          });
-        }}
-        className="mt-3 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-      >
-        {sending ? t("onboarding.checkEmailResending") : t("onboarding.checkEmailResend")}
-      </button>
-      {note ? <p className="mt-2 text-xs text-zinc-600">{note}</p> : null}
-    </div>
+    <EmailConfirmWait
+      email={email}
+      password={password}
+      nextPath={nextPath}
+      onConfirmed={onConfirmed}
+    />
   );
 }
 
@@ -262,7 +250,19 @@ function LoginLegacyInner() {
             {error}
           </p>
         )}
-        {unconfirmed ? <UnconfirmedNotice email={email} nextPath={nextPath} /> : null}
+        {unconfirmed ? (
+          <UnconfirmedNotice
+            email={email}
+            password={password}
+            nextPath={nextPath}
+            onConfirmed={() => {
+              const callbackUrl = nextPath
+                ? `/auth/callback?next=${encodeURIComponent(nextPath)}`
+                : `/auth/callback`;
+              router.replace(callbackUrl);
+            }}
+          />
+        ) : null}
 
         <button
           type="submit"
@@ -659,7 +659,19 @@ function LoginV2Inner() {
               {error}
             </p>
           )}
-          {unconfirmed ? <UnconfirmedNotice email={email} nextPath={nextPath} /> : null}
+          {unconfirmed ? (
+            <UnconfirmedNotice
+              email={email}
+              password={password}
+              nextPath={nextPath}
+              onConfirmed={() => {
+                const callbackUrl = nextPath
+                  ? `/auth/callback?next=${encodeURIComponent(nextPath)}`
+                  : `/auth/callback`;
+                router.replace(callbackUrl);
+              }}
+            />
+          ) : null}
 
           <PillButton
             type="submit"

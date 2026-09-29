@@ -52,6 +52,7 @@ import { PillButton } from "@/components/auth/primitives/PillButton";
 import { useT } from "@/lib/i18n/useT";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { ROLE_KEYS } from "@/lib/identity/roles";
+import { EmailConfirmWait } from "@/components/auth/EmailConfirmWait";
 import {
   signUpWithPassword,
   signInWithPassword,
@@ -141,8 +142,6 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
-  const [confirmSending, setConfirmSending] = useState(false);
-  const [confirmNote, setConfirmNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const usernameSeqRef = useRef(0);
@@ -593,35 +592,20 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
       />
 
       {awaitingConfirmation ? (
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-center">
-          <p className="text-sm font-semibold text-zinc-900">
-            {t("onboarding.checkEmailTitle")}
-          </p>
-          <p className="mt-2 text-xs text-zinc-600">{t("onboarding.checkEmailBody")}</p>
-          <p className="mt-2 text-xs text-zinc-500">{t("onboarding.checkEmailSpamHint")}</p>
-          <button
-            type="button"
-            disabled={confirmSending}
-            onClick={() => {
-              setConfirmSending(true);
-              setConfirmNote(null);
-              void deliverSignupConfirmation(api.state.email, api.nextPath).then((res) => {
-                setConfirmSending(false);
-                setConfirmNote(
-                  res.error
-                    ? t("onboarding.checkEmailResendFailed")
-                    : t("onboarding.checkEmailResent"),
-                );
-              });
-            }}
-            className="mt-3 rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
-          >
-            {confirmSending
-              ? t("onboarding.checkEmailResending")
-              : t("onboarding.checkEmailResend")}
-          </button>
-          {confirmNote ? <p className="mt-2 text-xs text-zinc-600">{confirmNote}</p> : null}
-        </div>
+        <EmailConfirmWait
+          email={api.state.email}
+          password={api.state.password}
+          nextPath={api.nextPath}
+          onConfirmed={(userId) => {
+            const derivedRole: SignupV2MainRole | undefined = mainRole || undefined;
+            const rolesToWrite: SignupV2MainRole[] = [];
+            if (derivedRole) rolesToWrite.push(derivedRole);
+            if (secondaryRole && secondaryRole !== derivedRole) {
+              rolesToWrite.push(secondaryRole);
+            }
+            void routeAfterAccount(userId, rolesToWrite);
+          }}
+        />
       ) : null}
 
       {submitError && (

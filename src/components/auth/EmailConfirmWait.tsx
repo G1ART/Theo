@@ -1,0 +1,125 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import {
+  deliverSignupConfirmation,
+  isUnconfirmedAuthError,
+  signInWithPassword,
+} from "@/lib/supabase/auth";
+import { useT } from "@/lib/i18n/useT";
+
+/**
+ * The confirmation link may be opened on another device. That click
+ * confirms the account on the server, but the session lands only in
+ * the browser that opened the link. This screen still has the password
+ * the user just chose, so it signs in here as soon as the email is
+ * confirmed — no need to press the link on this same device.
+ */
+export function EmailConfirmWait({
+  email,
+  password,
+  nextPath,
+  onConfirmed,
+}: {
+  email: string;
+  password: string;
+  nextPath: string | null;
+  onConfirmed: (userId: string) => void;
+}) {
+  const { t } = useT();
+  const [sending, setSending] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [stillWaiting, setStillWaiting] = useState(false);
+  const done = useRef(false);
+  const busy = useRef(false);
+  const onConfirmedRef = useRef(onConfirmed);
+  onConfirmedRef.current = onConfirmed;
+
+  async function tryContinue(manual: boolean) {
+    if (done.current || busy.current || !password) return;
+    busy.current = true;
+    const { data, error } = await signInWithPassword(email.trim(), password);
+    busy.current = false;
+    if (done.current) return;
+    if (!error && data.session?.user?.id) {
+      done.current = true;
+      onConfirmedRef.current(data.session.user.id);
+      return;
+    }
+    if (manual && isUnconfirmedAuthError(error)) setStillWaiting(true);
+  }
+
+  useEffect(() => {
+    let stopped = false;
+    const started = Date.now();
+
+    let timer = 0;
+    async function tick() {
+      if (stopped || done.current) return;
+      if (document.visibilityState === "visible") await tryContinue(false);
+      if (stopped || done.current) return;
+      if (Date.now() - started > 3 * 60 * 1000) return;
+      timer = window.setTimeout(tick, 4000);
+    }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") void tryContinue(false);
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const first = window.setTimeout(tick, 2000);
+    return () => {
+      stopped = true;
+      window.clearTimeout(first);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+    // Password and email are fixed for the life of this screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email, password]);
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+      <p className="text-base font-semibold text-zinc-900">
+        {t("onboarding.checkEmailTitle")}
+      </p>
+      <p className="mt-2 text-sm text-zinc-600">{t("onboarding.checkEmailBody")}</p>
+      <p className="mt-2 text-xs text-zinc-500">{t("onboarding.checkEmailCrossDevice")}</p>
+      <button
+        type="button"
+        onClick={() => {
+          setStillWaiting(false);
+          void tryContinue(true);
+        }}
+        className="mt-4 inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+      >
+        {t("onboarding.checkEmailContinue")}
+      </button>
+      {stillWaiting ? (
+        <p className="mt-2 text-xs text-amber-800">{t("onboarding.checkEmailStillWaiting")}</p>
+      ) : null}
+      <button
+        type="button"
+        disabled={sending}
+        onClick={() => {
+          setSending(true);
+          setNote(null);
+          void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
+            setSending(false);
+            setNote(
+              res.error
+                ? t("onboarding.checkEmailResendFailed")
+                : t("onboarding.checkEmailResent"),
+            );
+          });
+        }}
+        className="mt-3 block text-sm font-medium text-zinc-700 hover:text-zinc-900 disabled:opacity-50"
+      >
+        {sending ? t("onboarding.checkEmailResending") : t("onboarding.checkEmailResend")}
+      </button>
+      {note ? <p className="mt-2 text-xs text-zinc-600">{note}</p> : null}
+    </div>
+  );
+}

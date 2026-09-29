@@ -25,6 +25,7 @@ import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { useT } from "@/lib/i18n/useT";
 import { routeByAuthState, safeNextPath, loginUrlWithNext } from "@/lib/identity/routing";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
+import { EmailConfirmWait } from "@/components/auth/EmailConfirmWait";
 // Signup v2 Phase 5 (2026-08-19): legacy pages now share the same
 // 12-char floor as the new /signup wizard. SSOT lives in
 // `src/lib/auth/passwordPolicy.ts` so future bumps only touch one file.
@@ -46,8 +47,6 @@ function OnboardingInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signupEmailSent, setSignupEmailSent] = useState(false);
-  const [confirmSending, setConfirmSending] = useState(false);
-  const [confirmNote, setConfirmNote] = useState<string | null>(null);
   const [duplicateEmailFor, setDuplicateEmailFor] = useState<string | null>(null);
 
   // Signed-in arrivals short-circuit through the unified gate. This
@@ -228,40 +227,21 @@ function OnboardingInner() {
           </button>
         </div>
       ) : signupEmailSent ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <p className="text-base font-semibold text-zinc-900">
-            {t("onboarding.checkEmailTitle")}
-          </p>
-          <p className="mt-2 text-sm text-zinc-600">{t("onboarding.checkEmailBody")}</p>
-          <p className="mt-2 text-xs text-zinc-500">{t("onboarding.checkEmailSpamHint")}</p>
+        <>
+          <EmailConfirmWait
+            email={email}
+            password={password}
+            nextPath={nextPath}
+            onConfirmed={async (userId) => {
+              await ensureFreeEntitlement(userId);
+              const state = await getMyAuthState();
+              const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
+              router.replace(to);
+            }}
+          />
           <button
             type="button"
-            disabled={confirmSending}
-            onClick={() => {
-              setConfirmSending(true);
-              setConfirmNote(null);
-              void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
-                setConfirmSending(false);
-                setConfirmNote(
-                  res.error
-                    ? t("onboarding.checkEmailResendFailed")
-                    : t("onboarding.checkEmailResent"),
-                );
-              });
-            }}
-            className="mt-4 inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
-          >
-            {confirmSending ? t("onboarding.checkEmailResending") : t("onboarding.checkEmailResend")}
-          </button>
-          {confirmNote ? (
-            <p className="mt-2 text-xs text-zinc-600">{confirmNote}</p>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setSignupEmailSent(false);
-              setConfirmNote(null);
-            }}
+            onClick={() => setSignupEmailSent(false)}
             className="mt-3 block text-xs font-medium text-zinc-500 hover:text-zinc-700"
           >
             {t("onboarding.duplicateEmailUseDifferent")}
@@ -272,7 +252,7 @@ function OnboardingInner() {
           >
             ← {t("auth.backToSignIn")}
           </Link>
-        </div>
+        </>
       ) : (
         <form onSubmit={handleSignUp} className="space-y-4" noValidate>
           <div>
