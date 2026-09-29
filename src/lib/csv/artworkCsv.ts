@@ -1,3 +1,4 @@
+import { fieldForHeader, type CsvField } from "./columns";
 import { parseCsv } from "./parse";
 
 export type ArtworkCsvRow = {
@@ -11,33 +12,16 @@ export type ArtworkCsvRow = {
   filename: string | null;
 };
 
-const FIELD_ALIASES: Record<string, keyof Omit<ArtworkCsvRow, "sizeUnit"> | "sizeUnit"> = {
-  title: "title",
-  name: "title",
-  제목: "title",
-  작품명: "title",
-  year: "year",
-  연도: "year",
-  medium: "medium",
-  재료: "medium",
-  매체: "medium",
-  size: "size",
-  크기: "size",
-  사이즈: "size",
-  price: "price",
-  가격: "price",
-  currency: "currency",
-  통화: "currency",
-  file: "filename",
-  filename: "filename",
-  image: "filename",
-  파일: "filename",
-  파일명: "filename",
-  이미지: "filename",
-};
-
-function headerKey(raw: string): string {
-  return raw.trim().toLowerCase().replace(/^\uFEFF/, "");
+function isRowField(field: CsvField): field is keyof Omit<ArtworkCsvRow, "sizeUnit"> {
+  return (
+    field === "title" ||
+    field === "year" ||
+    field === "medium" ||
+    field === "size" ||
+    field === "price" ||
+    field === "currency" ||
+    field === "filename"
+  );
 }
 
 function parseYear(raw: string): number | null {
@@ -61,8 +45,14 @@ export function parseArtworkCsv(text: string): { rows: ArtworkCsvRow[]; hasFilen
   const { headers, rows } = parseCsv(text);
   const index: Partial<Record<keyof ArtworkCsvRow | "sizeUnit", number>> = {};
   headers.forEach((h, i) => {
-    const field = FIELD_ALIASES[headerKey(h)];
-    if (field && index[field] == null) index[field] = i;
+    const field = fieldForHeader(h);
+    if (!field) return;
+    if (field === "size_unit") {
+      if (index.sizeUnit == null) index.sizeUnit = i;
+      return;
+    }
+    if (!isRowField(field) || index[field] != null) return;
+    index[field] = i;
   });
   if (index.title == null) return { rows: [], hasFilename: false };
 

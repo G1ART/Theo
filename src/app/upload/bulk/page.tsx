@@ -2997,7 +2997,7 @@ export default function BulkUploadPage() {
               <p className="mb-2 text-xs text-zinc-500">{t("bulk.csvHint")}</p>
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.tsv,text/csv,text/tab-separated-values"
                 className="mb-2 block text-xs text-zinc-600"
                 onChange={(e) => {
                   const file = e.target.files?.[0];

@@ -1,10 +1,76 @@
 /**
  * Lightweight CSV parser for client-side import/export.
  * No external dependency — handles quoted fields, newlines in quotes, and BOM.
+ * The delimiter is chosen from the header row: comma, tab, or semicolon.
  */
 
-export function parseCsv(text: string): { headers: string[]; rows: string[][] } {
+export type CsvDelimiter = "," | "\t" | ";";
+
+const DELIMITERS: readonly CsvDelimiter[] = [",", "\t", ";"];
+
+function countDelimiters(line: string): Record<CsvDelimiter, number> {
+  const counts: Record<CsvDelimiter, number> = { ",": 0, "\t": 0, ";": 0 };
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && (ch === "," || ch === "\t" || ch === ";")) {
+      counts[ch] += 1;
+    }
+  }
+  return counts;
+}
+
+/** First non-empty record, ignoring quotes, so a title row picks the delimiter. */
+function headerLine(text: string): string {
+  let line = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        line += '"';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      line += ch;
+      continue;
+    }
+    if (!inQuotes && (ch === "\n" || ch === "\r")) {
+      if (line.trim()) return line;
+      line = "";
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      continue;
+    }
+    line += ch;
+  }
+  return line;
+}
+
+export function detectCsvDelimiter(text: string): CsvDelimiter {
+  const counts = countDelimiters(headerLine(text.replace(/^\uFEFF/, "")));
+  let best: CsvDelimiter = ",";
+  let bestCount = 0;
+  for (const delimiter of DELIMITERS) {
+    if (counts[delimiter] > bestCount) {
+      best = delimiter;
+      bestCount = counts[delimiter];
+    }
+  }
+  return best;
+}
+
+export function parseCsv(text: string): { headers: string[]; rows: string[][]; delimiter: CsvDelimiter } {
   const cleaned = text.replace(/^\uFEFF/, "");
+  const delimiter = detectCsvDelimiter(cleaned);
   const lines: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -23,21 +89,19 @@ export function parseCsv(text: string): { headers: string[]; rows: string[][] } 
       } else {
         field += ch;
       }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delimiter) {
+      row.push(field.trim());
+      field = "";
+    } else if (ch === "\n" || ch === "\r") {
+      row.push(field.trim());
+      if (row.some((f) => f !== "")) lines.push(row);
+      row = [];
+      field = "";
+      if (ch === "\r" && next === "\n") i++;
     } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ",") {
-        row.push(field.trim());
-        field = "";
-      } else if (ch === "\n" || (ch === "\r" && next === "\n")) {
-        row.push(field.trim());
-        if (row.some((f) => f !== "")) lines.push(row);
-        row = [];
-        field = "";
-        if (ch === "\r") i++;
-      } else {
-        field += ch;
-      }
+      field += ch;
     }
   }
   row.push(field.trim());
@@ -45,7 +109,7 @@ export function parseCsv(text: string): { headers: string[]; rows: string[][] } 
 
   const headers = lines[0] ?? [];
   const rows = lines.slice(1);
-  return { headers, rows };
+  return { headers, rows, delimiter };
 }
 
 export type CsvValidationError = {
