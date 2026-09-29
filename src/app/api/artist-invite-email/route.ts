@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isIrDemo } from "@/lib/irDemo/config";
 import { appOrigin } from "@/lib/appOrigin";
+import { escapeHtml, renderTheoEmail, theoEmailButton } from "@/lib/email/theoEmail";
 
 type InvitePayload = {
   toEmail: string;
@@ -37,11 +38,13 @@ function buildRoleLabelKo(role: InvitePayload["inviterRole"]) {
 }
 
 function buildEmailHtml(payload: InvitePayload) {
-  const artist = payload.artistName?.trim() || "Artist";
-  const inviter = payload.inviterName?.trim() || "a gallery / curator";
+  const artist = escapeHtml(payload.artistName?.trim() || "Artist");
+  const inviter = escapeHtml(payload.inviterName?.trim() || "a gallery / curator");
   const inviterRole = buildRoleLabel(payload.inviterRole);
   const inviterRoleKo = buildRoleLabelKo(payload.inviterRole);
-  const exhibition = payload.exhibitionTitle?.trim() || null;
+  const exhibition = payload.exhibitionTitle?.trim()
+    ? escapeHtml(payload.exhibitionTitle.trim())
+    : null;
 
   const exhibitionLineEn = exhibition
     ? `They are preparing the exhibition “${exhibition}” and would like to present your work there with your participation and consent.`
@@ -57,64 +60,38 @@ function buildEmailHtml(payload: InvitePayload) {
     payload.toEmail.trim(),
   )}`;
 
-  return `
-  <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #111827;">
-    <p style="font-size:14px; color:#4b5563; margin-bottom:24px;">EN / KO below</p>
-
-    <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">Dear ${artist},</h1>
-
-    <p>You are being invited to join <strong>Theo</strong>, an artist‑centric platform for sharing works and building exhibitions with curators, galleries, and collectors.</p>
-
-    <p>${inviterIntroEn}</p>
-    ${exhibitionLineEn ? `<p>${exhibitionLineEn}</p>` : ""}
-
-    <p>By joining Theo with this email address, you’ll be able to:</p>
-    <ul>
+  return renderTheoEmail({
+    koHtml: `
+    <h1 style="margin:0 0 12px;font-size:20px;">${artist} 님께</h1>
+    <p style="margin:0 0 12px;">아티스트를 중심에 두고 전시와 커뮤니티를 만들어 가는 플랫폼 Theo에 초대합니다.</p>
+    <p style="margin:0 0 12px;">${inviterIntroKo}</p>
+    ${exhibitionLineKo ? `<p style="margin:0 0 12px;">${exhibitionLineKo}</p>` : ""}
+    <p style="margin:0 0 8px;">Theo에 가입하시면</p>
+    <ul style="margin:0 0 16px;padding-left:18px;">
+      <li>작품이 어떻게 소개되는지 직접 확인하고, 필요한 내용을 스스로 수정하실 수 있고</li>
+      <li>작품을 전시·소개하는 큐레이터와 갤러리와 직접 연결되고</li>
+      <li>전시 이력과 프로비넌스를 한 곳에 쌓아두실 수 있습니다.</li>
+    </ul>
+    <p style="margin:0 0 20px;">아래 버튼으로 <strong>이 이메일 주소 그대로</strong> 계정을 만들어 주세요. 비밀번호를 정한 뒤 도착하는 활성화 메일을 열어야 로그인됩니다. 이미 올라간 작품과 전시는 그 계정으로 연결됩니다.</p>
+    <p style="margin:0 0 20px;">${theoEmailButton(onboardingUrl, "Theo 가입하기")}</p>
+    <p style="margin:0;">감사합니다.<br/>Theo</p>
+    `,
+    enHtml: `
+    <h1 style="margin:0 0 12px;font-size:20px;">Dear ${artist},</h1>
+    <p style="margin:0 0 12px;">You are invited to join Theo, an artist-centric platform for sharing works and building exhibitions with curators, galleries, and collectors.</p>
+    <p style="margin:0 0 12px;">${inviterIntroEn}</p>
+    ${exhibitionLineEn ? `<p style="margin:0 0 12px;">${exhibitionLineEn}</p>` : ""}
+    <p style="margin:0 0 8px;">By joining Theo with this email address, you can:</p>
+    <ul style="margin:0 0 16px;padding-left:18px;">
       <li>review how your work is presented and update details yourself</li>
       <li>connect directly with curators and galleries who show your work</li>
       <li>keep a growing record of your exhibitions and provenance in one place</li>
     </ul>
-
-    <p>To get started, create your account with <strong>this same email address</strong> using the button below. After you choose a password, open the activation email (check spam) before signing in.</p>
-
-    <p style="margin:24px 0;">
-      <a href="${onboardingUrl}"
-         style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Join Theo
-      </a>
-    </p>
-
-    <p>Warm regards,<br/>The Theo team</p>
-
-    <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
-
-    <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">${artist} 님께,</h1>
-
-    <p>아티스트를 중심에 두고 전시와 커뮤니티를 만들어 가는 플랫폼 <strong>Theo</strong> 에</p>
-    <p>${inviterIntroKo}</p>
-    ${exhibitionLineKo ? `<p>${exhibitionLineKo}</p>` : ""}
-
-    <p>Theo에 가입하시면:</p>
-    <ul>
-      <li>작품이 어떻게 소개되는지 직접 확인하고, 필요한 내용을 스스로 수정하실 수 있고</li>
-      <li>작품을 전시·소개하는 큐레이터와 갤러리와 직접 연결되고</li>
-      <li>전시 이력과 프로비넌스(소장·전시 기록)를 한 곳에 쌓아두실 수 있습니다.</li>
-    </ul>
-
-    <p>아래 버튼으로 <strong>이 이메일 주소 그대로</strong> 계정을 만들어 주세요.<br/>
-    비밀번호를 정한 뒤 도착하는 활성화 메일(스팸함도 확인해 주세요)을 열어야 로그인됩니다.<br/>
-    이미 올라간 작품과 전시는 그 계정으로 연결됩니다.</p>
-
-    <p style="margin:24px 0;">
-      <a href="${onboardingUrl}"
-         style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Theo 가입하기
-      </a>
-    </p>
-
-    <p>감사합니다.<br/>Theo 드림</p>
-  </div>
-  `;
+    <p style="margin:0 0 20px;">Create your account with <strong>this same email address</strong>. After you choose a password, open the activation email before signing in.</p>
+    <p style="margin:0 0 20px;">${theoEmailButton(onboardingUrl, "Join Theo")}</p>
+    <p style="margin:0;">Warm regards,<br/>Theo</p>
+    `,
+  });
 }
 
 function parseFromHeader(raw: string) {

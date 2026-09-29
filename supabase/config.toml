@@ -236,10 +236,29 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+[auth.email.template.confirmation]
+subject = "Theo 가입을 확인해 주세요 / Confirm your Theo signup"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.magic_link]
+subject = "Theo 로그인 링크 / Your Theo sign-in link"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.recovery]
+subject = "Theo 비밀번호 재설정 / Reset your Theo password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.invite]
+subject = "Theo 초대 / You've been invited to Theo"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.email_change]
+subject = "Theo 이메일 변경 / Confirm your new Theo email"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.reauthentication]
+subject = "Theo 확인 코드 / Your Theo verification code"
+content_path = "./supabase/templates/reauthentication.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

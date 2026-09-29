@@ -65,7 +65,7 @@
 
   초대 메일(위임·아티스트 초대)을 쓰는 경우 추가:
 - **SENDGRID_API_KEY**
-- **INVITE_FROM_EMAIL** (예: `Abstract <noreply@your-domain.com>`)
+- **INVITE_FROM_EMAIL** (예: `Theo <noreply@withtheo.art>`)
 
   Theo Image Enhance (Beta, 2026-08-05) — "Object" 파이프라인 사용 시:
 - **PHOTOROOM_API_KEY** — [Photoroom SDK](https://sdk.photoroom.com) 의 세그멘테이션 API 키. 서버 전용(Server-side Only). `NEXT_PUBLIC_` prefix 붙이면 안 된다. 두 곳에서 사용된다: (1) Theo Image Enhance (Beta) Object 파이프라인, (2) Display Simulation Phase 2 — Track 2 (`/api/ai/artwork-cutout-alpha`) 로 시뮬레이션용 투명 PNG cutout 을 생성. 미설정 시 (1) Object 모드는 `provider_unauthorized` fallback 을 반환하고 flat 파이프라인만 동작, (2) Track 2 cutout 라우트는 HTTP 501 로 응답한다 (Track 1 무료 Vision bbox 크롭은 계속 작동).

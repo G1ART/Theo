@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
 import { isIrDemo } from "@/lib/irDemo/config";
 import { appOrigin } from "@/lib/appOrigin";
+import { escapeHtml, renderTheoEmail, theoEmailButton } from "@/lib/email/theoEmail";
 
 /**
  * QA 2026-07-29 (Part A) — opt-in price-inquiry email to external artists.
@@ -41,60 +42,27 @@ function parseFromHeader(raw: string) {
 }
 
 function buildEmailHtml(row: DispatchRow) {
-  const artist = row.display_name?.trim() || "Artist";
-  const artworkTitle = row.artwork_title?.trim() || "your work";
-  const inviter = row.inviter_display_name?.trim() || "A gallery/curator";
+  const artist = escapeHtml(row.display_name?.trim() || "Artist");
+  const artworkTitle = escapeHtml(row.artwork_title?.trim() || "your work");
+  const inviter = escapeHtml(row.inviter_display_name?.trim() || "A gallery/curator");
   const origin = appOrigin();
   const onboardingUrl = `${origin}/onboarding?email=${encodeURIComponent(row.invite_email)}`;
   const unsubscribeUrl = `${origin}/unsubscribe/inquiry-email/${row.unsubscribe_token}`;
+  const foot = `<p style="margin:20px 0 0;font-size:12px;color:#71717a;">이 메일은 갤러리 또는 큐레이터가 이 주소로 문의 알림을 켜 두었기 때문에 발송되었습니다. <a href="${unsubscribeUrl}" style="color:#71717a;">수신거부</a><br/>You're receiving this because inquiry notifications were turned on for this address. <a href="${unsubscribeUrl}" style="color:#71717a;">Unsubscribe</a></p>`;
 
-  return `
-  <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #111827;">
-    <p style="font-size:14px; color:#4b5563; margin-bottom:24px;">EN / KO below</p>
-
-    <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">Dear ${artist},</h1>
-
-    <p>Someone is asking about your work <strong>“${artworkTitle}”</strong> on <strong>Theo</strong>, an artist-centric platform for sharing works and building exhibitions with curators, galleries, and collectors.</p>
-
-    <p>This message was sent to you because <strong>${inviter}</strong> uploaded your work on Theo and enabled inquiry notifications for this email address. Join Theo to reply to the inquiry directly and manage your works.</p>
-
-    <p style="margin:24px 0;">
-      <a href="${onboardingUrl}"
-         style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Join Theo
-      </a>
-    </p>
-
-    <p>Warm regards,<br/>The Theo team</p>
-
-    <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
-
-    <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">${artist} 님께,</h1>
-
-    <p>누군가 Theo에서 회원님의 작품 <strong>“${artworkTitle}”</strong> 에 대해 가격을 문의했습니다. Theo는 큐레이터·갤러리·컬렉터와 함께 작품과 전시를 소개하는 아티스트 중심 플랫폼입니다.</p>
-
-    <p>이 메일은 <strong>${inviter}</strong> 님이 Theo에 회원님의 작품을 업로드하며 이 이메일 주소로 문의 알림을 받도록 설정했기 때문에 발송되었습니다. Theo에 가입하시면 문의에 직접 답변하고 작품을 스스로 관리하실 수 있습니다.</p>
-
-    <p style="margin:24px 0;">
-      <a href="${onboardingUrl}"
-         style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Theo 가입하기
-      </a>
-    </p>
-
-    <p>감사합니다.<br/>Theo 드림</p>
-
-    <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
-
-    <p style="font-size:12px; color:#9ca3af;">
-      You're receiving this because a gallery/curator enabled inquiry notifications for this address on Theo.
-      <a href="${unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a> at any time.
-      <br/>
-      이 메일은 갤러리/큐레이터가 이 주소로 문의 알림을 활성화했기 때문에 발송되었습니다.
-      언제든지 <a href="${unsubscribeUrl}" style="color:#6b7280;">수신거부</a>할 수 있습니다.
-    </p>
-  </div>
-  `;
+  return renderTheoEmail({
+    koHtml: `<h1 style="margin:0 0 12px;font-size:20px;">${artist} 님께</h1>
+<p style="margin:0 0 12px;">누군가 Theo에서 작품 <strong>“${artworkTitle}”</strong>의 가격을 문의했습니다.</p>
+<p style="margin:0 0 20px;"><strong>${inviter}</strong> 님이 작품을 올리며 이 주소로 알림을 받도록 설정했습니다. 가입하면 문의에 답하고 작품을 직접 관리할 수 있습니다.</p>
+<p style="margin:0 0 20px;">${theoEmailButton(onboardingUrl, "Theo 가입하기")}</p>
+<p style="margin:0;">감사합니다.<br/>Theo</p>`,
+    enHtml: `<h1 style="margin:0 0 12px;font-size:20px;">Dear ${artist},</h1>
+<p style="margin:0 0 12px;">Someone is asking about <strong>“${artworkTitle}”</strong> on Theo.</p>
+<p style="margin:0 0 20px;"><strong>${inviter}</strong> uploaded the work and turned on inquiry notifications for this address. Join Theo to reply and manage the work yourself.</p>
+<p style="margin:0 0 20px;">${theoEmailButton(onboardingUrl, "Join Theo")}</p>
+<p style="margin:0;">Warm regards,<br/>Theo</p>
+${foot}`,
+  });
 }
 
 async function sendOne(row: DispatchRow, apiKey: string, fromRaw: string) {

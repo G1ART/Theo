@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isIrDemo } from "@/lib/irDemo/config";
 import { getServiceClient } from "@/lib/supabase/serviceClient";
 import { appOrigin } from "@/lib/appOrigin";
+import { renderTheoEmail, theoEmailButton } from "@/lib/email/theoEmail";
 
 /**
  * Send the account-activation link through SendGrid.
@@ -31,22 +32,16 @@ function parseFromHeader(raw: string) {
 }
 
 function activationHtml(link: string) {
-  return `
-  <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #111827;">
-    <h1 style="font-size:18px; font-weight:600;">Finish creating your Theo account</h1>
-    <p>Your account is waiting on this email address. Open the button below to activate it, then continue setting up your profile.</p>
-    <p style="margin:24px 0;">
-      <a href="${link}" style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">Activate account</a>
-    </p>
-    <p style="font-size:12px; color:#6b7280;">If you didn't try to join Theo, you can ignore this email.</p>
-    <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
-    <h1 style="font-size:18px; font-weight:600;">Theo 계정 만들기를 마무리해 주세요</h1>
-    <p>이 이메일로 가입이 시작됐습니다. 아래 버튼을 누르면 계정이 활성화되고, 이어서 프로필을 설정할 수 있습니다.</p>
-    <p style="margin:24px 0;">
-      <a href="${link}" style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">계정 활성화</a>
-    </p>
-    <p style="font-size:12px; color:#6b7280;">Theo 가입을 시도하지 않으셨다면 이 메일은 무시하셔도 됩니다.</p>
-  </div>`;
+  return renderTheoEmail({
+    koHtml: `<h1 style="margin:0 0 12px;font-size:20px;">Theo 계정 만들기를 마무리해 주세요</h1>
+<p style="margin:0 0 12px;">이 이메일로 가입이 시작됐습니다. 아래 버튼을 누르면 계정이 활성화되고, 이어서 프로필을 설정할 수 있습니다.</p>
+<p style="margin:0 0 20px;">${theoEmailButton(link, "계정 활성화")}</p>
+<p style="margin:0;font-size:13px;color:#71717a;">Theo 가입을 시도하지 않으셨다면 이 메일은 무시하셔도 됩니다.</p>`,
+    enHtml: `<h1 style="margin:0 0 12px;font-size:20px;">Finish creating your Theo account</h1>
+<p style="margin:0 0 12px;">Your account is waiting on this email address. Open the button below to activate it, then continue setting up your profile.</p>
+<p style="margin:0 0 20px;">${theoEmailButton(link, "Activate account")}</p>
+<p style="margin:0;font-size:13px;color:#71717a;">If you didn't try to join Theo, you can ignore this email.</p>`,
+  });
 }
 
 export async function POST(req: Request) {

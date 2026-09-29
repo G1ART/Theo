@@ -36,7 +36,7 @@ Supabase Dashboard → **Authentication** → **SMTP Settings** (또는 **Email*
    - **Username**: `resend`
    - **Password**: Resend API Key
    - **Sender email**: `no-reply@yourdomain.com` (검증된 도메인)
-   - **Sender name**: `Abstract` (또는 앱 이름)
+   - **Sender name**: `Theo`
 
 3. 저장 후 → **모든 이메일 주소**로 발송 가능 (팀 멤버 제한 해제)
 4. Rate Limits (Supabase → Auth → Rate Limits)에서 초당·시간당 제한 조정 가능
@@ -52,7 +52,7 @@ Supabase Dashboard → **Authentication** → **SMTP Settings** (또는 **Email*
 
 ## 권장 사항
 
-1. **커스텀 도메인 사용**: `no-reply@abstract-mvp.com` 등으로 발신자 설정 (스팸 방지)
+1. **커스텀 도메인 사용**: `noreply@withtheo.art` 등으로 발신자 설정 (스팸 방지)
 2. **도메인 검증**: Resend/Brevo에서 DKIM, SPF, DMARC 설정
 3. **CAPTCHA 도입**: 회원가입 폼에 [Supabase Auth CAPTCHA](https://supabase.com/docs/guides/auth/auth-captcha) 적용 (봇 가입 방지)
 

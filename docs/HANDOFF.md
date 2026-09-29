@@ -2,6 +2,23 @@
 
 Last updated: 2026-09-29
 
+## 2026-09-29 (80) — 가입 확인 메일의 Abstract 문안을 Theo 틀로 바꿈
+
+> **Supabase SQL 적용 필요: 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+>
+> **대시보드:** Authentication → Emails 의 가입 확인 템플릿은 아직 호스팅 프로젝트에 못 넣었다. 로그인 세션이 없어 `supabase/templates/confirmation.html` 을 거기에 붙여야 스크린샷의 Abstract 메일이 사라진다. 제목은 `Theo 가입을 확인해 주세요 / Confirm your Theo signup`.
+
+받은 메일은 앱의 SendGrid 메일이 아니라 Supabase가 가입 때 보내는 확인 메일이다. 본문이 대시보드 템플릿에만 있어서 저장소에는 Abstract가 없었다.
+
+- 가입 활성화, 작가 초대, 위임, 가격 문의, 프로필 관심 메일을 같은 카드로 맞춤. 상단에 Theo 로고, 한국어 다음 영어, 같은 버튼.
+- 가입 확인·로그인 링크·비밀번호 재설정·초대·이메일 변경·재인증 문안을 `supabase/templates/` 에 둠.
+
+**Verified:** `npx tsx tests/theo-email.test.ts`, `tsc --noEmit`. 호스팅 템플릿 반영은 미완.
+
+---
+
 ## 2026-09-29 (79) — 벌크 표에서 작품마다 페이지 안 보정 창
 
 > **Supabase SQL 적용 필요: 없음.**

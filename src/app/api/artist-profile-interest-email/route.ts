@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
 import { isIrDemo } from "@/lib/irDemo/config";
 import { appOrigin } from "@/lib/appOrigin";
+import { escapeHtml, renderTheoEmail, theoEmailButton } from "@/lib/email/theoEmail";
 
 /**
  * QA 2026-07-29 (PART E.1) — opt-in "someone's interested in your profile"
@@ -51,7 +52,7 @@ function parseFromHeader(raw: string) {
 }
 
 function buildEmailHtml(row: DispatchRow) {
-  const artist = row.display_name?.trim() || "Artist";
+  const artist = escapeHtml(row.display_name?.trim() || "Artist");
   const origin = appOrigin();
   const onboardingUrl = `${origin}/onboarding?email=${encodeURIComponent(row.invite_email)}`;
   const unsubscribeUrl = `${origin}/unsubscribe/profile-interest-email/${row.unsubscribe_token}`;
@@ -60,54 +61,21 @@ function buildEmailHtml(row: DispatchRow) {
       ? `${row.distinct_viewer_count} people have`
       : "Someone has";
   const countLineKo = row.distinct_viewer_count > 1 ? "여러 명이" : "한 사람이";
+  const foot = `<p style="margin:20px 0 0;font-size:12px;color:#71717a;">이 메일은 갤러리 또는 큐레이터가 이 주소로 프로필 관심 알림을 켜 두었기 때문에 발송되었습니다. <a href="${unsubscribeUrl}" style="color:#71717a;">수신거부</a><br/>You're receiving this because profile-interest notifications were turned on for this address. <a href="${unsubscribeUrl}" style="color:#71717a;">Unsubscribe</a></p>`;
 
-  return `
-  <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #111827;">
-    <p style="font-size:14px; color:#4b5563; margin-bottom:24px;">EN / KO below</p>
-
-    <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">Dear ${artist},</h1>
-
-    <p>${countLineEn} shown interest in your work on <strong>Theo</strong>, an artist-centric platform for sharing works and building exhibitions with curators, galleries, and collectors.</p>
-
-    <p>Join Theo to claim your profile, see how your work is being presented, and connect directly with the people asking about it.</p>
-
-    <p style="margin:24px 0;">
-      <a href="${onboardingUrl}"
-         style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Join Theo
-      </a>
-    </p>
-
-    <p>Warm regards,<br/>The Theo team</p>
-
-    <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
-
-    <h1 style="font-size:18px; font-weight:600; margin-bottom:12px;">${artist} 님께,</h1>
-
-    <p>Theo에서 ${countLineKo} 회원님의 작품에 관심을 보이고 있습니다. Theo는 큐레이터·갤러리·컬렉터와 함께 작품과 전시를 소개하는 아티스트 중심 플랫폼입니다.</p>
-
-    <p>Theo에 가입하시면 프로필을 직접 관리하고, 작품이 어떻게 소개되는지 확인하고, 관심을 보인 분들과 직접 연결되실 수 있습니다.</p>
-
-    <p style="margin:24px 0;">
-      <a href="${onboardingUrl}"
-         style="display:inline-block; padding:10px 18px; border-radius:9999px; background:#111827; color:#ffffff; text-decoration:none; font-size:14px;">
-        Theo 가입하기
-      </a>
-    </p>
-
-    <p>감사합니다.<br/>Theo 드림</p>
-
-    <hr style="margin:32px 0; border:none; border-top:1px solid #e5e7eb;" />
-
-    <p style="font-size:12px; color:#9ca3af;">
-      You're receiving this because a gallery/curator enabled profile-interest notifications for this address on Theo.
-      <a href="${unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a> at any time.
-      <br/>
-      이 메일은 갤러리/큐레이터가 이 주소로 프로필 관심 알림을 활성화했기 때문에 발송되었습니다.
-      언제든지 <a href="${unsubscribeUrl}" style="color:#6b7280;">수신거부</a>할 수 있습니다.
-    </p>
-  </div>
-  `;
+  return renderTheoEmail({
+    koHtml: `<h1 style="margin:0 0 12px;font-size:20px;">${artist} 님께</h1>
+<p style="margin:0 0 12px;">Theo에서 ${countLineKo} 작품에 관심을 보이고 있습니다.</p>
+<p style="margin:0 0 20px;">가입하면 프로필을 직접 관리하고, 작품이 어떻게 소개되는지 확인하고, 관심을 보인 사람과 연결될 수 있습니다.</p>
+<p style="margin:0 0 20px;">${theoEmailButton(onboardingUrl, "Theo 가입하기")}</p>
+<p style="margin:0;">감사합니다.<br/>Theo</p>`,
+    enHtml: `<h1 style="margin:0 0 12px;font-size:20px;">Dear ${artist},</h1>
+<p style="margin:0 0 12px;">${countLineEn} shown interest in your work on Theo.</p>
+<p style="margin:0 0 20px;">Join Theo to claim your profile, see how the work is presented, and connect with the people asking about it.</p>
+<p style="margin:0 0 20px;">${theoEmailButton(onboardingUrl, "Join Theo")}</p>
+<p style="margin:0;">Warm regards,<br/>Theo</p>
+${foot}`,
+  });
 }
 
 async function sendOne(row: DispatchRow, apiKey: string, fromRaw: string) {
