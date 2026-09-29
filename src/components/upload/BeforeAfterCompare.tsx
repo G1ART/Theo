@@ -180,7 +180,7 @@ export function BeforeAfterCompare({
         aria-valuemax={100}
         aria-valuenow={Math.round(percent)}
         onKeyDown={onKeyDown}
-        className="absolute top-0 h-full w-[2px] cursor-ew-resize bg-white/90 shadow"
+        className="absolute top-0 h-full w-[2px] cursor-ew-resize bg-[#fff]/90 shadow"
         style={{ left: `calc(${percent}% - 1px)` }}
       >
         <div className="absolute top-1/2 left-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-900 bg-white shadow">

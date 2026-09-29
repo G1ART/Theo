@@ -2952,10 +2952,10 @@ export function ImageStandardizeEditor({
                 >
                   {/* Rule-of-thirds guide — quiet, but useful. */}
                   <div className="pointer-events-none absolute inset-0">
-                    <div className="absolute inset-y-0 left-1/3 w-px bg-white/40" />
-                    <div className="absolute inset-y-0 left-2/3 w-px bg-white/40" />
-                    <div className="absolute inset-x-0 top-1/3 h-px bg-white/40" />
-                    <div className="absolute inset-x-0 top-2/3 h-px bg-white/40" />
+                    <div className="absolute inset-y-0 left-1/3 w-px bg-[#fff]/40" />
+                    <div className="absolute inset-y-0 left-2/3 w-px bg-[#fff]/40" />
+                    <div className="absolute inset-x-0 top-1/3 h-px bg-[#fff]/40" />
+                    <div className="absolute inset-x-0 top-2/3 h-px bg-[#fff]/40" />
                   </div>
                 </div>
 

@@ -3527,7 +3527,7 @@ function SpaceEditorContent({ id }: { id: string }) {
                   type="button"
                   onClick={() => setRemovePhotoConfirmOpen(true)}
                   disabled={removePhotoBusy}
-                  className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-full border border-white/40 bg-black/60 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg backdrop-blur hover:bg-black/70 disabled:opacity-50"
+                  className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-full border border-[#fff]/40 bg-black/60 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg backdrop-blur hover:bg-black/70 disabled:opacity-50"
                   title={t("simulation.canvas.removePhoto")}
                   aria-label={t("simulation.canvas.removePhoto")}
                 >
