@@ -611,9 +611,11 @@ export async function downloadArtworkFile(path: string): Promise<File> {
 export async function uploadReplacementDisplay(
   file: File,
   ownerId: string,
+  opts?: { original?: boolean },
 ): Promise<{ path: string; bytes: number }> {
   const uuid = crypto.randomUUID();
-  const displayPath = `${ownerId}/${uuid}-${sanitizeFilename(file.name)}`;
+  const folder = opts?.original ? `${ownerId}/original` : ownerId;
+  const displayPath = `${folder}/${uuid}-${sanitizeFilename(file.name)}`;
   const { error } = await supabase.storage.from(BUCKET).upload(displayPath, file, {
     upsert: false,
     contentType: file.type || "image/webp",

@@ -10,6 +10,7 @@ import {
   getArtworkById,
   getMyClaim,
   updateArtwork,
+  getArtworkImageUrl,
   type UpdateArtworkPayload,
 } from "@/lib/supabase/artworks";
 import { searchPeople } from "@/lib/supabase/artists";
@@ -28,6 +29,7 @@ import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
+import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { ArtworkFieldVisibilityPanel } from "@/components/visibility/ArtworkFieldVisibilityPanel";
@@ -87,6 +89,7 @@ function EditArtworkContent() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [inviteToast, setInviteToast] = useState<"sent" | "failed" | null>(null);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
 
   // Base form
   const [title, setTitle] = useState("");
@@ -543,7 +546,30 @@ function EditArtworkContent() {
       >
         ← {t("artwork.backToArtwork")}
       </Link>
-      <h1 className="mb-6 text-xl font-semibold">{t("artwork.editTitle")}</h1>
+      <h1 className="mb-2 text-xl font-semibold">{t("artwork.editTitle")}</h1>
+      {(() => {
+        const primary = (artwork.artwork_images ?? [])[0];
+        if (!primary?.storage_path) return null;
+        const thumb = getArtworkImageUrl(primary.storage_path, "thumb");
+        return (
+          <div className="mb-6 flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={thumb} alt="" className="h-16 w-16 rounded object-cover bg-zinc-100" />
+            <div>
+              <button
+                type="button"
+                onClick={() => setImageEditorOpen(true)}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 hover:bg-zinc-50"
+              >
+                {t("artwork.editImage")}
+              </button>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                {t("artwork.editImageHint")}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       <ActingAsChip mode="editing" />
 
@@ -963,6 +989,21 @@ function EditArtworkContent() {
         <ArtworkFieldVisibilityPanel
           ownerProfileId={userId}
           artworkId={artwork.id}
+        />
+      )}
+      {imageEditorOpen && (artwork.artwork_images ?? [])[0]?.storage_path && (
+        <BulkEnhanceDialog
+          artworkId={artwork.id}
+          artistProfileId={artwork.artist_id}
+          storageOwnerId={actingAsProfileId}
+          image={(artwork.artwork_images ?? [])[0]!}
+          onClose={() => setImageEditorOpen(false)}
+          onSaved={() => {
+            setImageEditorOpen(false);
+            void getArtworkById(id).then(({ data }) => {
+              if (data) setArtwork(data as ArtworkWithLikes);
+            });
+          }}
         />
       )}
     </main>

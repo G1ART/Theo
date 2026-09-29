@@ -346,6 +346,14 @@ type Props = {
    * When null the coherence chip is hidden.
    */
   artistProfileId?: string | null;
+  /**
+   * Look carried from the previous work in this browser tab: capture
+   * setup plus brightness, contrast, and saturation. Corners stay per image.
+   */
+  sharedPreset?: import("@/lib/image/enhancement/sharedPreset").EnhanceSessionPreset | null;
+  onSharedPreset?: (
+    preset: import("@/lib/image/enhancement/sharedPreset").EnhanceSessionPreset,
+  ) => void;
 };
 
 /** Debounce a value change so slider drag doesn't spam parent state.
@@ -545,6 +553,8 @@ export function ImageStandardizeEditor({
   artistProfileId = null,
   onQualityGate,
   onReshootRequest,
+  sharedPreset = null,
+  onSharedPreset,
 }: Props) {
   const { t, locale } = useT();
   const enhancementEnabled = typeof onEnhance === "function";
@@ -1073,6 +1083,8 @@ export function ImageStandardizeEditor({
   const enhancePreviewUrlRef = useRef<string | null>(null);
   const parentPreviewUrlRef = useRef<string | null>(null);
   parentPreviewUrlRef.current = enhancement?.previewUrl ?? null;
+  const sharedPresetRef = useRef(sharedPreset);
+  sharedPresetRef.current = sharedPreset;
   const onEnhanceRef = useRef(onEnhance);
   onEnhanceRef.current = onEnhance;
   const pushDraftToParent = useCallback((draft: EnhancementDraft) => {
@@ -1093,9 +1105,9 @@ export function ImageStandardizeEditor({
   // revoked until a new full pipeline result (or file change).
   const baseEnhanceRef = useRef<EnhancementDraft | null>(null);
   const fineTuneGenRef = useRef(0);
-  const [fineB, setFineB] = useState(1);
-  const [fineC, setFineC] = useState(1);
-  const [fineS, setFineS] = useState(1);
+  const [fineB, setFineB] = useState(sharedPreset?.b ?? 1);
+  const [fineC, setFineC] = useState(sharedPreset?.c ?? 1);
+  const [fineS, setFineS] = useState(sharedPreset?.s ?? 1);
   const fineBRef = useRef(fineB);
   const fineCRef = useRef(fineC);
   const fineSRef = useRef(fineS);
@@ -1126,10 +1138,10 @@ export function ImageStandardizeEditor({
       ? enhancePreviewNaturalSize.w / enhancePreviewNaturalSize.h
       : null;
   // 2026-08-09: Basic-view intensity selector.
-  const [intensity, setIntensity] = useState<Intensity>("normal");
+  const [intensity, setIntensity] = useState<Intensity>(sharedPreset?.intensity ?? "normal");
   // 2026-08-22: capture setup (how the photo was shot) on the tone step.
   // Not lighting — brightness is 보정 강도 + the post-engine sliders.
-  const [inputType, setInputType] = useState<InputType>("auto");
+  const [inputType, setInputType] = useState<InputType>(sharedPreset?.inputType ?? "auto");
   // F2 (2026-08-10) — wall brightness chip. `normal` is the wizard
   // default (matte target 248 — bumped from the historical 243 so
   // walls actually read as white); users can dial to `soft` (245)
@@ -1287,9 +1299,10 @@ export function ImageStandardizeEditor({
     enhancePreviewUrlRef.current = null;
     baseEnhanceRef.current = null;
     fineTuneGenRef.current += 1;
-    setFineB(1);
-    setFineC(1);
-    setFineS(1);
+    const carried = sharedPresetRef.current;
+    setFineB(carried?.b ?? 1);
+    setFineC(carried?.c ?? 1);
+    setFineS(carried?.s ?? 1);
     setEnhancePreview(enhancement ?? null);
     lastSuccessfulSourceCornersRef.current = sourceCornersFromDraft(
       enhancement ?? null,
@@ -1314,14 +1327,17 @@ export function ImageStandardizeEditor({
   //   2. vision 4-corner trapezoid (canvas edges, not AABB),
   //   3. high-confidence edge detector (not suggestedCrop AABB),
   //   4. defaultInsetQuad as a visual starting point only.
+  const matteQuad = (analysis?.matteForegroundCorners ?? null) as Quad | null;
+  const matteReady = Boolean(matteQuad && hasValidArea(matteQuad));
   const wizardPerspectiveSeed = useMemo<Quad>(() => {
     if (perspectiveCorners) return perspectiveCorners;
+    if (matteQuad && hasValidArea(matteQuad)) return matteQuad;
     if (visionQuad) return visionQuad;
     const edge = analysis?.suggestedRectangleCorners as Quad | null | undefined;
     const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
     if (edge && hasValidArea(edge) && edgeConf >= 0.55) return edge;
     return defaultInsetQuad(0.15);
-  }, [perspectiveCorners, visionQuad, analysis]);
+  }, [perspectiveCorners, matteQuad, visionQuad, analysis]);
 
   const pickerImageWidth =
     analysis?.width || previewNaturalSize?.w || 1024;
@@ -1331,6 +1347,7 @@ export function ImageStandardizeEditor({
   const canConfirmCrop =
     perspectiveSkipped ||
     Boolean(visionQuad) ||
+    matteReady ||
     perspectiveUserAdjusted;
 
   // Honest "we isolated the canvas" only when the displayed draft
@@ -2008,6 +2025,13 @@ export function ImageStandardizeEditor({
     // Parent takes ownership of the (possibly fine-tuned) preview blob.
     enhancePreviewUrlRef.current = null;
     onEnhance(draft);
+    onSharedPreset?.({
+      inputType,
+      intensity,
+      b: fineBRef.current,
+      c: fineCRef.current,
+      s: fineSRef.current,
+    });
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
     setPerspectiveAdvancedOpen(false);
@@ -2032,7 +2056,7 @@ export function ImageStandardizeEditor({
           : {}),
       },
     });
-  }, [onEnhance, meteringSource, t, intensity, inputType]);
+  }, [onEnhance, onSharedPreset, meteringSource, t, intensity, inputType]);
 
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
@@ -2410,14 +2434,14 @@ export function ImageStandardizeEditor({
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
                     <span
                       className={`rounded-full border px-2.5 py-1 ${
-                        visionStatus === "ok"
+                        visionStatus === "ok" || matteReady
                           ? "border-emerald-300 bg-emerald-50 text-emerald-800"
                           : visionStatus === "miss"
                             ? "border-amber-300 bg-amber-50 text-amber-800"
                             : "border-zinc-300 bg-zinc-50 text-zinc-700"
                       }`}
                     >
-                      {visionStatus === "ok"
+                      {visionStatus === "ok" || matteReady
                         ? t("imageEnhance.wizard.perspectiveAutoDetected")
                         : visionStatus === "miss"
                           ? t("imageEnhance.wizard.perspectiveManual")
@@ -2431,8 +2455,8 @@ export function ImageStandardizeEditor({
                       imageUrl={previewUrl}
                       imageWidth={pickerImageWidth}
                       imageHeight={pickerImageHeight}
-                      initialCorners={wizardPerspectiveDraft ?? visionQuad ?? wizardPerspectiveSeed}
-                      autoDetectedCorners={visionQuad ?? wizardPerspectiveSeed}
+                      initialCorners={wizardPerspectiveDraft ?? wizardPerspectiveSeed}
+                      autoDetectedCorners={wizardPerspectiveSeed}
                       resetToken={perspectiveResetToken}
                       onChange={(q) => {
                         setWizardPerspectiveDraft(q);
@@ -2475,12 +2499,12 @@ export function ImageStandardizeEditor({
                       {t("upload.imageEnhance.flow.detectingArtwork")}
                     </p>
                   )}
-                  {!detectingArtwork && visionStatus === "miss" && !perspectiveUserAdjusted && (
+                  {!detectingArtwork && visionStatus === "miss" && !matteReady && !perspectiveUserAdjusted && (
                     <p className="text-[11px] leading-relaxed text-amber-800" role="status">
                       {t("upload.imageEnhance.flow.cropNeedCorners")}
                     </p>
                   )}
-                  {!detectingArtwork && visionStatus !== "miss" && (
+                  {!detectingArtwork && (visionStatus !== "miss" || matteReady) && (
                     <p className="text-[11px] leading-relaxed text-zinc-500">
                       {t("imageEnhance.wizard.perspectiveHint")}
                     </p>
@@ -2505,7 +2529,7 @@ export function ImageStandardizeEditor({
                     </div>
                     <button
                       type="button"
-                      disabled={detectingArtwork || !canConfirmCrop}
+                      disabled={(detectingArtwork && !matteReady) || !canConfirmCrop}
                       onClick={() => {
                         if (perspectiveSkipped) {
                           perspectiveCornersRef.current = null;
@@ -2513,7 +2537,6 @@ export function ImageStandardizeEditor({
                         } else {
                           const snapshot =
                             wizardPerspectiveDraft ??
-                            visionQuad ??
                             wizardPerspectiveSeed;
                           perspectiveCornersRef.current = snapshot;
                           setPerspectiveCorners(snapshot);

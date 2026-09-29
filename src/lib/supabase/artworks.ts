@@ -1490,7 +1490,9 @@ export async function replaceArtworkDisplayImage(input: {
   currentStoragePath: string;
   currentOriginalPath?: string | null;
   displayFile: File;
-  enhancementMeta: EnhancementMeta;
+  enhancementMeta: EnhancementMeta | null;
+  /** A newly chosen photograph. Stored as the backup the next correction opens. */
+  replacementSource?: File | null;
 }): Promise<{ error: unknown; storagePath: string | null }> {
   let uploaded: { path: string; bytes: number };
   try {
@@ -1498,20 +1500,56 @@ export async function replaceArtworkDisplayImage(input: {
   } catch (error) {
     return { error, storagePath: null };
   }
-  const plan = planDisplayReplacement(
-    {
-      storage_path: input.currentStoragePath,
-      original_storage_path: input.currentOriginalPath,
-    },
-    uploaded.path,
-  );
+  const swapped = input.replacementSource instanceof File;
+  let originalPath = input.currentOriginalPath?.trim() || input.currentStoragePath;
+  let uploadedOriginalPath: string | null = null;
+  const retire = new Set<string>();
+  if (swapped && input.replacementSource && input.replacementSource !== input.displayFile) {
+    try {
+      const source = await uploadReplacementDisplay(input.replacementSource, input.ownerId, {
+        original: true,
+      });
+      originalPath = source.path;
+      uploadedOriginalPath = source.path;
+    } catch (error) {
+      try {
+        await removeStorageFile(uploaded.path);
+      } catch {}
+      return { error, storagePath: null };
+    }
+  } else if (swapped) {
+    originalPath = uploaded.path;
+  } else {
+    const plan = planDisplayReplacement(
+      {
+        storage_path: input.currentStoragePath,
+        original_storage_path: input.currentOriginalPath,
+      },
+      uploaded.path,
+    );
+    originalPath = plan.original_storage_path;
+    if (plan.retire_storage_path) retire.add(plan.retire_storage_path);
+  }
+  if (swapped) {
+    if (input.currentStoragePath && input.currentStoragePath !== uploaded.path) {
+      retire.add(input.currentStoragePath);
+    }
+    const previousOriginal = input.currentOriginalPath?.trim();
+    if (
+      previousOriginal &&
+      previousOriginal !== originalPath &&
+      previousOriginal !== uploaded.path
+    ) {
+      retire.add(previousOriginal);
+    }
+  }
   const { data, error } = await supabase
     .from("artwork_images")
     .update({
       storage_path: uploaded.path,
       display_bytes: uploaded.bytes,
       enhancement_meta: input.enhancementMeta,
-      original_storage_path: plan.original_storage_path,
+      original_storage_path: originalPath,
     })
     .eq("artwork_id", input.artworkId)
     .eq("storage_path", input.currentStoragePath)
@@ -1519,12 +1557,14 @@ export async function replaceArtworkDisplayImage(input: {
   if (error || !data?.length) {
     try {
       await removeStorageFile(uploaded.path);
+      if (uploadedOriginalPath) await removeStorageFile(uploadedOriginalPath);
     } catch {}
     return { error: error ?? new Error("image row not updated"), storagePath: null };
   }
-  if (plan.retire_storage_path) {
+  for (const path of retire) {
+    if (path === uploaded.path || path === originalPath) continue;
     try {
-      await removeStorageFile(plan.retire_storage_path);
+      await removeStorageFile(path);
     } catch {}
   }
   return { error: null, storagePath: uploaded.path };

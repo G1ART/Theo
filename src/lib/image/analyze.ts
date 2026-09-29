@@ -21,6 +21,7 @@ import {
   type GlareRegion,
 } from "@/lib/image/enhancement/glareRegions";
 import { detectBestQuadrilateral, type EdgeRectFit } from "@/lib/image/enhancement/edges";
+import { fitMatteForegroundQuad } from "@/lib/image/enhancement/wallMatte";
 import {
   detectDominantEllipse,
   maskFromBackgroundContrast,
@@ -146,6 +147,12 @@ export type ImageAnalysis = {
    * straight-on capture on a low-confidence rotated fit.
    */
   suggestedRectangleConfidence: number | null;
+  /**
+   * Plain-wall foreground box (normalized TL/TR/BR/BL). Set when a
+   * colorful canvas sits inside a light margin. Preferred over the
+   * edge-moment seed, which lands inside busy paint.
+   */
+  matteForegroundCorners?: EdgeRectFit["corners"] | null;
   /**
    * G2 (2026-08-10) — dominant ellipse fit, populated when the
    * subject silhouette (via a background-contrast mask fallback)
@@ -638,6 +645,7 @@ function analyzeImageSource(
     mode,
     suggestedRectangleCorners,
     suggestedRectangleConfidence,
+    matteForegroundCorners: fitMatteForegroundQuad(imageData.data, w, h),
     ellipse: ellipseFit && ellipseFit.confidence >= 0.6 ? ellipseFit : null,
     shapeHint,
   };

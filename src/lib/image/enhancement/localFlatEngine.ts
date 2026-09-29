@@ -33,6 +33,8 @@
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
+import { paintBorderWall } from "./borderWall";
+import { outsetNormalizedQuad } from "./wallMatte";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
   applyAwb,
@@ -477,7 +479,10 @@ export async function runFlatEnhancement(
     c: clampTone(input.tone?.c ?? 1, ENHANCEMENT_TONE_CAP),
     s: clampTone(input.tone?.s ?? 1, ENHANCEMENT_TONE_CAP),
   };
-  const cropNormalized = normalizeCropFromCorners(input.sourceCorners, input.crop);
+  const warpCorners = input.sourceCorners
+    ? outsetNormalizedQuad(input.sourceCorners, 0.008)
+    : null;
+  const cropNormalized = normalizeCropFromCorners(warpCorners, input.crop);
 
   const proLookEnabled = input.proLook?.enabled === true;
   // F2 (2026-08-10) — user-supplied wall brightness target. When
@@ -629,8 +634,8 @@ export async function runFlatEnhancement(
   // box, so keystoned photographs land at the artwork's true aspect
   // instead of the framing rectangle's aspect.
   const cornersInCrop: [[number, number], [number, number], [number, number], [number, number]] | null =
-    input.sourceCorners
-      ? mapCornersIntoCrop(input.sourceCorners, cropNormalized)
+    warpCorners
+      ? mapCornersIntoCrop(warpCorners, cropNormalized)
       : null;
   const needsWarp = cornersInCrop
     ? cornersLookQuadrilateral(cornersInCrop, outW, outH)
@@ -674,6 +679,7 @@ export async function runFlatEnhancement(
       if (H) {
         const warped = warpPerspectiveNearest(srcData, H, warpOutW, warpOutH);
         if (warped) {
+          paintBorderWall(warped.data, warpOutW, warpOutH);
           // Replace the source canvas with a fresh surface sized to
           // the rectified aspect so subsequent stages (tone, proLook,
           // bezel, encode) don't have to know a warp happened.

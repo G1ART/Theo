@@ -12,6 +12,11 @@ import { downloadArtworkFile } from "@/lib/supabase/storage";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { useT } from "@/lib/i18n/useT";
+import {
+  readEnhanceSessionPreset,
+  writeEnhanceSessionPreset,
+  type EnhanceSessionPreset,
+} from "@/lib/image/enhancement/sharedPreset";
 
 type ImageSlot = {
   storage_path: string;
@@ -37,11 +42,17 @@ export function BulkEnhanceDialog({
   const { t } = useT();
   const titleId = useId();
   const [file, setFile] = useState<File | null>(null);
+  const [replaced, setReplaced] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [enhancement, setEnhancement] = useState<EnhancementDraft | null>(null);
   const [gate, setGate] = useState<QualityGateSurfaceState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [preset, setPreset] = useState<EnhanceSessionPreset | null>(null);
+
+  useEffect(() => {
+    setPreset(readEnhanceSessionPreset());
+  }, []);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -84,7 +95,8 @@ export function BulkEnhanceDialog({
     !gate.override;
 
   async function save() {
-    if (!enhancement || saving || gateBlocked) return;
+    const displayFile = enhancement?.displayFile ?? (replaced ? file : null);
+    if (!displayFile || saving || gateBlocked) return;
     setSaving(true);
     setSaveError(false);
     const { data: { session } } = await getSession();
@@ -99,25 +111,28 @@ export function BulkEnhanceDialog({
       ownerId,
       currentStoragePath: image.storage_path,
       currentOriginalPath: image.original_storage_path,
-      displayFile: enhancement.displayFile,
-      enhancementMeta: enhancement.meta,
+      displayFile,
+      enhancementMeta: enhancement?.meta ?? null,
+      replacementSource: replaced ? file : null,
     });
     if (error) {
       setSaving(false);
       setSaveError(true);
       return;
     }
-    void recordUsageEvent({
-      userId: session?.user?.id ?? undefined,
-      key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
-      featureKey: "ai.image_enhance",
-      metadata: {
-        mode: enhancement.meta.mode,
-        provider: enhancement.meta.provider,
-        source: "bulk",
-        latency_ms: enhancement.meta.latencyMs,
-      },
-    });
+    if (enhancement) {
+      void recordUsageEvent({
+        userId: session?.user?.id ?? undefined,
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: enhancement.meta.mode,
+          provider: enhancement.meta.provider,
+          source: "bulk",
+          latency_ms: enhancement.meta.latencyMs,
+        },
+      });
+    }
     onSaved();
   }
 
@@ -141,6 +156,11 @@ export function BulkEnhanceDialog({
             <p className="mt-1 text-xs leading-relaxed text-zinc-500">
               {t("bulk.enhance.rowHint")}
             </p>
+            {preset && (
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                {t("bulk.enhance.rowCarry")}
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -159,8 +179,26 @@ export function BulkEnhanceDialog({
           {!file && !loadError && (
             <p className="text-sm text-zinc-500">{t("bulk.enhance.rowLoading")}</p>
           )}
+          <label className="mb-3 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-700">
+            <input
+              type="file"
+              accept="image/*"
+              className="text-xs"
+              onChange={(e) => {
+                const next = e.target.files?.[0];
+                e.target.value = "";
+                if (!next || next.size <= 0) return;
+                setReplaced(true);
+                setEnhancement(null);
+                setLoadError(false);
+                setFile(next);
+              }}
+            />
+            {t("bulk.enhance.rowReplace")}
+          </label>
           {file && (
             <ImageStandardizeEditor
+              key={`${file.name}-${file.size}-${file.lastModified}`}
               file={file}
               value={null}
               onChange={() => {}}
@@ -169,6 +207,11 @@ export function BulkEnhanceDialog({
               onQualityGate={setGate}
               meteringSource="bulk"
               artistProfileId={artistProfileId}
+              sharedPreset={preset}
+              onSharedPreset={(next) => {
+                writeEnhanceSessionPreset(next);
+                setPreset(next);
+              }}
             />
           )}
         </div>
@@ -181,11 +224,13 @@ export function BulkEnhanceDialog({
               ? t("bulk.enhance.rowSaveError")
               : enhancement
                 ? t("bulk.enhance.rowReady")
-                : t("bulk.enhance.rowNeedResult")}
+                : replaced
+                  ? t("bulk.enhance.rowReplaceReady")
+                  : t("bulk.enhance.rowNeedResult")}
           </p>
           <button
             type="button"
-            disabled={!enhancement || saving || gateBlocked || !file}
+            disabled={(!enhancement && !replaced) || saving || gateBlocked || !file}
             onClick={() => void save()}
             className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
           >
