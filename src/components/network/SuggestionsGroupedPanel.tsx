@@ -11,9 +11,9 @@
  *   • from your exhibition network (`expand`)
  *
  * Each card carries: avatar / name / @handle / recent role or bio /
- * mutual count / [X] dismiss / [+ Follow] action. Dismiss is a client-
- * only session hide — the persistent `people_dismiss` RPC stays for
- * future patches when we want the hide to stick server-side.
+ * mutual count / [X] dismiss / [+ Follow] action. Dismiss writes
+ * `people_dismissals` through the existing `people_dismiss` RPC so the
+ * hide survives a closed tab. Recommendation ranking is unchanged.
  *
  * 2026-08-12 — Overview polish:
  *   • Lane headers are now short, opinionated phrases ("친구의 친구",
@@ -33,6 +33,7 @@ import { useT } from "@/lib/i18n/useT";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { FollowButton } from "@/components/FollowButton";
 import {
+  dismissPerson,
   getPeopleRecs,
   type PeopleRec,
   type PeopleRecMode,
@@ -56,34 +57,6 @@ const LANE_ORDER: LaneKey[] = ["follow_graph", "likes_based", "expand"];
 const LANE_INITIAL_LIMIT = 6;
 const LANE_LIMIT_STEP = 12;
 const LANE_LIMIT_CAP = 60;
-
-const DISMISS_SESSION_KEY = "connections.suggestions.dismissed";
-
-function readDismissed(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.sessionStorage.getItem(DISMISS_SESSION_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed))
-      return new Set(parsed.filter((v) => typeof v === "string"));
-  } catch {
-    /* best-effort */
-  }
-  return new Set();
-}
-
-function writeDismissed(next: Set<string>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(
-      DISMISS_SESSION_KEY,
-      JSON.stringify(Array.from(next)),
-    );
-  } catch {
-    /* best-effort */
-  }
-}
 
 function avatarSrc(v: string | null | undefined): string | null {
   if (!v) return null;
@@ -120,7 +93,7 @@ export function SuggestionsGroupedPanel() {
     likes_based: makeInitialLane("likes_based", laneLabels.likes_based),
     expand: makeInitialLane("expand", laneLabels.expand),
   }));
-  const [dismissed, setDismissed] = useState<Set<string>>(() => readDismissed());
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -148,8 +121,15 @@ export function SuggestionsGroupedPanel() {
     setDismissed((prev) => {
       const next = new Set(prev);
       next.add(id);
-      writeDismissed(next);
       return next;
+    });
+    void dismissPerson(id, "snooze").then((res) => {
+      if (res.ok) return;
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     });
   }, []);
 

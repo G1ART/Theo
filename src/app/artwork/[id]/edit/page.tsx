@@ -36,6 +36,7 @@ import { ArtworkFieldVisibilityPanel } from "@/components/visibility/ArtworkFiel
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { supabase } from "@/lib/supabase/client";
+import { primaryArtworkImage } from "@/lib/artworks/primaryImage";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -548,7 +549,7 @@ function EditArtworkContent() {
       </Link>
       <h1 className="mb-2 text-xl font-semibold">{t("artwork.editTitle")}</h1>
       {(() => {
-        const primary = (artwork.artwork_images ?? [])[0];
+        const primary = primaryArtworkImage(artwork.artwork_images);
         if (!primary?.storage_path) return null;
         const thumb = getArtworkImageUrl(primary.storage_path, "thumb");
         return (
@@ -985,18 +986,18 @@ function EditArtworkContent() {
         </div>
       </form>
 
-      {artwork && userId && artwork.artist_id === userId && (
+      {artwork && userId && canEditArtwork(artwork, effectiveIds) && (
         <ArtworkFieldVisibilityPanel
-          ownerProfileId={userId}
+          ownerProfileId={actingAsProfileId ?? userId}
           artworkId={artwork.id}
         />
       )}
-      {imageEditorOpen && (artwork.artwork_images ?? [])[0]?.storage_path && (
+      {imageEditorOpen && primaryArtworkImage(artwork.artwork_images)?.storage_path && (
         <BulkEnhanceDialog
           artworkId={artwork.id}
           artistProfileId={artwork.artist_id}
           storageOwnerId={actingAsProfileId}
-          image={(artwork.artwork_images ?? [])[0]!}
+          image={primaryArtworkImage(artwork.artwork_images)!}
           onClose={() => setImageEditorOpen(false)}
           onSaved={() => {
             setImageEditorOpen(false);

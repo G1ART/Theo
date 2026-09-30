@@ -55,6 +55,8 @@ type InvitationItem =
 
 type Props = {
   ownerProfileId: string | null;
+  /** Present when the operator is acting-as `ownerProfileId`. */
+  actingAsProfileId?: string | null;
 };
 
 function avatarUrl(v: string | null | undefined): string | null {
@@ -63,7 +65,7 @@ function avatarUrl(v: string | null | undefined): string | null {
   return getArtworkImageUrl(v, "avatar");
 }
 
-export function InvitationsPanel({ ownerProfileId }: Props) {
+export function InvitationsPanel({ ownerProfileId, actingAsProfileId = null }: Props) {
   const { t, locale } = useT();
   const [followRows, setFollowRows] = useState<
     Array<{
@@ -80,7 +82,7 @@ export function InvitationsPanel({ ownerProfileId }: Props) {
   const refresh = useCallback(async (ownerId: string) => {
     setLoading(true);
     const [f, a] = await Promise.all([
-      listIncomingFollowRequests({ limit: 50 }),
+      listIncomingFollowRequests({ limit: 50, profileId: ownerId }),
       listAccessRequestsForOwnerEnriched({
         ownerProfileId: ownerId,
         status: "pending",
@@ -127,9 +129,12 @@ export function InvitationsPanel({ ownerProfileId }: Props) {
     async (item: Extract<InvitationItem, { kind: "follow_request" }>, action: "accept" | "decline") => {
       setPendingId(item.key);
       setError(null);
+      const followOptions = actingAsProfileId
+        ? { forProfileId: actingAsProfileId }
+        : undefined;
       const res = action === "accept"
-        ? await acceptFollowRequest(item.followerId)
-        : await declineFollowRequest(item.followerId);
+        ? await acceptFollowRequest(item.followerId, followOptions)
+        : await declineFollowRequest(item.followerId, followOptions);
       setPendingId(null);
       if (res.error) {
         setError(t("messages.request.actionFailed"));
@@ -137,7 +142,7 @@ export function InvitationsPanel({ ownerProfileId }: Props) {
       }
       setFollowRows((prev) => prev.filter((r) => r.follower_id !== item.followerId));
     },
-    [t],
+    [actingAsProfileId, t],
   );
 
   const handleAccessAction = useCallback(

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { ArtworkCard } from "@/components/ArtworkCard";
@@ -55,6 +55,33 @@ export default function MyLibraryPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const libraryFilters = useMemo(
+    () => ({
+      visibility,
+      search: searchDebounced,
+      sort,
+      ownershipStatus: ownershipStatus || null,
+      pricingMode: pricingMode || null,
+      dateFrom: dateFrom || null,
+      dateTo: dateTo ? `${dateTo}T23:59:59.999Z` : null,
+      createdBy: createdByMe && myUserId ? myUserId : null,
+      forProfileId: actingAsProfileId ?? null,
+    }),
+    [
+      visibility,
+      searchDebounced,
+      sort,
+      ownershipStatus,
+      pricingMode,
+      dateFrom,
+      dateTo,
+      createdByMe,
+      myUserId,
+      actingAsProfileId,
+    ],
+  );
 
   useEffect(() => {
     const tmr = setTimeout(() => setSearchDebounced(search.trim()), 300);
@@ -72,15 +99,7 @@ export default function MyLibraryPage() {
       const { data, nextCursor: nc, error } = await listMyArtworksForLibrary({
         limit: 40,
         cursor,
-        visibility,
-        search: searchDebounced,
-        sort,
-        ownershipStatus: ownershipStatus || null,
-        pricingMode: pricingMode || null,
-        dateFrom: dateFrom || null,
-        dateTo: dateTo ? `${dateTo}T23:59:59.999Z` : null,
-        createdBy: createdByMe && myUserId ? myUserId : null,
-        forProfileId: actingAsProfileId ?? null,
+        ...libraryFilters,
       });
       if (error) {
         if (append) setLoadingMore(false);
@@ -101,16 +120,7 @@ export default function MyLibraryPage() {
       else setLoading(false);
     },
     [
-      visibility,
-      searchDebounced,
-      sort,
-      ownershipStatus,
-      pricingMode,
-      dateFrom,
-      dateTo,
-      createdByMe,
-      myUserId,
-      actingAsProfileId,
+      libraryFilters,
     ]
   );
 
@@ -157,6 +167,58 @@ export default function MyLibraryPage() {
     else setToast(t("my.bulkDeleteFailed"));
   }
 
+  async function exportFilteredCsv() {
+    setExporting(true);
+    const headers = [
+      "title",
+      "year",
+      "medium",
+      "size",
+      "size_unit",
+      "ownership_status",
+      "pricing_mode",
+      "visibility",
+    ];
+    const rows: string[][] = [];
+    let cursor: ArtworkCursor | null = null;
+    const maxPages = 100;
+    let truncated = false;
+    for (let page = 0; page < maxPages; page++) {
+      const res = await listMyArtworksForLibrary({
+        limit: 40,
+        cursor,
+        ...libraryFilters,
+      });
+      if (res.error) {
+        setExporting(false);
+        setToast(t("library.exportFailed"));
+        return;
+      }
+      for (const artwork of res.data ?? []) {
+        rows.push([
+          artwork.title ?? "",
+          String(artwork.year ?? ""),
+          artwork.medium ?? "",
+          artwork.size ?? "",
+          String((artwork as Record<string, unknown>).size_unit ?? ""),
+          artwork.ownership_status ?? "",
+          artwork.pricing_mode ?? "",
+          artwork.visibility ?? "",
+        ]);
+      }
+      if (!res.nextCursor) {
+        truncated = false;
+        break;
+      }
+      cursor = res.nextCursor;
+      truncated = page === maxPages - 1;
+    }
+    setExporting(false);
+    if (rows.length === 0) return;
+    downloadCsv("library_export.csv", generateCsv(headers, rows));
+    if (truncated) setToast(t("library.exportPartial"));
+  }
+
   return (
     <AuthGate>
       <PageShell variant="library">
@@ -174,33 +236,11 @@ export default function MyLibraryPage() {
               </Link>
               <button
                 type="button"
-                onClick={() => {
-                  const headers = [
-                    "title",
-                    "year",
-                    "medium",
-                    "size",
-                    "size_unit",
-                    "ownership_status",
-                    "pricing_mode",
-                    "visibility",
-                  ];
-                  const rows = items.map((a) => [
-                    a.title ?? "",
-                    String(a.year ?? ""),
-                    a.medium ?? "",
-                    a.size ?? "",
-                    String((a as Record<string, unknown>).size_unit ?? ""),
-                    a.ownership_status ?? "",
-                    a.pricing_mode ?? "",
-                    a.visibility ?? "",
-                  ]);
-                  downloadCsv("library_export.csv", generateCsv(headers, rows));
-                }}
-                disabled={items.length === 0}
+                onClick={() => void exportFilteredCsv()}
+                disabled={items.length === 0 || exporting || loading}
                 className={`${chipButton} disabled:opacity-50`}
               >
-                {t("library.exportCsv")}
+                {exporting ? t("common.loading") : t("library.exportCsv")}
               </button>
             </div>
           }

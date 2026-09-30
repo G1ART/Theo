@@ -7,18 +7,15 @@ import { useT } from "@/lib/i18n/useT";
 import { formatDisplayName } from "@/lib/identity/format";
 import {
   getMyProfile,
-  getMyStats,
-  getStatsForProfile,
   getMyPendingClaimsCount,
-  type MyStats,
 } from "@/lib/supabase/me";
+import { countDraftArtworksForProfile } from "@/lib/supabase/artworks";
 import { getMyPriceInquiryCount } from "@/lib/supabase/priceInquiries";
 import type { Profile as FullProfile } from "@/lib/supabase/profiles";
 import { getProfileById } from "@/lib/supabase/profiles";
 import { supabase } from "@/lib/supabase/client";
 import { useActingAs } from "@/context/ActingAsContext";
 import {
-  listExhibitionsForProfile,
   listMyExhibitions,
   type ExhibitionWithCredits,
 } from "@/lib/supabase/exhibitions";
@@ -56,7 +53,7 @@ type Profile = FullProfile;
  * is intentionally replaced with a compact tile hub matching the new
  * wireframe. Each tile is a jump-off into a workspace domain:
  *
- *   • Drafts         → /my/library?visibility=draft
+ *   • Drafts         → /my/library?visibility=draft (artworks only)
  *   • Inquiries      → /my/inquiries
  *   • Ownership      → /my/claims
  *   • My Exhibitions → /my/exhibitions
@@ -71,37 +68,33 @@ function WorkspaceContent() {
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [stats, setStats] = useState<MyStats | null>(null);
   const [priceInquiryCount, setPriceInquiryCount] = useState<number | null>(null);
   const [pendingClaimsCount, setPendingClaimsCount] = useState<number | null>(null);
   const [exhibitions, setExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [externalArtistsCount, setExternalArtistsCount] = useState<number | null>(null);
-  const [draftExhibitionsCount, setDraftExhibitionsCount] = useState<number | null>(null);
+  const [draftArtworkCount, setDraftArtworkCount] = useState<number | null>(null);
   const [spacesCount, setSpacesCount] = useState<number | null>(null);
   const [isStaff, setIsStaff] = useState(false);
 
   const fetchData = useCallback(async () => {
     const effectiveProfileId = actingAsProfileId ?? null;
 
-    const [profileRes, statsRes] = await Promise.all([
-      effectiveProfileId ? getProfileById(effectiveProfileId) : getMyProfile(),
-      effectiveProfileId ? getStatsForProfile(effectiveProfileId) : getMyStats(),
-    ]);
+    const profileRes = effectiveProfileId
+      ? await getProfileById(effectiveProfileId)
+      : await getMyProfile();
     setProfile((profileRes.data as Profile | null) ?? null);
-    setStats(statsRes.data ?? null);
 
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
 
-    const [inquiryCountRes, claimsCountRes, exRes, externalRes, spacesRes] =
+    const [inquiryCountRes, claimsCountRes, exRes, draftRes, externalRes, spacesRes] =
       await Promise.all([
         getMyPriceInquiryCount(effectiveProfileId ?? undefined),
         getMyPendingClaimsCount(effectiveProfileId ?? undefined),
-        effectiveProfileId
-          ? listExhibitionsForProfile(effectiveProfileId)
-          : listMyExhibitions(),
+        listMyExhibitions({ forProfileId: effectiveProfileId }),
+        countDraftArtworksForProfile(effectiveProfileId ?? session.user.id),
         // Provenance count is scoped to the operator; when acting as a
         // principal we skip the fetch (the RPC filters by inviter =
         // caller, so it would return 0 anyway).
@@ -118,16 +111,7 @@ function WorkspaceContent() {
     const exList = exRes.data ?? [];
     setExhibitions(exList);
     setSpacesCount(spacesRes.data?.length ?? 0);
-    // Best-effort draft count — the exhibition record uses `visibility`
-    // ('public' | 'unlisted' | 'draft') as source of truth for whether
-    // it has been published. We treat anything non-public as a draft
-    // for the purposes of this tile.
-    setDraftExhibitionsCount(
-      exList.filter((e) => {
-        const visibility = (e as { visibility?: string | null }).visibility;
-        return visibility !== "public";
-      }).length
-    );
+    setDraftArtworkCount(draftRes.data ?? 0);
     setExternalArtistsCount(externalRes.data?.length ?? 0);
   }, [actingAsProfileId]);
 
@@ -161,16 +145,6 @@ function WorkspaceContent() {
     return () => window.removeEventListener("focus", onFocus);
   }, [fetchData]);
 
-  // Drafts = artworks not yet public + non-public exhibitions.
-  const artworkDraftsCount = useMemo(() => {
-    if (!stats) return null;
-    return Math.max(0, (stats.artworksCount ?? 0) - (stats.postsCount ?? 0));
-  }, [stats]);
-  const totalDrafts = useMemo(() => {
-    if (artworkDraftsCount == null && draftExhibitionsCount == null) return null;
-    return (artworkDraftsCount ?? 0) + (draftExhibitionsCount ?? 0);
-  }, [artworkDraftsCount, draftExhibitionsCount]);
-
   const tiles = useMemo<WorkspaceTile[]>(() => {
     return [
       {
@@ -178,7 +152,7 @@ function WorkspaceContent() {
         labelKey: "workspace.tile.drafts.title",
         subtitleKey: "workspace.tile.drafts.subtitle",
         href: "/my/library?visibility=draft",
-        value: totalDrafts,
+        value: draftArtworkCount,
         icon: (
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path
@@ -334,7 +308,7 @@ function WorkspaceContent() {
       },
     ];
   }, [
-    totalDrafts,
+    draftArtworkCount,
     priceInquiryCount,
     pendingClaimsCount,
     exhibitions.length,

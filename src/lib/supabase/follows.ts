@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { followProfileSearchOr } from "@/lib/network/followSearch";
 
 /**
  * Follow status for the viewer toward a given target.
@@ -35,23 +36,36 @@ export type FollowProfileRow = {
 const PROFILE_SELECT =
   "id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles";
 
-export async function getMyFollowers(options: { limit?: number; cursor?: string } = {}) {
+type FollowListOptions = {
+  limit?: number;
+  cursor?: string;
+  /** Acting-as principal. Defaults to the session user. */
+  profileId?: string | null;
+  /** Searches the follow graph, not the already-loaded page. */
+  search?: string | null;
+};
+
+export async function getMyFollowers(options: FollowListOptions = {}) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.user?.id)
     return { data: [], nextCursor: null, error: new Error("Not authenticated") };
 
-  const { limit = 20, cursor } = options;
+  const { limit = 20, cursor, profileId = null, search = null } = options;
   const offset = Math.max(0, parseInt(cursor ?? "0", 10) || 0);
+  const ownerId = profileId ?? session.user.id;
+  const searchOr = followProfileSearchOr(search);
+  const embed = searchOr ? "!inner" : "";
 
-  const { data: rows, error } = await supabase
+  let query = supabase
     .from("follows")
-    .select(`follower_id, created_at, status, profiles!follower_id(${PROFILE_SELECT})`)
-    .eq("following_id", session.user.id)
+    .select(`follower_id, created_at, status, profiles!follower_id${embed}(${PROFILE_SELECT})`)
+    .eq("following_id", ownerId)
     .eq("status", "accepted")
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit);
+    .order("created_at", { ascending: false });
+  if (searchOr) query = query.or(searchOr, { referencedTable: "profiles" });
+  const { data: rows, error } = await query.range(offset, offset + limit);
 
   if (error) return { data: [], nextCursor: null, error };
 
@@ -75,23 +89,27 @@ export async function getMyFollowers(options: { limit?: number; cursor?: string 
   return { data: profiles, nextCursor, error: null };
 }
 
-export async function getMyFollowing(options: { limit?: number; cursor?: string } = {}) {
+export async function getMyFollowing(options: FollowListOptions = {}) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.user?.id)
     return { data: [], nextCursor: null, error: new Error("Not authenticated") };
 
-  const { limit = 20, cursor } = options;
+  const { limit = 20, cursor, profileId = null, search = null } = options;
   const offset = Math.max(0, parseInt(cursor ?? "0", 10) || 0);
+  const ownerId = profileId ?? session.user.id;
+  const searchOr = followProfileSearchOr(search);
+  const embed = searchOr ? "!inner" : "";
 
-  const { data: rows, error } = await supabase
+  let query = supabase
     .from("follows")
-    .select(`following_id, created_at, status, profiles!following_id(${PROFILE_SELECT})`)
-    .eq("follower_id", session.user.id)
+    .select(`following_id, created_at, status, profiles!following_id${embed}(${PROFILE_SELECT})`)
+    .eq("follower_id", ownerId)
     .eq("status", "accepted")
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit);
+    .order("created_at", { ascending: false });
+  if (searchOr) query = query.or(searchOr, { referencedTable: "profiles" });
+  const { data: rows, error } = await query.range(offset, offset + limit);
 
   if (error) return { data: [], nextCursor: null, error };
 
@@ -245,13 +263,20 @@ export async function cancelFollowRequest(targetId: string): Promise<{
  * Principal-side: approve a pending follow request from `followerId`.
  * Returns true when a row was actually flipped.
  */
-export async function acceptFollowRequest(followerId: string): Promise<{
+export async function acceptFollowRequest(
+  followerId: string,
+  options?: { forProfileId?: string | null },
+): Promise<{
   data: boolean;
   error: unknown;
 }> {
-  const { data, error } = await supabase.rpc("accept_follow_request", {
-    p_follower: followerId,
-  });
+  const forProfileId = options?.forProfileId ?? null;
+  const { data, error } = await supabase.rpc(
+    "accept_follow_request",
+    forProfileId
+      ? { p_follower: followerId, p_subject: forProfileId }
+      : { p_follower: followerId },
+  );
   if (error) return { data: false, error };
   return { data: !!data, error: null };
 }
@@ -260,13 +285,20 @@ export async function acceptFollowRequest(followerId: string): Promise<{
  * Principal-side: decline a pending follow request from `followerId`.
  * Deletes the row, leaving the requester back at "Follow".
  */
-export async function declineFollowRequest(followerId: string): Promise<{
+export async function declineFollowRequest(
+  followerId: string,
+  options?: { forProfileId?: string | null },
+): Promise<{
   data: boolean;
   error: unknown;
 }> {
-  const { data, error } = await supabase.rpc("decline_follow_request", {
-    p_follower: followerId,
-  });
+  const forProfileId = options?.forProfileId ?? null;
+  const { data, error } = await supabase.rpc(
+    "decline_follow_request",
+    forProfileId
+      ? { p_follower: followerId, p_subject: forProfileId }
+      : { p_follower: followerId },
+  );
   if (error) return { data: false, error };
   return { data: !!data, error: null };
 }
@@ -278,6 +310,8 @@ export async function declineFollowRequest(followerId: string): Promise<{
  */
 export async function listIncomingFollowRequests(options: {
   limit?: number;
+  /** Acting-as principal. Defaults to the session user. */
+  profileId?: string | null;
 } = {}): Promise<{
   data: Array<{
     follower_id: string;
@@ -292,11 +326,11 @@ export async function listIncomingFollowRequests(options: {
   if (!session?.user?.id) {
     return { data: [], error: new Error("Not authenticated") };
   }
-  const { limit = 50 } = options;
+  const { limit = 50, profileId = null } = options;
   const { data, error } = await supabase
     .from("follows")
     .select(`follower_id, created_at, status, profiles!follower_id(${PROFILE_SELECT})`)
-    .eq("following_id", session.user.id)
+    .eq("following_id", profileId ?? session.user.id)
     .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(limit);

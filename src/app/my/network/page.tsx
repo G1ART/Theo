@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { AuthGate } from "@/components/AuthGate";
@@ -15,7 +15,8 @@ import {
   isFollowing,
   type FollowProfileRow,
 } from "@/lib/supabase/follows";
-import { getMyStats, type MyStats } from "@/lib/supabase/me";
+import { getMyStats, getStatsForProfile, type MyStats } from "@/lib/supabase/me";
+import { useActingAs } from "@/context/ActingAsContext";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
@@ -91,6 +92,7 @@ export default function MyNetworkPage() {
   const { t, locale } = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { actingAsProfileId } = useActingAs();
   const activeTab = parseTab(searchParams.get("tab"));
 
   const [stats, setStats] = useState<MyStats | null>(null);
@@ -110,7 +112,10 @@ export default function MyNetworkPage() {
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
 
   const [query, setQuery] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
+  const followersReq = useRef(0);
+  const followingReq = useRef(0);
 
   // Overview 탭 상단 전역 인물 검색이 활성 상태인지. 활성 시 그래프-신호
   // sections (`SuggestionsGroupedPanel` / `RoleDiscoveryPanel`) 를 숨겨
@@ -145,10 +150,19 @@ export default function MyNetworkPage() {
     });
   }, []);
 
+  const followProfileId = actingAsProfileId ?? userId;
+
   const loadFollowers = useCallback(
     async (cursor?: string) => {
+      const token = cursor ? followersReq.current : ++followersReq.current;
       setFollowersLoading(true);
-      const res = await getMyFollowers({ limit: 24, cursor });
+      const res = await getMyFollowers({
+        limit: 24,
+        cursor,
+        profileId: followProfileId,
+        search: searchDebounced,
+      });
+      if (token !== followersReq.current) return;
       if (!res.error) {
         setFollowers((prev) => (cursor ? [...prev, ...res.data] : res.data));
         setFollowersCursor(res.nextCursor);
@@ -157,12 +171,19 @@ export default function MyNetworkPage() {
       setFollowersLoaded(true);
       setFollowersLoading(false);
     },
-    [hydrateFollowingMap]
+    [hydrateFollowingMap, followProfileId, searchDebounced]
   );
 
   const loadFollowing = useCallback(async (cursor?: string) => {
+    const token = cursor ? followingReq.current : ++followingReq.current;
     setFollowingLoading(true);
-    const res = await getMyFollowing({ limit: 24, cursor });
+    const res = await getMyFollowing({
+      limit: 24,
+      cursor,
+      profileId: followProfileId,
+      search: searchDebounced,
+    });
+    if (token !== followingReq.current) return;
     if (!res.error) {
       setFollowing((prev) => (cursor ? [...prev, ...res.data] : res.data));
       setFollowingCursor(res.nextCursor);
@@ -174,18 +195,38 @@ export default function MyNetworkPage() {
     }
     setFollowingLoaded(true);
     setFollowingLoading(false);
-  }, []);
+  }, [followProfileId, searchDebounced]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchDebounced(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    followersReq.current += 1;
+    followingReq.current += 1;
+    setFollowers([]);
+    setFollowersCursor(null);
+    setFollowersLoaded(false);
+    setFollowersLoading(false);
+    setFollowing([]);
+    setFollowingCursor(null);
+    setFollowingLoaded(false);
+    setFollowingLoading(false);
+  }, [actingAsProfileId, searchDebounced]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const r = await getMyStats();
+      const r = actingAsProfileId
+        ? await getStatsForProfile(actingAsProfileId)
+        : await getMyStats();
       if (!cancelled) setStats(r.data ?? null);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [actingAsProfileId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -232,27 +273,7 @@ export default function MyNetworkPage() {
 
   const filtered = useMemo(() => {
     if (!isFollowTab) return [];
-    const q = query.trim().toLowerCase();
-    const base = q
-      ? rawRows.filter((row) => {
-          const legacyName = (row.display_name ?? "").toLowerCase();
-          const nameKo = (row.display_name_ko ?? "").toLowerCase();
-          const nameEn = (row.display_name_en ?? "").toLowerCase();
-          const handle = (row.username ?? "").toLowerCase();
-          const bio = (row.bio ?? "").toLowerCase();
-          const bioKo = (row.bio_ko ?? "").toLowerCase();
-          const bioEn = (row.bio_en ?? "").toLowerCase();
-          return (
-            legacyName.includes(q) ||
-            nameKo.includes(q) ||
-            nameEn.includes(q) ||
-            handle.includes(q) ||
-            (bio ? bio.includes(q) : false) ||
-            (bioKo ? bioKo.includes(q) : false) ||
-            (bioEn ? bioEn.includes(q) : false)
-          );
-        })
-      : rawRows;
+    const base = rawRows;
     const nameKey = (row: (typeof rawRows)[number]): string =>
       (pickLocalizedDisplayName(row, locale) || row.username || "").toLowerCase();
     if (sort === "alpha") {
@@ -264,7 +285,7 @@ export default function MyNetworkPage() {
       if (bt !== at) return bt - at;
       return nameKey(a).localeCompare(nameKey(b));
     });
-  }, [rawRows, query, sort, isFollowTab, locale]);
+  }, [rawRows, sort, isFollowTab, locale]);
 
   const followersCount = stats?.followersCount ?? 0;
   const followingCount = stats?.followingCount ?? 0;
@@ -388,7 +409,10 @@ export default function MyNetworkPage() {
         {activeTab === "overview" && (
           <div className="mb-6 space-y-4">
             <NetworkPeopleSearch onQueryChange={setSearchActive} />
-            <InvitationsPanel ownerProfileId={userId} />
+            <InvitationsPanel
+              ownerProfileId={actingAsProfileId ?? userId}
+              actingAsProfileId={actingAsProfileId}
+            />
             {!searchActive && (
               <>
                 <SuggestionsGroupedPanel />

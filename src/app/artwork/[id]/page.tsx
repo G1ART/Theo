@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useParams } from "next/navigation";
 import { getArtworkBack } from "@/lib/artworkBack";
 import { getArtworkArtistLabel, getArtworkPriceDisplay, isExternalArtistArtwork } from "@/lib/supabase/artworks";
+import { compareArtworkImageOrder } from "@/lib/artworks/primaryImage";
 import { ArtworkArtistName } from "@/components/artwork/ArtworkArtistName";
 import { getSession } from "@/lib/supabase/auth";
 import {
@@ -751,9 +752,7 @@ function ArtworkDetailContent() {
   }
 
   const images = artwork.artwork_images ?? [];
-  const sortedImages = [...images].sort(
-    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-  );
+  const sortedImages = [...images].sort(compareArtworkImageOrder);
   const artist = artwork.profiles;
   const { label: artistLabel, profileUsername } = getArtworkArtistLabel(artwork);
   const username = profileUsername ?? "";

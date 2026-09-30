@@ -13,13 +13,21 @@ import {
   type LibraryImportField,
 } from "@/lib/csv/columns";
 import { parseCsv, validateCsvRows, type CsvDelimiter, type CsvValidationError } from "@/lib/csv/parse";
-import { createDraftArtwork, updateArtwork } from "@/lib/supabase/artworks";
+import { createDraftArtwork, updateArtwork, type UpdateArtworkPayload } from "@/lib/supabase/artworks";
+import { artworkDuplicateKey } from "@/lib/artworks/libraryInventory";
 import { generateCsv, downloadCsv } from "@/lib/csv/parse";
 import { supabase } from "@/lib/supabase/client";
+import { useActingAs } from "@/context/ActingAsContext";
 
 const REQUIRED_COLUMNS = ["title"];
 const SUPPORTED_COLUMNS: LibraryImportField[] = [...LIBRARY_IMPORT_FIELDS];
 const PREVIEW_ROWS = 8;
+
+async function resolveImportProfileId(actingAsProfileId: string | null): Promise<string | null> {
+  if (actingAsProfileId) return actingAsProfileId;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
+}
 
 function delimiterKey(delimiter: CsvDelimiter): "comma" | "tab" | "semicolon" {
   if (delimiter === "\t") return "tab";
@@ -37,6 +45,7 @@ type ImportRow = {
 
 function ImportContent() {
   const { t } = useT();
+  const { actingAsProfileId } = useActingAs();
   const [pasteText, setPasteText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [autoMapping, setAutoMapping] = useState<Partial<Record<LibraryImportField, string>>>({});
@@ -115,7 +124,13 @@ function ImportContent() {
     setValidationErrors(errs);
     if (errs.filter((e) => e.row === 0).length > 0) return;
 
-    // Duplicate detection: check title + year against existing artworks
+    const targetProfileId = await resolveImportProfileId(actingAsProfileId);
+    if (!targetProfileId) {
+      setValidationErrors([{ row: 0, column: "title", message: t("library.import.err.createFailed") }]);
+      return;
+    }
+
+    // Duplicate detection is limited to the profile we are importing into.
     const titleCol = mapping["title"];
     const yearCol = mapping["year"];
     if (titleCol) {
@@ -123,30 +138,33 @@ function ImportContent() {
       if (titles.length > 0) {
         const { data: existing } = await supabase
           .from("artworks")
-          .select("title, year")
-          .in("title", [...new Set(titles.map((t) => rows.find((r) => r.fields[titleCol]?.trim().toLowerCase() === t)?.fields[titleCol]?.trim() ?? ""))]);
+          .select("title, year, artist_id")
+          .eq("artist_id", targetProfileId)
+          .in("title", [...new Set(titles.map((title) => rows.find((r) => r.fields[titleCol]?.trim().toLowerCase() === title)?.fields[titleCol]?.trim() ?? ""))]);
 
         const existingSet = new Set(
-          (existing ?? []).map((e: { title: string; year: string | number | null }) =>
-            `${(e.title ?? "").toLowerCase()}|${e.year ?? ""}`
-          )
+          (existing ?? [])
+            .filter((e: { artist_id?: string | null }) => e.artist_id === targetProfileId)
+            .map((e: { title: string; year: string | number | null }) =>
+              artworkDuplicateKey(e.title, e.year)
+            )
         );
 
         setRows((prev) =>
           prev.map((r) => {
-            const title = r.fields[titleCol]?.trim().toLowerCase() ?? "";
+            const title = r.fields[titleCol]?.trim() ?? "";
             const year = yearCol ? (r.fields[mapping["year"]] ?? "").trim() : "";
-            const key = `${title}|${year}`;
-            return { ...r, duplicate: existingSet.has(key) };
+            return { ...r, duplicate: existingSet.has(artworkDuplicateKey(title, year)) };
           })
         );
       }
     }
 
     setStep("preview");
-  }, [mapping, rows, t]);
+  }, [actingAsProfileId, mapping, rows, t]);
 
   const handleImport = useCallback(async () => {
+    const targetProfileId = await resolveImportProfileId(actingAsProfileId);
     setStep("importing");
     let done = 0;
     for (const row of rows) {
@@ -162,24 +180,45 @@ function ImportContent() {
       const title = titleCol ? row.fields[titleCol]?.trim() : "";
       if (!title) { row.status = "error"; row.error = t("library.import.err.noTitle"); done++; setProgress(done); continue; }
 
-      const { data: artworkId, error } = await createDraftArtwork({ title });
+      if (!targetProfileId) { row.status = "error"; row.error = t("library.import.err.createFailed"); done++; setProgress(done); continue; }
+
+      const { data: artworkId, error } = await createDraftArtwork(
+        { title },
+        { forProfileId: targetProfileId },
+      );
       if (error || !artworkId) { row.status = "error"; row.error = t("library.import.err.createFailed"); done++; setProgress(done); continue; }
 
-      const updates: Record<string, unknown> = {};
+      const updates: UpdateArtworkPayload = {};
       const mapField = (field: string) => {
         const col = mapping[field];
         return col ? (row.fields[col] ?? "").trim() : "";
       };
 
-      if (mapField("year")) updates.year = mapField("year");
+      const yearText = mapField("year");
+      if (yearText) {
+        const year = Number(yearText);
+        if (Number.isFinite(year)) updates.year = Math.trunc(year);
+      }
       if (mapField("medium")) updates.medium = mapField("medium");
       if (mapField("size")) updates.size = mapField("size");
-      if (mapField("size_unit")) updates.size_unit = mapField("size_unit");
+      const unit = mapField("size_unit").toLowerCase();
+      if (unit === "cm" || unit === "in") updates.size_unit = unit;
+      else if (unit === "inch" || unit === "inches") updates.size_unit = "in";
       if (mapField("ownership_status")) updates.ownership_status = mapField("ownership_status");
-      if (mapField("pricing_mode")) updates.pricing_mode = mapField("pricing_mode");
+      const pricing = mapField("pricing_mode");
+      if (pricing === "fixed" || pricing === "inquire") updates.pricing_mode = pricing;
 
       if (Object.keys(updates).length > 0) {
-        await updateArtwork(artworkId, updates);
+        const updated = await updateArtwork(artworkId, updates, {
+          actingSubjectProfileId: targetProfileId,
+        });
+        if (updated.error) {
+          row.status = "error";
+          row.error = t("library.import.err.saveFailed");
+          done++;
+          setProgress(done);
+          continue;
+        }
       }
 
       row.status = "success";
@@ -188,7 +227,7 @@ function ImportContent() {
     }
     setRows([...rows]);
     setStep("done");
-  }, [rows, mapping, skipDuplicates, t]);
+  }, [actingAsProfileId, rows, mapping, skipDuplicates, t]);
 
   const dupCount = rows.filter((r) => r.duplicate).length;
   const successCount = rows.filter((r) => r.status === "success").length;

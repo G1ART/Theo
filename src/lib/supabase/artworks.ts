@@ -7,6 +7,10 @@ import { isPublicSurfaceVisible } from "@/lib/feed/visibility";
 import { irDemoAssetUrl, isIrDemo } from "@/lib/irDemo/config";
 import { planDisplayReplacement } from "@/lib/image/replaceDisplayPlan";
 import type { EnhancementMeta } from "@/lib/image/enhancement/types";
+import {
+  libraryPageCursor,
+  mergeLibraryRows,
+} from "@/lib/artworks/libraryInventory";
 
 const BUCKET = "artworks";
 
@@ -856,6 +860,34 @@ export type MyLibraryListOptions = {
   forProfileId?: string | null;
 };
 
+const CLAIM_ID_CHUNK = 80;
+
+/**
+ * Confirmed claims where this profile is the subject. Used so a gallery
+ * still sees a work after publishing it onto an onboarded artist
+ * (`artist_id` moves, the claim stays). Pending claims are not inventory.
+ * A failed claim read falls back to artist-owned rows only.
+ */
+async function listConfirmedClaimWorkIds(profileId: string): Promise<string[]> {
+  const ids = new Set<string>();
+  const page = 1000;
+  for (let from = 0; from < 20000; from += page) {
+    const { data, error } = await supabase
+      .from("claims")
+      .select("work_id")
+      .eq("subject_profile_id", profileId)
+      .or("status.eq.confirmed,status.is.null")
+      .not("work_id", "is", null)
+      .range(from, from + page - 1);
+    if (error || !data) break;
+    for (const row of data as Array<{ work_id?: string | null }>) {
+      if (row.work_id) ids.add(row.work_id);
+    }
+    if (data.length < page) break;
+  }
+  return [...ids];
+}
+
 export async function listMyArtworksForLibrary(
   options: MyLibraryListOptions = {}
 ): Promise<{
@@ -886,73 +918,124 @@ export async function listMyArtworksForLibrary(
   if (!session?.user?.id) return { data: [], nextCursor: null, error: null };
 
   const artistId = forProfileId ?? session.user.id;
-  let query = supabase
-    .from("artworks")
-    .select(ARTWORK_SELECT)
-    .eq("artist_id", artistId);
-
-  if (visibility === "public") query = query.eq("visibility", "public");
-  else if (visibility === "draft") query = query.eq("visibility", "draft");
-
-  if (ownershipStatus) query = query.eq("ownership_status", ownershipStatus);
-  if (pricingMode) query = query.eq("pricing_mode", pricingMode);
-  if (createdBy) query = query.eq("created_by", createdBy);
-  if (search.trim()) query = query.ilike("title", `%${search.trim().replace(/%/g, "\\%")}%`);
-  if (dateFrom) query = query.gte("created_at", dateFrom);
-  if (dateTo) query = query.lte("created_at", dateTo);
-
   const isPopular = sort === "likes";
-  if (sort === "artist_sort") {
-    query = query
-      .order("artist_sort_order", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false });
-  } else if (isPopular) {
-    query = query
-      .order("likes_count", { ascending: false })
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false });
-    if (cursor && cursor.likes_count != null) {
-      const lc = Number(cursor.likes_count);
-      const createdAt = String(cursor.created_at).replace(/"/g, '\\"');
-      const id = String(cursor.id).replace(/"/g, '\\"');
-      query = query.or(
-        `likes_count.lt.${lc},and(likes_count.eq.${lc},created_at.lt."${createdAt}"),and(likes_count.eq.${lc},created_at.eq."${createdAt}",id.lt."${id}")`
-      );
+  const claimedIds = await listConfirmedClaimWorkIds(artistId);
+
+  async function fetchScope(scope: { claimedChunk: string[] | null }): Promise<{
+    data: ArtworkWithLikes[];
+    error: unknown;
+  }> {
+    let query = supabase.from("artworks").select(ARTWORK_SELECT);
+    if (scope.claimedChunk) {
+      query = query.in("id", scope.claimedChunk).neq("artist_id", artistId);
+    } else if (claimedIds.length > 0 && claimedIds.length <= CLAIM_ID_CHUNK) {
+      query = query.or(`artist_id.eq.${artistId},id.in.(${claimedIds.join(",")})`);
+    } else {
+      query = query.eq("artist_id", artistId);
     }
-  } else {
-    query = query
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false });
-    if (cursor?.created_at && cursor?.id) {
-      const createdAt = String(cursor.created_at).replace(/"/g, '\\"');
-      const id = String(cursor.id).replace(/"/g, '\\"');
-      query = query.or(
-        `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt."${id}")`
-      );
+
+    if (visibility === "public") query = query.eq("visibility", "public");
+    else if (visibility === "draft") query = query.eq("visibility", "draft");
+
+    if (ownershipStatus) query = query.eq("ownership_status", ownershipStatus);
+    if (pricingMode) query = query.eq("pricing_mode", pricingMode);
+    if (createdBy) query = query.eq("created_by", createdBy);
+    if (search.trim()) query = query.ilike("title", `%${search.trim().replace(/%/g, "\\%")}%`);
+    if (dateFrom) query = query.gte("created_at", dateFrom);
+    if (dateTo) query = query.lte("created_at", dateTo);
+
+    if (sort === "artist_sort") {
+      query = query
+        .order("artist_sort_order", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+    } else if (isPopular) {
+      query = query
+        .order("likes_count", { ascending: false })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+      if (cursor && cursor.likes_count != null) {
+        const lc = Number(cursor.likes_count);
+        const createdAt = String(cursor.created_at).replace(/"/g, '\\"');
+        const id = String(cursor.id).replace(/"/g, '\\"');
+        query = query.or(
+          `likes_count.lt.${lc},and(likes_count.eq.${lc},created_at.lt."${createdAt}"),and(likes_count.eq.${lc},created_at.eq."${createdAt}",id.lt."${id}")`
+        );
+      }
+    } else {
+      query = query
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+      if (cursor?.created_at && cursor?.id) {
+        const createdAt = String(cursor.created_at).replace(/"/g, '\\"');
+        const id = String(cursor.id).replace(/"/g, '\\"');
+        query = query.or(
+          `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt."${id}")`
+        );
+      }
     }
+
+    const { data, error } = await query.limit(requestLimit);
+    if (error) return { data: [], error };
+    return {
+      data: (data ?? []).map((r) =>
+        normalizeArtworkRow(r as Record<string, unknown>),
+      ) as ArtworkWithLikes[],
+      error: null,
+    };
   }
 
-  query = query.limit(requestLimit);
-
-  const { data, error } = await query;
-  if (error) return { data: [], nextCursor: null, error };
-
-  const list = (data ?? []).map((r) => normalizeArtworkRow(r as Record<string, unknown>)) as ArtworkWithLikes[];
-  const resultList = list.length > pageSize ? list.slice(0, pageSize) : list;
-  let nextCursor: ArtworkCursor | null = null;
-  if (list.length > pageSize && list[pageSize]) {
-    const next = list[pageSize];
-    if (next.created_at && next.id) {
-      nextCursor = {
-        created_at: next.created_at,
-        id: next.id,
-        ...(isPopular && next.likes_count != null && { likes_count: Number(next.likes_count) }),
-      };
-    }
+  if (claimedIds.length <= CLAIM_ID_CHUNK) {
+    const owned = await fetchScope({ claimedChunk: null });
+    if (owned.error) return { data: [], nextCursor: null, error: owned.error };
+    const { page, nextCursor } = libraryPageCursor(owned.data, pageSize, isPopular);
+    return { data: page, nextCursor, error: null };
   }
 
-  return { data: resultList, nextCursor, error: null };
+  const owned = await fetchScope({ claimedChunk: null });
+  if (owned.error) return { data: [], nextCursor: null, error: owned.error };
+  const extras: ArtworkWithLikes[] = [];
+  for (let i = 0; i < claimedIds.length; i += CLAIM_ID_CHUNK) {
+    const branch = await fetchScope({
+      claimedChunk: claimedIds.slice(i, i + CLAIM_ID_CHUNK),
+    });
+    if (branch.error) return { data: [], nextCursor: null, error: branch.error };
+    extras.push(...branch.data);
+  }
+  const merged = mergeLibraryRows([...owned.data, ...extras], sort);
+  const { page, nextCursor } = libraryPageCursor(merged, pageSize, isPopular);
+  return { data: page, nextCursor, error: null };
+}
+
+/** Draft artworks in the same library scope as `listMyArtworksForLibrary`. */
+export async function countDraftArtworksForProfile(
+  profileId: string,
+): Promise<{ data: number; error: unknown }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id || !profileId) return { data: 0, error: null };
+
+  const owned = await supabase
+    .from("artworks")
+    .select("id", { count: "exact", head: true })
+    .eq("artist_id", profileId)
+    .eq("visibility", "draft");
+  if (owned.error) return { data: 0, error: owned.error };
+
+  const claimedIds = await listConfirmedClaimWorkIds(profileId);
+  let extra = 0;
+  for (let i = 0; i < claimedIds.length; i += CLAIM_ID_CHUNK) {
+    const res = await supabase
+      .from("artworks")
+      .select("id", { count: "exact", head: true })
+      .in("id", claimedIds.slice(i, i + CLAIM_ID_CHUNK))
+      .neq("artist_id", profileId)
+      .eq("visibility", "draft");
+    if (res.error) break;
+    extra += res.count ?? 0;
+  }
+  return { data: (owned.count ?? 0) + extra, error: null };
 }
 
 type ByArtistOptions = { limit?: number };
