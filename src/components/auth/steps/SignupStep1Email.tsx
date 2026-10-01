@@ -7,25 +7,39 @@
  * "Already have an account? Log in". Duplicate-account copy is a red
  * line under that row. OAuth lives on `/login` (Google-only), not here.
  *
- * Anti-enumeration: we still do NOT probe existence on this step.
- * Duplicate detection stays at Step 3 submit; on a hit the wizard
- * snaps back here so the red line can sit in the wireframe slot.
+ * A finished account is sent to login here, before password or profile.
+ * An invited address that has not finished onboarding continues.
  */
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { PillButton } from "@/components/auth/primitives/PillButton";
 import { useT } from "@/lib/i18n/useT";
 import { sanitizeUsernameSeed } from "@/lib/auth/signupWizardState";
+import {
+  fetchSignupEmailStep,
+  loginUrlForFinishedSignup,
+} from "@/lib/auth/signupEmailStep";
 import type { SignupStepApi } from "../SignupWizardShell";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function SignupStep1Email({ api }: { api: SignupStepApi }) {
   const { t } = useT();
+  const router = useRouter();
   const [email, setEmail] = useState(api.state.email);
+  const syncedEmail = useRef(false);
   const [touched, setTouched] = useState(false);
+
+  // The shell copies ?email= after the first paint. Invite links use
+  // that query, so pick it up once if this field is still empty.
+  useEffect(() => {
+    if (syncedEmail.current || !api.state.email) return;
+    syncedEmail.current = true;
+    setEmail((prev) => prev || api.state.email);
+  }, [api.state.email]);
   const [submitting, setSubmitting] = useState(false);
 
   const trimmed = email.trim();
@@ -49,11 +63,17 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
     }
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
     if (!isValid) return;
     setSubmitting(true);
+    const result = await fetchSignupEmailStep(trimmed);
+    if (result.action === "login") {
+      setSubmitting(false);
+      router.replace(loginUrlForFinishedSignup(trimmed, api.nextPath));
+      return;
+    }
     const seed = sanitizeUsernameSeed(trimmed);
     api.updateState({
       email: trimmed,
@@ -67,6 +87,7 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
       step: 2,
     });
     api.goToStep(2);
+    setSubmitting(false);
   }
 
   return (

@@ -96,7 +96,12 @@ export async function deliverSignupConfirmation(email: string, nextPath?: string
     const res = await fetch("/api/auth/signup-link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: trimmed }),
+      body: JSON.stringify({
+      email: trimmed,
+      next: nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
+        ? nextPath
+        : null,
+    }),
     });
     if (res.ok) return { error: null };
   } catch {

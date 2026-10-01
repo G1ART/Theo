@@ -45,6 +45,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { OvalSelect } from "@/components/auth/primitives/OvalSelect";
 import { PillRadio } from "@/components/auth/primitives/PillRadio";
@@ -57,8 +58,15 @@ import {
   signUpWithPassword,
   signInWithPassword,
   deliverSignupConfirmation,
+  getMyAuthState,
   isUnconfirmedAuthError,
 } from "@/lib/supabase/auth";
+import { routeByAuthState } from "@/lib/identity/routing";
+import {
+  fetchSignupEmailStep,
+  loginUrlForFinishedSignup,
+} from "@/lib/auth/signupEmailStep";
+import { useFinishedSignupRedirect } from "../useFinishedSignupRedirect";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
 import {
   checkUsernameAvailability,
@@ -124,6 +132,8 @@ function reasonToStatus(
 
 export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
   const { t } = useT();
+  const router = useRouter();
+  useFinishedSignupRedirect(api.state.email, api.nextPath);
 
   const [ageBand, setAgeBand] = useState(api.state.ageBand);
   const [mainRole, setMainRole] = useState<SignupV2MainRole | "">(api.state.mainRole);
@@ -340,15 +350,28 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
     const isDuplicate =
       !!data?.user && Array.isArray(identities) && identities.length === 0;
     if (isDuplicate) {
-      // Try `signInWithPassword` as a fallback — the user might have
-      // returned to complete signup with credentials they've since
-      // set. On success, route via the shared gate. On failure, show
-      // the "we found an account" hint.
+      // The account already exists. Signing in must not write a new
+      // profile over one that already finished onboarding.
       const { data: loginData, error: loginErr } = await signInWithPassword(
         api.state.email,
         api.state.password,
       );
       if (!loginErr && loginData?.session) {
+        const state = await getMyAuthState();
+        const unfinished =
+          !!state && (state.needs_identity_setup || state.needs_onboarding);
+        if (!unfinished) {
+          // Finished, or the profile state could not be read. Do not
+          // write this form over an account that may already be set up.
+          setSubmitting(false);
+          api.clearDraft();
+          const { to } = routeByAuthState(state, {
+            nextPath: api.nextPath,
+            sessionPresent: true,
+          });
+          router.replace(to);
+          return;
+        }
         await routeAfterAccount(loginData.session.user.id, rolesToWrite);
         return;
       }
@@ -358,7 +381,20 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         void deliverSignupConfirmation(api.state.email, api.nextPath);
         return;
       }
+      const again = await fetchSignupEmailStep(api.state.email);
       setSubmitting(false);
+      if (again.checked && again.action === "continue") {
+        // Invited or otherwise unfinished: keep this account and finish
+        // by email instead of telling them they must log in.
+        setAwaitingConfirmation(true);
+        void deliverSignupConfirmation(api.state.email, api.nextPath);
+        return;
+      }
+      if (again.action === "login") {
+        api.clearDraft();
+        router.replace(loginUrlForFinishedSignup(api.state.email, api.nextPath));
+        return;
+      }
       api.updateState({ duplicateEmail: api.state.email });
       api.goToStep(1);
       return;
@@ -389,6 +425,25 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
       await ensureFreeEntitlement(userId);
     } catch {
       /* best-effort: entitlement seed is idempotent, retry-safe */
+    }
+
+    // Do not stamp this form over an account that already finished.
+    // A missing auth-state row is treated the same way: the live
+    // identity page can still collect a new profile, but we will not
+    // guess and overwrite.
+    const existing = await getMyAuthState();
+    const unfinished =
+      !!existing &&
+      (existing.needs_identity_setup || existing.needs_onboarding);
+    if (!unfinished) {
+      setSubmitting(false);
+      api.clearDraft();
+      const { to } = routeByAuthState(existing, {
+        nextPath: api.nextPath,
+        sessionPresent: true,
+      });
+      router.replace(to);
+      return;
     }
 
     // Best-effort avatar upload. A failure at this step should NOT
@@ -591,6 +646,12 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
         loading={usernameStatus.kind === "checking"}
       />
 
+      {submitError && (
+        <p role="alert" className="text-center text-xs text-red-600">
+          {submitError}
+        </p>
+      )}
+
       {awaitingConfirmation ? (
         <EmailConfirmWait
           email={api.state.email}
@@ -606,17 +667,11 @@ export function SignupStep3Profile({ api }: { api: SignupStepApi }) {
             void routeAfterAccount(userId, rolesToWrite);
           }}
         />
-      ) : null}
-
-      {submitError && (
-        <p role="alert" className="text-center text-xs text-red-600">
-          {submitError}
-        </p>
+      ) : (
+        <PillButton type="submit" variant="primary" fullWidth loading={submitting}>
+          {t("auth.signupV2.step3.createCta")}
+        </PillButton>
       )}
-
-      <PillButton type="submit" variant="primary" fullWidth loading={submitting}>
-        {t("auth.signupV2.step3.createCta")}
-      </PillButton>
     </form>
   );
 }

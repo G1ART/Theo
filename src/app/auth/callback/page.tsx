@@ -27,8 +27,9 @@
  * `routeByAuthState` produces the final URL.
  */
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { getSession, getMyAuthState } from "@/lib/supabase/auth";
 import { supabase } from "@/lib/supabase/client";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
@@ -108,12 +109,23 @@ async function maybeSeedFullNameFromOAuth(
   return res.ok === true;
 }
 
+function authLinkFailed(): boolean {
+  if (typeof window === "undefined") return false;
+  const fromQuery = new URLSearchParams(window.location.search);
+  if (fromQuery.get("error") || fromQuery.get("error_description")) return true;
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash) return false;
+  const fromHash = new URLSearchParams(hash);
+  return !!(fromHash.get("error") || fromHash.get("error_description"));
+}
+
 function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextParam = safeNextPath(searchParams.get("next"));
   const providerParam = searchParams.get("provider");
   const { t } = useT();
+  const [linkFailed, setLinkFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +135,12 @@ function AuthCallbackInner() {
       } = await getSession();
       if (cancelled) return;
       if (!session) {
+        // A used or expired confirm link used to bounce home, and the
+        // signup screen would send another mail. Stay here and say so.
+        if (authLinkFailed()) {
+          setLinkFailed(true);
+          return;
+        }
         router.replace("/");
         return;
       }
@@ -171,6 +189,23 @@ function AuthCallbackInner() {
       cancelled = true;
     };
   }, [router, nextParam, providerParam]);
+
+  if (linkFailed) {
+    return (
+      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-4 text-center">
+        <p className="text-base font-semibold text-zinc-900">
+          {t("auth.callback.linkProblemTitle")}
+        </p>
+        <p className="mt-2 text-sm text-zinc-600">{t("auth.callback.linkProblem")}</p>
+        <Link
+          href="/onboarding"
+          className="mt-6 inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+        >
+          {t("auth.callback.backToSignup")}
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center">

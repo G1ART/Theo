@@ -18,17 +18,20 @@ export const metadata = {
   title: "Sign up · Theo",
 };
 
-type SignupSearchParams = { step?: string; next?: string };
+type SignupSearchParams = { step?: string; next?: string; email?: string };
 
 export default async function SignupPage(props: {
   searchParams: Promise<SignupSearchParams>;
 }) {
   if (!isSignupV2Enabled()) {
     const params = await props.searchParams;
-    const target = params?.next
-      ? `/onboarding?next=${encodeURIComponent(String(params.next))}`
-      : "/onboarding";
-    redirect(target);
+    const query = new URLSearchParams();
+    const email = typeof params?.email === "string" ? params.email.trim() : "";
+    const next = typeof params?.next === "string" ? params.next.trim() : "";
+    if (email) query.set("email", email);
+    if (next) query.set("next", next);
+    const qs = query.toString();
+    redirect(qs ? `/onboarding?${qs}` : "/onboarding");
   }
   return (
     <Suspense

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   deliverSignupConfirmation,
+  getSession,
   isUnconfirmedAuthError,
   signInWithPassword,
 } from "@/lib/supabase/auth";
@@ -35,9 +36,29 @@ export function EmailConfirmWait({
   const onConfirmedRef = useRef(onConfirmed);
   onConfirmedRef.current = onConfirmed;
 
+  function sameEmail(sessionEmail: string | null | undefined): boolean {
+    const left = sessionEmail?.trim().toLowerCase() ?? "";
+    return left.length > 0 && left === email.trim().toLowerCase();
+  }
+
   async function tryContinue(manual: boolean) {
-    if (done.current || busy.current || !password) return;
+    if (done.current || busy.current) return;
     busy.current = true;
+    // The link may have been opened in another tab of this browser.
+    // That writes the session here even when the password on an
+    // invited ghost does not match what was just typed.
+    const { data: existing } = await getSession();
+    if (existing.session?.user?.id && sameEmail(existing.session.user.email)) {
+      busy.current = false;
+      if (done.current) return;
+      done.current = true;
+      onConfirmedRef.current(existing.session.user.id);
+      return;
+    }
+    if (!password) {
+      busy.current = false;
+      return;
+    }
     const { data, error } = await signInWithPassword(email.trim(), password);
     busy.current = false;
     if (done.current) return;

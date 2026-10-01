@@ -3,6 +3,7 @@ import { isIrDemo } from "@/lib/irDemo/config";
 import { getServiceClient } from "@/lib/supabase/serviceClient";
 import { appOrigin } from "@/lib/appOrigin";
 import { renderTheoEmail, theoEmailButton } from "@/lib/email/theoEmail";
+import { safeNextPath } from "@/lib/identity/routing";
 
 /**
  * Send the account-activation link through SendGrid.
@@ -49,7 +50,10 @@ export async function POST(req: Request) {
     if (isIrDemo()) {
       return NextResponse.json({ ok: true, skipped: "ir_demo" });
     }
-    const body = (await req.json().catch(() => null)) as { email?: string } | null;
+    const body = (await req.json().catch(() => null)) as {
+      email?: string;
+      next?: string | null;
+    } | null;
     const email = body?.email?.trim().toLowerCase() ?? "";
     if (!EMAIL_RE.test(email)) {
       return NextResponse.json({ error: "email is required" }, { status: 400 });
@@ -62,7 +66,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "email_unconfigured" }, { status: 503 });
     }
 
-    const redirectTo = `${appOrigin()}/auth/callback`;
+    const next = safeNextPath(typeof body?.next === "string" ? body.next : null);
+    const redirectTo = next
+      ? `${appOrigin()}/auth/callback?next=${encodeURIComponent(next)}`
+      : `${appOrigin()}/auth/callback`;
     const { data, error } = await admin.auth.admin.generateLink({
       type: "magiclink",
       email,

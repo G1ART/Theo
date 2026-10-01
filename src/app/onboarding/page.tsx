@@ -17,13 +17,17 @@
  * the same identity-quality gate.
  */
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSession, getMyAuthState, signUpWithPassword, signInWithPassword, isUnconfirmedAuthError, deliverSignupConfirmation } from "@/lib/supabase/auth";
 import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { useT } from "@/lib/i18n/useT";
 import { routeByAuthState, safeNextPath, loginUrlWithNext } from "@/lib/identity/routing";
+import {
+  fetchSignupEmailStep,
+  loginUrlForFinishedSignup,
+} from "@/lib/auth/signupEmailStep";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 import { EmailConfirmWait } from "@/components/auth/EmailConfirmWait";
 // Signup v2 Phase 5 (2026-08-19): legacy pages now share the same
@@ -32,6 +36,19 @@ import { EmailConfirmWait } from "@/components/auth/EmailConfirmWait";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/passwordPolicy";
 
 type Mode = "check" | "signup";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function destinationAfterAccount(to: string, nextPath: string | null): string {
+  // A session that still needs a profile must not land back on this
+  // page. That bounce keeps the "check your email" screen up after the
+  // link already worked.
+  if (to === "/onboarding" || to.startsWith("/onboarding?")) {
+    const q = nextPath ? `?next=${encodeURIComponent(nextPath)}` : "";
+    return `/onboarding/identity${q}`;
+  }
+  return to;
+}
 
 function OnboardingInner() {
   const router = useRouter();
@@ -45,9 +62,38 @@ function OnboardingInner() {
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [emailReadyFor, setEmailReadyFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signupEmailSent, setSignupEmailSent] = useState(false);
   const [duplicateEmailFor, setDuplicateEmailFor] = useState<string | null>(null);
+  const appliedQueryEmail = useRef(false);
+
+  // Invite mail lands on /onboarding?email=. Copy it in once the
+  // anonymous form is up (the query can miss the first paint), then
+  // run the same Step 1 rule so a finished account does not sit on
+  // the password fields.
+  useEffect(() => {
+    if (mode !== "signup" || appliedQueryEmail.current) return;
+    const fromQuery = searchParams.get("email")?.trim() ?? "";
+    if (!fromQuery) return;
+    appliedQueryEmail.current = true;
+    setEmail(fromQuery);
+    if (!EMAIL_RE.test(fromQuery)) return;
+    setCheckingEmail(true);
+    void fetchSignupEmailStep(fromQuery).then((result) => {
+      setCheckingEmail(false);
+      if (result.action === "login") {
+        router.push(loginUrlForFinishedSignup(fromQuery, nextPath));
+        return;
+      }
+      setEmailReadyFor(fromQuery);
+    });
+  }, [mode, searchParams, router, nextPath]);
+
+  const emailPassed =
+    !!emailReadyFor &&
+    emailReadyFor.toLowerCase() === email.trim().toLowerCase();
 
   // Signed-in arrivals short-circuit through the unified gate. This
   // page is intentionally only rendered for anonymous visitors; anyone
@@ -69,7 +115,7 @@ function OnboardingInner() {
         if (cancelled) return;
         await ensureFreeEntitlement(session.user.id);
         const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
-        router.replace(to);
+        router.replace(destinationAfterAccount(to, nextPath));
       } catch {
         // Mobile Safari private mode / storage partitioning / flaky network
         // can make getSession throw. Fall back to the signup form rather
@@ -83,9 +129,41 @@ function OnboardingInner() {
     };
   }, [router, nextPath]);
 
+  async function handleEmailContinue(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const trimmed = email.trim();
+    if (!EMAIL_RE.test(trimmed)) {
+      setError(t("onboarding.emailInvalid"));
+      return;
+    }
+    setCheckingEmail(true);
+    const result = await fetchSignupEmailStep(trimmed);
+    setCheckingEmail(false);
+    if (result.action === "login") {
+      router.push(loginUrlForFinishedSignup(trimmed, nextPath));
+      return;
+    }
+    setEmailReadyFor(trimmed);
+  }
+
   async function handleSignUp(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const trimmedEmail = email.trim();
+    if (!EMAIL_RE.test(trimmedEmail)) {
+      setError(t("onboarding.emailInvalid"));
+      return;
+    }
+    // The email step already ran. Check again so a finished address
+    // cannot slip through by editing the field after the gate.
+    const gate = await fetchSignupEmailStep(trimmedEmail);
+    if (gate.action === "login") {
+      router.push(loginUrlForFinishedSignup(trimmedEmail, nextPath));
+      return;
+    }
+    setEmailReadyFor(trimmedEmail);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       setError(
@@ -106,7 +184,7 @@ function OnboardingInner() {
     // downstream at `/onboarding/identity`. This keeps the account-
     // creation step fast and low-cognitive-load.
     const { data, error: err } = await signUpWithPassword(
-      email.trim(),
+      trimmedEmail,
       password,
       undefined,
       nextPath
@@ -118,46 +196,49 @@ function OnboardingInner() {
       return;
     }
 
-    // QA #2 fix — Supabase anti-enumeration default behaviour. When
-    // the email already exists, `auth.signUp()` does NOT throw an
-    // error and returns a synthetic user payload whose `identities`
-    // array is empty. No confirmation email is sent. Without this
-    // guard the user would see the misleading "we sent you a
-    // confirmation email" screen even though nothing was sent.
-    //
-    // We surface a clear duplicate state instead, with inline links
-    // back to sign-in and password-reset. The enumeration trade-off
-    // is acceptable here: `signInWithPassword` already returns
-    // "Invalid login credentials" for unknown emails on the same
-    // domain, so this does not widen the existing surface.
+    // Supabase anti-enumeration: an existing email returns a user
+    // whose `identities` array is empty, and no mail is sent. Step 1
+    // already sent finished accounts to login. This branch is the
+    // leftover: sign in if the password matches, keep an unconfirmed
+    // or unfinished invite on the mail step, and only then show the
+    // "already registered" panel.
     const identities = (data?.user as { identities?: unknown } | null)?.identities;
     const isDuplicateEmail =
       !!data?.user && Array.isArray(identities) && identities.length === 0;
     if (isDuplicateEmail) {
       const { data: loginData, error: loginErr } = await signInWithPassword(
-        email.trim(),
+        trimmedEmail,
         password,
       );
       if (!loginErr && loginData?.session?.user?.id) {
         await ensureFreeEntitlement(loginData.session.user.id);
         const state = await getMyAuthState();
         const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
-        router.replace(to);
+        router.replace(destinationAfterAccount(to, nextPath));
         return;
       }
       if (isUnconfirmedAuthError(loginErr)) {
         setSignupEmailSent(true);
-        void deliverSignupConfirmation(email.trim(), nextPath);
+        void deliverSignupConfirmation(trimmedEmail, nextPath);
         return;
       }
-      setDuplicateEmailFor(email.trim());
+      // Password did not match. A finished account belongs on login.
+      // An unfinished invite or half-done profile must keep going:
+      // the mail link opens the same account and attaches invited works.
+      const again = await fetchSignupEmailStep(trimmedEmail);
+      if (again.checked && again.action === "continue") {
+        setSignupEmailSent(true);
+        void deliverSignupConfirmation(trimmedEmail, nextPath);
+        return;
+      }
+      setDuplicateEmailFor(trimmedEmail);
       return;
     }
 
     // Email-confirmation mode: no session yet.
     if (data?.user && !data?.session) {
       setSignupEmailSent(true);
-      void deliverSignupConfirmation(email.trim(), nextPath);
+      void deliverSignupConfirmation(trimmedEmail, nextPath);
       return;
     }
 
@@ -167,7 +248,7 @@ function OnboardingInner() {
       await ensureFreeEntitlement(data.session.user.id);
       const state = await getMyAuthState();
       const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
-      router.replace(to);
+      router.replace(destinationAfterAccount(to, nextPath));
     }
   }
 
@@ -236,7 +317,7 @@ function OnboardingInner() {
               await ensureFreeEntitlement(userId);
               const state = await getMyAuthState();
               const { to } = routeByAuthState(state, { nextPath, sessionPresent: true });
-              router.replace(to);
+              router.replace(destinationAfterAccount(to, nextPath));
             }}
           />
           <button
@@ -254,7 +335,11 @@ function OnboardingInner() {
           </Link>
         </>
       ) : (
-        <form onSubmit={handleSignUp} className="space-y-4" noValidate>
+        <form
+          onSubmit={emailPassed ? handleSignUp : handleEmailContinue}
+          className="space-y-4"
+          noValidate
+        >
           <div>
             <label htmlFor="signup-email" className="mb-1 block text-sm font-medium text-zinc-900">
               {t("onboarding.labelEmail")}
@@ -266,65 +351,100 @@ function OnboardingInner() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder={t("onboarding.placeholderEmail")}
               required
-              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+              readOnly={emailPassed}
+              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 read-only:bg-zinc-50"
               autoComplete="email"
             />
+            {emailPassed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEmailReadyFor(null);
+                  setPassword("");
+                  setPasswordConfirm("");
+                  setError(null);
+                }}
+                className="mt-2 text-xs font-medium text-zinc-500 hover:text-zinc-700"
+              >
+                {t("onboarding.editEmail")}
+              </button>
+            ) : null}
           </div>
-          <div>
-            <label htmlFor="signup-password" className="mb-1 block text-sm font-medium text-zinc-900">
-              {t("onboarding.labelPassword")}
-            </label>
-            <input
-              id="signup-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t("setPassword.placeholderPassword")}
-              required
-              minLength={MIN_PASSWORD_LENGTH}
-              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-              autoComplete="new-password"
-              aria-describedby="signup-password-hint"
-            />
-            <p id="signup-password-hint" className="mt-1 text-xs text-zinc-500">
-              {t("onboarding.passwordHint").replace(
-                "{min}",
-                String(MIN_PASSWORD_LENGTH),
-              )}
-            </p>
-          </div>
-          <div>
-            <label
-              htmlFor="signup-password-confirm"
-              className="mb-1 block text-sm font-medium text-zinc-900"
-            >
-              {t("onboarding.labelConfirmPassword")}
-            </label>
-            <input
-              id="signup-password-confirm"
-              type="password"
-              value={passwordConfirm}
-              onChange={(e) => setPasswordConfirm(e.target.value)}
-              placeholder={t("onboarding.placeholderRepeatPassword")}
-              required
-              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-              autoComplete="new-password"
-            />
-          </div>
+          {emailPassed ? (
+            <>
+              <div>
+                <label htmlFor="signup-password" className="mb-1 block text-sm font-medium text-zinc-900">
+                  {t("onboarding.labelPassword")}
+                </label>
+                <input
+                  id="signup-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={t("setPassword.placeholderPassword")}
+                  required
+                  minLength={MIN_PASSWORD_LENGTH}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  autoComplete="new-password"
+                  aria-describedby="signup-password-hint"
+                />
+                <p id="signup-password-hint" className="mt-1 text-xs text-zinc-500">
+                  {t("onboarding.passwordHint").replace(
+                    "{min}",
+                    String(MIN_PASSWORD_LENGTH),
+                  )}
+                </p>
+              </div>
+              <div>
+                <label
+                  htmlFor="signup-password-confirm"
+                  className="mb-1 block text-sm font-medium text-zinc-900"
+                >
+                  {t("onboarding.labelConfirmPassword")}
+                </label>
+                <input
+                  id="signup-password-confirm"
+                  type="password"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  placeholder={t("onboarding.placeholderRepeatPassword")}
+                  required
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  autoComplete="new-password"
+                />
+              </div>
+            </>
+          ) : null}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? t("onboarding.creatingAccount") : t("onboarding.createAccountButton")}
-          </button>
+          {emailPassed ? (
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? t("onboarding.creatingAccount") : t("onboarding.createAccountButton")}
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={checkingEmail}
+              className="w-full rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {checkingEmail ? t("onboarding.checkingEmail") : t("onboarding.emailContinue")}
+            </button>
+          )}
 
-          <p className="pt-2 text-center text-xs text-zinc-500">
-            {t("onboarding.nextStepHint")}
-          </p>
+          {emailPassed ? (
+            <p className="pt-2 text-center text-xs text-zinc-500">
+              {t("onboarding.nextStepHint")}
+            </p>
+          ) : (
+            <p className="pt-2 text-center text-xs text-zinc-500">
+              {t("onboarding.emailStepHint")}
+            </p>
+          )}
         </form>
       )}
 

@@ -1,6 +1,29 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
+
+## 2026-09-30 (84) — 가입을 마친 이메일은 온보딩 1단계에서 로그인으로
+
+> **Supabase SQL 적용 필요:** `supabase/migrations/20261001051951_signup_email_step_facts.sql`
+>
+> SQL Editor에서 **이 파일의 SECTION 1만 highlight → Run.** 다른 마이그레이션과 한꺼번에 붙이지 않는다.
+>
+> - SECTION 1 — `signup_email_step_facts(email)` : 계정 유무, 이메일 확인, 온보딩 완료만 반환
+>
+> 이 함수를 돌리기 전에는 1단계 확인이 열리지 않는다. 그때는 가입을 막지 않고, 비밀번호를 낸 뒤에 예전처럼 중복 안내를 보여 준다. 초대로 시작한 미완료 계정은 로그인으로 보내지 않는다.
+>
+> **환경 변수 추가/변경: 없음.**
+
+라이브 가입은 `/onboarding` 이다. `NEXT_PUBLIC_SIGNUP_V2` 가 꺼져 있으면 `/signup` 도 같은 주소로 보내고, 쿼리의 `email` 을 유지한다. 플래그가 켜져 있으면 `/signup` 1단계가 같은 규칙을 쓴다.
+
+- 이메일을 먼저 받는다. 프로필까지 끝난 계정이면 비밀번호 화면으로 가지 않고 로그인으로 보낸다. 이메일은 로그인 칸에 채워 둔다.
+- 모르는 이메일, 이메일 미확인, 초대만 되고 프로필이 안 끝난 계정은 그대로 비밀번호를 정한다. 초대 메일의 `?email=` 은 칸에 들어간다.
+- 이미 있는 미완료 계정에 비밀번호가 안 맞으면 "이미 가입됨"으로 막지 않고, 메일 링크로 그 계정을 이어서 연다. 가입을 마친 계정의 프로필은 두 번째 가입 폼으로 덮어쓰지 않는다.
+- 확인 링크가 만료되면 홈으로 던지지 않고, 가입 화면으로 돌아가는 안내를 보여 준다.
+
+**Verified:** `npx tsx --test src/lib/auth/signupEmailStep.test.ts`, `npx tsx tests/auth-password-recovery.test.ts`, `npx tsc --noEmit`. 브라우저에서 한국어 `/onboarding` 은 이메일만 보이고, 없는 이메일은 비밀번호 칸으로 이어졌다. `/signup` 1단계도 초대 이메일이 채워진 뒤 2단계로 갔다. 로그인 안내 문안과 이메일 프리필을 확인했다. 완료 계정을 로그인으로 보내는 분기 자체는 SQL을 돌리기 전이라 화면에서 재현하지 못했다. API는 `checked: false` 를 돌려줬다.
+
+---
 
 ## 2026-09-29 (83) — 갤러리 보관 작품이 목록에 남고, 작업실 숫자가 열리는 화면과 같음
 

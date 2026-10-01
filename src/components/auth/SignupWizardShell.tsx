@@ -129,28 +129,44 @@ export function SignupWizardShell() {
         queryEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(queryEmail)
           ? queryEmail
           : "";
-      if (draft || emailSeed) {
+      // An invite link's email wins over a draft for a different address,
+      // and always starts at step 1 so a finished account is caught
+      // before password and profile.
+      const draftForSeed =
+        emailSeed &&
+        draft?.email &&
+        draft.email.toLowerCase() !== emailSeed.toLowerCase()
+          ? null
+          : draft;
+      const restoredStep = hasExplicitStep
+        ? urlStep
+        : emailSeed
+          ? 1
+          : (draftForSeed?.step ?? 1);
+      if (draftForSeed || emailSeed) {
       setState((prev) => ({
         ...prev,
-        email: emailSeed || draft?.email || prev.email,
-        fullName: draft?.fullName ?? prev.fullName,
-        usernameSeed: draft?.usernameSeed ?? prev.usernameSeed,
-        username: draft?.username ?? prev.username,
-        ageBand: draft?.ageBand ?? prev.ageBand,
+        email: emailSeed || draftForSeed?.email || prev.email,
+        fullName: draftForSeed?.fullName ?? prev.fullName,
+        usernameSeed: draftForSeed?.usernameSeed ?? prev.usernameSeed,
+        username: draftForSeed?.username ?? prev.username,
+        ageBand: draftForSeed?.ageBand ?? prev.ageBand,
         mainRole:
-          draft?.mainRole ?? (prev.mainRole as SignupWizardState["mainRole"]),
+          draftForSeed?.mainRole ?? (prev.mainRole as SignupWizardState["mainRole"]),
         secondaryRole:
-          draft?.secondaryRole ??
+          draftForSeed?.secondaryRole ??
           (prev.secondaryRole as SignupWizardState["secondaryRole"]),
         gender:
-          draft?.gender ?? (prev.gender as SignupWizardState["gender"]),
+          draftForSeed?.gender ?? (prev.gender as SignupWizardState["gender"]),
         isPublic:
-          typeof draft?.isPublic === "boolean" ? draft.isPublic : prev.isPublic,
-        step: hasExplicitStep ? urlStep : (draft?.step ?? 1),
+          typeof draftForSeed?.isPublic === "boolean"
+            ? draftForSeed.isPublic
+            : prev.isPublic,
+        step: restoredStep,
       }));
-      if (!hasExplicitStep && draft && draft.step !== 1) {
+      if (!hasExplicitStep && restoredStep !== 1) {
         const query = new URLSearchParams(searchParams.toString());
-        query.set("step", String(draft.step));
+        query.set("step", String(restoredStep));
         router.replace(`/signup?${query.toString()}`, { scroll: false });
       }
     } else if (hasExplicitStep && urlStep !== 1) {

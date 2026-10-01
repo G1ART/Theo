@@ -29,7 +29,7 @@
  * user-facing. Use "비밀번호 없이 로그인" and "이메일 로그인 링크".
  */
 
-import { FormEvent, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { EmailConfirmWait } from "@/components/auth/EmailConfirmWait";
@@ -64,6 +64,20 @@ function isRateLimitError(message: string): boolean {
   return RATE_LIMIT_PATTERNS.some((p) => lower.includes(p.toLowerCase()));
 }
 
+function useLoginEmail(searchParams: { get: (key: string) => string | null }) {
+  const seeded = searchParams.get("email")?.trim() ?? "";
+  const [email, setEmail] = useState(seeded);
+  const applied = useRef(false);
+  useEffect(() => {
+    if (applied.current) return;
+    const fromQuery = searchParams.get("email")?.trim() ?? "";
+    if (!fromQuery) return;
+    applied.current = true;
+    setEmail((prev) => (prev.trim() ? prev : fromQuery));
+  }, [searchParams]);
+  return [email, setEmail] as const;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Legacy screen (flag OFF)
 // ─────────────────────────────────────────────────────────────────────
@@ -95,7 +109,8 @@ function LoginLegacyInner() {
   const nextPath = safeNextPath(searchParams.get("next"));
   const { t, locale } = useT();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useLoginEmail(searchParams);
+  const finishedNotice = searchParams.get("notice") === "finished";
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -194,6 +209,12 @@ function LoginLegacyInner() {
           <span className="block">{t("login.welcomeBackHint")}</span>
         </p>
       </header>
+
+      {finishedNotice ? (
+        <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-zinc-800">
+          {t("login.finishedAccountNotice")}
+        </p>
+      ) : null}
 
       <form onSubmit={handlePasswordSignIn} className="space-y-3" noValidate>
         <div>
@@ -417,7 +438,8 @@ function LoginV2Inner() {
   const nextPath = safeNextPath(searchParams.get("next"));
   const { t } = useT();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useLoginEmail(searchParams);
+  const finishedNotice = searchParams.get("notice") === "finished";
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -558,6 +580,12 @@ function LoginV2Inner() {
           onDismiss={dismissToast}
         />
       )}
+
+      {finishedNotice ? (
+        <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-zinc-800">
+          {t("login.finishedAccountNotice")}
+        </p>
+      ) : null}
 
       {passwordless ? (
         <form onSubmit={handleMagicLink} className="space-y-5" noValidate>

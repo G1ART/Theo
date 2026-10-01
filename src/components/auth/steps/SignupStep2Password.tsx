@@ -35,6 +35,7 @@ import {
   validatePasswordShape,
 } from "@/lib/auth/passwordPolicy";
 import type { SignupStepApi } from "../SignupWizardShell";
+import { useFinishedSignupRedirect } from "../useFinishedSignupRedirect";
 
 // Phase 5 (2026-08-19): bumped from 500 → 800ms per parent task —
 // enough dwell time that we don't hammer HIBP while the user is still
@@ -43,6 +44,7 @@ const HIBP_DEBOUNCE_MS = 800;
 
 export function SignupStep2Password({ api }: { api: SignupStepApi }) {
   const { t } = useT();
+  useFinishedSignupRedirect(api.state.email, api.nextPath);
   const [fullName, setFullName] = useState(api.state.fullName);
   const [password, setPassword] = useState(api.state.password);
   const [confirmPassword, setConfirmPassword] = useState(api.state.password);
