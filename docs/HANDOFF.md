@@ -2,6 +2,22 @@
 
 Last updated: 2026-09-30
 
+## 2026-09-30 (86) — 로그인·가입 화면을 시안 레이아웃으로
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+라이브 가입은 그대로 `/onboarding` 이다. `NEXT_PUBLIC_SIGNUP_V2` 가 꺼져 있으면 `/signup` 은 그 주소로 보낸다. 플래그가 켜져 있어도 1단계는 같은 폼이다.
+
+- `/login`: 로고, 짧은 소개 두 줄, 이어서 한 단락, 타원 이메일·비밀번호(오른쪽 비밀번호 찾기), 검은 로그인, 비밀번호 없이 로그인, Theo가 처음이면 가입, Quick Start의 Google. Google은 기존 OAuth다.
+- `/onboarding` 1단계: 이메일, 비밀번호, 비밀번호 확인을 한 번에 받는다. 제출 전에 `signup_email_step_facts` 로 가입을 마친 이메일이면 계정을 만들지 않고, 이메일을 채운 로그인과 기존 안내로 보낸다. 모르는 주소, 미확인, 초대만 된 미완료 계정은 그대로 진행하고 화면에서 구분하지 않는다. `?email=` 은 칸에 들어간다.
+- 가입 메일이 필요하면 1단계 위의 인증 모달이 기기 간 대기다. 다시 보내기와 확인은 기존 `EmailConfirmWait` 다. 확인은 이 브라우저에서 링크를 열지 않아도, 다른 기기에서 열리면 비밀번호로 다시 로그인한다. 아직 확인 전이면 빨간 안내만 나오고 막히지 않는다.
+- `/onboarding/identity` 가 2단계다. 사용자명(빈 칸은 타원 안 `@`), 이름, 성, 주 역할(없으면 아티스트), 보조 역할(아티스트·큐레이터·컬렉터·나중에 정하기), 완료. 이미 끝난 프로필은 이 폼으로 덮지 않고 기존처럼 통과시킨다. 시안 제목은 "이름과 비밀번호"지만 칸은 그려진 프로필 칸이다. 비밀번호는 1단계에만 있다.
+- 비밀번호 최소 길이는 그대로 12자다. 시안의 "8자"는 힌트에 넣지 않았다. 하단 법적 문장은 기존 한국어 문장을 유지한다.
+
+**Verified:** `npx tsx --test src/lib/auth/signupEmailStep.test.ts`, `npx tsx tests/auth-password-recovery.test.ts`, `npx tsc --noEmit`. 브라우저에서 `/login` 레이아웃, 비밀번호 없는 로그인 펼침, `/onboarding?email=` 프리필, 12자 미만 비밀번호가 계정 생성 전에 막히는 것까지 확인했다. 가입을 마친 이메일을 로그인으로 보내는 분기는 SQL이 `checked: false` 라 화면에서 재현하지 못했다. 인증 모달의 확인 버튼, 2단계 저장, Google 동의 화면은 클릭하지 못했다.
+
 ## 2026-09-30 (85) — 팔로우 SELECT 위임 정책을 프로덕션에 적용
 
 > **Supabase SQL:** 이미 적용됨. `follows_select_account_delegate` 는 `public.is_active_account_delegate_writer(uuid)` 를 쓴다.

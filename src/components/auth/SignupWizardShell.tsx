@@ -19,7 +19,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -32,12 +31,13 @@ import {
   type SignupV2WizardStep,
 } from "@/lib/auth/signupWizardState";
 import { AuthShell } from "@/components/auth/primitives/AuthShell";
+import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 import { useT } from "@/lib/i18n/useT";
-import { safeNextPath } from "@/lib/identity/routing";
+import { pathAfterNewAccount } from "@/lib/auth/signupDestination";
+import { routeByAuthState, safeNextPath } from "@/lib/identity/routing";
+import { ensureFreeEntitlement } from "@/lib/entitlements";
+import { getMyAuthState, getSession } from "@/lib/supabase/auth";
 import { SignupStep1Email } from "./steps/SignupStep1Email";
-import { SignupStep2Password } from "./steps/SignupStep2Password";
-import { SignupStep3Profile } from "./steps/SignupStep3Profile";
-import { SignupStep4Artwork } from "./steps/SignupStep4Artwork";
 
 /** Wizard-level state exposed to each step. Passwords + the raw
  *  `avatarFile` live only in memory — passwords aren't persisted per
@@ -110,6 +110,7 @@ export function SignupWizardShell() {
   const { t } = useT();
   const [state, setState] = useState<SignupWizardState>(INITIAL_STATE);
   const [hydrated, setHydrated] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const restoreDoneRef = useRef(false);
   const nextPath = safeNextPath(searchParams.get("next"));
 
@@ -138,11 +139,6 @@ export function SignupWizardShell() {
         draft.email.toLowerCase() !== emailSeed.toLowerCase()
           ? null
           : draft;
-      const restoredStep = hasExplicitStep
-        ? urlStep
-        : emailSeed
-          ? 1
-          : (draftForSeed?.step ?? 1);
       if (draftForSeed || emailSeed) {
       setState((prev) => ({
         ...prev,
@@ -162,17 +158,12 @@ export function SignupWizardShell() {
           typeof draftForSeed?.isPublic === "boolean"
             ? draftForSeed.isPublic
             : prev.isPublic,
-        step: restoredStep,
+        step: 1,
       }));
-      if (!hasExplicitStep && restoredStep !== 1) {
-        const query = new URLSearchParams(searchParams.toString());
-        query.set("step", String(restoredStep));
-        router.replace(`/signup?${query.toString()}`, { scroll: false });
-      }
-    } else if (hasExplicitStep && urlStep !== 1) {
-      // Stray deep-link with no draft — snap to step 1 so we don't
-      // stall on an empty Step 2 / 3.
-      setState((prev) => ({ ...prev, step: 1 }));
+    }
+    if (hasExplicitStep) {
+      // Profile is /onboarding/identity. Drop ?step= so the address
+      // matches the Step 1 form this shell actually shows.
       const query = new URLSearchParams(searchParams.toString());
       query.delete("step");
       const qs = query.toString();
@@ -223,63 +214,59 @@ export function SignupWizardShell() {
     clearSignupDraft();
   }, []);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await getSession();
+        if (cancelled) return;
+        if (!session) {
+          setSessionReady(true);
+          return;
+        }
+        const authState = await getMyAuthState();
+        if (cancelled) return;
+        await ensureFreeEntitlement(session.user.id);
+        const { to } = routeByAuthState(authState, {
+          nextPath,
+          sessionPresent: true,
+        });
+        router.replace(pathAfterNewAccount(to, nextPath));
+      } catch {
+        if (!cancelled) setSessionReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, nextPath, router]);
+
   const api = useMemo<SignupStepApi>(
     () => ({ state, updateState, persistDraft, goToStep, clearDraft, nextPath }),
     [state, updateState, persistDraft, goToStep, clearDraft, nextPath],
   );
 
-  // Step 4 lands the user on the shared "quick-start artwork" surface,
-  // but by that point their account already exists — the back arrow
-  // would return them to a Step 3 that's already been persisted. Hide
-  // it so users can't accidentally re-submit `upsert_my_profile`.
-  const handleBack =
-    state.step > 1 && state.step < 4
-      ? () => goToStep((state.step - 1) as SignupV2WizardStep)
-      : undefined;
-
-  // "Already have an account? Log in" lives inside Step 1 (directly
-  // under Sign up, then the optional red duplicate line) so the
-  // spacing matches the wireframe. Later steps have no alternate.
-  const titles: Record<SignupV2WizardStep, string> = {
-    1: t("auth.signupV2.stepLabel.step1"),
-    2: t("auth.signupV2.stepLabel.step2"),
-    3: t("auth.signupV2.stepLabel.step3"),
-    4: t("auth.signupV2.stepLabel.step4"),
-  };
-  const subtitles: Record<SignupV2WizardStep, string> = {
-    1: t("auth.signupV2.step1.subLabel"),
-    2: t("auth.signupV2.step2.subLabel"),
-    3: t("auth.signupV2.step3.subLabel"),
-    4: t("auth.signupV2.step4.subLabel"),
-  };
-
-  let body: ReactNode = null;
-  if (state.step === 1) {
-    body = <SignupStep1Email api={api} />;
-  } else if (state.step === 2) {
-    body = <SignupStep2Password api={api} />;
-  } else if (state.step === 3) {
-    body = <SignupStep3Profile api={api} />;
-  } else {
-    body = <SignupStep4Artwork api={api} />;
+  if (!hydrated || !sessionReady) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center">
+        <TheoLoadingMark />
+      </div>
+    );
   }
 
-  // Wireframe pixel-fidelity pass (2026-08-20): Step 4 lays the
-  // uploader out beside the fields on ≥sm viewports, which needs a
-  // wider container than the tight Steps 1-3 column.
-  const contentWidth = state.step === 4 ? "lg" : "sm";
-
+  // Step 2 is `/onboarding/identity`. This shell only draws Step 1 so
+  // `/signup` and `/onboarding` stay on the same account form.
   return (
     <AuthShell
-      onBack={handleBack}
-      backLabel={t("auth.signupV2.back")}
       brandPlacement="none"
-      showLocale
-      title={titles[state.step]}
-      subtitle={subtitles[state.step]}
-      contentWidth={contentWidth}
+      title={t("auth.signupV2.stepLabel.step1")}
+      subtitle={t("auth.signupV2.step1.subLabel")}
+      contentWidth="sm"
     >
-      {body}
+      <SignupStep1Email api={api} />
     </AuthShell>
   );
 }

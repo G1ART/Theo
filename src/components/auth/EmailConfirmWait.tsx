@@ -21,11 +21,14 @@ export function EmailConfirmWait({
   password,
   nextPath,
   onConfirmed,
+  onChangeEmail,
 }: {
   email: string;
   password: string;
   nextPath: string | null;
   onConfirmed: (userId: string) => void;
+  /** Lets the person leave the wait and edit the address. */
+  onChangeEmail?: () => void;
 }) {
   const { t } = useT();
   const [sending, setSending] = useState(false);
@@ -101,46 +104,81 @@ export function EmailConfirmWait({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, password]);
 
+  const sentTemplate = t("onboarding.verify.sent");
+  const sentParts = sentTemplate.split("{email}");
+  const shownEmail = email.trim();
+
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-      <p className="text-base font-semibold text-zinc-900">
-        {t("onboarding.checkEmailTitle")}
-      </p>
-      <p className="mt-2 text-sm text-zinc-600">{t("onboarding.checkEmailBody")}</p>
-      <p className="mt-2 text-xs text-zinc-500">{t("onboarding.checkEmailCrossDevice")}</p>
-      <button
-        type="button"
-        onClick={() => {
-          setStillWaiting(false);
-          void tryContinue(true);
-        }}
-        className="mt-4 inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-      >
-        {t("onboarding.checkEmailContinue")}
-      </button>
-      {stillWaiting ? (
-        <p className="mt-2 text-xs text-amber-800">{t("onboarding.checkEmailStillWaiting")}</p>
-      ) : null}
-      <button
-        type="button"
-        disabled={sending}
-        onClick={() => {
-          setSending(true);
-          setNote(null);
-          void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
-            setSending(false);
-            setNote(
-              res.error
-                ? t("onboarding.checkEmailResendFailed")
-                : t("onboarding.checkEmailResent"),
-            );
-          });
-        }}
-        className="mt-3 block text-sm font-medium text-zinc-700 hover:text-zinc-900 disabled:opacity-50"
-      >
-        {sending ? t("onboarding.checkEmailResending") : t("onboarding.checkEmailResend")}
-      </button>
-      {note ? <p className="mt-2 text-xs text-zinc-600">{note}</p> : null}
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-zinc-400/55 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="email-verify-title"
+    >
+      <div className="w-full max-w-sm rounded-3xl bg-white px-8 py-10 text-center shadow-lg">
+        <h2 id="email-verify-title" className="text-lg font-semibold text-zinc-900">
+          {t("onboarding.verify.title")}
+        </h2>
+        <p className="mt-1 text-sm text-zinc-500">{t("onboarding.verify.inbox")}</p>
+        <p className="mt-8 text-sm leading-relaxed text-zinc-700">
+          {sentParts.length === 2 ? (
+            <>
+              {sentParts[0]}
+              <span className="underline underline-offset-2">{shownEmail}</span>
+              {sentParts[1]}
+            </>
+          ) : (
+            sentTemplate.replace("{email}", shownEmail)
+          )}
+        </p>
+        <p className="mt-6 text-sm text-zinc-800">{t("onboarding.verify.open")}</p>
+        <div className="mt-8 flex items-center justify-center gap-8 text-sm text-zinc-700">
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() => {
+              setSending(true);
+              setNote(null);
+              void deliverSignupConfirmation(email.trim(), nextPath).then((res) => {
+                setSending(false);
+                setNote(
+                  res.error
+                    ? t("onboarding.verify.resendFailed")
+                    : t("onboarding.verify.resent"),
+                );
+              });
+            }}
+            className="hover:text-zinc-900 disabled:opacity-50"
+          >
+            ( {sending ? t("onboarding.verify.resending") : t("onboarding.verify.resend")} )
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStillWaiting(false);
+              void tryContinue(true);
+            }}
+            className="hover:text-zinc-900"
+          >
+            ( {t("onboarding.verify.verify")} )
+          </button>
+        </div>
+        {stillWaiting ? (
+          <p role="alert" className="mt-4 text-sm text-red-600">
+            {t("onboarding.verify.notYet")}
+          </p>
+        ) : null}
+        {note ? <p className="mt-3 text-xs text-zinc-500">{note}</p> : null}
+        {onChangeEmail ? (
+          <button
+            type="button"
+            onClick={onChangeEmail}
+            className="mt-5 text-xs text-zinc-500 hover:text-zinc-800"
+          >
+            {t("onboarding.duplicateEmailUseDifferent")}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

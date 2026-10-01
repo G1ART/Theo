@@ -85,6 +85,12 @@ export type OvalInputProps = Omit<
   /** `"compact"` is the login wireframe oval (thinner padding, no
    *  focus ring). Default keeps the signup-step rhythm. */
   density?: "default" | "compact";
+  /** Draw `leadingAdornment` in the middle of an empty oval (the
+   *  username `@` mark). Typing switches it back to the left edge. */
+  centerLeading?: boolean;
+  /** Keep the native `required` attribute without the red `*` on the
+   *  label. Login fields are required but the comp has no asterisk. */
+  hideRequiredMark?: boolean;
 };
 
 function OvalInputInner(
@@ -110,6 +116,8 @@ function OvalInputInner(
     required,
     trailingWide = false,
     density = "default",
+    centerLeading = false,
+    hideRequiredMark = false,
     ...rest
   } = props;
   const autoId = useId();
@@ -127,7 +135,7 @@ function OvalInputInner(
     ? "border-zinc-400 focus-within:border-zinc-900"
     : "border-zinc-300 focus-within:border-zinc-900 focus-within:ring-zinc-100";
 
-  const paddingLeft = leadingAdornment ? "pl-11" : "pl-5";
+  const paddingLeft = leadingAdornment && !centerLeading ? "pl-11" : "pl-5";
   const paddingRight =
     trailingAdornment || loading
       ? trailingWide
@@ -146,7 +154,9 @@ function OvalInputInner(
         }`}
       >
         {label}
-        {required ? <span aria-hidden className="ml-0.5 text-red-500">*</span> : null}
+        {required && !hideRequiredMark ? (
+          <span aria-hidden className="ml-0.5 text-red-500">*</span>
+        ) : null}
       </label>
     ) : null;
 
@@ -163,7 +173,11 @@ function OvalInputInner(
         {leadingAdornment && (
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-5 text-sm text-zinc-400"
+            className={
+              centerLeading
+                ? "pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-400"
+                : "pointer-events-none absolute inset-y-0 left-0 flex items-center pl-5 text-sm text-zinc-400"
+            }
           >
             {leadingAdornment}
           </span>

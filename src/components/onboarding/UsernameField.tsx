@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OvalInput } from "@/components/auth/primitives/OvalInput";
 import { useT } from "@/lib/i18n/useT";
 import {
   checkUsernameAvailability,
@@ -46,6 +47,10 @@ type Props = {
   inputId?: string;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** `"oval"` is the signup Step 2 mark: a pill with `@` centered
+   *  until the person types. Suggestions stay on the default field. */
+  variant?: "default" | "oval";
+  label?: string;
 };
 
 function tone(status: UsernameFieldStatus): string {
@@ -93,6 +98,8 @@ export function UsernameField({
   inputId = "onboarding-username",
   autoFocus = false,
   disabled = false,
+  variant = "default",
+  label,
 }: Props) {
   const { t } = useT();
   // Only the async RPC result lives in state, keyed by the normalized
@@ -157,6 +164,7 @@ export function UsernameField({
   }, [suggestionInput]);
 
   useEffect(() => {
+    if (variant === "oval") return;
     // Re-derive suggestions whenever the source inputs change. We
     // debounce slightly so typing a display name doesn't hammer the
     // RPC on each keystroke.
@@ -164,7 +172,7 @@ export function UsernameField({
       void loadSuggestions();
     }, 450);
     return () => clearTimeout(handle);
-  }, [loadSuggestions]);
+  }, [loadSuggestions, variant]);
 
   const statusLabel = useMemo(() => {
     switch (status.kind) {
@@ -185,6 +193,35 @@ export function UsernameField({
         return null;
     }
   }, [status.kind, t]);
+
+  if (variant === "oval") {
+    const ovalError =
+      status.kind === "taken" ||
+      status.kind === "invalid" ||
+      status.kind === "reserved" ||
+      status.kind === "error"
+        ? statusLabel
+        : undefined;
+    return (
+      <OvalInput
+        id={inputId}
+        labelStyle="outer"
+        label={label ?? t("identity.finish.labelUsername")}
+        value={value}
+        onChange={(next) => onChange(next.toLowerCase())}
+        leadingAdornment="@"
+        centerLeading={!normalized}
+        autoComplete="username"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        loading={status.kind === "checking"}
+        error={ovalError ?? undefined}
+      />
+    );
+  }
 
   return (
     <div className="space-y-2">

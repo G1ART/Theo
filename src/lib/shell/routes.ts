@@ -44,8 +44,8 @@ export function isShellRoute(pathname: string | null | undefined): boolean {
  * null on these routes so `/login` and `/signup` can own the full
  * canvas — matching the 2026-08 designer login/signup frames.
  *
- * `/onboarding/identity` is intentionally excluded: that's an
- * in-app finish step for signed-in users and still uses the shell.
+ * `/onboarding/identity` is the signup Step 2 canvas (name and role).
+ * It uses the same chrome-free column as Step 1.
  */
 export function isAuthFrontDoorRoute(
   pathname: string | null | undefined,
@@ -53,6 +53,6 @@ export function isAuthFrontDoorRoute(
   if (!pathname) return false;
   if (pathname === "/login" || pathname.startsWith("/login/")) return true;
   if (pathname === "/signup" || pathname.startsWith("/signup")) return true;
-  if (pathname === "/onboarding") return true;
+  if (pathname === "/onboarding" || pathname.startsWith("/onboarding/")) return true;
   return false;
 }
