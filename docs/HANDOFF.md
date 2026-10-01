@@ -2,6 +2,16 @@
 
 Last updated: 2026-09-30
 
+## 2026-09-30 (85) — 팔로우 SELECT 위임 정책을 프로덕션에 적용
+
+> **Supabase SQL:** 이미 적용됨. `follows_select_account_delegate` 는 `public.is_active_account_delegate_writer(uuid)` 를 쓴다.
+>
+> **환경 변수 추가/변경: 없음.**
+
+`follows` 의 위임자 SELECT 정책이 `is_account_delegate_of` 를 찾아 실패했다. 그 함수는 프로덕션에 없고, 정의가 있는 파일은 정책이 많은 긴 마이그레이션이라 다시 넣지 않았다. 같은 파일의 수락·거절과 같이 `is_active_account_delegate_writer(uuid)` 로 정책을 적용했다.
+
+---
+
 ## 2026-09-30 (84) — 가입을 마친 이메일은 온보딩 1단계에서 로그인으로
 
 > **Supabase SQL 적용 필요:** `supabase/migrations/20261001051951_signup_email_step_facts.sql`

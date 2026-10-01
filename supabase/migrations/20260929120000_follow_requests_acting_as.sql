@@ -11,12 +11,14 @@
 -- == SECTION 1 == read the principal's follow edges, including pending
 -- Highlight this section and Run by itself.
 
+-- is_account_delegate_of(uuid) is not on production. The live helper is
+-- is_active_account_delegate_writer(uuid), same check as SECTION 2 and 3.
 drop policy if exists follows_select_account_delegate on public.follows;
 create policy follows_select_account_delegate on public.follows
   for select to authenticated
   using (
-    public.is_account_delegate_of(follower_id)
-    or public.is_account_delegate_of(following_id)
+    public.is_active_account_delegate_writer(follower_id)
+    or public.is_active_account_delegate_writer(following_id)
   );
 
 -- == SECTION 2 == accept a follow request on behalf of the principal
