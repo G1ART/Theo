@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { removeStorageFile, removeStorageFiles, uploadReplacementDisplay } from "./storage";
+import { removeStorageFile, removeStorageFiles, uploadArtworkImage, uploadReplacementDisplay } from "./storage";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { recordActingContextEvent } from "@/lib/delegation/actingContext";
@@ -1542,6 +1542,97 @@ export async function attachArtworkImage(
     payload.enhancement_meta = opts.enhancementMeta;
   }
   return supabase.from("artwork_images").insert(payload);
+}
+
+/** Extra shots on a draft. The first image stays the carousel cover. */
+export async function appendArtworkDetailImages(input: {
+  artworkId: string;
+  ownerId: string;
+  files: File[];
+}): Promise<{ error: unknown; added: number }> {
+  if (input.files.length === 0) return { error: null, added: 0 };
+  const { data: existing, error: readErr } = await supabase
+    .from("artwork_images")
+    .select("sort_order")
+    .eq("artwork_id", input.artworkId);
+  if (readErr) return { error: readErr, added: 0 };
+  let next =
+    (existing ?? []).reduce((max, row) => {
+      const n = (row as { sort_order?: number | null }).sort_order ?? 0;
+      return n > max ? n : max;
+    }, -1) + 1;
+  let added = 0;
+  for (const file of input.files) {
+    if (!file.size) continue;
+    const uploaded = await uploadArtworkImage(file, input.ownerId);
+    const { error } = await attachArtworkImage(input.artworkId, uploaded.displayPath, {
+      sortOrder: next,
+      viewType: "detail",
+      originalStoragePath: uploaded.originalPath,
+      displayBytes: uploaded.displayBytes,
+      originalBytes: uploaded.originalBytes,
+      compressionMeta: uploaded.compressionMeta,
+    });
+    if (error) return { error, added };
+    next += 1;
+    added += 1;
+  }
+  return { error: null, added };
+}
+
+/**
+ * Move every image on the source drafts onto the target, after its cover.
+ * Source drafts are removed only after their images have moved, and their
+ * files stay in storage because the target rows now point at them.
+ */
+export async function mergeDraftImagesInto(
+  targetId: string,
+  sourceIds: string[],
+): Promise<{ error: unknown }> {
+  const sources = sourceIds.filter((id) => id && id !== targetId);
+  if (!targetId || sources.length === 0) return { error: null };
+  const { data: existing, error: readErr } = await supabase
+    .from("artwork_images")
+    .select("sort_order")
+    .eq("artwork_id", targetId);
+  if (readErr) return { error: readErr };
+  let next =
+    (existing ?? []).reduce((max, row) => {
+      const n = (row as { sort_order?: number | null }).sort_order ?? 0;
+      return n > max ? n : max;
+    }, -1) + 1;
+  for (const sourceId of sources) {
+    const { data: imgs, error: imgErr } = await supabase
+      .from("artwork_images")
+      .select("storage_path, sort_order")
+      .eq("artwork_id", sourceId)
+      .order("sort_order", { ascending: true });
+    if (imgErr) return { error: imgErr };
+    for (const img of imgs ?? []) {
+      const path = (img as { storage_path: string }).storage_path;
+      const { error } = await supabase
+        .from("artwork_images")
+        .update({ artwork_id: targetId, sort_order: next, view_type: "detail" })
+        .eq("artwork_id", sourceId)
+        .eq("storage_path", path);
+      if (error) return { error };
+      next += 1;
+    }
+    const { count, error: leftErr } = await supabase
+      .from("artwork_images")
+      .select("storage_path", { count: "exact", head: true })
+      .eq("artwork_id", sourceId);
+    if (leftErr) return { error: leftErr };
+    if (!count) {
+      const { error: delErr } = await supabase
+        .from("artworks")
+        .delete()
+        .eq("id", sourceId)
+        .eq("visibility", "draft");
+      if (delErr) return { error: delErr };
+    }
+  }
+  return { error: null };
 }
 
 /**

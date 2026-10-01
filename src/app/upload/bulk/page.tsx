@@ -5,12 +5,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  appendArtworkDetailImages,
   attachArtworkImage,
   createDraftArtwork,
   deleteArtwork,
   deleteDraftArtworks,
   getStorageUrl,
   listMyDraftArtworks,
+  mergeDraftImagesInto,
   publishArtworks,
   publishArtworksWithProvenance,
   updateArtwork,
@@ -23,6 +25,7 @@ import { getSession } from "@/lib/supabase/auth";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import type { EnhancementDraft } from "@/components/upload/ImageStandardizeEditor";
 import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
+import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDialog";
 import type { EnhancementMode } from "@/lib/image/enhancement/types";
 import {
   runFlatEnhancement,
@@ -157,6 +160,9 @@ export default function BulkUploadPage() {
   const { actingAsProfileId } = useActingAs();
   const [drafts, setDrafts] = useState<ArtworkWithLikes[]>([]);
   const [enhanceDraft, setEnhanceDraft] = useState<ArtworkWithLikes | null>(null);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [dropOnId, setDropOnId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
@@ -1461,6 +1467,60 @@ export default function BulkUploadPage() {
       setTimeout(() => setToast(null), 6000);
     }
     await fetchDrafts();
+  }
+
+  function orderedImages(d: ArtworkWithLikes) {
+    return [...(d.artwork_images ?? [])].sort(
+      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+    );
+  }
+
+  async function addDetailsToDraft(artworkId: string, list: FileList | File[] | null) {
+    const files = Array.from(list ?? []).filter(fileLooksLikeImage);
+    if (files.length === 0) return;
+    const { data: { session } } = await getSession();
+    const ownerId = actingAsProfileId ?? session?.user?.id ?? null;
+    if (!ownerId) return;
+    setGroupBusy(true);
+    let error: unknown = null;
+    let added = 0;
+    try {
+      const result = await appendArtworkDetailImages({ artworkId, ownerId, files });
+      error = result.error;
+      added = result.added;
+    } catch (err) {
+      error = err;
+    }
+    setGroupBusy(false);
+    if (error || added === 0) {
+      setToast(t("bulk.group.addFailed"));
+    } else {
+      setToast(t("bulk.group.added").replace("{n}", String(added)));
+    }
+    setTimeout(() => setToast(null), 3200);
+    void fetchDrafts({ silent: true });
+  }
+
+  async function confirmGroups(groups: string[][]) {
+    setGroupBusy(true);
+    for (const ids of groups) {
+      const [target, ...sources] = ids;
+      if (!target || sources.length === 0) continue;
+      const { error } = await mergeDraftImagesInto(target, sources);
+      if (error) {
+        setGroupBusy(false);
+        setToast(t("bulk.group.addFailed"));
+        setTimeout(() => setToast(null), 3200);
+        void fetchDrafts({ silent: true });
+        return;
+      }
+    }
+    setGroupBusy(false);
+    setGroupOpen(false);
+    setSelected(new Set());
+    setToast(t("bulk.group.saved"));
+    setTimeout(() => setToast(null), 3200);
+    void fetchDrafts({ silent: true });
   }
 
   async function handleDeleteSelected() {
@@ -3035,12 +3095,29 @@ export default function BulkUploadPage() {
           </div>
         )}
 
-        {enhanceDraft && (enhanceDraft.artwork_images ?? [])[0]?.storage_path && (
+        {groupOpen && (
+          <BulkGroupDialog
+            busy={groupBusy}
+            cards={drafts.filter((d) => selected.has(d.id)).map((d): GroupCard => {
+              const cover = orderedImages(d)[0];
+              return {
+                id: d.id,
+                title: d.title?.trim() || t("bulk.group.untitled"),
+                thumb: cover ? getArtworkImageUrl(cover.storage_path, "thumb") : null,
+                imageCount: d.artwork_images?.length ?? 1,
+              };
+            })}
+            onClose={() => setGroupOpen(false)}
+            onConfirm={(groups) => void confirmGroups(groups)}
+          />
+        )}
+
+        {enhanceDraft && orderedImages(enhanceDraft)[0]?.storage_path && (
           <BulkEnhanceDialog
             artworkId={enhanceDraft.id}
             artistProfileId={enhanceDraft.artist_id ?? null}
             storageOwnerId={actingAsProfileId}
-            image={(enhanceDraft.artwork_images ?? [])[0]!}
+            image={orderedImages(enhanceDraft)[0]!}
             onClose={() => setEnhanceDraft(null)}
             onSaved={() => {
               setEnhanceDraft(null);
@@ -3083,7 +3160,15 @@ export default function BulkUploadPage() {
                 .replace("{ready}", String(selectedIds.length > 0 ? selectedReady : readyCount))
                 .replace("{total}", String(selectedIds.length > 0 ? selectedIds.length : drafts.length))}
             </span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setGroupOpen(true)}
+                disabled={selectedIds.length < 2 || groupBusy}
+                className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {t("bulk.group.open")}
+              </button>
               <button
                 type="button"
                 onClick={handleDeleteSelected}
@@ -3148,8 +3233,10 @@ export default function BulkUploadPage() {
               <tbody>
                 {drafts.map((d) => {
                   const val = validatePublish(d);
-                  const img = (d.artwork_images ?? [])[0];
+                  const images = orderedImages(d);
+                  const img = images[0];
                   const thumb = img ? getArtworkImageUrl(img.storage_path, "thumb") : null;
+                  const extra = Math.max(0, images.length - 1);
                   return (
                     <tr key={`${d.id}-${bulkVersion}`} className="border-b border-zinc-100">
                       <td className="p-2">
@@ -3161,13 +3248,52 @@ export default function BulkUploadPage() {
                       </td>
                       <td className="p-2">
                         <div className="flex items-center gap-2">
-                          <div className="h-12 w-12 overflow-hidden rounded bg-zinc-200">
+                          <div
+                            className={`relative h-12 w-12 overflow-hidden rounded bg-zinc-200 ${
+                              dropOnId === d.id ? "ring-2 ring-zinc-900" : ""
+                            }`}
+                            onDragOver={(e) => {
+                              if (![...e.dataTransfer.types].includes("Files")) return;
+                              e.preventDefault();
+                              setDropOnId(d.id);
+                            }}
+                            onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              setDropOnId(null);
+                              void addDetailsToDraft(d.id, e.dataTransfer.files);
+                            }}
+                          >
                             {thumb ? (
                               <Image src={thumb} alt="" width={48} height={48} sizes="48px" loading="lazy" className="h-full w-full object-cover" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-zinc-400 text-xs">—</div>
                             )}
+                            {extra > 0 && (
+                              <span className="absolute bottom-0.5 right-0.5 rounded-full bg-zinc-900 px-1 text-[10px] text-white">
+                                +{extra}
+                              </span>
+                            )}
                           </div>
+                          <input
+                            id={`bulk-add-${d.id}`}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              void addDetailsToDraft(d.id, e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById(`bulk-add-${d.id}`)?.click()}
+                            className="rounded-full border border-zinc-300 px-2 py-1 text-[11px] text-zinc-800 hover:bg-zinc-50"
+                            title={t("bulk.group.addHint")}
+                          >
+                            {t("bulk.group.add")}
+                          </button>
                           {img?.storage_path && (
                             <div className="flex flex-col items-start gap-1">
                               <button
