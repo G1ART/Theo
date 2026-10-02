@@ -38,6 +38,8 @@ export function BulkEnhanceDialog({
   storageOwnerId,
   onClose,
   onSaved,
+  artworkWidthCm = null,
+  artworkHeightCm = null,
 }: {
   artworkId: string;
   artistProfileId: string | null;
@@ -51,6 +53,14 @@ export function BulkEnhanceDialog({
   storageOwnerId: string | null;
   onClose: () => void;
   onSaved: () => void;
+  /**
+   * 2026-10-02 — artwork cm dimensions forwarded from the parent page.
+   * The dialog does not fetch the artwork row; it just passes these
+   * values through so the Step 1 Advanced "작품 치수로" aspect chip
+   * can offer a ratio locked to the real artwork size.
+   */
+  artworkWidthCm?: number | null;
+  artworkHeightCm?: number | null;
 }) {
   const { t } = useT();
   const titleId = useId();
@@ -383,6 +393,8 @@ export function BulkEnhanceDialog({
                 writeEnhanceSessionPreset(next);
                 setPreset(next);
               }}
+              artworkWidthCm={artworkWidthCm}
+              artworkHeightCm={artworkHeightCm}
             />
           )}
           {/*

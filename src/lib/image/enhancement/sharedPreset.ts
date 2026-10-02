@@ -1,9 +1,21 @@
+import { ASPECT_PRESETS, type AspectMode } from "./aspectResolve";
+
 export type EnhanceSessionPreset = {
   inputType: "auto" | "studio" | "scanner";
   intensity: "light" | "normal" | "strong";
   b: number;
   c: number;
   s: number;
+  /**
+   * 2026-10-02 — output ratio selector. Carries the user's aspect
+   * choice through bulk enhancement so the second/third image in a
+   * batch starts with the same preset the first one landed on.
+   * Omitted on legacy session blobs — treated as `"auto"` at read
+   * time by every caller.
+   */
+  aspectMode?: AspectMode;
+  /** Custom W×H when `aspectMode === "custom"`. */
+  customAspect?: { w: number; h: number } | null;
 };
 
 const KEY = "theo.enhance.sharedRecipe";
@@ -14,6 +26,37 @@ function tone(value: unknown): number {
     : 1;
 }
 
+function parseAspectMode(value: unknown): AspectMode | undefined {
+  if (typeof value !== "string") return undefined;
+  return (ASPECT_PRESETS as string[]).includes(value) ||
+    value === "artwork_cm" ||
+    value === "photo_sensor" ||
+    value === "custom"
+    ? (value as AspectMode)
+    : undefined;
+}
+
+function parseCustomAspect(
+  value: unknown,
+): { w: number; h: number } | null | undefined {
+  if (value === null) return null;
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as Record<string, unknown>;
+  const w = row.w;
+  const h = row.h;
+  if (
+    typeof w === "number" &&
+    typeof h === "number" &&
+    Number.isFinite(w) &&
+    Number.isFinite(h) &&
+    w > 0 &&
+    h > 0
+  ) {
+    return { w, h };
+  }
+  return undefined;
+}
+
 export function parseEnhanceSessionPreset(raw: unknown): EnhanceSessionPreset | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
@@ -21,12 +64,16 @@ export function parseEnhanceSessionPreset(raw: unknown): EnhanceSessionPreset | 
   const intensity = row.intensity;
   if (inputType !== "auto" && inputType !== "studio" && inputType !== "scanner") return null;
   if (intensity !== "light" && intensity !== "normal" && intensity !== "strong") return null;
+  const aspectMode = parseAspectMode(row.aspectMode);
+  const customAspect = parseCustomAspect(row.customAspect);
   return {
     inputType,
     intensity,
     b: tone(row.b),
     c: tone(row.c),
     s: tone(row.s),
+    ...(aspectMode ? { aspectMode } : {}),
+    ...(customAspect !== undefined ? { customAspect } : {}),
   };
 }
 

@@ -1000,6 +1000,8 @@ function EditArtworkContent() {
           images={[...(artwork.artwork_images ?? [])].sort(
             (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
           )}
+          artworkWidthCm={artwork.width_cm ?? null}
+          artworkHeightCm={artwork.height_cm ?? null}
           onClose={() => setImageEditorOpen(false)}
           onSaved={() => {
             setImageEditorOpen(false);

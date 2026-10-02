@@ -3118,6 +3118,8 @@ export default function BulkUploadPage() {
             artistProfileId={enhanceDraft.artist_id ?? null}
             storageOwnerId={actingAsProfileId}
             images={orderedImages(enhanceDraft)}
+            artworkWidthCm={enhanceDraft.width_cm ?? null}
+            artworkHeightCm={enhanceDraft.height_cm ?? null}
             onClose={() => setEnhanceDraft(null)}
             onSaved={() => {
               setEnhanceDraft(null);

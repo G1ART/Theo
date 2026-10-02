@@ -709,8 +709,31 @@ export async function runFlatEnhancement(
     warpCorners
       ? mapCornersIntoCrop(warpCorners, cropNormalized)
       : null;
+  // 2026-10-02 (aspect-selector) — the baseline needsWarp fires only
+  // when the user's corners describe a visibly keystoned quadrilateral.
+  // That contract is unchanged. However, when the user explicitly asks
+  // for an output aspect that differs from the crop's native aspect
+  // (e.g. 4:3 phone photo but `targetAspect = 1.0` because the artwork
+  // is square), we now also warp through the same homography path so
+  // the dst rect's shape honors the user intent. The destination is
+  // still the AABB of the picker's corners — a straight-on painting
+  // with axis-aligned corners simply becomes a 1:1 crop of the inner
+  // rectangle, which is a strict improvement.
+  const requestedAspect =
+    typeof input.targetAspect === "number" &&
+    Number.isFinite(input.targetAspect) &&
+    input.targetAspect > 0
+      ? input.targetAspect
+      : null;
+  const nativeAspect = outW > 0 && outH > 0 ? outW / outH : null;
+  const aspectDivergent =
+    requestedAspect !== null && nativeAspect !== null
+      ? Math.abs(requestedAspect - nativeAspect) /
+          Math.max(requestedAspect, nativeAspect) >
+        0.01
+      : false;
   const needsWarp = cornersInCrop
-    ? cornersLookQuadrilateral(cornersInCrop, outW, outH)
+    ? cornersLookQuadrilateral(cornersInCrop, outW, outH) || aspectDivergent
     : false;
   // Track the *post-warp* dimensions so downstream stages (tone,
   // proLook, bezel, encode) all agree on the current canvas geometry.

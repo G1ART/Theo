@@ -49,6 +49,11 @@ import {
   resolveAutoCorners,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
+import {
+  resolveTargetAspect,
+  formatAspectLabel,
+  type AspectMode,
+} from "@/lib/image/enhancement/aspectResolve";
 import type { WallBrightness } from "@/lib/image/enhancement/awb";
 import { ellipseRestorationCorners } from "@/lib/image/enhancement/ellipse";
 import {
@@ -354,6 +359,14 @@ type Props = {
   onSharedPreset?: (
     preset: import("@/lib/image/enhancement/sharedPreset").EnhanceSessionPreset,
   ) => void;
+  /**
+   * Artwork cm dimensions (`artworks.width_cm` / `artworks.height_cm`).
+   * Threaded in so the "작품 치수로" aspect chip in Step 1's Advanced
+   * fold can offer a ratio locked to the real artwork size. Null when
+   * the artwork row is missing either value — the chip simply hides.
+   */
+  artworkWidthCm?: number | null;
+  artworkHeightCm?: number | null;
 };
 
 /** Debounce a value change so slider drag doesn't spam parent state.
@@ -555,6 +568,8 @@ export function ImageStandardizeEditor({
   onReshootRequest,
   sharedPreset = null,
   onSharedPreset,
+  artworkWidthCm = null,
+  artworkHeightCm = null,
 }: Props) {
   const { t, locale } = useT();
   const enhancementEnabled = typeof onEnhance === "function";
@@ -1167,10 +1182,31 @@ export function ImageStandardizeEditor({
   // step 2 without applying any perspective correction (source
   // corners forced to null so the pipeline runs crop-only).
   const [perspectiveSkipped, setPerspectiveSkipped] = useState<boolean>(false);
-  // Advanced-fold: "원본 비율 유지" — when true, the engine keeps
-  // the source aspect intact instead of rectifying to the estimated
-  // artwork aspect. Threaded via `targetAspect`.
-  const [keepOriginalAspect, setKeepOriginalAspect] = useState<boolean>(false);
+  // Advanced-fold: 2026-10-02 output aspect selector. Replaces the
+  // pre-2026-10 single `keepOriginalAspect` checkbox. `aspectMode =
+  // "auto"` is the default and preserves the engine's historical
+  // behavior (Zhang/Cao heuristic from corner edge lengths). Preset
+  // tokens, `"square"`, `"artwork_cm"` (locked to the artwork row's
+  // cm dimensions), `"photo_sensor"` (direct replacement for the old
+  // checkbox), and `"custom"` all collapse to a concrete target
+  // aspect via `resolveTargetAspect`. The value plus `customAspect`
+  // ride on `sharedPreset` so a bulk session carries it between images.
+  const [aspectMode, setAspectMode] = useState<AspectMode>(
+    sharedPreset?.aspectMode ?? "auto",
+  );
+  const [customAspect, setCustomAspect] = useState<{ w: number; h: number } | null>(
+    sharedPreset?.customAspect ?? null,
+  );
+  // Editing buffers for the two "직접 (custom)" numeric inputs. We
+  // keep them as strings so the user can transiently type `""` / `"0."`
+  // without us re-rendering a 0 under their caret. Committed to
+  // `customAspect` by the "적용" button.
+  const [customAspectWInput, setCustomAspectWInput] = useState<string>(() =>
+    sharedPreset?.customAspect?.w ? String(sharedPreset.customAspect.w) : "",
+  );
+  const [customAspectHInput, setCustomAspectHInput] = useState<string>(() =>
+    sharedPreset?.customAspect?.h ? String(sharedPreset.customAspect.h) : "",
+  );
   // F4 (2026-08-10) — per-step advanced folds live in their own
   // state so the two steps don't share a collapse state. The
   // pre-F4 single `advancedOpen` was removed with the drastic
@@ -1531,18 +1567,22 @@ export function ImageStandardizeEditor({
       // analyzer tone deltas AND the proLook config below.
       const iMult =
         (captureMode === "studio" ? 0.5 : 1) * intensityMultiplier(intensity);
-      // F4 advanced fold — "원본 비율 유지" overrides the estimated
-      // rectified aspect with the analyzer's source aspect so
-      // straight-on captures keep their exact WxH ratio.
+      // 2026-10-02 output aspect selector. `aspectMode = "auto"` keeps
+      // the engine's historical behavior (Zhang/Cao estimate from the
+      // user's corner edges). `wantsEllipseRestore` always forces 1:1
+      // because ellipse-to-circle restoration is undefined otherwise.
+      // See `resolveTargetAspect` for the full matrix.
       const sourceAspect =
         analysis && analysis.height > 0
           ? analysis.width / analysis.height
           : undefined;
       const targetAspectOverride = wantsEllipseRestore
         ? 1
-        : keepOriginalAspect && sourceAspect
-          ? sourceAspect
-          : undefined;
+        : resolveTargetAspect(aspectMode, {
+            customAspect,
+            artworkCm: { w: artworkWidthCm, h: artworkHeightCm },
+            sourceAspect,
+          });
       // G3 (2026-08-10) — adaptive pro-look tuning. Instead of the
       // static intensity-multiplier scaling we used pre-G3, resolve
       // the tunables from analyzer signals (blurScore / glareScore)
@@ -1836,7 +1876,10 @@ export function ImageStandardizeEditor({
     wallBrightness,
     ellipseRestored,
     perspectiveSkipped,
-    keepOriginalAspect,
+    aspectMode,
+    customAspect,
+    artworkWidthCm,
+    artworkHeightCm,
     gateBlocked,
     qualityGate,
     qualityGateOverride,
@@ -2048,6 +2091,8 @@ export function ImageStandardizeEditor({
       b: fineBRef.current,
       c: fineCRef.current,
       s: fineSRef.current,
+      aspectMode,
+      customAspect,
     });
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
@@ -2073,7 +2118,7 @@ export function ImageStandardizeEditor({
           : {}),
       },
     });
-  }, [onEnhance, onSharedPreset, meteringSource, t, intensity, inputType]);
+  }, [onEnhance, onSharedPreset, meteringSource, t, intensity, inputType, aspectMode, customAspect]);
 
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
@@ -2161,6 +2206,54 @@ export function ImageStandardizeEditor({
     top: `${imageRect.top + rect.y * imageRect.height}px`,
     width: `${rect.w * imageRect.width}px`,
     height: `${rect.h * imageRect.height}px`,
+  });
+
+  // 2026-10-02 — derived state for the Step 1 Advanced aspect picker.
+  // Co-located here (rather than at module scope) so the chip labels
+  // react to translations without a separate memo contract. `aspectMode`,
+  // `customAspect`, and the artwork cm props feed `resolvedAspectValue`
+  // through the same resolver the enhance pipeline uses, so the status
+  // line is always consistent with the engine input.
+  const aspectPresetChipDefs: Array<{ mode: AspectMode; label: string }> = [
+    { mode: "auto", label: t("imageEnhance.wizard.aspectAuto") },
+    { mode: "square", label: "1:1" },
+    { mode: "2:3", label: "2:3" },
+    { mode: "3:2", label: "3:2" },
+    { mode: "3:4", label: "3:4" },
+    { mode: "4:3", label: "4:3" },
+    { mode: "4:5", label: "4:5" },
+    { mode: "5:4", label: "5:4" },
+    { mode: "16:9", label: "16:9" },
+    { mode: "9:16", label: "9:16" },
+  ];
+  const artworkCmHasBoth =
+    typeof artworkWidthCm === "number" &&
+    typeof artworkHeightCm === "number" &&
+    Number.isFinite(artworkWidthCm) &&
+    Number.isFinite(artworkHeightCm) &&
+    artworkWidthCm > 0 &&
+    artworkHeightCm > 0;
+  const artworkAspectChipLabel = artworkCmHasBoth
+    ? t("imageEnhance.wizard.aspectArtworkChipFormat")
+        .replace("{w}", String(artworkWidthCm))
+        .replace("{h}", String(artworkHeightCm))
+        .replace(
+          "{ratio}",
+          formatAspectLabel(
+            (artworkWidthCm as number) / (artworkHeightCm as number),
+          ),
+        )
+    : null;
+  const resolvedAspectSourceAspect =
+    analysis && analysis.height > 0
+      ? analysis.width / analysis.height
+      : previewNaturalSize && previewNaturalSize.h > 0
+        ? previewNaturalSize.w / previewNaturalSize.h
+        : undefined;
+  const resolvedAspectValue = resolveTargetAspect(aspectMode, {
+    customAspect,
+    artworkCm: { w: artworkWidthCm, h: artworkHeightCm },
+    sourceAspect: resolvedAspectSourceAspect,
   });
 
   return (
@@ -2527,6 +2620,18 @@ export function ImageStandardizeEditor({
                       {t("imageEnhance.wizard.perspectiveHint")}
                     </p>
                   )}
+                  {/* 2026-10-02 — lens-curvature hint. Users on phones
+                      often shoot through a wide-angle lens that bows
+                      the artwork's edges outward. Guiding them to the
+                      apex of each curved edge keeps the warp honest
+                      and lets `paintBorderWall` do its wall-color
+                      cleanup on the thin leftover band. */}
+                  {!perspectiveSkipped &&
+                    (visionStatus === "miss" || matteReady || perspectiveUserAdjusted) && (
+                      <p className="text-[11px] leading-relaxed text-amber-700">
+                        {t("imageEnhance.wizard.perspectiveLensHint")}
+                      </p>
+                    )}
 
                   {/* Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -2597,15 +2702,118 @@ export function ImageStandardizeEditor({
                         />
                         <span>{t("imageEnhance.wizard.skipPerspective")}</span>
                       </label>
-                      <label className="flex cursor-pointer items-start gap-2 text-[11px] text-zinc-700">
-                        <input
-                          type="checkbox"
-                          checked={keepOriginalAspect}
-                          onChange={(e) => setKeepOriginalAspect(e.target.checked)}
-                          className="mt-0.5 h-3.5 w-3.5 accent-zinc-900"
-                        />
-                        <span>{t("imageEnhance.wizard.keepAspect")}</span>
-                      </label>
+                      {/* 2026-10-02 — output aspect selector (replaces
+                          the `keepOriginalAspect` checkbox). Preset row
+                          + artwork-cm chip (hidden when the DB row has
+                          no dims) + photo-sensor chip (= the old
+                          checkbox) + custom W/H form. Rides on
+                          `sharedPreset` so a bulk session carries the
+                          choice forward. */}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-medium text-zinc-700">
+                          {t("imageEnhance.wizard.aspectTitle")}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {aspectPresetChipDefs.map((item) => {
+                            const active = aspectMode === item.mode;
+                            return (
+                              <button
+                                key={item.mode}
+                                type="button"
+                                onClick={() => setAspectMode(item.mode)}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                                  active
+                                    ? "border-zinc-900 bg-zinc-900 text-white"
+                                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                                }`}
+                              >
+                                {item.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {artworkAspectChipLabel && (
+                            <button
+                              type="button"
+                              onClick={() => setAspectMode("artwork_cm")}
+                              className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                                aspectMode === "artwork_cm"
+                                  ? "border-zinc-900 bg-zinc-900 text-white"
+                                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                              }`}
+                            >
+                              {artworkAspectChipLabel}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setAspectMode("photo_sensor")}
+                            className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                              aspectMode === "photo_sensor"
+                                ? "border-zinc-900 bg-zinc-900 text-white"
+                                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                            }`}
+                          >
+                            {t("imageEnhance.wizard.aspectPhotoSensor")}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] text-zinc-500">
+                            {t("imageEnhance.wizard.aspectCustom")}
+                          </span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="any"
+                            aria-label="W"
+                            placeholder="W"
+                            value={customAspectWInput}
+                            onChange={(e) => setCustomAspectWInput(e.target.value)}
+                            className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-[11px]"
+                          />
+                          <span className="text-[11px] text-zinc-500">×</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="any"
+                            aria-label="H"
+                            placeholder="H"
+                            value={customAspectHInput}
+                            onChange={(e) => setCustomAspectHInput(e.target.value)}
+                            className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-[11px]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const w = Number.parseFloat(customAspectWInput);
+                              const h = Number.parseFloat(customAspectHInput);
+                              if (
+                                Number.isFinite(w) &&
+                                Number.isFinite(h) &&
+                                w > 0 &&
+                                h > 0
+                              ) {
+                                setCustomAspect({ w, h });
+                                setAspectMode("custom");
+                              }
+                            }}
+                            className="rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-700 hover:bg-zinc-50"
+                          >
+                            {t("imageEnhance.wizard.aspectApply")}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                          {resolvedAspectValue === undefined
+                            ? t("imageEnhance.wizard.aspectResolvedAuto")
+                            : t("imageEnhance.wizard.aspectResolvedLabel").replace(
+                                "{ratio}",
+                                formatAspectLabel(resolvedAspectValue),
+                              )}
+                        </p>
+                      </div>
                     </div>
                   </details>
                 </div>

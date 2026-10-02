@@ -2,6 +2,49 @@
 
 Last updated: 2026-10-02
 
+## 2026-10-02 (90) — Theo 이미지 보정 출력 비율 선택지 + 렌즈 휨 가이드
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+사용자 피드백: "정사각/직사각 작품을 벌크·단일 보정하면 결과가 정확한 정사각/직사각이 되지 않는다." 원인 세 가지를 함께 다룬다. (a) 지금까지 출력 aspect 는 코너 길이 heuristic 추정이라 2–5 % 정도 어긋남, (b) 사용자가 목표 비율을 명시할 창구가 없음, (c) 폰 렌즈 왜곡으로 변이 휜 사진의 코너 배치 가이드가 없음.
+
+사용자 선택 (AskQuestion 결과):
+
+- `aspect_control = preset_plus_cm` — 프리셋 선택기 + 작품 cm + 커스텀 + 기존 자동 모두.
+- `lens_curve = hint_only` — UI 가이드만, 실제 undistort 는 안 함.
+- `scope = both` — 단일·벌크 모두, `sharedPreset` 으로 캐리.
+
+### 변경 요약
+
+- **`AspectMode` 리졸버 (`src/lib/image/enhancement/aspectResolve.ts` 신규).** `auto | square | 2:3 | 3:2 | 3:4 | 4:3 | 4:5 | 5:4 | 16:9 | 9:16 | artwork_cm | photo_sensor | custom` 열세 가지와 컨텍스트(custom w/h, 작품 cm, 사진 센서 aspect)로부터 숫자 ratio 또는 `undefined` (= 엔진 자동 추정) 를 뽑는 순수 함수. `formatAspectLabel` 로 1 % 이내는 "1:1" / "16:9" 같은 공통 표기, 그 외는 작은 변을 1 로 정규화한 "1 : 1.03" 표기.
+- **`EnhanceSessionPreset` 확장 (`src/lib/image/enhancement/sharedPreset.ts`).** `aspectMode?` 와 `customAspect?` optional 필드 추가. `parseEnhanceSessionPreset` 는 잘못된 값은 조용히 drop. 벌크 세션에서 첫 보정이 끝나면 두 번째 사진이 같은 선택지로 시작한다.
+- **엔진 `needsWarp` 보강 (`src/lib/image/enhancement/localFlatEngine.ts`).** 지금까지는 코너가 축-정렬이면 warp 를 건너뛰어 네이티브 aspect 가 그대로 남아 사용자의 "square 로 맞춰줘" 선택을 무시했다. 사용자가 target aspect 를 지정했고 crop 의 네이티브 aspect 와 1 % 넘게 다르면 축-정렬 코너라도 warp 를 돌린다 (homography 는 같은 코드 경로). `perspectiveSkipped` 는 그대로 존중 (코너 자체가 null 이면 warp 안 함).
+- **에디터 UI 교체 (`src/components/upload/ImageStandardizeEditor.tsx`).** Step 1 Advanced 섹션의 "원본 비율 유지" 체크박스를 다음으로 교체.
+  - 세그먼트 프리셋 행: `자동 / 1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 4:5 / 5:4 / 16:9 / 9:16`.
+  - `작품 치수로` 칩 — `artworkWidthCm && artworkHeightCm` 가 양쪽 다 양수일 때만 노출, 해석된 ratio 를 괄호 안에 (`가로 50 × 세로 50 → 1:1`).
+  - `사진 비율` 칩 — 기존 `keepOriginalAspect` 의 치환, 사진 센서 aspect 를 그대로.
+  - `직접 W × H + 적용` 폼 — 양수 두 값이 들어오면 `aspectMode = "custom"` + `customAspect` 저장.
+  - 상태 줄: `출력 비율: <resolved>` 또는 `자동 추정 (코너 길이 기반)`.
+  - `wantsEllipseRestore` 일 때는 조용히 1:1 강제 (가드레일 유지).
+- **렌즈 휨 가이드 (`imageEnhance.wizard.perspectiveLensHint`).** `PerspectiveCornerPicker` 바로 아래, `!perspectiveSkipped && (visionStatus === 'miss' || matteReady || perspectiveUserAdjusted)` 조건에서만 노출. 로딩 중에는 뜨지 않는다. Step 1 에만 띄우고 tone/confirm 에는 안 띄움.
+- **cm 치수 prop 전파.** `ImageStandardizeEditor` 와 `BulkEnhanceDialog` 에 `artworkWidthCm?: number | null` / `artworkHeightCm?: number | null` 추가. `src/app/upload/bulk/page.tsx` 는 `enhanceDraft.width_cm/height_cm`, `src/app/artwork/[id]/edit/page.tsx` 는 `artwork.width_cm/height_cm` 전달. 다이얼로그 자체는 fetch 안 하고 prop pass-through.
+- **새 i18n (ko·en, 10 개).** `imageEnhance.wizard.aspectTitle / aspectAuto / aspectArtworkCm / aspectPhotoSensor / aspectCustom / aspectApply / aspectResolvedLabel / aspectResolvedAuto / aspectArtworkChipFormat / perspectiveLensHint`. 플레이스홀더는 기존 convention 그대로 `.replace("{ratio}", …)`.
+- **테스트.** `src/lib/image/enhancement/__tests__/geometry.test.ts` 에 "현실적 keystone 3:2 쿼드에서 추정 aspect 가 ±2 % 안" 케이스 추가. 신규 `src/lib/image/enhancement/__tests__/aspectResolution.test.ts` 가 `resolveTargetAspect` 의 열세 가지 모드와 `formatAspectLabel` 의 공통 ratio 스냅/노멀 폴백/안전치 모두 커버. package.json 에 `test:image-enhance-aspect-resolve` 스크립트 등록.
+
+### 가드레일 유지
+
+- `aspectMode = "auto"` 기본값은 2026-10-02 이전과 바이트 동일한 결과 (엔진 input `targetAspect` 가 undefined 로 들어가 Zhang/Cao heuristic 발동).
+- `wantsEllipseRestore` 는 `aspectMode` 와 무관하게 1:1 강제.
+- `perspectiveSkipped` 는 target aspect 가 세팅돼도 warp 안 함 (crop-only).
+- 벌크 다이얼로그의 acting-as / 품질 게이트 / metering / sharedPreset carry 흐름은 그대로.
+- Supabase 스키마·env var 변화 없음.
+
+**Verified:** `npx tsc --noEmit`, `npx tsx tests/wall-matte.test.ts`, `npx tsx src/lib/image/enhancement/__tests__/{cornerPickerGeometry,geometry,aspectResolution,keystoneRegression}.test.ts` 모두 통과.
+
+---
+
 ## 2026-10-02 (89) — 벌크 보정 후속 정리: 데드코드·레이스·회귀 가드
 
 > **Supabase SQL 돌려야 할 것은 없음.**

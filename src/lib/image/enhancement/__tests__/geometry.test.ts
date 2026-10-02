@@ -115,6 +115,34 @@ import assert from "node:assert/strict";
     );
   }
 
+  // 5b) estimateRectifiedAspect on a realistically keystoned 3:2
+  //     artwork (300 × 200 rectified, viewed from a slightly tilted
+  //     phone — top ~7 % narrower than bottom, verticals tilt inward
+  //     by ~10 px) must recover the ground-truth 1.5 aspect within
+  //     ±2 %. Guards against regressions in the Zhang/Cao
+  //     average-side heuristic that would silently drift the output
+  //     aspect on common everyday tilts.
+  {
+    const groundTruthAspect = 1.5;
+    const keystonedRealistic: [
+      [number, number],
+      [number, number],
+      [number, number],
+      [number, number],
+    ] = [
+      [10, 10],
+      [290, 5],
+      [300, 195],
+      [0, 200],
+    ];
+    const estimated = estimateRectifiedAspect(keystonedRealistic);
+    const relErr = Math.abs(estimated - groundTruthAspect) / groundTruthAspect;
+    assert.ok(
+      relErr <= 0.02,
+      `keystoned 3:2 aspect within ±2 % (got ${estimated.toFixed(3)}, rel err ${(relErr * 100).toFixed(2)}%)`,
+    );
+  }
+
   // 6) estimateRectifiedAspect: degenerate quad falls back gracefully
   //    instead of returning NaN / Infinity.
   {
