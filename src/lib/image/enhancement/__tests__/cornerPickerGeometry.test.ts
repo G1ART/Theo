@@ -20,6 +20,8 @@ import assert from "node:assert/strict";
     computeKeyNudge,
     defaultInsetQuad,
     hasValidArea,
+    isConvexQuad,
+    isTlTrBrBlOrder,
     nextCorner,
     quadFromRect,
     tryMoveCorner,
@@ -134,6 +136,89 @@ import assert from "node:assert/strict";
   assert.deepEqual(parsed![2], [0.8, 0.7]);
   assert.deepEqual(parsed![3], [0.2, 0.7]);
   assert.equal(parseVisionCorners([[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]), null);
+
+  // 2026-10-02 — regression tests for bulk-claim-2:
+  //   `tryMoveCorner` must reject self-intersecting (butterfly) quads
+  //   and moves that put the vertices in a non-TL/TR/BR/BL order,
+  //   even when the shoelace area still clears MIN_AREA_FRACTION.
+  //   The engine's homography solver on a crossed quad produced the
+  //   "picture flipped on its side" Island III result users reported.
+  const okQuad: [
+    [number, number],
+    [number, number],
+    [number, number],
+    [number, number],
+  ] = [
+    [0.1, 0.1],
+    [0.9, 0.1],
+    [0.9, 0.9],
+    [0.1, 0.9],
+  ];
+  assert.ok(isConvexQuad(okQuad), "rectangle is convex");
+  assert.ok(isTlTrBrBlOrder(okQuad), "rectangle is in canonical order");
+
+  // Butterfly / bowtie: TL ↔ TR vertices swapped so edges 0-1 and 2-3
+  // cross. Signed cross products change sign around the loop →
+  // `isConvexQuad` → false. (The symmetric bowtie collapses to zero
+  // shoelace area so `hasValidArea` would also reject it; the
+  // convexity gate is what catches the asymmetric cases that would
+  // otherwise sneak past the area floor.)
+  const bowtie: typeof okQuad = [
+    [0.9, 0.1],
+    [0.1, 0.1],
+    [0.9, 0.9],
+    [0.1, 0.9],
+  ];
+  assert.equal(isConvexQuad(bowtie), false, "bowtie quad flagged as non-convex");
+
+  // Concave (dart) quad whose unsigned shoelace area still clears the
+  // 10 % floor — this is the exact case the convexity gate must catch
+  // on its own (claim 2 regression). BR vertex is pulled toward the
+  // interior, producing a sign flip in the per-vertex cross product.
+  const dart: typeof okQuad = [
+    [0.1, 0.1],
+    [0.9, 0.1],
+    [0.5, 0.3],
+    [0.1, 0.9],
+  ];
+  assert.ok(hasValidArea(dart), "dart passes raw area gate");
+  assert.equal(isConvexQuad(dart), false, "dart flagged non-convex");
+
+  // tryMoveCorner must bounce a move that would create a bowtie:
+  // drag TL (index 0) past BR to produce a crossed shape.
+  const attemptedCross = tryMoveCorner(okQuad, 0, [0.95, 0.95]);
+  assert.deepEqual(
+    attemptedCross,
+    okQuad,
+    "cross-the-diagonal move rejected, original quad preserved",
+  );
+
+  // Order-flip: push TL down past the BL vertex so top row and bottom
+  // row swap. isTlTrBrBlOrder detects it; tryMoveCorner refuses.
+  const attemptedFlip = tryMoveCorner(okQuad, 0, [0.1, 0.95]);
+  assert.deepEqual(
+    attemptedFlip,
+    okQuad,
+    "flip-top-row-below-bottom move rejected",
+  );
+  // Confirm the hypothetical post-flip shape is indeed invalid order.
+  const flippedShape: typeof okQuad = [
+    [0.1, 0.95],
+    [0.9, 0.1],
+    [0.9, 0.9],
+    [0.1, 0.9],
+  ];
+  assert.equal(isTlTrBrBlOrder(flippedShape), false, "flipped quad fails TL/TR/BR/BL order");
+
+  // Degenerate collinear quad: cross products are all zero, convexity
+  // check tolerates (returns true), but area gate still rejects.
+  const collinear: typeof okQuad = [
+    [0.1, 0.5],
+    [0.4, 0.5],
+    [0.7, 0.5],
+    [0.9, 0.5],
+  ];
+  assert.equal(hasValidArea(collinear), false, "collinear quad fails area");
 
   console.log("corner picker geometry contract: OK");
 })().catch((err) => {

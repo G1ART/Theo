@@ -41,6 +41,8 @@ import {
   computeKeyNudge,
   defaultInsetQuad,
   hasValidArea,
+  isConvexQuad,
+  isTlTrBrBlOrder,
   nextCorner,
   tryMoveCorner,
   type CornerIndex,
@@ -160,6 +162,13 @@ export function PerspectiveCornerPicker({
   // path is normally unreachable (tryMoveCorner guards all mutations),
   // but we still snapshot the ref here so the Undo chip has a reliable
   // target even when parent-driven re-seeds come through.
+  //
+  // 2026-10-02 — the snapshot now requires ALL THREE geometry
+  // invariants (area + convexity + TL/TR/BR/BL order) that
+  // `tryMoveCorner` enforces. Previously only `hasValidArea` was
+  // checked, which meant a parent-driven re-seed with a butterfly
+  // seed could land in the undo target. The Undo chip would then
+  // restore a crossed quad and the engine would warp through it.
   const setQuad = useCallback<Dispatch<SetStateAction<Quad>>>(
     (next) => {
       setQuadRaw((prev) => {
@@ -167,7 +176,11 @@ export function PerspectiveCornerPicker({
           typeof next === "function"
             ? (next as (p: Quad) => Quad)(prev)
             : next;
-        if (hasValidArea(resolved)) {
+        if (
+          hasValidArea(resolved) &&
+          isConvexQuad(resolved) &&
+          isTlTrBrBlOrder(resolved)
+        ) {
           lastValidQuadRef.current = resolved;
         }
         return resolved;
@@ -307,9 +320,15 @@ export function PerspectiveCornerPicker({
   // reverts whatever drift accumulated during an in-flight sequence of
   // small drags that each individually passed the geometry checks but
   // ended somewhere the user doesn't want. See 2026-10-01 bulk claim 2.
+  // Guards redundantly check the three invariants in case the ref was
+  // populated before the 2026-10-02 tightening landed in a long-lived
+  // session.
   const handleUndo = useCallback(() => {
     const target = lastValidQuadRef.current;
-    if (!target || !hasValidArea(target)) return;
+    if (!target) return;
+    if (!hasValidArea(target)) return;
+    if (!isConvexQuad(target)) return;
+    if (!isTlTrBrBlOrder(target)) return;
     setQuad(target);
   }, [setQuad]);
 

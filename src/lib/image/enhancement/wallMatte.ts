@@ -65,12 +65,13 @@ export function fitMatteForegroundQuad(
   ];
 }
 
-/** Pull each corner slightly away from the quad center so a bowed phone edge stays inside the warp. */
-export function outsetNormalizedQuad(corners: Quad, pad = 0.008): Quad {
-  const cx = corners.reduce((sum, point) => sum + point[0], 0) / 4;
-  const cy = corners.reduce((sum, point) => sum + point[1], 0) / 4;
-  return corners.map(([x, y]) => [
-    clamp01(x + Math.sign(x - cx) * pad),
-    clamp01(y + Math.sign(y - cy) * pad),
-  ]) as Quad;
-}
+// `outsetNormalizedQuad` was removed on 2026-10-02 (bulk-claim cleanup
+// pass). It used to pull each user-placed corner ~0.8 % away from the
+// quad center "so a bowed phone edge stays inside the warp", but in
+// practice it re-included a strip of wall right along the edge the
+// user had just carefully placed — the exact source of bulk claim 4.
+// The post-warp `paintBorderWall` (reference-color aware since
+// 2026-10-01) now handles any residual wall sliver without expanding
+// the quad. If a future stage needs this geometry again, prefer a
+// post-warp pixel pass over an inward/outward corner nudge so the
+// user's manual placement always stays authoritative.

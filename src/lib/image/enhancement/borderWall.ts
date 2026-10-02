@@ -30,6 +30,14 @@ export function paintBorderWall(
   const refR = wallRef ? wallRef.r : 0;
   const refG = wallRef ? wallRef.g : 0;
   const refB = wallRef ? wallRef.b : 0;
+  // 2026-10-02 — chroma-spread cap is derived from the reference
+  // itself: a beige wall ref (e.g. 200/185/160, spread 40) must not be
+  // excluded by a "near-neutral" check that was tuned for cool whites.
+  // Allow the reference's own spread plus a modest 10-unit tolerance.
+  const refSpread = wallRef
+    ? Math.max(refR, refG, refB) - Math.min(refR, refG, refB)
+    : 0;
+  const refChromaCap = Math.max(24, refSpread + 10);
   const wall = wallRef
     ? (offset: number) => {
         const r = data[offset];
@@ -42,7 +50,7 @@ export function paintBorderWall(
           dr <= 24 &&
           dg <= 24 &&
           db <= 24 &&
-          Math.max(r, g, b) - Math.min(r, g, b) <= 24
+          Math.max(r, g, b) - Math.min(r, g, b) <= refChromaCap
         );
       }
     : (offset: number) => {

@@ -1,6 +1,25 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-01
+Last updated: 2026-10-02
+
+## 2026-10-02 (89) — 벌크 보정 후속 정리: 데드코드·레이스·회귀 가드
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+88번(벌크 보정 정리) 패치 후 "쓸데없어진 코드가 다음에 또 샐 소지가 있다" 는 지적에 따라 다음을 정리했다.
+
+- **`outsetNormalizedQuad` 완전 제거.** 2026-10-01 패치에서 엔진 호출만 뺐고 export 는 남겨 뒀었는데, 미래의 작업자가 다시 호출해서 bulk claim 4(워프 전 바깥으로 밀어 벽 재포함)를 재발시킬 소지가 있어 함수 자체를 삭제했다. `src/lib/image/enhancement/wallMatte.ts` 에 "왜 지웠는지 + 다음에 비슷한 요구가 오면 post-warp 픽셀 패스로 처리하라" 는 메모를 남겼다. 유일한 참조처였던 `tests/wall-matte.test.ts` 는 축에 평행한 자동 사각형이 min/max 에 "정확히" 붙는지(바깥 패딩 없음)와 베이지 벽 reference-color 리페인트가 작동하는지 검증하는 쪽으로 바꿨다.
+- **`borderWall.paintBorderWall` 의 near-neutral 가드가 베이지 벽을 거부하던 문제 수정.** `|max-min| ≤ 24` 고정값이 베이지(spread 40) / 따뜻한 회색 벽을 매칭에서 탈락시켰다. `wallRef` 가 주어지면 그 색 자체의 spread 에 10 을 더한 값을 chroma cap 으로 쓰도록 바꿨다. 중립 흰 벽은 24 하한을 유지해 리페인트가 subject 로 번지지 않는다. 테스트에 (200,185,160) 베이지 reference 케이스를 추가했다.
+- **`BulkEnhanceDialog` 의 display → original 교체 레이스 가드 강화.** 유저가 "다른 파일 올리기"로 교체한 뒤 뒤늦게 display 다운로드가 끝나면 그 파일을 덮어쓰던 구멍을 막았다 (`replacedRef` 를 display promise 쪽에도 체크). 추가로 display 파일로 이미 enhancement draft 를 뽑아둔 상태에서 original 이 도착하면 에디터가 리마운트되며 그 작업이 날아가던 문제도 막았다 (`enhancementRef` 가드). 두 경우 모두 "안 바꾼다" 로 통일.
+- **`selectedIndex` clamp.** 외부에서 `images` 배열이 줄어드는 레어 케이스에 썸네일 스트립의 active 하이라이트가 사라지거나 save() 가 이상한 인덱스를 가리킬 수 있어 `safeIndex = Math.min(Math.max(0, selectedIndex), length-1)` 로 clamp 하고 모든 참조를 통일했다.
+- **`PerspectiveCornerPicker.lastValidQuadRef` 를 convex + 순서까지 검증.** 지금까지는 영역만 검사해서 넣었는데, 부모가 crossed quad 로 re-seed 하면 Undo 가 crossed quad 로 돌려놓을 수 있었다. 세 invariant (영역·convex·TL/TR/BR/BL) 를 전부 통과해야 ref 에 들어가도록 바꿨고 handleUndo 도 재검사한다. `cornerPickerGeometry` 는 `isConvexQuad` / `isTlTrBrBlOrder` 를 import.
+- **회귀 테스트 추가.** `cornerPickerGeometry.test.ts` 에 convex 사각형 vs bowtie vs dart 세 케이스, TL/TR/BR/BL 순서 검사, `tryMoveCorner` 가 대각선 교차·행 뒤집기를 모두 거절하는 케이스를 추가했다. bulk claim 2 재발 방지.
+
+**Verified:** `npx tsc --noEmit`, `npx tsx tests/wall-matte.test.ts`, `npx tsx src/lib/image/enhancement/__tests__/{cornerPickerGeometry,awb,keystoneRegression,geometry,batchUniformity,proLook,portfolioCoherence}.test.ts` 모두 통과.
+
+---
 
 ## 2026-10-01 (88) — 벌크 보정 창 초기 로딩·코너·워프·부분사진 정리
 

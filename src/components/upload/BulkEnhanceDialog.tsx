@@ -70,14 +70,27 @@ export function BulkEnhanceDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [preset, setPreset] = useState<EnhanceSessionPreset | null>(null);
-  // Mirror `replaced` into a ref so the in-flight original downloader
-  // can see the latest value without having to re-run the effect.
+  // Mirror `replaced` and `enhancement` into refs so the in-flight
+  // download promises can see the latest values without having to
+  // re-run the whole effect. Both must block the "swap display → original"
+  // path: a replaced file is user-chosen work, and an enhancement draft
+  // represents compute already spent against the display file.
   const replacedRef = useRef(false);
   useEffect(() => {
     replacedRef.current = replaced;
   }, [replaced]);
+  const enhancementRef = useRef<EnhancementDraft | null>(null);
+  useEffect(() => {
+    enhancementRef.current = enhancement;
+  }, [enhancement]);
 
-  const image = images[selectedIndex] ?? images[0];
+  // Clamp `selectedIndex` into the current `images` range so an external
+  // array shrink (e.g. a parallel delete) never leaves the thumb strip
+  // without a highlighted tile or desyncs save() from what the user sees.
+  const safeIndex = images.length === 0
+    ? 0
+    : Math.min(Math.max(0, selectedIndex), images.length - 1);
+  const image = images[safeIndex];
   const thumbUrl = useMemo(
     () => (image ? getArtworkImageUrl(image.storage_path, "thumb") : null),
     [image],
@@ -155,9 +168,13 @@ export function BulkEnhanceDialog({
           markBothFailed();
           return;
         }
-        // If the user already picked a replacement, or the original
-        // already landed, do NOT overwrite — their work takes priority.
-        if (originalApplied) return;
+        // Do NOT overwrite when:
+        //   - the original has already landed (don't downgrade),
+        //   - the user picked a replacement file in the meantime,
+        //   - the user already computed an enhancement draft (that
+        //     work is tied to whatever `file` the editor currently
+        //     holds and we must not remount it from under them).
+        if (originalApplied || replacedRef.current || enhancementRef.current) return;
         setFile(next);
         setDisplayOnly(!samePath);
       })
@@ -178,9 +195,13 @@ export function BulkEnhanceDialog({
               markBothFailed();
               return;
             }
-            // Preserve a user-chosen replacement — never clobber it
-            // with the original we were silently fetching.
-            if (replacedRef.current) {
+            // Preserve a user-chosen replacement OR an in-flight
+            // enhancement draft — never clobber either with the
+            // original we were silently fetching. In the enhancement
+            // case we also silently drop `displayOnly` because the
+            // chip only makes sense when the user hasn't started
+            // working yet.
+            if (replacedRef.current || enhancementRef.current) {
               setDisplayOnly(false);
               return;
             }
@@ -379,7 +400,7 @@ export function BulkEnhanceDialog({
               <div className="flex flex-wrap gap-2">
                 {images.map((img, idx) => {
                   const url = getArtworkImageUrl(img.storage_path, "thumb");
-                  const active = idx === selectedIndex;
+                  const active = idx === safeIndex;
                   const isCover = idx === 0;
                   const key = img.id ?? img.storage_path ?? String(idx);
                   return (
@@ -388,7 +409,7 @@ export function BulkEnhanceDialog({
                       type="button"
                       disabled={saving}
                       onClick={() => {
-                        if (idx === selectedIndex) return;
+                        if (idx === safeIndex) return;
                         setSelectedIndex(idx);
                       }}
                       aria-pressed={active}
