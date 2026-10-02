@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-01
 
+## 2026-10-01 (88) — 벌크 보정 창 초기 로딩·코너·워프·부분사진 정리
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+슬랙 벌크 보정 클레임 6건 중 EXIF 렌즈 보정만 빼고 다섯을 코드에서 정리했다. 사용자가 맞춘 네 귀퉁이를 그대로 쓰고, 벽만 덜어내는 쪽으로 통일한다.
+
+- **보정 창을 바로 연다.** `BulkEnhanceDialog` 는 표에 이미 있는 표시 WebP(storage_path)와 하이레스 원본(original_storage_path)을 동시에 받아 온다. 작은 쪽이 먼저 뜨면 "고해상도 준비 중" 칩과 함께 바로 보여주고, 원본이 오면 조용히 바꾼다. 썸네일(thumb)은 파일이 없는 사이에도 자리를 잡고 있다. 두 다운로드가 모두 실패해야 에러를 띄운다.
+- **코너를 이름과 함께, 확대경과 되돌리기와 함께 보여준다.** `PerspectiveCornerPicker` 는 각 핸들에 `TL/TR/BR/BL` 흰 알약을 띄우고, 드래그·포커스 중에는 120×120 확대경(3배, 중앙 십자선)을 띄운다. 신뢰가 낮은 자동 코너는 점선(`autoHint`)으로 바뀐다. 액션 줄에 "되돌리기"를 더해 마지막 정상 사각형으로 돌아갈 수 있다.
+- **교차·순서가 바뀌는 이동을 거절한다.** `cornerPickerGeometry.tryMoveCorner` 는 이제 넓이 외에 `isConvexQuad` (교차하지 않음)와 `isTlTrBrBlOrder` (TL/TR/BR/BL 순서 유지)도 검사한다. 두 헬퍼를 새로 export 했다.
+- **자동 상자가 벽을 다시 집지 않는다.** `wallMatte.fitMatteForegroundQuad` 에서 바깥쪽 `padX`/`padY` 를 뺐다. 사면 모두 1.5% 이상 벽 여백이 있을 때만 반환하는 기존 가드는 유지했다. `outsetNormalizedQuad` 는 export 는 그대로 두되 엔진에서 호출하지 않는다.
+- **워프 바로 뒤에 벽색을 덮는다.** `localFlatEngine` 은 `outsetNormalizedQuad` 호출을 뺐고, 워프 직전 크롭 안·사용자 쿼드 밖 픽셀 중 최대 2000개의 중앙값 RGB(`sampleWallRefOutsideQuad`)를 샘플한다. 이 색을 `paintBorderWall(data, w, h, wallRef?)` 에 넘겨 가장자리에서 벽색과 가까운 (ΔR/ΔG/ΔB ≤ 24 AND |max-min| ≤ 24) 픽셀만 `#f3f3f3` 으로 덮는다. `wallRef` 가 없으면 기존 near-white 폴백.
+- **벽 화이트밸런스 기본 243.** `awb.WALL_BRIGHTNESS_TARGETS.normal` 을 248 → 243 으로 되돌렸다. 매트와 바탕이 같은 톤에 맞춰져 이음새가 사라진다. `soft`(245) / `bright`(252) 는 그대로.
+- **한 작품의 모든 사진을 보정 창에서 고를 수 있게.** `BulkEnhanceDialog` 가 `image` 대신 `images: ImageSlot[]` 를 받는다. 하단 썸네일 줄에서 첫 장(표지) / 그 외(부분 사진)을 바꿔가며 보정하고, 저장은 고른 장의 `storage_path` 만 교체한다. `src/app/upload/bulk/page.tsx` 는 `orderedImages(enhanceDraft)` 전체를 넘기도록 수정. `src/app/artwork/[id]/edit/page.tsx` 의 단일 작품 수정 창도 같은 시그니처를 쓴다.
+- 새 i18n: `bulk.enhance.rowDisplayOnly` / `rowPick` / `rowPrimary` / `rowDetail`, `upload.imageEnhance.perspective.undo` (ko·en).
+
+**Verified:** `npx tsc --noEmit`, `npx tsx tests/wall-matte.test.ts`, `npx tsx src/lib/image/enhancement/__tests__/awb.test.ts`, `npx tsx src/lib/image/enhancement/__tests__/cornerPickerGeometry.test.ts`, `npx tsx src/lib/image/enhancement/__tests__/keystoneRegression.test.ts` 모두 통과. EXIF 기반 렌즈 보정은 플랜대로 구현하지 않았다.
+
+---
+
 ## 2026-10-01 (87) — 벌크 표에서 한 작품에 부분 사진을 더하거나 묶음
 
 > **Supabase SQL 돌려야 할 것은 없음.**

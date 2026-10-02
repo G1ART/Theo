@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ImageStandardizeEditor,
   type EnhancementDraft,
   type QualityGateSurfaceState,
 } from "@/components/upload/ImageStandardizeEditor";
-import { replaceArtworkDisplayImage } from "@/lib/supabase/artworks";
+import {
+  getArtworkImageUrl,
+  replaceArtworkDisplayImage,
+  type ArtworkImageViewType,
+} from "@/lib/supabase/artworks";
 import { getSession } from "@/lib/supabase/auth";
 import { downloadArtworkFile } from "@/lib/supabase/storage";
 import { recordUsageEvent } from "@/lib/metering";
@@ -18,22 +22,31 @@ import {
   type EnhanceSessionPreset,
 } from "@/lib/image/enhancement/sharedPreset";
 
-type ImageSlot = {
+export type ImageSlot = {
+  /** `artwork_images.id` when available — purely for stable React keys. */
+  id?: string | null;
   storage_path: string;
   original_storage_path?: string | null;
+  sort_order?: number | null;
+  view_type?: ArtworkImageViewType | string | null;
 };
 
 export function BulkEnhanceDialog({
   artworkId,
   artistProfileId,
-  image,
+  images,
   storageOwnerId,
   onClose,
   onSaved,
 }: {
   artworkId: string;
   artistProfileId: string | null;
-  image: ImageSlot;
+  /**
+   * All photos belonging to this artwork, in display order (cover first).
+   * The dialog lets the user switch between them; only the chosen one
+   * is replaced on save (see Todo 4 — "all-shots" 2026-10-01).
+   */
+  images: ImageSlot[];
   /** Principal folder when acting-as. Otherwise the signed-in user. */
   storageOwnerId: string | null;
   onClose: () => void;
@@ -41,7 +54,15 @@ export function BulkEnhanceDialog({
 }) {
   const { t } = useT();
   const titleId = useId();
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [file, setFile] = useState<File | null>(null);
+  /**
+   * True while `file` holds only the small WebP display copy — the
+   * original hi-res download is still in flight. See Todo 1 "open-fast"
+   * (2026-10-01). Cleared the moment either the original lands or the
+   * original download fails for good.
+   */
+  const [displayOnly, setDisplayOnly] = useState(false);
   const [replaced, setReplaced] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [enhancement, setEnhancement] = useState<EnhancementDraft | null>(null);
@@ -49,6 +70,18 @@ export function BulkEnhanceDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [preset, setPreset] = useState<EnhanceSessionPreset | null>(null);
+  // Mirror `replaced` into a ref so the in-flight original downloader
+  // can see the latest value without having to re-run the effect.
+  const replacedRef = useRef(false);
+  useEffect(() => {
+    replacedRef.current = replaced;
+  }, [replaced]);
+
+  const image = images[selectedIndex] ?? images[0];
+  const thumbUrl = useMemo(
+    () => (image ? getArtworkImageUrl(image.storage_path, "thumb") : null),
+    [image],
+  );
 
   useEffect(() => {
     setPreset(readEnhanceSessionPreset());
@@ -67,25 +100,116 @@ export function BulkEnhanceDialog({
     };
   }, [onClose]);
 
+  /**
+   * Todo 1 — open-fast (2026-10-01).
+   *
+   * Prior behavior blocked the editor until the full-res original
+   * finished downloading, which on gallery wifi can take 10+ seconds
+   * and leaves the user looking at a single "Opening the image…" line.
+   *
+   * The new flow:
+   *  1. Kick off the display WebP (same bytes the carousel already
+   *     fetched for the row thumb) and set it as `file` the instant it
+   *     arrives, flagged `displayOnly` so the UI can show a "high-res
+   *     loading" chip.
+   *  2. In PARALLEL start the original download. When it lands,
+   *     overwrite `file` with the original UNLESS one of the guards
+   *     below fires.
+   *  3. Only surface `loadError` when BOTH downloads failed. A failed
+   *     original with a successful display is silent — users can still
+   *     work with the display copy.
+   *  4. Reset per-image state (`enhancement`/`gate`/`replaced`) when
+   *     the selected image changes so the result applies to the slot
+   *     the user is actually looking at.
+   */
   useEffect(() => {
+    if (!image) return;
     let cancelled = false;
-    const source = image.original_storage_path?.trim() || image.storage_path;
-    void downloadArtworkFile(source)
+    let originalApplied = false;
+
+    setFile(null);
+    setDisplayOnly(false);
+    setLoadError(false);
+    setEnhancement(null);
+    setGate(null);
+    setReplaced(false);
+
+    const originalPath = image.original_storage_path?.trim() || "";
+    const displayPath = image.storage_path;
+    const samePath = !originalPath || originalPath === displayPath;
+
+    let displayFailed = false;
+    let originalFailed = false;
+
+    const markBothFailed = () => {
+      if (!cancelled && displayFailed && originalFailed) {
+        setLoadError(true);
+      }
+    };
+
+    const displayPromise = downloadArtworkFile(displayPath)
       .then((next) => {
         if (cancelled) return;
         if (!next.size) {
-          setLoadError(true);
+          displayFailed = true;
+          markBothFailed();
           return;
         }
+        // If the user already picked a replacement, or the original
+        // already landed, do NOT overwrite — their work takes priority.
+        if (originalApplied) return;
         setFile(next);
+        setDisplayOnly(!samePath);
       })
       .catch(() => {
-        if (!cancelled) setLoadError(true);
+        if (cancelled) return;
+        displayFailed = true;
+        markBothFailed();
       });
+
+    const originalPromise = samePath
+      ? Promise.resolve()
+      : downloadArtworkFile(originalPath)
+          .then((next) => {
+            if (cancelled) return;
+            if (!next.size) {
+              originalFailed = true;
+              setDisplayOnly(false);
+              markBothFailed();
+              return;
+            }
+            // Preserve a user-chosen replacement — never clobber it
+            // with the original we were silently fetching.
+            if (replacedRef.current) {
+              setDisplayOnly(false);
+              return;
+            }
+            originalApplied = true;
+            setFile(next);
+            setDisplayOnly(false);
+            // Reset the derived analysis — the file identity just
+            // changed under the ImageStandardizeEditor (its `key`
+            // includes name/size/lastModified so it remounts, but
+            // we still need to drop any computed enhancement/gate).
+            setEnhancement(null);
+            setGate(null);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            originalFailed = true;
+            setDisplayOnly(false);
+            markBothFailed();
+          });
+
+    void Promise.all([displayPromise, originalPromise]);
+
     return () => {
       cancelled = true;
     };
-  }, [image.original_storage_path, image.storage_path]);
+    // We intentionally re-run when the selected slot's storage paths
+    // change, including when `selectedIndex` moves between slots.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [image?.storage_path, image?.original_storage_path]);
 
   const gateBlocked =
     !!gate &&
@@ -96,7 +220,7 @@ export function BulkEnhanceDialog({
 
   async function save() {
     const displayFile = enhancement?.displayFile ?? (replaced ? file : null);
-    if (!displayFile || saving || gateBlocked) return;
+    if (!displayFile || saving || gateBlocked || !image) return;
     setSaving(true);
     setSaveError(false);
     const { data: { session } } = await getSession();
@@ -176,8 +300,33 @@ export function BulkEnhanceDialog({
               {t("bulk.enhance.rowLoadError")}
             </p>
           )}
-          {!file && !loadError && (
+          {/*
+            Todo 1 — show the lightweight thumb immediately so the
+            dialog has visible content from the very first paint. The
+            thumb is dropped from the DOM as soon as the display WebP
+            lands (`file` becomes non-null and the editor takes over).
+          */}
+          {!file && !loadError && thumbUrl && (
+            <div className="mb-3 flex flex-col items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={thumbUrl}
+                alt=""
+                className="max-h-72 w-auto rounded-lg border border-zinc-200 bg-zinc-100 object-contain"
+                draggable={false}
+              />
+              <p className="text-xs text-zinc-500">
+                {t("bulk.enhance.rowLoading")}
+              </p>
+            </div>
+          )}
+          {!file && !loadError && !thumbUrl && (
             <p className="text-sm text-zinc-500">{t("bulk.enhance.rowLoading")}</p>
+          )}
+          {file && displayOnly && (
+            <p className="mb-2 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] text-amber-800">
+              {t("bulk.enhance.rowDisplayOnly")}
+            </p>
           )}
           <label className="mb-3 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-700">
             <input
@@ -189,6 +338,7 @@ export function BulkEnhanceDialog({
                 e.target.value = "";
                 if (!next || next.size <= 0) return;
                 setReplaced(true);
+                setDisplayOnly(false);
                 setEnhancement(null);
                 setLoadError(false);
                 setFile(next);
@@ -198,7 +348,7 @@ export function BulkEnhanceDialog({
           </label>
           {file && (
             <ImageStandardizeEditor
-              key={`${file.name}-${file.size}-${file.lastModified}`}
+              key={`${image?.id ?? image?.storage_path ?? "slot"}-${file.name}-${file.size}-${file.lastModified}`}
               file={file}
               value={null}
               onChange={() => {}}
@@ -213,6 +363,67 @@ export function BulkEnhanceDialog({
                 setPreset(next);
               }}
             />
+          )}
+          {/*
+            Todo 4 — thumb strip. Only renders when the artwork has
+            more than one slot. Clicking a thumb switches the active
+            image, which drops local enhancement/gate/replaced state
+            via the download effect above so the next save targets
+            the chosen slot.
+          */}
+          {images.length > 1 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[11px] text-zinc-500">
+                {t("bulk.enhance.rowPick")}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {images.map((img, idx) => {
+                  const url = getArtworkImageUrl(img.storage_path, "thumb");
+                  const active = idx === selectedIndex;
+                  const isCover = idx === 0;
+                  const key = img.id ?? img.storage_path ?? String(idx);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        if (idx === selectedIndex) return;
+                        setSelectedIndex(idx);
+                      }}
+                      aria-pressed={active}
+                      className={`group relative overflow-hidden rounded-lg border-2 transition ${
+                        active
+                          ? "border-emerald-500 ring-2 ring-emerald-300"
+                          : "border-zinc-200 hover:border-zinc-400"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                      title={isCover
+                        ? t("bulk.enhance.rowPrimary")
+                        : t("bulk.enhance.rowDetail")}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt=""
+                        className="h-16 w-16 object-cover sm:h-20 sm:w-20"
+                        draggable={false}
+                      />
+                      <span
+                        className={`absolute bottom-0 left-0 right-0 px-1 py-0.5 text-[10px] ${
+                          active
+                            ? "bg-emerald-600 text-white"
+                            : "bg-black/55 text-white"
+                        }`}
+                      >
+                        {isCover
+                          ? t("bulk.enhance.rowPrimary")
+                          : t("bulk.enhance.rowDetail")}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3">

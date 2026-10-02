@@ -1143,8 +1143,10 @@ export function ImageStandardizeEditor({
   // Not lighting — brightness is 보정 강도 + the post-engine sliders.
   const [inputType, setInputType] = useState<InputType>(sharedPreset?.inputType ?? "auto");
   // F2 (2026-08-10) — wall brightness chip. `normal` is the wizard
-  // default (matte target 248 — bumped from the historical 243 so
-  // walls actually read as white); users can dial to `soft` (245)
+  // default. 2026-10-01 bulk-claim-5: reset the matte target back to
+  // 243 (the matte reference used elsewhere in the pipeline) after
+  // users reported a visible seam between the 248 wall and the 243
+  // matte painted around the artwork; users can dial to `soft` (245)
   // or `bright` (252) per image.
   const [wallBrightness, setWallBrightness] = useState<WallBrightness>("normal");
   // F4 (2026-08-10) — wizard step machine. Step 1 = perspective +
@@ -1337,6 +1339,21 @@ export function ImageStandardizeEditor({
     const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
     if (edge && hasValidArea(edge) && edgeConf >= 0.55) return edge;
     return defaultInsetQuad(0.15);
+  }, [perspectiveCorners, matteQuad, visionQuad, analysis]);
+  // 2026-10-01 — surface low-confidence auto corners as a dashed
+  // hint rather than a solid outline, so the user understands they
+  // should confirm instead of trusting the shape. Hint fires when
+  // the seed came from the matte fallback (confidence proxy low),
+  // from a low-confidence rectangle detector (<0.55), or when the
+  // picker is sitting on the default inset quad (no seed at all).
+  // User-committed corners never get the hint.
+  const perspectiveAutoHint = useMemo<boolean>(() => {
+    if (perspectiveCorners) return false;
+    const rectConf = analysis?.rectangleConfidence ?? 0;
+    const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
+    if (visionQuad) return rectConf < 0.55;
+    if (matteQuad && hasValidArea(matteQuad)) return true;
+    return edgeConf < 0.55 || rectConf < 0.55;
   }, [perspectiveCorners, matteQuad, visionQuad, analysis]);
 
   const pickerImageWidth =
@@ -2457,6 +2474,7 @@ export function ImageStandardizeEditor({
                       imageHeight={pickerImageHeight}
                       initialCorners={wizardPerspectiveDraft ?? wizardPerspectiveSeed}
                       autoDetectedCorners={wizardPerspectiveSeed}
+                      autoHint={!perspectiveUserAdjusted && perspectiveAutoHint}
                       resetToken={perspectiveResetToken}
                       onChange={(q) => {
                         setWizardPerspectiveDraft(q);

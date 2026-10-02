@@ -34,7 +34,6 @@
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
 import { paintBorderWall } from "./borderWall";
-import { outsetNormalizedQuad } from "./wallMatte";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
   applyAwb,
@@ -121,7 +120,9 @@ export type RunFlatInput = {
    * F2 (2026-08-10) — matte white target selector. Threads a
    * user-facing chip ("soft" | "normal" | "bright") through to:
    *   - `computeWallAnchoredGains(..., { target })` so the sampled
-   *     wall's median lands on the chosen luma (245 / 248 / 252),
+   *     wall's median lands on the chosen luma (245 / 243 / 252;
+   *     see WALL_BRIGHTNESS_TARGETS — `normal` moved back to 243 in
+   *     2026-10-01 bulk-claim-5),
    *   - the pro-look adaptive-exposure cap (`target + 5`, clamped
    *     to 255) so bright chips unlock a higher highlight ceiling
    *     and soft chips keep the historical roll-off.
@@ -456,6 +457,72 @@ async function decodeOrientedRegion(
 }
 
 /**
+ * 2026-10-01 bulk-claim-4 helper.
+ *
+ * Sample the median RGB of pixels sitting OUTSIDE the user's four
+ * corners (the "wall") but inside the crop rect. Returns `null` when
+ * fewer than 64 wall pixels could be sampled — the caller then falls
+ * back to the original near-white gate inside `paintBorderWall`.
+ *
+ * Uses a deterministic 2000-sample stride walk over the crop pixels so
+ * the result is reproducible for a given input (useful for
+ * recipe-replay snapshots). Winding-number point-in-polygon test is
+ * cheap and robust against the arbitrary CW/CCW ordering of the user's
+ * quad.
+ */
+function sampleWallRefOutsideQuad(
+  src: ImageData,
+  quad: [[number, number], [number, number], [number, number], [number, number]],
+): { r: number; g: number; b: number } | null {
+  const total = src.width * src.height;
+  if (total < 64) return null;
+  const budget = 2000;
+  const step = Math.max(1, Math.floor(total / budget));
+  const rs: number[] = [];
+  const gs: number[] = [];
+  const bs: number[] = [];
+  for (let p = 0; p < total; p += step) {
+    const x = p % src.width;
+    const y = (p / src.width) | 0;
+    if (pointInQuad(x + 0.5, y + 0.5, quad)) continue;
+    const i = p * 4;
+    rs.push(src.data[i]);
+    gs.push(src.data[i + 1]);
+    bs.push(src.data[i + 2]);
+  }
+  if (rs.length < 64) return null;
+  const med = (xs: number[]): number => {
+    const sorted = xs.slice().sort((a, b) => a - b);
+    const mid = sorted.length >> 1;
+    return sorted.length & 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  return { r: med(rs), g: med(gs), b: med(bs) };
+}
+
+/** Winding-number point-in-polygon for a 4-vertex quad. */
+function pointInQuad(
+  x: number,
+  y: number,
+  quad: [[number, number], [number, number], [number, number], [number, number]],
+): boolean {
+  let wn = 0;
+  for (let i = 0; i < 4; i += 1) {
+    const [ax, ay] = quad[i];
+    const [bx, by] = quad[(i + 1) % 4];
+    if (ay <= y) {
+      if (by > y) {
+        const cross = (bx - ax) * (y - ay) - (x - ax) * (by - ay);
+        if (cross > 0) wn += 1;
+      }
+    } else if (by <= y) {
+      const cross = (bx - ax) * (y - ay) - (x - ax) * (by - ay);
+      if (cross < 0) wn -= 1;
+    }
+  }
+  return wn !== 0;
+}
+
+/**
  * Run the local flat pipeline. Non-throwing: decode / encode failures
  * are returned as `{ blob: null, stageError }` so the caller can log
  * the failure and fall back to the original file WITHOUT mislabeling
@@ -479,16 +546,21 @@ export async function runFlatEnhancement(
     c: clampTone(input.tone?.c ?? 1, ENHANCEMENT_TONE_CAP),
     s: clampTone(input.tone?.s ?? 1, ENHANCEMENT_TONE_CAP),
   };
-  const warpCorners = input.sourceCorners
-    ? outsetNormalizedQuad(input.sourceCorners, 0.008)
-    : null;
+  // 2026-10-01 bulk-claim-4 fix: drop the outward `outsetNormalizedQuad`
+  // bias. The pre-fix code pushed every corner ~0.8 % away from the
+  // center "so a bowed phone edge stays inside the warp", which in
+  // practice re-included a strip of wall right along the edge the
+  // user had just carefully placed. The post-warp `paintBorderWall`
+  // (now reference-color aware — see below) replaces that strip with
+  // the gallery matte, so there is no reason to expand the quad.
+  const warpCorners = input.sourceCorners ?? null;
   const cropNormalized = normalizeCropFromCorners(warpCorners, input.crop);
 
   const proLookEnabled = input.proLook?.enabled === true;
   // F2 (2026-08-10) — user-supplied wall brightness target. When
   // omitted we stay on the historical `MATTE_WHITE_POINT` (243) so
   // bulk / legacy callers keep replaying identically. The wizard
-  // supplies `normal` (248) by default.
+  // supplies `normal` (243 as of 2026-10-01 bulk-claim-5) by default.
   const wallBrightnessTarget = resolveWallBrightnessTarget(input.wallBrightness);
   const wallBrightnessSupplied = typeof input.wallBrightness === "string";
   const proLookRecipeIn: (ProLookRecipe & { enabled?: boolean }) | undefined =
@@ -497,7 +569,7 @@ export async function runFlatEnhancement(
           ...(input.proLook ?? {}),
           // Cap = target + 5, clamped 0..255. When the user chose
           // "bright" (252) we allow the top end to reach 255; "normal"
-          // (248) yields 253; "soft" (245) yields 250 (same as
+          // (243) yields 248; "soft" (245) yields 250 (same as
           // legacy). See proLook.adaptiveExposure for how this is
           // consumed.
           whiteCapLuma:
@@ -659,6 +731,13 @@ export async function runFlatEnhancement(
         [cornersInCrop[2][0] * outW, cornersInCrop[2][1] * outH],
         [cornersInCrop[3][0] * outW, cornersInCrop[3][1] * outH],
       ];
+      // 2026-10-01 bulk-claim-4 fix: sample the ACTUAL wall color
+      // outside the user's quad so `paintBorderWall` can target that
+      // color (instead of its fixed "near-white" heuristic). This
+      // works even when the wall is beige / warm grey / painted —
+      // the earlier near-white gate skipped repaint on anything but
+      // bright matte and left the pre-warp wall bleeding through.
+      const wallRef = sampleWallRefOutsideQuad(srcData, pxCorners);
       const targetAspect =
         typeof input.targetAspect === "number" &&
         Number.isFinite(input.targetAspect) &&
@@ -679,7 +758,7 @@ export async function runFlatEnhancement(
       if (H) {
         const warped = warpPerspectiveNearest(srcData, H, warpOutW, warpOutH);
         if (warped) {
-          paintBorderWall(warped.data, warpOutW, warpOutH);
+          paintBorderWall(warped.data, warpOutW, warpOutH, wallRef);
           // Replace the source canvas with a fresh surface sized to
           // the rectified aspect so subsequent stages (tone, proLook,
           // bezel, encode) don't have to know a warp happened.
@@ -738,7 +817,7 @@ export async function runFlatEnhancement(
             ...(sampleRegion ? { sampleRegion } : {}),
             // F2 (2026-08-10) — thread the user's wall-brightness
             // chip into the AWB target so a "bright" (252) chip
-            // lifts the whole wall by ~4 luma vs "normal" (248).
+            // lifts the whole wall by ~9 luma vs "normal" (243).
             // When the caller didn't supply `wallBrightness` this
             // stays at 243 (MATTE_WHITE_POINT).
             ...(wallBrightnessSupplied ? { target: wallBrightnessTarget } : {}),

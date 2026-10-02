@@ -65,6 +65,17 @@ export function clampNormalized([x, y]: NormalizedPoint): NormalizedPoint {
  * bounds, the point is clamped to bounds first; if the result is still
  * invalid the ORIGINAL quad is returned unchanged.
  *
+ * 2026-10-01 — in addition to the area + bounds guards, the attempt
+ * must remain:
+ *   - CONVEX (no self-intersecting butterfly / bowtie shape — see
+ *     `isConvexQuad`), AND
+ *   - in canonical TL/TR/BR/BL order (`isTlTrBrBlOrder`).
+ *
+ * Together these two reject the "flip a corner across its opposite
+ * edge" moves that caused Island III to render upside-down (bulk
+ * claim 2, 2026-09-30). The user is bounced back to their previous
+ * valid position instead of silently landing on a crossed quad.
+ *
  * This function is the single source of truth for "can I drag this
  * corner here?" — reused by both pointer drag and keyboard nudge.
  */
@@ -77,7 +88,57 @@ export function tryMoveCorner(
   const attempt: Quad = [quad[0], quad[1], quad[2], quad[3]] as Quad;
   attempt[corner] = clamped;
   if (!hasValidArea(attempt)) return quad;
+  if (!isConvexQuad(attempt)) return quad;
+  if (!isTlTrBrBlOrder(attempt)) return quad;
   return attempt;
+}
+
+/**
+ * True when the four vertices of `quad` form a convex polygon in the
+ * order given. Checked by walking the four edges and verifying that
+ * every cross product `(p[i+1]-p[i]) × (p[i+2]-p[i+1])` has the same
+ * sign — all positive (CCW) or all negative (CW). Any sign flip means
+ * the polygon turns "inward" at that vertex, which is the signature of
+ * a self-intersecting (butterfly) quad.
+ *
+ * Rationale: `hasValidArea` only checks the absolute shoelace area, so
+ * a butterfly can pass with a modest-looking area while actually
+ * crossing its own edges — that quad, fed to the perspective solver,
+ * produces the "picture flipped on its side" result users reported in
+ * the Island III thread (bulk claim 2, 2026-09-30).
+ */
+export function isConvexQuad(quad: Quad): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i += 1) {
+    const [ax, ay] = quad[i];
+    const [bx, by] = quad[(i + 1) % 4];
+    const [cx, cy] = quad[(i + 2) % 4];
+    const cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
+    if (cross === 0) continue; // collinear — tolerate; area check catches degeneracy
+    const s = cross > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (sign !== s) return false;
+  }
+  return true;
+}
+
+/**
+ * True when `quad[0..3]` match the canonical TL/TR/BR/BL ordering —
+ * i.e., sorting the vertices by y-then-x and splitting them into top
+ * row / bottom row recovers the same points in the same slots.
+ * Companion to `isConvexQuad`: convexity alone is not enough — a
+ * CCW-oriented quad whose TL / BR corners were swapped is still
+ * "convex" but produces a mirrored homography. Enforcing the TL/TR/BR/BL
+ * order keeps the mapping intuitive for the user.
+ */
+export function isTlTrBrBlOrder(quad: Quad): boolean {
+  const ordered = orderQuadTlTrBrBl(quad);
+  for (let i = 0; i < 4; i += 1) {
+    if (quad[i][0] !== ordered[i][0] || quad[i][1] !== ordered[i][1]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

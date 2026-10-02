@@ -40,13 +40,22 @@ export function fitMatteForegroundQuad(
   const top = minY / height;
   const right = (width - 1 - maxX) / width;
   const bottom = (height - 1 - maxY) / height;
+  // Only accept this auto-rect when wall margin exists on all four
+  // sides. Without that, the detected edge is actually the frame edge
+  // and padding outward just re-includes picture content as "wall".
+  // Guard retained from pre-2026-10-01; keep the 1.5 % floor.
   if (left < 0.015 || top < 0.015 || right < 0.015 || bottom < 0.015) return null;
-  const padX = Math.min(0.012, left * 0.35);
-  const padY = Math.min(0.012, top * 0.35);
-  const x0 = clamp01(minX / width - padX);
-  const y0 = clamp01(minY / height - padY);
-  const x1 = clamp01(maxX / width + padX);
-  const y1 = clamp01(maxY / height + padY);
+  // 2026-10-01 bulk-claim-2 fix: the previous `padX`/`padY` outward
+  // bias (up to +1.2 % of each dimension) pushed the auto corners back
+  // out past the real artwork edge, which is why the "집 그림" test
+  // image placed the top two points mid-wall. The quad now sits
+  // exactly on the detected min/max — users still get a non-destructive
+  // nudge via the picker, and the engine's homography is no longer
+  // asked to warp through a strip of wall.
+  const x0 = clamp01(minX / width);
+  const y0 = clamp01(minY / height);
+  const x1 = clamp01(maxX / width);
+  const y1 = clamp01(maxY / height);
   if (x1 - x0 < 0.2 || y1 - y0 < 0.2) return null;
   return [
     [x0, y0],

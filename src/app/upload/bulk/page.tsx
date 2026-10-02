@@ -3112,12 +3112,12 @@ export default function BulkUploadPage() {
           />
         )}
 
-        {enhanceDraft && orderedImages(enhanceDraft)[0]?.storage_path && (
+        {enhanceDraft && orderedImages(enhanceDraft).length > 0 && (
           <BulkEnhanceDialog
             artworkId={enhanceDraft.id}
             artistProfileId={enhanceDraft.artist_id ?? null}
             storageOwnerId={actingAsProfileId}
-            image={orderedImages(enhanceDraft)[0]!}
+            images={orderedImages(enhanceDraft)}
             onClose={() => setEnhanceDraft(null)}
             onSaved={() => {
               setEnhanceDraft(null);

@@ -110,8 +110,11 @@ import assert from "node:assert/strict";
   // ── 5. G1 + F2 (2026-08-10): computeWallAnchoredGains lands the
   //     sampled median on the CALLER-CHOSEN target. Legacy callers
   //     (no `target`) keep landing on MATTE_WHITE_POINT (243). The
-  //     three F2 wall-brightness chips land on 245 / 248 / 252
-  //     within ±2 luma tolerance.
+  //     three F2 wall-brightness chips land on 245 / 243 / 252
+  //     within ±2 luma tolerance. (2026-10-01 bulk-claim-5: `normal`
+  //     was reset from 248 back to 243 — the matte reference the
+  //     rest of the pipeline anchors to — so the wall and the matte
+  //     bezel line up without a visible seam.)
   const patchPixels = (rgb: [number, number, number]) => {
     const w = 32;
     const h = 32;
@@ -142,17 +145,18 @@ import assert from "node:assert/strict";
     assert.ok(Math.abs(buffer[2] - 243) <= 2, `default B ~ 243 (got ${buffer[2]})`);
   }
 
-  // 5b — F2 chips land on 245 / 248 / 252 (±2). Runs the same
+  // 5b — F2 chips land on 245 / 243 / 252 (±2). Runs the same
   //      neutral-warm patch through each of the three targets and
   //      asserts the mapped medians land on the requested wall
   //      brightness within the tolerance the wizard promises.
+  //      (2026-10-01 bulk-claim-5: `normal` moved from 248 → 243.)
   {
     const chips: Array<{
       brightness: "soft" | "normal" | "bright";
       expected: number;
     }> = [
       { brightness: "soft", expected: 245 },
-      { brightness: "normal", expected: 248 },
+      { brightness: "normal", expected: 243 },
       { brightness: "bright", expected: 252 },
     ];
     for (const chip of chips) {

@@ -997,7 +997,9 @@ function EditArtworkContent() {
           artworkId={artwork.id}
           artistProfileId={artwork.artist_id}
           storageOwnerId={actingAsProfileId}
-          image={primaryArtworkImage(artwork.artwork_images)!}
+          images={[...(artwork.artwork_images ?? [])].sort(
+            (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+          )}
           onClose={() => setImageEditorOpen(false)}
           onSaved={() => {
             setImageEditorOpen(false);

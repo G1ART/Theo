@@ -81,10 +81,12 @@ export const AWB_WALL_MUL_MAX = 1.25;
  * 2026-08-10 F2 — `MATTE_WHITE_POINT` is the LEGACY default target
  * that engine callers get when they don't opt into the new
  * `wallBrightness` param. The three canonical wall-brightness
- * levels are exposed via `WALL_BRIGHTNESS_TARGETS` (245 / 248 / 252)
- * and drive `computeWallAnchoredGains(..., { target })`. The
- * wizard UX supplies `normal` (248) by default; bulk / legacy
- * callers keep landing on 243 for byte-identical replay.
+ * levels are exposed via `WALL_BRIGHTNESS_TARGETS` (245 / 243 / 252
+ * as of 2026-10-01 bulk-claim-5 — `normal` was bumped back from 248
+ * down to the matte reference) and drive
+ * `computeWallAnchoredGains(..., { target })`. The wizard UX supplies
+ * `normal` (243) by default; bulk / legacy callers also land on 243
+ * for byte-identical replay.
  */
 export const MATTE_WHITE_POINT = { r: 243, g: 243, b: 243 } as const;
 
@@ -98,16 +100,21 @@ export const MATTE_WHITE_POINT_LUMA = 243;
 /**
  * F2 (2026-08-10) — user-facing wall brightness levels. Each maps to
  * a numeric matte white target that the AWB and pro-look exposure cap
- * derive their landing point from. `normal` (248) is the wizard
- * default — a small bump from the historical 243 that the user asked
- * for so the wall reads visibly whitened without clipping into sterile
- * pure white. `soft` / `bright` sit ±3-4 on either side.
+ * derive their landing point from.
+ *
+ * 2026-10-01 bulk-claim-5: `normal` reset from 248 back to 243 (the
+ * gallery matte reference the rest of the pipeline — including
+ * `MATTE_WHITE_POINT` and `paintBorderWall`'s paint target — already
+ * uses). The 248 bump caused the wall around the artwork to visibly
+ * jump a few luma above the matte repaint strip, so neighboring
+ * pixels looked like a seam. Keeping `soft`/`bright` at 245/252 lets
+ * users dial up or down from the matte reference.
  */
 export type WallBrightness = "soft" | "normal" | "bright";
 
 export const WALL_BRIGHTNESS_TARGETS: Record<WallBrightness, number> = {
   soft: 245,
-  normal: 248,
+  normal: 243,
   bright: 252,
 };
 

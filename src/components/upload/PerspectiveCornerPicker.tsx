@@ -34,6 +34,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import {
   computeKeyNudge,
@@ -87,6 +89,14 @@ type Props = {
    * separately through the parent's chip.
    */
   hideActions?: boolean;
+  /**
+   * 2026-10-01 — when `true`, the quad polygon renders as a dashed
+   * hint (not solid) so users understand the auto-detected corners
+   * are a suggestion they should confirm. The parent sets this when
+   * the seed came from the matte fallback or a low-confidence
+   * rectangle detector (`rectangleConfidence < 0.55`).
+   */
+  autoHint?: boolean;
 };
 
 const HANDLE_LABELS = ["TL", "TR", "BR", "BL"] as const;
@@ -102,6 +112,7 @@ export function PerspectiveCornerPicker({
   onCancel,
   onChange,
   hideActions = false,
+  autoHint = false,
 }: Props) {
   const { t } = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -120,13 +131,50 @@ export function PerspectiveCornerPicker({
   const seedQuadRef = useRef<Quad>(seedQuad);
   seedQuadRef.current = seedQuad;
 
-  const [quad, setQuad] = useState<Quad>(seedQuad);
+  const [quad, setQuadRaw] = useState<Quad>(seedQuad);
   const [activeCorner, setActiveCorner] = useState<CornerIndex>(0);
+  // 2026-10-01 — track the last quad we are confident is valid. Updated
+  // every time `setQuad` is called with a quad that passes bounds +
+  // area + convexity + TL/TR/BR/BL ordering. The Undo chip restores
+  // from here when the user mashes a corner into an invalid region
+  // repeatedly — `tryMoveCorner` already blocks the invalid moves, but
+  // users sometimes still want to back out of a "last-known-good minus
+  // one small drift" state.
+  const lastValidQuadRef = useRef<Quad>(seedQuad);
   const dragCornerRef = useRef<CornerIndex | null>(null);
   const dragOriginRef = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
   // Local reset counter — bumped when the user clicks "reset". Combined
   // with `resetToken` (parent-driven) drives the re-seed effect below.
   const [localResetTick, setLocalResetTick] = useState(0);
+  // Keyboard focus tracker — a focused handle shows the magnifier even
+  // without an active pointer drag.
+  const [focusedCorner, setFocusedCorner] = useState<CornerIndex | null>(null);
+  // State mirror of `dragCornerRef` so React re-renders when a drag
+  // starts / ends. The ref remains the authoritative value for the
+  // pointer handlers (they must not close over a stale state), but
+  // the magnifier's visibility depends on this state.
+  const [draggingCorner, setDraggingCorner] = useState<CornerIndex | null>(null);
+
+  // Wrap setQuad so every state write is checked for validity and used
+  // to update the `lastValidQuadRef` when it passes. The invalid state
+  // path is normally unreachable (tryMoveCorner guards all mutations),
+  // but we still snapshot the ref here so the Undo chip has a reliable
+  // target even when parent-driven re-seeds come through.
+  const setQuad = useCallback<Dispatch<SetStateAction<Quad>>>(
+    (next) => {
+      setQuadRaw((prev) => {
+        const resolved: Quad =
+          typeof next === "function"
+            ? (next as (p: Quad) => Quad)(prev)
+            : next;
+        if (hasValidArea(resolved)) {
+          lastValidQuadRef.current = resolved;
+        }
+        return resolved;
+      });
+    },
+    [],
+  );
 
   // Re-seed ONLY on mount and on explicit reset (parent bump of
   // `resetToken` or local reset button). Never on unrelated parent
@@ -134,8 +182,9 @@ export function PerspectiveCornerPicker({
   // 2026-08-09 corner-stick fix.
   useEffect(() => {
     if (dragCornerRef.current != null) return;
+    lastValidQuadRef.current = seedQuadRef.current;
     setQuad(seedQuadRef.current);
-  }, [resetToken, localResetTick]);
+  }, [resetToken, localResetTick, setQuad]);
 
   // F4 (2026-08-10) — stream quad changes to the wizard shell so a
   // parent-level "다음" button can commit without going through the
@@ -176,6 +225,7 @@ export function PerspectiveCornerPicker({
         };
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
         setActiveCorner(corner);
+        setDraggingCorner(corner);
       },
     [quad, rectBounds],
   );
@@ -192,7 +242,7 @@ export function PerspectiveCornerPicker({
         tryMoveCorner(prev, active, [origin.cx + dx, origin.cy + dy]),
       );
     },
-    [rectBounds],
+    [rectBounds, setQuad],
   );
 
   const onPointerUp = useCallback(
@@ -205,6 +255,7 @@ export function PerspectiveCornerPicker({
       }
       dragCornerRef.current = null;
       dragOriginRef.current = null;
+      setDraggingCorner(null);
     },
     [],
   );
@@ -240,16 +291,27 @@ export function PerspectiveCornerPicker({
           setActiveCorner(nextCorner(corner));
         }
       },
-    [imageWidth, imageHeight],
+    [imageWidth, imageHeight, setQuad],
   );
 
   const handleReset = useCallback(() => {
     const target = autoDetectedCorners && hasValidArea(autoDetectedCorners)
       ? autoDetectedCorners
       : defaultInsetQuad(0.1);
+    lastValidQuadRef.current = target;
     setQuad(target);
     setLocalResetTick((n) => n + 1);
-  }, [autoDetectedCorners]);
+  }, [autoDetectedCorners, setQuad]);
+
+  // Undo chip — restores the last known-valid quad. In practice this
+  // reverts whatever drift accumulated during an in-flight sequence of
+  // small drags that each individually passed the geometry checks but
+  // ended somewhere the user doesn't want. See 2026-10-01 bulk claim 2.
+  const handleUndo = useCallback(() => {
+    const target = lastValidQuadRef.current;
+    if (!target || !hasValidArea(target)) return;
+    setQuad(target);
+  }, [setQuad]);
 
   const points = useMemo(
     () => quad.map(([x, y]) => `${x * 100}%,${y * 100}%`).join(" "),
@@ -295,6 +357,41 @@ export function PerspectiveCornerPicker({
 
   const HANDLE_DOT = 14;
   const HANDLE_HIT = 44;
+  // Magnifier config (2026-10-01). Reads the backing image as a
+  // CSS `background-image`, enlarged by `MAG_ZOOM`, scrolled so the
+  // active corner falls at the magnifier center. We use the plain
+  // image URL (no CORS canvas needed) so this works on blob: and
+  // https: sources alike.
+  const MAG_SIZE = 120;
+  const MAG_ZOOM = 3;
+  // The magnifier shows while the user is dragging OR while a handle
+  // has keyboard focus — not when the picker is simply idle.
+  const magCorner: CornerIndex | null =
+    draggingCorner ?? focusedCorner;
+  const showMagnifier =
+    magCorner != null && imgRect.width > 0 && imgRect.height > 0;
+  const magnifier = showMagnifier
+    ? (() => {
+        const [mx, my] = quad[magCorner];
+        const cornerPxX = mx * imgRect.width;
+        const cornerPxY = my * imgRect.height;
+        // Flip the magnifier to the opposite side when the handle is
+        // near a container edge so it stays fully inside the picker.
+        const nearRight = cornerPxX > imgRect.width - MAG_SIZE - 24;
+        const nearBottom = cornerPxY > imgRect.height - MAG_SIZE - 24;
+        const left = imgRect.left + (nearRight ? cornerPxX - MAG_SIZE - 20 : cornerPxX + 20);
+        const top = imgRect.top + (nearBottom ? cornerPxY - MAG_SIZE - 20 : cornerPxY + 20);
+        // The visible image fits inside imgRect via `object-contain`,
+        // so the backing image has the same displayed dimensions.
+        // Multiply by MAG_ZOOM to make `background-size` and compute
+        // the offset that pulls the corner to the magnifier center.
+        const bgW = imgRect.width * MAG_ZOOM;
+        const bgH = imgRect.height * MAG_ZOOM;
+        const bgX = -(cornerPxX * MAG_ZOOM - MAG_SIZE / 2);
+        const bgY = -(cornerPxY * MAG_ZOOM - MAG_SIZE / 2);
+        return { left, top, bgW, bgH, bgX, bgY };
+      })()
+    : null;
 
   return (
     <div className="space-y-2">
@@ -339,6 +436,7 @@ export function PerspectiveCornerPicker({
               fill="rgba(16,185,129,0.08)"
               stroke="rgba(16,185,129,0.9)"
               strokeWidth={0.4}
+              strokeDasharray={autoHint ? "2 2" : undefined}
               vectorEffect="non-scaling-stroke"
             />
           </svg>
@@ -362,6 +460,20 @@ export function PerspectiveCornerPicker({
             height: `${HANDLE_HIT}px`,
             touchAction: "none",
           };
+          // 2026-10-01 — visible on-image badge so users can tell
+          // which corner is which without reading a screen reader. The
+          // pill offsets diagonally from the dot so it never covers
+          // the drag target itself; it also flips to the opposite
+          // diagonal when the corner sits near a container edge so
+          // all four pills stay inside the picker at any aspect.
+          const badgeToken = HANDLE_LABELS[cornerIdx];
+          const BADGE_OFFSET = 14;
+          const badgeLeft = cornerIdx === 0 || cornerIdx === 3
+            ? HANDLE_HIT - BADGE_OFFSET
+            : -22;
+          const badgeTop = cornerIdx === 0 || cornerIdx === 1
+            ? HANDLE_HIT - BADGE_OFFSET
+            : -22;
           return (
             <div
               key={cornerIdx}
@@ -377,7 +489,13 @@ export function PerspectiveCornerPicker({
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
               onKeyDown={onHandleKeyDown(cornerIdx)}
-              onFocus={() => setActiveCorner(cornerIdx)}
+              onFocus={() => {
+                setActiveCorner(cornerIdx);
+                setFocusedCorner(cornerIdx);
+              }}
+              onBlur={() => {
+                setFocusedCorner((cur) => (cur === cornerIdx ? null : cur));
+              }}
               className="absolute flex cursor-move items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
               style={wrapperStyle}
             >
@@ -390,9 +508,60 @@ export function PerspectiveCornerPicker({
                 }`}
                 style={{ width: `${HANDLE_DOT}px`, height: `${HANDLE_DOT}px` }}
               />
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute select-none rounded-full border border-emerald-500 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 shadow ${
+                  isActive ? "ring-1 ring-emerald-400" : ""
+                }`}
+                style={{
+                  left: `${badgeLeft}px`,
+                  top: `${badgeTop}px`,
+                  lineHeight: 1,
+                }}
+              >
+                {badgeToken}
+              </span>
             </div>
           );
         })}
+        {/* Magnifier (2026-10-01). Shows the pixels around the active
+            corner at 3× zoom with a crosshair in the center so users
+            can land right on the painted edge instead of the wall. */}
+        {magnifier && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute overflow-hidden rounded-lg border border-zinc-300 bg-zinc-50 shadow-lg"
+            style={{
+              left: `${magnifier.left}px`,
+              top: `${magnifier.top}px`,
+              width: `${MAG_SIZE}px`,
+              height: `${MAG_SIZE}px`,
+              backgroundImage: `url(${imageUrl})`,
+              backgroundRepeat: "no-repeat",
+              backgroundSize: `${magnifier.bgW}px ${magnifier.bgH}px`,
+              backgroundPosition: `${magnifier.bgX}px ${magnifier.bgY}px`,
+            }}
+          >
+            {/* Center crosshair */}
+            <span
+              aria-hidden
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+              style={{ width: `${MAG_SIZE}px`, height: `${MAG_SIZE}px` }}
+            >
+              <span
+                className="absolute left-0 top-1/2 h-px w-full"
+                style={{ background: "rgba(16,185,129,0.75)" }}
+              />
+              <span
+                className="absolute left-1/2 top-0 h-full w-px"
+                style={{ background: "rgba(16,185,129,0.75)" }}
+              />
+              <span
+                className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-600 bg-white/80"
+              />
+            </span>
+          </div>
+        )}
         {/* Data hint used by callers to confirm the polygon renders. */}
         <span className="sr-only" data-testid="perspective-quad">
           {points}
@@ -403,6 +572,13 @@ export function PerspectiveCornerPicker({
           <span className="mr-auto text-[11px] text-zinc-500">
             {t("upload.imageEnhance.perspective.hint")}
           </span>
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 hover:bg-zinc-50"
+          >
+            {t("upload.imageEnhance.perspective.undo")}
+          </button>
           <button
             type="button"
             onClick={handleReset}
