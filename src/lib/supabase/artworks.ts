@@ -553,6 +553,62 @@ const ARTWORK_SELECT = `
   claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
 `;
 
+/**
+ * Lean projection for *card/grid* surfaces (main feed, Explore grid,
+ * simulation picker). These render thumbnails + title/artist/medium/size/
+ * price/likes only — they never show the long-form `story`, the artist
+ * `bio`, or the per-image bulk of enhancement recipe + original path.
+ *
+ * Dropping those from the feed query removes the single biggest chunk of
+ * dead payload: `enhancement_meta` is a full enhancement recipe JSON
+ * attached to *every* image of *every* artwork (sourceCorners, proLook,
+ * awb, tone…),
+ * and `story*`/`bio*` are paragraphs — all transferred and parsed but
+ * never read on a card. For a 24-item page that is tens to hundreds of KB
+ * of waste on each refresh.
+ *
+ * `display_adjust` stays (the card applies the crop), as do `is_public`
+ * / `profiles.id` (the `isPublicSurfaceVisible` orphan guard). Detail,
+ * library, and editor flows keep the full `ARTWORK_SELECT`.
+ */
+const FEED_ARTWORK_SELECT = `
+  id,
+  title,
+  title_ko,
+  title_en,
+  year,
+  medium,
+  medium_ko,
+  medium_en,
+  size,
+  size_unit,
+  work_form,
+  width_cm,
+  height_cm,
+  depth_cm,
+  dims_confirmed_at,
+  visibility,
+  created_by,
+  pricing_mode,
+  is_price_public,
+  price_usd,
+  price_input_amount,
+  price_input_currency,
+  fx_rate_to_usd,
+  fx_date,
+  ownership_status,
+  artist_id,
+  artist_sort_order,
+  created_at,
+  provenance_visible,
+  website_import_provenance,
+  likes_count,
+  artwork_images(storage_path, sort_order, view_type, display_adjust),
+  profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public),
+  artwork_likes(count),
+  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
+`;
+
 export async function listPublicArtworks(
   options: ListOptions = {}
 ): Promise<{
@@ -571,7 +627,7 @@ export async function listPublicArtworks(
 
   let query = supabase
     .from("artworks")
-    .select(ARTWORK_SELECT)
+    .select(FEED_ARTWORK_SELECT)
     .eq("visibility", "public")
     .limit(requestLimit);
 
@@ -741,7 +797,7 @@ export async function listFollowingArtworks(
   if (hasFollowing) {
     let query = supabase
       .from("artworks")
-      .select(ARTWORK_SELECT)
+      .select(FEED_ARTWORK_SELECT)
       .eq("visibility", "public")
       .in("artist_id", artistIds)
       .order("created_at", { ascending: false })
@@ -775,7 +831,7 @@ export async function listFollowingArtworks(
     if (idsToFetch.length > 0) {
       const { data, error } = await supabase
         .from("artworks")
-        .select(ARTWORK_SELECT)
+        .select(FEED_ARTWORK_SELECT)
         .eq("visibility", "public")
         .in("id", idsToFetch);
       if (!error && data?.length) {

@@ -2,6 +2,39 @@
 
 Last updated: 2026-10-02
 
+## 2026-10-02 (91) — 메인 피드 첫 페인트 속도 개선 (오버페치 제거 + 렌더 언블록)
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+사용자 피드백: "메인피드 리프레시하면 작품이 뜨는 데 5초 이상 걸린다. 작품을 너무 많이 로드하거나 썸네일이 너무 큰 건 아닌지?" 진단 결과 **작품 수(24개/페이지)·썸네일 크기(400×400 q70)는 적정**이고, 병목은 두 군데였다.
+
+### 원인
+
+1. **피드 쿼리 오버페치.** `listPublicArtworks` / `listFollowingArtworks` 가 상세·라이브러리용 fat `ARTWORK_SELECT` 를 그대로 써서, 카드에 **한 번도 안 쓰이는** `enhancement_meta`(이미지마다 붙는 보정 레시피 JSON — sourceCorners·proLook·awb·tone…), `original_storage_path`, 장문 `story/story_ko/story_en`, 작가 `bio/bio_ko/bio_en` 까지 24행 × 이미지 수만큼 전송·파싱. 리프레시마다 수십~수백 KB 낭비.
+2. **렌더가 비필수 fetch 에 묶임 (체감 5초 주범).** `FeedContent` 가 작품 fetch 직후 `setFeedEntries` 해놓고도 `getLikedArtworkIds`(하트) → `fetchRecProfiles`(추천 캐러셀) 를 **순차 await 한 뒤에야** `setLoading(false)`. 그리드는 `loading` 이 false 가 돼야 뜨므로, 작품이 1초에 와도 추천/좋아요가 3~4초 걸리면 그동안 스켈레톤만 보임.
+
+### 변경 요약
+
+- **피드 전용 lean projection `FEED_ARTWORK_SELECT` 추가 (`src/lib/supabase/artworks.ts`).** 카드가 실제로 쓰는 필드만: `artwork_images(storage_path, sort_order, view_type, display_adjust)` (← `enhancement_meta`·`original_storage_path` 제거), `profiles` 에서 `bio*` 제거, top-level `story*` 제거. `display_adjust`(카드 크롭)·`profiles.id`/`is_public`(`isPublicSurfaceVisible` orphan 가드)은 유지. `listPublicArtworks`(피드+Explore+시뮬 picker), `listFollowingArtworks`(by-artist + mergeOwnClaimedWorks 서브쿼리) 가 이걸 사용. **상세·라이브러리·에디터 경로는 기존 full `ARTWORK_SELECT` 유지.** `normalizeArtworkRow` 는 passthrough 라 타입 안전, 세 소비처 모두 카드형이라 드롭 필드 미사용 (grep 확인).
+- **렌더 언블록 (`src/components/FeedContent.tsx`).** following·foryou 두 경로 모두 `setFeedEntries` → `logFeedEvent/markFeedPerf` → **즉시 `setLoading(false)`** 로 그리드 선(先) 페인트. `getLikedArtworkIds` 와 `fetchRecProfiles` 는 `void …then()` 백그라운드로 돌려 하트·추천행만 나중에 하이드레이트.
+- **stale-write 가드 `fetchSeqRef`.** fetch 커밋 시점마다 세대 증가 → 백그라운드 `setLikedIds`/`setDiscoveryData` 는 `fetchSeqRef.current === fetchSeq` 일 때만 반영. 탭/정렬 전환으로 뒤이은 fetch 가 떠난 경우 옛 데코레이션이 새 결과를 덮지 않음(기존엔 가드 없이 await 후 setState 였음).
+- **`feed_data_loaded_ms` 의미 변경(의도적).** 이제 "추천·좋아요까지"가 아니라 **"작품 그리드가 보이기까지"** 를 측정 → 값이 전보다 작게 찍히는 게 정상(실제 체감 개선 반영).
+
+### 관찰 / 후속 후보 (이번 미적용)
+
+- 피드 썸네일은 Supabase render 변환(400px) **위에 Next `/_next/image` 최적화가 한 번 더** 겹침(기존 아키텍처, 둘 다 캐시됨). 콜드 상태 첫 로드 지연 요인일 수 있으나 리프레시(웜) 체감과는 무관해 이번 범위에서 제외. 필요 시 별도 검토.
+
+### 가드레일 유지
+
+- 카드 렌더링(크롭·제목·작가·매체·사이즈·가격·likes)·Explore 그리드·시뮬레이션 picker 동작 동일.
+- `isPublicSurfaceVisible` orphan 가드 입력 필드(`profiles.id`/`is_public`) 보존.
+- 무한스크롤 `loadMore` 는 `loadingMore` 로 분리돼 영향 없음.
+- Supabase 스키마·env var 변화 없음.
+
+**Verified:** `npx tsc --noEmit`, `npm run build`(통과), `npm run test:feed-living-salon / test:feed-telemetry / test:feed-personalization / test:bulk-upload-regression` 모두 통과.
+
 ## 2026-10-02 (90) — Theo 이미지 보정 출력 비율 선택지 + 렌즈 휨 가이드
 
 > **Supabase SQL 돌려야 할 것은 없음.**

@@ -242,6 +242,13 @@ export function FeedContent({
     initialSnapshotRef.current ? initialSnapshotRef.current.savedAt : 0
   );
   const dataLoadStartedRef = useRef(0);
+  // Monotonic fetch generation. Bumped at the start of every committed
+  // `fetchArtworks` run so that *backgrounded* decorations (liked IDs,
+  // discovery profiles) from a stale fetch never clobber a newer one.
+  // The grid itself paints as soon as artworks arrive (see below); these
+  // only hydrate hearts + the people row a beat later, so they must not
+  // win a race against a tab/sort switch that already moved on.
+  const fetchSeqRef = useRef(0);
   // Consumed by the initial-fetch effect below: when true we ate the
   // fetch (because we hydrated from a snapshot). Latching to false
   // after first read so any subsequent tab/sort change refetches.
@@ -324,6 +331,7 @@ export function FeedContent({
       }
       lastFullFetchRef.current = Date.now();
       dataLoadStartedRef.current = performance.now();
+      const fetchSeq = ++fetchSeqRef.current;
       markFeedPerf("feed_fetch_started");
 
       setLoading(true);
@@ -370,9 +378,6 @@ export function FeedContent({
           ...exhibitions.map((e) => ({ type: "exhibition" as const, created_at: e.created_at ?? null, exhibition: e })),
         ];
         setFeedEntries(entries);
-        const allIds = list.map((a) => a.id);
-        const liked = await getLikedArtworkIds(allIds);
-        setLikedIds(liked);
 
         if (process.env.NODE_ENV === "development") {
           console.debug("[Feed] initial fetch (following):", {
@@ -394,16 +399,27 @@ export function FeedContent({
         });
         markFeedPerf("feed_data_loaded_ms", String(elapsed));
 
-        const recProfiles = await fetchRecProfiles();
+        // Paint the artworks NOW. Liked-state (hearts) and the discovery
+        // people row are decorations — they must not keep the grid behind
+        // the skeleton. Hydrate them in the background and drop the result
+        // if a newer fetch (tab/sort switch) has since superseded this one.
+        setLoading(false);
+
+        const allIds = list.map((a) => a.id);
+        void getLikedArtworkIds(allIds).then((liked) => {
+          if (fetchSeqRef.current === fetchSeq) setLikedIds(liked);
+        });
         // v1.5: every persona renders as a horizontal carousel card with
         // no inline artwork thumbs, so we skip the per-profile artwork
         // fetch entirely. Builder gates the row on `PEOPLE_CLUSTER_MIN`
         // (= 2 profiles) per persona.
-        const discoveryWithoutArtworks: DiscoveryDatum[] = recProfiles
-          .slice(0, DISCOVERY_BLOCKS_MAX)
-          .map((p) => ({ profile: p, artworks: [] }));
-        setDiscoveryData(discoveryWithoutArtworks);
-        setLoading(false);
+        void fetchRecProfiles().then((recProfiles) => {
+          if (fetchSeqRef.current !== fetchSeq) return;
+          const discoveryWithoutArtworks: DiscoveryDatum[] = recProfiles
+            .slice(0, DISCOVERY_BLOCKS_MAX)
+            .map((p) => ({ profile: p, artworks: [] }));
+          setDiscoveryData(discoveryWithoutArtworks);
+        });
         return;
       }
 
@@ -436,10 +452,6 @@ export function FeedContent({
       ];
       setFeedEntries(entries);
 
-      const allIds = list.map((a) => a.id);
-      const liked = await getLikedArtworkIds(allIds);
-      setLikedIds(liked);
-
       if (process.env.NODE_ENV === "development") {
         console.debug("[Feed] initial fetch (all):", {
           artworks_in: list.length,
@@ -460,12 +472,22 @@ export function FeedContent({
       });
       markFeedPerf("feed_data_loaded_ms", String(elapsed));
 
-      const recProfiles = await fetchRecProfiles();
-      const discoveryWithoutArtworks: DiscoveryDatum[] = recProfiles
-        .slice(0, DISCOVERY_BLOCKS_MAX)
-        .map((p) => ({ profile: p, artworks: [] }));
-      setDiscoveryData(discoveryWithoutArtworks);
+      // Paint the artworks NOW. Liked-state (hearts) and the discovery
+      // people row are decorations — hydrate them after the grid is up and
+      // discard if a newer fetch has superseded this one.
       setLoading(false);
+
+      const allIds = list.map((a) => a.id);
+      void getLikedArtworkIds(allIds).then((liked) => {
+        if (fetchSeqRef.current === fetchSeq) setLikedIds(liked);
+      });
+      void fetchRecProfiles().then((recProfiles) => {
+        if (fetchSeqRef.current !== fetchSeq) return;
+        const discoveryWithoutArtworks: DiscoveryDatum[] = recProfiles
+          .slice(0, DISCOVERY_BLOCKS_MAX)
+          .map((p) => ({ profile: p, artworks: [] }));
+        setDiscoveryData(discoveryWithoutArtworks);
+      });
     },
     [tab, sort, userId, fetchRecProfiles, t]
   );
