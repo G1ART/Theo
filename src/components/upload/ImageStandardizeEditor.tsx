@@ -86,20 +86,26 @@ import {
 import { setEnhanceWizardActive } from "@/lib/tours/enhanceWizardTour";
 
 /**
- * Capture-mode chip (2026-08-06). Pre-seeds the enhance pipeline so
- * scanner captures skip perspective correction, studio captures use a
- * lighter tone, and phone hand-held captures run the full pro-look
- * pipeline.
+ * Color-handling mode (2026-10-02 redesign). The old capture-oriented
+ * trio (자동/스튜디오/스캐너) implied *how the photo was shot*, but it
+ * actually only controlled how aggressively we re-color the artwork —
+ * and the aggressive end (full wall-anchored AWB + Pro Look) neutralized
+ * the artist's intended warm tone and over-saturated flat works, which
+ * drew repeated "the result looks nothing like my painting" reports.
+ *
+ * It is now an honest two-way *fidelity* selector, decoupled from the
+ * perspective/geometry pipeline (which runs identically in both modes):
+ *   - `original` — trust the captured color. No AWB, no Pro Look; only a
+ *     gentle brightness/saturation lift. This is the default and is what
+ *     the old "스캐너" did for color (the mode users found truest).
+ *   - `enhance` — partial white balance (0.5 strength, so warmth
+ *     survives) + a gentle Pro Look pass. For shots that genuinely need
+ *     a cast fixed (e.g. yellow indoor light).
  */
-type CaptureMode = "auto" | "studio" | "phone" | "scanner";
+type CaptureMode = "original" | "enhance";
 
-/**
- * 2026-08-09: user-facing capture-setup selector consolidates the old
- * captureMode + enhanceMode. It records how the photo was shot
- * (scanner / studio / auto) — not lighting. Lighting is 보정 강도 plus
- * the post-engine B/C/S sliders.
- */
-type InputType = "auto" | "studio" | "scanner";
+/** User-facing alias for {@link CaptureMode}. */
+type InputType = "original" | "enhance";
 
 /**
  * 2026-08-09: three-way strength selector for the Basic view. Maps to
@@ -1156,7 +1162,7 @@ export function ImageStandardizeEditor({
   const [intensity, setIntensity] = useState<Intensity>(sharedPreset?.intensity ?? "normal");
   // 2026-08-22: capture setup (how the photo was shot) on the tone step.
   // Not lighting — brightness is 보정 강도 + the post-engine sliders.
-  const [inputType, setInputType] = useState<InputType>(sharedPreset?.inputType ?? "auto");
+  const [inputType, setInputType] = useState<InputType>(sharedPreset?.inputType ?? "original");
   // F2 (2026-08-10) — wall brightness chip. `normal` is the wizard
   // default. 2026-10-01 bulk-claim-5: reset the matte target back to
   // 243 (the matte reference used elsewhere in the pipeline) after
@@ -1241,11 +1247,21 @@ export function ImageStandardizeEditor({
   // `phone` legacy value is folded into `auto` since the analyzer
   // already picks the right pipeline from EXIF.
   const captureMode: CaptureMode = inputType;
-  // Pro-look is always on for the "auto" / "studio" path so the
-  // simplified basic view is opinionated. Scanner input forces it off
-  // (existing engine contract).
-  const proLookOn = true;
-  const proLookEnabled = captureMode === "scanner" ? false : proLookOn;
+  const isOriginalColor = captureMode === "original";
+  // 2026-10-02 — color-handling split. "원본 색감" trusts the captured
+  // color: no wall-anchored AWB and no Pro Look (which together caused
+  // the over-correction reports). "선명 보정" runs Pro Look + partial AWB.
+  // Perspective/geometry is NOT gated on this — both modes warp the same.
+  const proLookEnabled = !isOriginalColor;
+  // Partial white-balance strength for the "선명 보정" mode (threaded into
+  // the engine's `awb.strength`). 0.5 keeps the artist's warm tone while
+  // still easing a genuine cast. AWB is disabled entirely for "원본 색감".
+  const ENHANCE_AWB_STRENGTH = 0.5;
+  // "원본 색감" has Pro Look off, so its only tonal move is the classic
+  // tone pass. Bake in the gentle brightness/saturation lift the artist
+  // asked for ("스캐너 + 명채도 살짝 ↑") so the faithful default still has
+  // a touch of life. Applied on top of the analyzer suggestion + bias.
+  const ORIGINAL_COLOR_LIFT = { b: 0.03, c: 0.02, s: 0.05 } as const;
 
   // 2026-08-07 — Perspective correction. `perspectiveCorners` is
   // the *committed* 4-corner picker result (persisted into the
@@ -1407,13 +1423,11 @@ export function ImageStandardizeEditor({
   // actually warped from sourceCorners. Silent AABB/full-frame warps
   // must not claim success.
   const autoWarpFired = Boolean(
-    enhancePreview &&
-      sourceCornersFromDraft(enhancePreview) &&
-      captureMode !== "scanner",
+    enhancePreview && sourceCornersFromDraft(enhancePreview),
   );
   const wallAutoFired = Boolean(
     enhancePreview &&
-      captureMode !== "scanner" &&
+      !isOriginalColor &&
       enhancePreview.meta.recipe.kind === "flat" &&
       enhancePreview.meta.recipe.params.awb?.source === "wall-biased",
   );
@@ -1506,10 +1520,12 @@ export function ImageStandardizeEditor({
       });
       return;
     }
-    const isScanner = captureMode === "scanner";
+    // Ellipse restoration is a *geometry* decision (restore a circular
+    // work shot at an angle back to a circle), so it is independent of
+    // the color-handling mode — both "원본 색감" and "선명 보정" honor the
+    // user's `ellipseRestored` toggle.
     const wantsEllipseRestore =
       ellipseRestored &&
-      !isScanner &&
       !!analysis?.ellipse &&
       Math.abs(analysis.ellipse.aspect - 1) > 0.03 &&
       analysis.ellipse.confidence >= 0.6;
@@ -1529,7 +1545,7 @@ export function ImageStandardizeEditor({
             lastSuccessfulSourceCornersRef.current ??
             sourceCornersFromDraft(enhancePreviewRef.current))
           : (perspectiveCornersRef.current ??
-            (!isScanner && analysis
+            (analysis
               ? (resolveAutoCorners({
                   suggestedRectangleCorners:
                     analysis.suggestedRectangleCorners as Quad | null,
@@ -1560,13 +1576,19 @@ export function ImageStandardizeEditor({
       const seedCrop =
         crop ?? analysis?.suggestedCrop ?? { x: 0, y: 0, w: 1, h: 1 };
       const suggestion = analysis?.suggested ?? null;
-      const wantsAwb = !isScanner;
+      // Color handling: "원본 색감" disables AWB + Pro Look entirely;
+      // "선명 보정" runs both (AWB at partial strength — see the
+      // `awb.strength` thread below).
+      const wantsAwb = !isOriginalColor;
       const wantsProLook = proLookEnabled;
-      // Intensity multiplier: Studio is inherently gentler, so scale
-      // by 0.5x on top of the user-chosen intensity. Applies to the
-      // analyzer tone deltas AND the proLook config below.
+      // Intensity multiplier. "선명 보정" stays deliberately gentle (0.6x
+      // base) so Pro Look adds clarity without the lurid over-boost the
+      // old "자동" produced; "원본 색감" keeps 1x so the analyzer's honest
+      // tone suggestion (the only tonal move when Pro Look is off) lands
+      // at full fidelity. Applies to the analyzer tone deltas AND the
+      // proLook config below.
       const iMult =
-        (captureMode === "studio" ? 0.5 : 1) * intensityMultiplier(intensity);
+        (isOriginalColor ? 1 : 0.6) * intensityMultiplier(intensity);
       // 2026-10-02 output aspect selector. `aspectMode = "auto"` keeps
       // the engine's historical behavior (Zhang/Cao estimate from the
       // user's corner edges). `wantsEllipseRestore` always forces 1:1
@@ -1588,8 +1610,10 @@ export function ImageStandardizeEditor({
       // the tunables from analyzer signals (blurScore / glareScore)
       // and the user's paintingMode flag. See proLook.tunables.ts
       // for the mapping rationale.
-      const paintingMode =
-        analysis?.mode === "flat" || captureMode === "studio";
+      // Painting mode caps saturation (0.03 vs 0.06) so paper/canvas
+      // works never neonize. Driven purely by the analyzer's flat-work
+      // detection now that the capture-mode trio is gone.
+      const paintingMode = analysis?.mode === "flat";
       const adaptive =
         wantsProLook && analysis
           ? resolveAdaptiveProLook(
@@ -1642,9 +1666,26 @@ export function ImageStandardizeEditor({
         sourceCorners: sourceCornersToSend,
         targetAspect: targetAspectOverride,
         tone: {
-          b: 1 + ((suggestion?.b ?? 1) - 1) * iMult + toneBias.b,
-          c: 1 + ((suggestion?.c ?? 1) - 1) * iMult + toneBias.c,
-          s: 1 + ((suggestion?.s ?? 1) - 1) * iMult + toneBias.s,
+          // The classic tone pass only runs when Pro Look is OFF (i.e.
+          // "원본 색감"); the engine skips it under Pro Look. So the
+          // `ORIGINAL_COLOR_LIFT` nudge only takes effect in the faithful
+          // mode, giving it the "스캐너 + 명채도 살짝 ↑" feel the artist asked
+          // for without touching the "선명 보정" result.
+          b:
+            1 +
+            ((suggestion?.b ?? 1) - 1) * iMult +
+            toneBias.b +
+            (isOriginalColor ? ORIGINAL_COLOR_LIFT.b : 0),
+          c:
+            1 +
+            ((suggestion?.c ?? 1) - 1) * iMult +
+            toneBias.c +
+            (isOriginalColor ? ORIGINAL_COLOR_LIFT.c : 0),
+          s:
+            1 +
+            ((suggestion?.s ?? 1) - 1) * iMult +
+            toneBias.s +
+            (isOriginalColor ? ORIGINAL_COLOR_LIFT.s : 0),
         },
         proLook: proLookConfigOverrides,
         awb: wantsAwb
@@ -1658,6 +1699,10 @@ export function ImageStandardizeEditor({
               // Engine auto-WB: detect the wall region, gray-world fallback.
               // Wall-pick UI is not on the artist tone step.
               wallSample: "auto",
+              // Partial strength (0.5) so a genuine cast is eased without
+              // neutralizing the artist's intended warm tone — the root
+              // cause of the "doesn't look like my painting" reports.
+              strength: ENHANCE_AWB_STRENGTH,
             }
           : undefined,
         // F2 (2026-08-10) — user-facing wall-brightness chip.
@@ -2877,13 +2922,13 @@ export function ImageStandardizeEditor({
                     </p>
                   </div>
 
-                  {/* Capture setup — how the photo was shot, not lighting */}
+                  {/* Color handling — fidelity (원본 색감 / 선명 보정), not lighting */}
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2 text-[11px]">
                       <span className="text-zinc-600">
                         {t("upload.imageEnhance.inputType.label")}
                       </span>
-                      {(["auto", "studio", "scanner"] as InputType[]).map((m) => (
+                      {(["original", "enhance"] as InputType[]).map((m) => (
                         <button
                           key={m}
                           type="button"
@@ -2999,18 +3044,28 @@ export function ImageStandardizeEditor({
                               : "—"}
                       </li>
                       <li>
-                        {t("imageEnhance.wizard.summaryWallBrightness")}:{" "}
-                        {t(`imageEnhance.wallBrightness.${wallBrightness}`)} ✓
-                      </li>
-                      <li>
                         {t("imageEnhance.wizard.summaryIntensity")}:{" "}
                         {t(`upload.imageEnhance.intensity.${intensity}`)} ✓
                       </li>
-                      <li>
-                        {wallAutoFired
-                          ? `${t("imageEnhance.wizard.summaryWbWall")} ✓`
-                          : t("imageEnhance.wizard.summaryWbFallback")}
-                      </li>
+                      {isOriginalColor ? (
+                        // "원본 색감" runs no AWB / Pro Look, so the wall
+                        // brightness + WB-source lines would misrepresent
+                        // the result. Report the faithful intent instead.
+                        <li>{t("imageEnhance.wizard.summaryColorOriginal")}</li>
+                      ) : (
+                        <>
+                          <li>{t("imageEnhance.wizard.summaryColorEnhance")}</li>
+                          <li>
+                            {t("imageEnhance.wizard.summaryWallBrightness")}:{" "}
+                            {t(`imageEnhance.wallBrightness.${wallBrightness}`)} ✓
+                          </li>
+                          <li>
+                            {wallAutoFired
+                              ? `${t("imageEnhance.wizard.summaryWbWall")} ✓`
+                              : t("imageEnhance.wizard.summaryWbFallback")}
+                          </li>
+                        </>
+                      )}
                     </ul>
                   </div>
                   {/* Actions */}

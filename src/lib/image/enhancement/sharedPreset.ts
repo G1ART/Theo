@@ -1,7 +1,14 @@
 import { ASPECT_PRESETS, type AspectMode } from "./aspectResolve";
 
 export type EnhanceSessionPreset = {
-  inputType: "auto" | "studio" | "scanner";
+  /**
+   * Color-handling mode. 2026-10-02 redesign collapsed the old
+   * capture-oriented trio (auto / studio / scanner) into an honest
+   * two-way fidelity selector. `parseEnhanceSessionPreset` migrates
+   * legacy blobs: `scanner → original` (same faithful color behavior),
+   * `auto`/`studio → enhance` (closest to the old corrective look).
+   */
+  inputType: "original" | "enhance";
   intensity: "light" | "normal" | "strong";
   b: number;
   c: number;
@@ -57,12 +64,25 @@ function parseCustomAspect(
   return undefined;
 }
 
+/**
+ * Normalize a stored `inputType` to the current two-way union, migrating
+ * legacy capture-mode values. Returns null for anything unrecognized so
+ * the caller can reject the whole blob.
+ */
+function parseInputType(value: unknown): EnhanceSessionPreset["inputType"] | null {
+  if (value === "original" || value === "enhance") return value;
+  // Legacy (pre-2026-10-02) capture modes.
+  if (value === "scanner") return "original";
+  if (value === "auto" || value === "studio") return "enhance";
+  return null;
+}
+
 export function parseEnhanceSessionPreset(raw: unknown): EnhanceSessionPreset | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
-  const inputType = row.inputType;
+  const inputType = parseInputType(row.inputType);
   const intensity = row.intensity;
-  if (inputType !== "auto" && inputType !== "studio" && inputType !== "scanner") return null;
+  if (inputType === null) return null;
   if (intensity !== "light" && intensity !== "normal" && intensity !== "strong") return null;
   const aspectMode = parseAspectMode(row.aspectMode);
   const customAspect = parseCustomAspect(row.customAspect);

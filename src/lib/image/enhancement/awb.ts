@@ -529,6 +529,26 @@ export function computeWallAnchoredGains(
 }
 
 /**
+ * Blend an AWB per-channel multiplier toward identity (1.0) by
+ * `strength` in [0,1].
+ *
+ *   - `strength = 1` → full gain (byte-identical with the legacy
+ *     full-strength AWB; this is the default when callers omit it).
+ *   - `strength = 0` → no correction (gain collapses to 1.0).
+ *   - `0 < strength < 1` → partial white balance.
+ *
+ * The "선명 보정" capture mode (2026-10-02) passes `strength = 0.5` so a
+ * warm artwork tone survives the correction while severe casts (e.g.
+ * yellow indoor light) are still eased. Non-finite inputs are treated
+ * defensively: a bad `mul` → 1 (no-op), a bad `strength` → 1 (full).
+ */
+export function dampenAwbGain(mul: number, strength: number): number {
+  if (!Number.isFinite(mul)) return 1;
+  const s = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 1;
+  return 1 + (mul - 1) * s;
+}
+
+/**
  * Apply channel multipliers in-place on an RGBA buffer. Alpha is
  * preserved. Values are clamped into [0,255].
  */

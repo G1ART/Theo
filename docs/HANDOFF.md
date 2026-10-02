@@ -2,6 +2,48 @@
 
 Last updated: 2026-10-02
 
+## 2026-10-02 (92) — AI 보정 색 모드 재설계 (자동/스튜디오/스캐너 → 원본 색감/선명 보정)
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가/변경: 없음.**
+
+작가 피드백: "자동·스튜디오 보정은 왜곡이 너무 심해 거의 못 쓰고, 스캐너만 원작에 가깝다. 자동·스튜디오는 결과가 같아 보인다. 스캐너 네이밍도 거꾸로다." 스튜디오 원본 사진 + 세 모드 결과를 코드와 대조해 원인을 확정하고 작가 결정대로 패치.
+
+### 원인 (단일 업로드 에디터 한정 — 벌크는 원래부터 AWB·ProLook off 라 무관)
+
+- 세 모드의 실질 차이는 **색 처리 두 가지**뿐이었다: 자동·스튜디오 = 벽앵커 AWB on + Pro Look on, 스캐너 = 둘 다 off(지오메트리만).
+- **AWB 가 벽앵커 방식**이라, 작품을 크롭·워프하면 가장자리가 "벽"이 아니라 **작품 자신의 크림색 배경**이 된다. AWB 가 이걸 중립 흰색(243)으로 "교정"해 **작가의 따뜻한 크림톤을 차가운 순백으로 중화** + Pro Look CLAHE·채도로 레드 과채도 → 과보정.
+- **자동 ≈ 스튜디오**인 이유: 유일한 차이(`iMult` 0.5×, studio paintingMode 강제)가 평면회화에선 둘 다 `analysis.mode==="flat"` 로 수렴하고, 가장 큰 왜곡원 AWB 는 동일. 게다가 **기본값이 `"auto"`** 라 신규 작가가 최악 버전을 디폴트로 받았다.
+- 네이밍: "스캐너"는 입력(촬영 방식)을 암시하는데 동작은 "보정 최소화 = 원본 색 신뢰" → 잘 찍은 실공간 사진이 가장 충실하게 나오는 게 당연. 이름이 동작과 어긋남.
+
+### 작가 결정 (AskQuestion)
+
+- **구조**: 2단계로 축소 (`two_fidelity`).
+- **AWB 정책**: 부분 강도 — 원래 색 ~50% 보존하며 섞기 (`partial`).
+
+### 변경 요약
+
+- **색 처리 2-way 재설계 (`src/components/upload/ImageStandardizeEditor.tsx`).** `CaptureMode`/`InputType` = `"original" | "enhance"`, 기본값 `"original"`.
+  - `원본 색감(original)`: AWB off + Pro Look off + `ORIGINAL_COLOR_LIFT`(b +0.03, c +0.02, s +0.05) 로 "스캐너 + 명채도 살짝 ↑". classic tone 패스는 Pro Look off 일 때만 돌아 lift 가 이 모드에만 적용됨.
+  - `선명 보정(enhance)`: AWB **부분 강도 0.5** (`ENHANCE_AWB_STRENGTH`) + Pro Look on, `iMult` 0.6× (구 studio 0.5↔auto 1 사이, 단 AWB 반감이 핵심).
+  - **색/지오메트리 분리**: 구 스캐너의 "원근 건너뜀" 결합을 끊음. 두 모드 모두 동일하게 코너 워프·자동코너·타원복원 수행 (`!isScanner` 게이트 제거). 2026-10-02(90) 정사각 복원 기능 보존.
+  - `paintingMode` 는 이제 `analysis.mode==="flat"` 만으로 (studio 강제 제거).
+  - Step 3 요약 카드 모드 인지: original 은 "원본 색감 유지(WB 미적용)", enhance 는 기존 벽 밝기/WB 줄 표시.
+- **엔진 부분 AWB (`src/lib/image/enhancement/awb.ts`, `localFlatEngine.ts`).** 신규 순수 함수 `dampenAwbGain(mul, strength)` = `1 + (mul-1)*strength`. 엔진 `awb.strength?` 추가, anchored·gray-world 양 경로의 gain 을 **적용 전 + 영속 레시피 모두** 감쇠. **`strength` 생략/1 = byte-identical** (벌크·레거시·재생 불변).
+- **sharedPreset 마이그레이션 (`src/lib/image/enhancement/sharedPreset.ts`).** `inputType: "original" | "enhance"`. `parseEnhanceSessionPreset` 가 레거시 blob 을 전진 매핑: `scanner→original`, `auto`/`studio→enhance`, 미지값은 전체 reject.
+- **i18n (ko·en).** `inputType.label` "촬영 방식"→"색 보정", `inputType.original`/`inputType.enhance` 신설(구 auto/studio/scanner 키 제거), hint 재작성(원근은 두 모드 동일 언급), 요약 키 `summaryColorOriginal`/`summaryColorEnhance` 추가.
+- **테스트 (`tests/wall-matte.test.ts`).** `dampenAwbGain` 경계(1=항등, 0.5=편차 절반, 0=no-op, NaN 방어) + sharedPreset 레거시 매핑(scanner→original, auto/studio→enhance, 신규 통과, phone→null).
+
+### 가드레일 / 영향 범위
+
+- **벌크 업로드 무영향**: `upload/bulk/page.tsx` 는 `runFlatEnhancement({file})` 만 호출(awb/proLook 미전달) → 이미 `original` 과 동일한 faithful 동작.
+- AWB `strength` 기본 1 이라 기존 recipe 재생·벌크·테스트 전부 byte-identical.
+- 지오메트리(코너/워프/정사각 복원)·acting-as·metering·quality gate 흐름 불변.
+- Supabase 스키마·env var 변화 없음.
+
+**Verified:** `npx tsc --noEmit`, `npm run build`(통과), `wall-matte.test.ts`, `test:image-enhance-{awb,adaptive,pro-look,recipe,geometry,prepare,keystone-regression,corner-picker,aspect-resolve}` 모두 통과.
+
 ## 2026-10-02 (91) — 메인 피드 첫 페인트 속도 개선 (오버페치 제거 + 렌더 언블록)
 
 > **Supabase SQL 돌려야 할 것은 없음.**

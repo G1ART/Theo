@@ -38,6 +38,7 @@ import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
   applyAwb,
   computeWallAnchoredGains,
+  dampenAwbGain,
   estimateAwb,
   resolveWallBrightnessTarget,
   type WallAnchoredGains,
@@ -115,6 +116,16 @@ export type RunFlatInput = {
      *    reasons, e.g. tests).
      */
     wallSample?: { x: number; y: number } | "auto" | "off";
+    /**
+     * 2026-10-02 — partial white-balance strength in [0,1]. The
+     * computed per-channel gains are blended toward identity by this
+     * factor before they are applied AND persisted (see
+     * `dampenAwbGain`). `1` (or omitted) = full strength, byte-identical
+     * with every pre-2026-10-02 recipe. The "선명 보정" capture mode
+     * passes `0.5` so a warm artwork tone survives while severe casts
+     * are still eased; "원본 색감" leaves AWB disabled entirely.
+     */
+    strength?: number;
   };
   /**
    * F2 (2026-08-10) — matte white target selector. Threads a
@@ -817,6 +828,13 @@ export async function runFlatEnhancement(
     if (awbEnabled) {
       const tawb = performance.now();
       const sample = ctx.getImageData(0, 0, workW, workH);
+      // 2026-10-02 — partial white-balance strength. Omitted / 1 keeps
+      // the historical full-strength gains (byte-identical replay); the
+      // "선명 보정" mode passes 0.5 so the correction eases casts without
+      // neutralizing the artist's intended warm tone. Applied to both
+      // the anchored and gray-world paths, and to the PERSISTED gains so
+      // recipe replay matches what the viewer saw.
+      const awbStrength = input.awb?.strength ?? 1;
       const wallSample = input.awb?.wallSample ?? "auto";
       let anchored: WallAnchoredGains | null = null;
       if (wallSample !== "off") {
@@ -849,9 +867,9 @@ export async function runFlatEnhancement(
       }
       if (anchored) {
         awbRecipe = {
-          rMul: anchored.r,
-          gMul: anchored.g,
-          bMul: anchored.b,
+          rMul: dampenAwbGain(anchored.r, awbStrength),
+          gMul: dampenAwbGain(anchored.g, awbStrength),
+          bMul: dampenAwbGain(anchored.b, awbStrength),
           // AwbRecipe.source is a compact enum shared with the DB
           // schema; the new anchored variants still fit under
           // "wall-biased" (the wall is the reference in both paths).
@@ -861,13 +879,19 @@ export async function runFlatEnhancement(
         };
         applyAwb(sample.data, awbRecipe);
       } else {
-        awbRecipe = estimateAwb({
+        const estimated = estimateAwb({
           data: sample.data,
           width: workW,
           height: workH,
           rectangle: input.awb?.rectangle ?? null,
           rectangleConfidence: input.awb?.rectangleConfidence,
         });
+        awbRecipe = {
+          ...estimated,
+          rMul: dampenAwbGain(estimated.rMul, awbStrength),
+          gMul: dampenAwbGain(estimated.gMul, awbStrength),
+          bMul: dampenAwbGain(estimated.bMul, awbStrength),
+        };
         applyAwb(sample.data, awbRecipe);
       }
       ctx.putImageData(sample, 0, 0);

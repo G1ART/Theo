@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { fitMatteForegroundQuad } from "../src/lib/image/enhancement/wallMatte";
 import { paintBorderWall } from "../src/lib/image/enhancement/borderWall";
 import { parseEnhanceSessionPreset } from "../src/lib/image/enhancement/sharedPreset";
+import { dampenAwbGain } from "../src/lib/image/enhancement/awb";
 
 function solid(w: number, h: number, fill: [number, number, number], box: { x: number; y: number; w: number; h: number }) {
   const data = new Uint8ClampedArray(w * h * 4);
@@ -66,10 +67,43 @@ assert.equal(beige[2], 243);
 // Subject pixel is untouched.
 assert.equal(beige[(10 * 20 + 10) * 4], 10);
 
+// 2026-10-02 color-handling redesign — the two-way fidelity union plus
+// legacy migration. New values pass through verbatim; the old capture
+// trio maps forward (scanner → original, auto/studio → enhance); unknown
+// values still reject the whole blob.
 assert.deepEqual(
-  parseEnhanceSessionPreset({ inputType: "studio", intensity: "strong", b: 1.1, c: 0.9, s: 1 }),
-  { inputType: "studio", intensity: "strong", b: 1.1, c: 0.9, s: 1 },
+  parseEnhanceSessionPreset({ inputType: "enhance", intensity: "strong", b: 1.1, c: 0.9, s: 1 }),
+  { inputType: "enhance", intensity: "strong", b: 1.1, c: 0.9, s: 1 },
+);
+assert.deepEqual(
+  parseEnhanceSessionPreset({ inputType: "original", intensity: "normal", b: 1, c: 1, s: 1 }),
+  { inputType: "original", intensity: "normal", b: 1, c: 1, s: 1 },
+);
+assert.equal(
+  parseEnhanceSessionPreset({ inputType: "scanner", intensity: "normal" })?.inputType,
+  "original",
+  "legacy scanner → original",
+);
+assert.equal(
+  parseEnhanceSessionPreset({ inputType: "studio", intensity: "strong" })?.inputType,
+  "enhance",
+  "legacy studio → enhance",
+);
+assert.equal(
+  parseEnhanceSessionPreset({ inputType: "auto", intensity: "light" })?.inputType,
+  "enhance",
+  "legacy auto → enhance",
 );
 assert.equal(parseEnhanceSessionPreset({ inputType: "phone" }), null);
+
+// 2026-10-02 partial white balance. strength=1 is identity (byte-identical
+// legacy replay); 0.5 halves the deviation from 1.0; 0 collapses to no-op;
+// non-finite inputs are handled defensively.
+assert.equal(dampenAwbGain(1.4, 1), 1.4, "full strength = identity");
+assert.ok(Math.abs(dampenAwbGain(1.4, 0.5) - 1.2) < 1e-9, "half strength halves deviation");
+assert.ok(Math.abs(dampenAwbGain(0.8, 0.5) - 0.9) < 1e-9, "half strength works below 1 too");
+assert.equal(dampenAwbGain(1.4, 0), 1, "zero strength = no-op");
+assert.equal(dampenAwbGain(1.4, NaN), 1.4, "bad strength falls back to full");
+assert.equal(dampenAwbGain(NaN, 0.5), 1, "bad multiplier falls back to 1");
 
 console.log("wall-matte.test.ts: ok");

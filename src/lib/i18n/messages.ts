@@ -1418,12 +1418,11 @@ export const messages = {
     "upload.imageEnhance.rerunCta": "Run again",
     "upload.imageEnhance.cancelCta": "Cancel",
     "upload.imageEnhance.perspective.openBtn": "Perspective correction (adjust corners)",
-    "upload.imageEnhance.inputType.label": "How it was shot",
-    "upload.imageEnhance.inputType.auto": "Auto",
-    "upload.imageEnhance.inputType.scanner": "Scanner",
-    "upload.imageEnhance.inputType.studio": "Studio",
+    "upload.imageEnhance.inputType.label": "Color",
+    "upload.imageEnhance.inputType.original": "True to original",
+    "upload.imageEnhance.inputType.enhance": "Enhanced",
     "upload.imageEnhance.inputType.hint":
-      "Scanner, studio, and auto change perspective correction and white-balance strength. Brightness is set with Strength and the sliders below.",
+      "“True to original” keeps the colors you captured and just adds a touch of clarity (recommended). “Enhanced” partially corrects color casts like yellow indoor light and lifts contrast and saturation a little. Perspective is straightened either way.",
     "upload.imageEnhance.controls.glare.hint":
       "Highlights bright reflection patches so you can decide whether to re-shoot from a slight angle.",
     "upload.imageEnhance.controls.portfolio.hint":
@@ -1481,6 +1480,8 @@ export const messages = {
     "imageEnhance.wizard.summaryIntensity": "Strength",
     "imageEnhance.wizard.summaryWbWall": "WB: wall auto",
     "imageEnhance.wizard.summaryWbFallback": "WB: whole frame",
+    "imageEnhance.wizard.summaryColorOriginal": "Color: kept true to original (no white balance)",
+    "imageEnhance.wizard.summaryColorEnhance": "Color: enhanced (partial white balance)",
     "imageEnhance.wizard.advancedPerspectiveTitle": "Advanced · Perspective",
     "imageEnhance.wizard.advancedToneTitle": "Advanced · Tone",
     "imageEnhance.wizard.skipPerspective": "Skip perspective for this image",
@@ -6060,12 +6061,11 @@ export const messages = {
     "upload.imageEnhance.rerunCta": "다시 실행",
     "upload.imageEnhance.cancelCta": "취소",
     "upload.imageEnhance.perspective.openBtn": "원근 보정 (코너 조정)",
-    "upload.imageEnhance.inputType.label": "촬영 방식",
-    "upload.imageEnhance.inputType.auto": "자동",
-    "upload.imageEnhance.inputType.scanner": "스캐너",
-    "upload.imageEnhance.inputType.studio": "스튜디오",
+    "upload.imageEnhance.inputType.label": "색 보정",
+    "upload.imageEnhance.inputType.original": "원본 색감",
+    "upload.imageEnhance.inputType.enhance": "선명 보정",
     "upload.imageEnhance.inputType.hint":
-      "스캐너·스튜디오·자동은 원근 보정과 화이트밸런스 세기를 바꿉니다. 밝기는 보정 강도와 아래 슬라이더로 맞춥니다.",
+      "‘원본 색감’은 작가님이 촬영한 색을 그대로 유지하고 선명도만 살짝 더합니다(권장). ‘선명 보정’은 노란 실내조명 같은 색틀어짐을 부분적으로 바로잡고 대비·채도를 조금 더 살립니다. 원근(각·변)은 두 모드 모두 똑같이 펴 줍니다.",
     "upload.imageEnhance.controls.glare.hint":
       "반사광이 심한 영역을 표시해서 다시 촬영할지 판단할 수 있어요.",
     "upload.imageEnhance.controls.portfolio.hint":
@@ -6123,6 +6123,8 @@ export const messages = {
     "imageEnhance.wizard.summaryIntensity": "보정 강도",
     "imageEnhance.wizard.summaryWbWall": "WB: 벽 자동 감지",
     "imageEnhance.wizard.summaryWbFallback": "WB: 이미지 전체 기준",
+    "imageEnhance.wizard.summaryColorOriginal": "색 보정: 원본 색감 유지 (화이트밸런스 미적용)",
+    "imageEnhance.wizard.summaryColorEnhance": "색 보정: 선명 보정 (부분 화이트밸런스)",
     "imageEnhance.wizard.advancedPerspectiveTitle": "고급 · 원근",
     "imageEnhance.wizard.advancedToneTitle": "고급 · 톤",
     "imageEnhance.wizard.skipPerspective": "이 이미지 원근 건너뛰기",
