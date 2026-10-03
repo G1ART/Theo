@@ -260,12 +260,13 @@ export function orderQuadTlTrBrBl(quad: Quad): Quad {
 
 /**
  * Scale that turns one axis of a vision payload into [0, 1].
- * Values already in range stay put. (1, 1000] is the 0–1000 grid some
- * models emit instead of fractions. Larger numbers are pixels when
- * they still fit the image we sent.
+ * Fractions, including a corner that sits a hair past 1, stay put and
+ * are clamped later. Only a max clearly above that range is the 0–1000
+ * grid some models emit. Larger numbers are pixels when they still fit
+ * the image we sent.
  */
 export function visionAxisScale(max: number, axisSize?: number): number {
-  if (!(max > 1.001)) return 1;
+  if (!(max > 1.5)) return 1;
   if (max <= 1000.5) return 1000;
   if (axisSize && axisSize > 1 && max <= axisSize * 1.05) return axisSize;
   return 1;
@@ -284,6 +285,71 @@ export function isPhotoBoundQuad(quad: Quad, eps = 0.004): boolean {
     if (x <= eps || x >= 1 - eps || y <= eps || y >= 1 - eps) onFrame += 1;
   }
   return onFrame >= 3;
+}
+
+const VISION_CORNER_MIN_CONFIDENCE = 0.5;
+
+/**
+ * Corners for a rectangle crop, taken from a painting-bbox vision
+ * result. A missing corner list is not filled in with the photograph.
+ * Confidence 1 on a full-frame bbox stays "no quad".
+ */
+export function rectangleCornersFromVision(input: {
+  corners: Quad | null;
+  bbox: { x: number; y: number; width: number; height: number } | null;
+  confidence: number;
+  alreadyTight: boolean;
+}): { corners: Quad | null; confidence: number } {
+  const confidence = Number.isFinite(input.confidence) ? input.confidence : 0;
+  const parsed =
+    input.corners && hasValidArea(input.corners) && !isPhotoBoundQuad(input.corners)
+      ? input.corners
+      : null;
+  if (parsed && confidence >= VISION_CORNER_MIN_CONFIDENCE) {
+    return { corners: parsed, confidence };
+  }
+  if (!input.alreadyTight && confidence >= VISION_CORNER_MIN_CONFIDENCE && input.bbox) {
+    const box = input.bbox;
+    const area = box.width * box.height;
+    if (area >= 0.12 && area <= 0.92 && box.width >= 0.2 && box.height >= 0.2) {
+      const fromBox = quadFromRect({ x: box.x, y: box.y, w: box.width, h: box.height });
+      if (fromBox && !isPhotoBoundQuad(fromBox)) {
+        return { corners: fromBox, confidence };
+      }
+    }
+  }
+  return { corners: null, confidence };
+}
+
+/**
+ * What the rectangle picker shows. Vision owns the corners. A local
+ * fit may fill in only when it is not the photograph's own frame.
+ * Missing vision never becomes the unit square at confidence 1.
+ */
+export function resolveRectangleSeed(input: {
+  committed?: Quad | null;
+  vision?: Quad | null;
+  matte?: Quad | null;
+  edge?: Quad | null;
+  edgeConfidence?: number | null;
+}): Quad {
+  if (input.committed && hasValidArea(input.committed)) return input.committed;
+  if (input.vision && hasValidArea(input.vision) && !isPhotoBoundQuad(input.vision)) {
+    return input.vision;
+  }
+  if (input.matte && hasValidArea(input.matte) && !isPhotoBoundQuad(input.matte)) {
+    return input.matte;
+  }
+  const edgeConf = input.edgeConfidence ?? 0;
+  if (
+    input.edge &&
+    hasValidArea(input.edge) &&
+    edgeConf >= 0.55 &&
+    !isPhotoBoundQuad(input.edge)
+  ) {
+    return input.edge;
+  }
+  return defaultInsetQuad(0.15);
 }
 
 /**

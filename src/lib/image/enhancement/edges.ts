@@ -286,18 +286,6 @@ export function detectBestQuadrilateral(
   }
   const confidence = insideCount / idxs.length;
 
-  // An envelope that runs well off the photo is the image frame, not
-  // the canvas. A few pixels of slack still covers a tilted rectangle
-  // whose 2.5σ fit kisses the border; clamping THAT onto 0 and 1 is
-  // what parked the picker on the outer photo bounds.
-  let overflow = 0;
-  for (const [x, y] of ordered) {
-    overflow = Math.max(overflow, -x / tw, -y / th, (x - tw) / tw, (y - th) / th);
-  }
-  // 6% still fits the 30° fixture. The plain-wall failure overflowed
-  // ~18% and clamped onto x=0 / y=0 / x=1 / y=1.
-  if (overflow > 0.12) return null;
-
   // Normalize corners into [0,1] image space (clamped).
   const corners = ordered.map(([x, y]) => [
     Math.min(1, Math.max(0, x / tw)),

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fitMatteForegroundQuad, fitPlainWallCanvasQuad } from "../src/lib/image/enhancement/wallMatte";
+import { fitMatteForegroundQuad } from "../src/lib/image/enhancement/wallMatte";
 import { galleryMatteMask, paintBorderWall, restoreGalleryMatte } from "../src/lib/image/enhancement/borderWall";
 import { parseEnhanceSessionPreset } from "../src/lib/image/enhancement/sharedPreset";
 import { dampenAwbGain } from "../src/lib/image/enhancement/awb";
@@ -38,54 +38,6 @@ assert.ok(flushQuad);
 // min x = 12/100 = 0.12 exactly, no padding bias either direction.
 assert.ok(Math.abs(flushQuad![0][0] - 0.12) < 0.001);
 assert.ok(Math.abs(flushQuad![0][1] - 10 / 80) < 0.001);
-
-// 2026-10-03 — white wall that darkens toward the floor, plus a few
-// dark specks on the photo edge. The corner-contrast mask expands to
-// the frame and returns null. The side scan must still sit on the canvas.
-{
-  const W = 160;
-  const H = 120;
-  const x0 = 18;
-  const y0 = 20;
-  const x1 = 132;
-  const y1 = 102;
-  const graded = new Uint8ClampedArray(W * H * 4);
-  for (let y = 0; y < H; y += 1) {
-    const wall = 236 - (y / (H - 1)) * 52;
-    for (let x = 0; x < W; x += 1) {
-      const i = (y * W + x) * 4;
-      const inside = x >= x0 && x < x1 && y >= y0 && y < y1;
-      const edge =
-        inside &&
-        (x < x0 + 2 || x >= x1 - 2 || y < y0 + 2 || y >= y1 - 2);
-      const pale = 200 - ((x * 3 + y) % 17);
-      const [r, g, b] = edge
-        ? [30, 30, 34]
-        : inside
-          ? x < x0 + 22
-            ? [48, 48, 52]
-            : [pale, pale - 4, pale - 10]
-          : [wall, wall - 1, wall - 5];
-      graded[i] = r;
-      graded[i + 1] = g;
-      graded[i + 2] = b;
-      graded[i + 3] = 255;
-    }
-  }
-  graded[0] = graded[1] = graded[2] = 12;
-  graded[((H - 1) * W + W - 1) * 4] = 12;
-  assert.equal(fitMatteForegroundQuad(graded, W, H), null, "gradient wall defeats the corner mask");
-  const found = fitPlainWallCanvasQuad(graded, W, H);
-  assert.ok(found, "plain-wall scan finds the canvas");
-  assert.ok(Math.abs(found![0][0] - x0 / W) < 0.04, `left ${found![0][0]}`);
-  assert.ok(Math.abs(found![0][1] - y0 / H) < 0.04, `top ${found![0][1]}`);
-  assert.ok(Math.abs(found![2][0] - (x1 - 1) / W) < 0.04, `right ${found![2][0]}`);
-  assert.ok(Math.abs(found![2][1] - (y1 - 1) / H) < 0.04, `bottom ${found![2][1]}`);
-  const onFrame = found!.filter(
-    ([x, y]) => x <= 0.004 || y <= 0.004 || x >= 0.996 || y >= 0.996,
-  ).length;
-  assert.equal(onFrame, 0, "corners stay off the photo bounds");
-}
 
 const frame = solid(20, 20, [10, 10, 10], { x: 2, y: 2, w: 16, h: 16 });
 paintBorderWall(frame, 20, 20);

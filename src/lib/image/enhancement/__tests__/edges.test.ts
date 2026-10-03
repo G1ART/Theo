@@ -127,32 +127,6 @@ import assert from "node:assert/strict";
     assert.ok(fit === null || Number.isFinite(fit.confidence), "no crash on blank input");
   }
 
-  // ── 4. A busy canvas that fills most of a plain wall makes the
-  //     moment envelope run off the photo. That fit must not come back
-  //     clamped onto the image corners.
-  {
-    const data = new Uint8ClampedArray(W * H * 4);
-    for (let y = 0; y < H; y += 1) {
-      for (let x = 0; x < W; x += 1) {
-        const i = (y * W + x) * 4;
-        const inside = x > 12 && x < W - 12 && y > 12 && y < H - 12;
-        const ink = inside && ((x + y * 3) % 5 === 0 || (x * 2 + y) % 7 === 0);
-        const v = ink ? 20 : inside ? 210 : 245;
-        data[i] = v;
-        data[i + 1] = v;
-        data[i + 2] = v;
-        data[i + 3] = 255;
-      }
-    }
-    const fit = detectBestQuadrilateral(data, W, H);
-    if (fit) {
-      const onFrame = fit.corners.filter(
-        ([x, y]) => x <= 0.004 || x >= 0.996 || y <= 0.004 || y >= 0.996,
-      ).length;
-      assert.ok(onFrame < 3, "busy canvas must not clamp onto the photo frame");
-    }
-  }
-
   console.log("edges (G2) contract: OK");
 })().catch((err) => {
   console.error(err);

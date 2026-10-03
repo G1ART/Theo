@@ -28,6 +28,9 @@ import assert from "node:assert/strict";
     orderQuadTlTrBrBl,
     parseVisionCorners,
     isPhotoBoundQuad,
+    visionAxisScale,
+    rectangleCornersFromVision,
+    resolveRectangleSeed,
   } = await import("../cornerPickerGeometry");
 
   // Sanity constants.
@@ -264,6 +267,70 @@ import assert from "node:assert/strict";
   ];
   assert.equal(isPhotoBoundQuad(photoFrame), true, "clamped photo-frame quad");
   assert.equal(isPhotoBoundQuad(okQuad), false, "inset quad is not the photo frame");
+
+  // A corner a hair past 1 is still a fraction. Dividing by 1000
+  // collapsed real sol quads and let a local frame stand in.
+  assert.equal(visionAxisScale(1.02), 1, "slightly-over-1 stays a fraction");
+  assert.equal(visionAxisScale(920), 1000, "0–1000 grid still scales");
+  const sloppy = parseVisionCorners([
+    [0.1, 0.12],
+    [0.88, 0.11],
+    [1.02, 0.9],
+    [0.08, 0.91],
+  ]);
+  assert.ok(sloppy, "fractional quad with one corner past 1 still parses");
+  assert.ok(sloppy![1][0] > 0.8, "TR stays on the canvas, not at 0");
+
+  // Missing vision must not become the photograph at confidence 1.
+  const fullFrame: typeof okQuad = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  const missing = rectangleCornersFromVision({
+    corners: null,
+    bbox: { x: 0, y: 0, width: 1, height: 1 },
+    confidence: 1,
+    alreadyTight: true,
+  });
+  assert.equal(missing.corners, null, "missing vision quad stays null");
+  assert.ok(
+    !(missing.corners && missing.confidence === 1),
+    "no full-frame quad is invented at confidence 1",
+  );
+  const reportedFrame = rectangleCornersFromVision({
+    corners: fullFrame,
+    bbox: { x: 0, y: 0, width: 1, height: 1 },
+    confidence: 1,
+    alreadyTight: false,
+  });
+  assert.equal(reportedFrame.corners, null, "photo-frame corners are not a canvas");
+
+  const seed = resolveRectangleSeed({
+    vision: null,
+    matte: null,
+    edge: fullFrame,
+    edgeConfidence: 1,
+  });
+  assert.equal(isPhotoBoundQuad(seed), false, "seed is not the photo frame");
+  assert.notDeepEqual(seed, fullFrame, "confidence-1 frame is not the seed");
+  const canvas: typeof okQuad = [
+    [0.12, 0.16],
+    [0.84, 0.15],
+    [0.83, 0.9],
+    [0.11, 0.91],
+  ];
+  assert.deepEqual(
+    resolveRectangleSeed({
+      vision: canvas,
+      matte: fullFrame,
+      edge: fullFrame,
+      edgeConfidence: 1,
+    }),
+    canvas,
+    "vision quad wins over a local frame",
+  );
 
   console.log("corner picker geometry contract: OK");
 })().catch((err) => {

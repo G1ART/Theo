@@ -15,11 +15,9 @@ import {
 import type { ArtworkLookPreset } from "@/lib/ai/types";
 import {
   parseVisionCorners,
-  quadFromRect,
+  rectangleCornersFromVision,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
-
-const MIN_CONFIDENCE = 0.5;
 
 export type ArtworkVisionSeed = {
   corners: Quad | null;
@@ -49,21 +47,15 @@ export async function detectArtworkQuad(file: File | Blob): Promise<ArtworkVisio
     width: payload.imagePxWidth,
     height: payload.imagePxHeight,
   });
-  let corners =
-    fromCorners && result.confidence >= MIN_CONFIDENCE ? fromCorners : null;
-  // A nearly frontal canvas sometimes comes back as a tight bbox with
-  // the corners omitted or in a coordinate space that did not parse.
-  // Use that rectangle instead of pretending the photo frame is the work.
-  if (!corners && !result.alreadyTight && result.confidence >= MIN_CONFIDENCE) {
-    const box = result.bbox;
-    const area = box.width * box.height;
-    if (area >= 0.12 && area <= 0.92 && box.width >= 0.2 && box.height >= 0.2) {
-      corners = quadFromRect({ x: box.x, y: box.y, w: box.width, h: box.height });
-    }
-  }
-  return {
-    corners,
+  const seeded = rectangleCornersFromVision({
+    corners: fromCorners,
+    bbox: result.bbox,
     confidence: result.confidence,
+    alreadyTight: result.alreadyTight,
+  });
+  return {
+    corners: seeded.corners,
+    confidence: seeded.confidence,
     look: result.look ?? null,
   };
 }

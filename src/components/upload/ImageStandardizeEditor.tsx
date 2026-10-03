@@ -44,10 +44,10 @@ import {
   type ExifReadResult,
 } from "@/lib/image/exifRead";
 import {
-  defaultInsetQuad,
   hasValidArea,
   isPhotoBoundQuad,
   resolveAutoCorners,
+  resolveRectangleSeed,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
 import {
@@ -1411,22 +1411,24 @@ export function ImageStandardizeEditor({
 
   // Seed the Step-1 PerspectiveCornerPicker with (in order):
   //   1. user's committed corners,
-  //   2. vision 4-corner trapezoid (the model owns the first guess),
-  //   3. local matte / edge detectors, only when vision missed,
-  //   4. defaultInsetQuad as a visual starting point only.
+  //   2. vision 4-corner trapezoid (gpt-5.6-sol owns the rectangle),
+  //   3. a local matte / edge hint only when it is not the photo frame,
+  //   4. an inset quad the artist can drag. That inset is not a detect.
   const matteQuad = (analysis?.matteForegroundCorners ?? null) as Quad | null;
-  const matteReady = Boolean(matteQuad && hasValidArea(matteQuad));
-  const wizardPerspectiveSeed = useMemo<Quad>(() => {
-    if (perspectiveCorners) return perspectiveCorners;
-    if (visionQuad) return visionQuad;
-    if (matteQuad && hasValidArea(matteQuad)) return matteQuad;
-    const edge = analysis?.suggestedRectangleCorners as Quad | null | undefined;
-    const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
-    // A fit clamped onto the photo frame is not the canvas. Leave the
-    // inset hint instead of parking handles on the outer bounds.
-    if (edge && hasValidArea(edge) && edgeConf >= 0.55 && !isPhotoBoundQuad(edge)) return edge;
-    return defaultInsetQuad(0.15);
-  }, [perspectiveCorners, matteQuad, visionQuad, analysis]);
+  const matteReady = Boolean(
+    matteQuad && hasValidArea(matteQuad) && !isPhotoBoundQuad(matteQuad),
+  );
+  const wizardPerspectiveSeed = useMemo<Quad>(
+    () =>
+      resolveRectangleSeed({
+        committed: perspectiveCorners,
+        vision: visionQuad,
+        matte: matteQuad,
+        edge: (analysis?.suggestedRectangleCorners ?? null) as Quad | null,
+        edgeConfidence: analysis?.suggestedRectangleConfidence ?? 0,
+      }),
+    [perspectiveCorners, matteQuad, visionQuad, analysis],
+  );
   // 2026-10-01 — surface low-confidence auto corners as a dashed
   // hint rather than a solid outline, so the user understands they
   // should confirm instead of trusting the shape. Hint fires when
@@ -1444,17 +1446,6 @@ export function ImageStandardizeEditor({
     if (matteQuad && hasValidArea(matteQuad)) return true;
     return edgeConf < 0.55 || rectConf < 0.55;
   }, [perspectiveCorners, matteQuad, visionQuad, visionConfidence, analysis]);
-
-  // The picker only re-seeds when `resetToken` changes. When the
-  // plain-wall scan arrives after the first paint, snap to it unless
-  // the artist has already dragged or vision has locked a quad.
-  useEffect(() => {
-    if (!matteQuad || !hasValidArea(matteQuad)) return;
-    if (perspectiveUserAdjustedRef.current) return;
-    if (visionQuad || perspectiveCorners) return;
-    setWizardPerspectiveDraft(null);
-    setPerspectiveResetToken((n) => n + 1);
-  }, [matteQuad, visionQuad, perspectiveCorners]);
 
   const pickerImageWidth =
     analysis?.width || previewNaturalSize?.w || 1024;
@@ -2670,14 +2661,14 @@ export function ImageStandardizeEditor({
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
                     <span
                       className={`rounded-full border px-2.5 py-1 ${
-                        visionStatus === "ok" || matteReady
+                        visionStatus === "ok"
                           ? "border-emerald-300 bg-emerald-50 text-emerald-800"
                           : visionStatus === "miss"
                             ? "border-amber-300 bg-amber-50 text-amber-800"
                             : "border-zinc-300 bg-zinc-50 text-zinc-700"
                       }`}
                     >
-                      {visionStatus === "ok" || matteReady
+                      {visionStatus === "ok"
                         ? t("imageEnhance.wizard.perspectiveAutoDetected")
                         : visionStatus === "miss"
                           ? t("imageEnhance.wizard.perspectiveManual")
@@ -2829,12 +2820,12 @@ export function ImageStandardizeEditor({
                       {t("upload.imageEnhance.flow.detectingArtwork")}
                     </p>
                   )}
-                  {boundaryMode === "quad" && !detectingArtwork && visionStatus === "miss" && !matteReady && !perspectiveUserAdjusted && (
+                  {boundaryMode === "quad" && !detectingArtwork && visionStatus === "miss" && !perspectiveUserAdjusted && (
                     <p className="text-[11px] leading-relaxed text-amber-800" role="status">
                       {t("upload.imageEnhance.flow.cropNeedCorners")}
                     </p>
                   )}
-                  {boundaryMode === "quad" && !detectingArtwork && (visionStatus !== "miss" || matteReady) && (
+                  {boundaryMode === "quad" && !detectingArtwork && visionStatus !== "miss" && (
                     <p className="text-[11px] leading-relaxed text-zinc-500">
                       {t("imageEnhance.wizard.perspectiveHint")}
                     </p>

@@ -21,7 +21,8 @@ import {
   type GlareRegion,
 } from "@/lib/image/enhancement/glareRegions";
 import { detectBestQuadrilateral, type EdgeRectFit } from "@/lib/image/enhancement/edges";
-import { fitMatteForegroundQuad, fitPlainWallCanvasQuad } from "@/lib/image/enhancement/wallMatte";
+import { isPhotoBoundQuad, type Quad } from "@/lib/image/enhancement/cornerPickerGeometry";
+import { fitMatteForegroundQuad } from "@/lib/image/enhancement/wallMatte";
 import {
   detectDominantEllipse,
   maskFromBackgroundContrast,
@@ -605,9 +606,17 @@ function analyzeImageSource(
   // (see `edges.ts`). Falls back to `null` when the fit is degenerate
   // or confidence is below the "worth surfacing" bar (< 0.4).
   const rectFit = detectBestQuadrilateral(imageData.data, w, h);
+  // A moment envelope clamped onto the photograph (corners at 0 and 1,
+  // confidence 1) is the image frame, not a canvas. Do not publish it.
+  // Rectangle corners come from vision; this fit is only a leftover
+  // hint and must not stand in for a missing vision quad.
+  const photoFrameFit =
+    !!rectFit &&
+    rectFit.confidence >= 0.999 &&
+    isPhotoBoundQuad(rectFit.corners as Quad);
   const suggestedRectangleCorners =
-    rectFit && rectFit.confidence >= 0.4 ? rectFit.corners : null;
-  const suggestedRectangleConfidence = rectFit ? rectFit.confidence : null;
+    rectFit && rectFit.confidence >= 0.4 && !photoFrameFit ? rectFit.corners : null;
+  const suggestedRectangleConfidence = rectFit && !photoFrameFit ? rectFit.confidence : null;
 
   // G2 (2026-08-10) — dominant ellipse fit for pottery / round works.
   // We derive a coarse subject mask from background contrast (corner
@@ -645,9 +654,7 @@ function analyzeImageSource(
     mode,
     suggestedRectangleCorners,
     suggestedRectangleConfidence,
-    matteForegroundCorners:
-      fitMatteForegroundQuad(imageData.data, w, h) ??
-      fitPlainWallCanvasQuad(imageData.data, w, h),
+    matteForegroundCorners: fitMatteForegroundQuad(imageData.data, w, h),
     ellipse: ellipseFit && ellipseFit.confidence >= 0.6 ? ellipseFit : null,
     shapeHint,
   };

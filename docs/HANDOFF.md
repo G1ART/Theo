@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-03
 
+## 2026-10-03 — 사각형 모서리는 다시 gpt-5.6-sol만 잡는다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가 없음.**
+
+`20c2b11`이 흰 벽 스캔으로 모서리를 대신 찍었다. 캔버스가 벽과 같은 흰 색이면 그 스캔은 경계를 못 보고, 핸들이 사진 바깥 테두리에 붙었다. 사각형 크롭의 네 모서리는 다시 `gpt-5.6-sol` 비전(`detectArtworkQuad` / artwork painting bbox)만 쓴다. reasoning은 medium, 긴 변 1280, detail은 high. 추론 모델에는 temperature를 넣지 않는다. 폐기 모델 핀(`gpt-4o`, `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-4.1-nano`, `gpt-6-astra`)은 그대로 무시한다.
+
+- 변마다 벽 색을 안으로 걷던 스캔, 12% 넘침을 감지로 쓰던 거절, 비전이 없을 때 사진 테두리(0/1)를 신뢰도 1로 쓰던 경로를 뺐다.
+- 비전이 오기 전에는 피커를 쓸 수 있다. 사진 프레임에 핸들을 붙여 감지 성공으로 보여 주지 않는다. 실패 문구는 그대로다.
+- 원형·비정형 Photoroom, 색 보정, 그림자는 그대로다.
+
+**Verified:** `npx tsc --noEmit`. `cornerPickerGeometry.test.ts`, `edges.test.ts`, `keystoneRegression.test.ts`, `tests/wall-matte.test.ts`. 로컬에 `OPENAI_API_KEY`가 없어 비전은 한 번도 호출하지 못했다. 브라우저 업로드 피커는 이번 턴에 열지 못했다.
+
 ## 2026-10-03 — 피드 가운데를 시안 모듈로 맞추고 다음 방은 미리 붙인다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가 없음.**
