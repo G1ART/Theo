@@ -21,7 +21,7 @@ import {
   type GlareRegion,
 } from "@/lib/image/enhancement/glareRegions";
 import { detectBestQuadrilateral, type EdgeRectFit } from "@/lib/image/enhancement/edges";
-import { fitMatteForegroundQuad } from "@/lib/image/enhancement/wallMatte";
+import { fitMatteForegroundQuad, fitPlainWallCanvasQuad } from "@/lib/image/enhancement/wallMatte";
 import {
   detectDominantEllipse,
   maskFromBackgroundContrast,
@@ -645,7 +645,9 @@ function analyzeImageSource(
     mode,
     suggestedRectangleCorners,
     suggestedRectangleConfidence,
-    matteForegroundCorners: fitMatteForegroundQuad(imageData.data, w, h),
+    matteForegroundCorners:
+      fitMatteForegroundQuad(imageData.data, w, h) ??
+      fitPlainWallCanvasQuad(imageData.data, w, h),
     ellipse: ellipseFit && ellipseFit.confidence >= 0.6 ? ellipseFit : null,
     shapeHint,
   };

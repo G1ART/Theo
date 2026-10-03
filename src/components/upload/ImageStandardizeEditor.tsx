@@ -46,6 +46,7 @@ import {
 import {
   defaultInsetQuad,
   hasValidArea,
+  isPhotoBoundQuad,
   resolveAutoCorners,
   type Quad,
 } from "@/lib/image/enhancement/cornerPickerGeometry";
@@ -1421,7 +1422,9 @@ export function ImageStandardizeEditor({
     if (matteQuad && hasValidArea(matteQuad)) return matteQuad;
     const edge = analysis?.suggestedRectangleCorners as Quad | null | undefined;
     const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
-    if (edge && hasValidArea(edge) && edgeConf >= 0.55) return edge;
+    // A fit clamped onto the photo frame is not the canvas. Leave the
+    // inset hint instead of parking handles on the outer bounds.
+    if (edge && hasValidArea(edge) && edgeConf >= 0.55 && !isPhotoBoundQuad(edge)) return edge;
     return defaultInsetQuad(0.15);
   }, [perspectiveCorners, matteQuad, visionQuad, analysis]);
   // 2026-10-01 — surface low-confidence auto corners as a dashed
@@ -1441,6 +1444,17 @@ export function ImageStandardizeEditor({
     if (matteQuad && hasValidArea(matteQuad)) return true;
     return edgeConf < 0.55 || rectConf < 0.55;
   }, [perspectiveCorners, matteQuad, visionQuad, visionConfidence, analysis]);
+
+  // The picker only re-seeds when `resetToken` changes. When the
+  // plain-wall scan arrives after the first paint, snap to it unless
+  // the artist has already dragged or vision has locked a quad.
+  useEffect(() => {
+    if (!matteQuad || !hasValidArea(matteQuad)) return;
+    if (perspectiveUserAdjustedRef.current) return;
+    if (visionQuad || perspectiveCorners) return;
+    setWizardPerspectiveDraft(null);
+    setPerspectiveResetToken((n) => n + 1);
+  }, [matteQuad, visionQuad, perspectiveCorners]);
 
   const pickerImageWidth =
     analysis?.width || previewNaturalSize?.w || 1024;

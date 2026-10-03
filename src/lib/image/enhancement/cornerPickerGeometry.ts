@@ -259,30 +259,63 @@ export function orderQuadTlTrBrBl(quad: Quad): Quad {
 }
 
 /**
+ * Scale that turns one axis of a vision payload into [0, 1].
+ * Values already in range stay put. (1, 1000] is the 0–1000 grid some
+ * models emit instead of fractions. Larger numbers are pixels when
+ * they still fit the image we sent.
+ */
+export function visionAxisScale(max: number, axisSize?: number): number {
+  if (!(max > 1.001)) return 1;
+  if (max <= 1000.5) return 1000;
+  if (axisSize && axisSize > 1 && max <= axisSize * 1.05) return axisSize;
+  return 1;
+}
+
+export type VisionFrame = { width: number; height: number };
+
+/**
+ * True when the quad sits on the photo frame itself — the shape left
+ * after an edge envelope is clamped to 0 and 1. A canvas that only
+ * touches one side of the photo (two corners) is not this case.
+ */
+export function isPhotoBoundQuad(quad: Quad, eps = 0.004): boolean {
+  let onFrame = 0;
+  for (const [x, y] of quad) {
+    if (x <= eps || x >= 1 - eps || y <= eps || y >= 1 - eps) onFrame += 1;
+  }
+  return onFrame >= 3;
+}
+
+/**
  * Parse a vision model `corners` payload (array of [x,y] or {x,y})
  * into a TL/TR/BR/BL quad. Returns null when the shape is unusable.
+ * `frame` is the pixel size of the image the model saw, so a pixel
+ * payload is not clamped into a single point at (1, 1).
  */
-export function parseVisionCorners(raw: unknown): Quad | null {
+export function parseVisionCorners(raw: unknown, frame?: VisionFrame | null): Quad | null {
   if (!Array.isArray(raw) || raw.length !== 4) return null;
-  const pts: NormalizedPoint[] = [];
+  const xs: number[] = [];
+  const ys: number[] = [];
   for (const p of raw) {
+    let x = Number.NaN;
+    let y = Number.NaN;
     if (Array.isArray(p) && p.length >= 2) {
-      const x = Number(p[0]);
-      const y = Number(p[1]);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      pts.push(clampNormalized([x, y]));
-      continue;
-    }
-    if (p && typeof p === "object") {
+      x = Number(p[0]);
+      y = Number(p[1]);
+    } else if (p && typeof p === "object") {
       const o = p as { x?: unknown; y?: unknown };
-      const x = Number(o.x);
-      const y = Number(o.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      pts.push(clampNormalized([x, y]));
-      continue;
+      x = Number(o.x);
+      y = Number(o.y);
+    } else {
+      return null;
     }
-    return null;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    xs.push(x);
+    ys.push(y);
   }
+  const xScale = visionAxisScale(Math.max(...xs), frame?.width);
+  const yScale = visionAxisScale(Math.max(...ys), frame?.height);
+  const pts = xs.map((x, i) => clampNormalized([x / xScale, (ys[i] ?? 0) / yScale]));
   const ordered = orderQuadTlTrBrBl(pts as Quad);
   return hasValidArea(ordered) ? ordered : null;
 }

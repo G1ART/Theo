@@ -27,6 +27,7 @@ import assert from "node:assert/strict";
     tryMoveCorner,
     orderQuadTlTrBrBl,
     parseVisionCorners,
+    isPhotoBoundQuad,
   } = await import("../cornerPickerGeometry");
 
   // Sanity constants.
@@ -219,6 +220,50 @@ import assert from "node:assert/strict";
     [0.9, 0.5],
   ];
   assert.equal(hasValidArea(collinear), false, "collinear quad fails area");
+
+  // 2026-10-03 — a plain-wall miss used to clamp pixel / 0–1000 corners
+  // onto (1, 1) and then fall back to the photo frame.
+  const milli = parseVisionCorners([
+    [90, 160],
+    [830, 150],
+    [840, 900],
+    [80, 920],
+  ]);
+  assert.ok(milli, "0–1000 corners stay a quad");
+  assert.ok(milli![0][0] > 0.05 && milli![0][0] < 0.12, "TL x on the canvas");
+  assert.ok(milli![1][0] > 0.8 && milli![1][0] < 0.9, "TR x on the canvas");
+  assert.equal(isPhotoBoundQuad(milli!), false, "rescaled quad is not the photo frame");
+
+  const pixels = parseVisionCorners(
+    [
+      [120, 140],
+      [1400, 130],
+      [1420, 980],
+      [100, 1000],
+    ],
+    { width: 1600, height: 1200 },
+  );
+  assert.ok(pixels, "pixel corners on a 1600px frame parse");
+  assert.ok(Math.abs(pixels![1][0] - 1400 / 1600) < 0.02, "TR follows image width");
+  assert.equal(
+    parseVisionCorners([
+      [4000, 10],
+      [4000, 10],
+      [4000, 10],
+      [4000, 10],
+    ]),
+    null,
+    "unscaled pixels still collapse",
+  );
+
+  const photoFrame: typeof okQuad = [
+    [0.05, 0],
+    [1, 0.16],
+    [0.94, 1],
+    [0, 0.78],
+  ];
+  assert.equal(isPhotoBoundQuad(photoFrame), true, "clamped photo-frame quad");
+  assert.equal(isPhotoBoundQuad(okQuad), false, "inset quad is not the photo frame");
 
   console.log("corner picker geometry contract: OK");
 })().catch((err) => {

@@ -486,6 +486,8 @@ Return a JSON object with:
   - The primary canvas usually contains the center of the photograph. Prefer that canvas unless another complete work is clearly larger and more fully visible.
   - When several canvases are visible, return corners for the PRIMARY one only (largest complete canvas).
   - If you cannot see all four edges, omit "corners" and keep confidence low.
+  - A single frontal or slightly keystoned rectangle on a plain wall (white, off-white, or grey) is an easy success. Place each corner on the canvas edge where it meets the wall and set confidence at or above 0.8. Similar margins on opposite sides are normal for a centered hang — that is not the forbidden symmetric fallback, and it is not a reason to omit corners or to return the photograph's own four corners.
+  - Coordinates are fractions in [0, 1]. Never return pixels and never use a 0–1000 grid.
 
 6. "look": the starting color preset for the deterministic enhancer that runs AFTER the user confirms the corners. You do not repaint or regenerate pixels. You only choose how hard that enhancer should push.
   - "colorMode": "original" when the captured color already resembles the artwork (studio daylight, a scanner, or a phone photo with only a mild cast). "enhance" ONLY when a strong cast — yellow tungsten, green fluorescent, or a badly dark exposure — would make the catalog photo misleading if left untouched.

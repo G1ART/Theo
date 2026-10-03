@@ -5,7 +5,11 @@ import {
   ARTWORK_PAINTING_BBOX_SYSTEM,
 } from "@/lib/ai/prompts";
 import type { ArtworkLookPreset, ArtworkPaintingBboxResult } from "@/lib/ai/types";
-import { parseVisionCorners } from "@/lib/image/enhancement/cornerPickerGeometry";
+import {
+  parseVisionCorners,
+  visionAxisScale,
+  type VisionFrame,
+} from "@/lib/image/enhancement/cornerPickerGeometry";
 
 export const runtime = "nodejs";
 /** Vision + JSON completions can occasionally push past the 30s Next.js default. */
@@ -138,7 +142,13 @@ function parseLook(raw: unknown): ArtworkLookPreset | null {
   };
 }
 
-function normalizeResult(raw: unknown): {
+function unitOnAxis(v: unknown, scale: number, fallback = 0): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return clamp01(n / scale);
+}
+
+function normalizeResult(raw: unknown, frame?: VisionFrame | null): {
   bbox: { x: number; y: number; width: number; height: number };
   confidence: number;
   alreadyTight: boolean;
@@ -160,10 +170,22 @@ function normalizeResult(raw: unknown): {
     r.bbox && typeof r.bbox === "object" ? (r.bbox as Record<string, unknown>) : null;
   if (!bboxRaw) return fullFrame;
 
-  const x = clamp01(bboxRaw.x, 0);
-  const y = clamp01(bboxRaw.y, 0);
-  let width = clamp01(bboxRaw.width, 0);
-  let height = clamp01(bboxRaw.height, 0);
+  const rawX = Number(bboxRaw.x);
+  const rawY = Number(bboxRaw.y);
+  const rawW = Number(bboxRaw.width);
+  const rawH = Number(bboxRaw.height);
+  const xScale = visionAxisScale(
+    Math.max(0, rawX, rawW, rawX + rawW),
+    frame?.width,
+  );
+  const yScale = visionAxisScale(
+    Math.max(0, rawY, rawH, rawY + rawH),
+    frame?.height,
+  );
+  const x = unitOnAxis(rawX, xScale, 0);
+  const y = unitOnAxis(rawY, yScale, 0);
+  let width = unitOnAxis(rawW, xScale, 0);
+  let height = unitOnAxis(rawH, yScale, 0);
   // Keep the rectangle inside the image regardless of what the model
   // returned. A model that returns x=0.9, width=0.5 should collapse to
   // width=0.1 rather than extending to 1.4.
@@ -176,7 +198,7 @@ function normalizeResult(raw: unknown): {
     ? Math.min(1, Math.max(0, confRaw))
     : 0;
   const hasVisibleFrame = r.hasVisibleFrame === true;
-  const corners = parseVisionCorners(r.corners);
+  const corners = parseVisionCorners(r.corners, frame);
   const look = parseLook(r.look);
 
   // Degenerate crop → treat as full frame; the renderer keeps the
@@ -207,16 +229,30 @@ function normalizeResult(raw: unknown): {
   };
 }
 
+async function readVisionFrame(req: Request): Promise<VisionFrame | null> {
+  try {
+    const raw = (await req.clone().json()) as {
+      imagePxWidth?: unknown;
+      imagePxHeight?: unknown;
+    };
+    const width = Number(raw?.imagePxWidth);
+    const height = Number(raw?.imagePxHeight);
+    if (width > 1 && height > 1) return { width, height };
+  } catch {
+    // Body already consumed or not JSON. Fraction coordinates still parse.
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
+  const frame = await readVisionFrame(req);
   return handleAiRoute<PaintingBboxBody, ArtworkPaintingBboxResult>(req, {
     feature: "artwork_painting_bbox",
     validateBody: (raw) => parseBody(raw),
     async buildPromptInput({ body }) {
       return {
         system: ARTWORK_PAINTING_BBOX_SYSTEM,
-        user: `Analyze this artwork photograph. Identify the PRIMARY canvas (largest complete work if several are visible; it usually contains the photo center). Return its tight bbox AND the four keystoned corners (TL, TR, BR, BL) on the physical canvas edge — not on an internal brushstroke — excluding wall, floor, and neighboring works. Also return "look", the starting color preset. Photo dimensions: ${Math.round(
-          body.imagePxWidth,
-        )}x${Math.round(body.imagePxHeight)} px.`,
+        user: `Analyze this artwork photograph. Identify the PRIMARY canvas (largest complete work if several are visible; it usually contains the photo center). Return its tight bbox AND the four keystoned corners (TL, TR, BR, BL) on the physical canvas edge — not on an internal brushstroke — excluding wall, floor, and neighboring works. Also return "look", the starting color preset. Every coordinate is a fraction of this image in [0, 1], not pixels.`,
         schemaHint: ARTWORK_PAINTING_BBOX_SCHEMA,
         fallback: () => ({
           bbox: { x: 0, y: 0, width: 1, height: 1 },
@@ -247,7 +283,7 @@ export async function POST(req: Request) {
       return res;
     }
     const bodyObj = (body ?? {}) as Record<string, unknown>;
-    const normalized = normalizeResult(bodyObj);
+    const normalized = normalizeResult(bodyObj, frame);
     const aiEventId =
       typeof bodyObj.aiEventId === "string" ? bodyObj.aiEventId : undefined;
     const degraded = bodyObj.degraded === true;
