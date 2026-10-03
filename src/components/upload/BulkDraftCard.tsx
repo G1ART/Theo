@@ -125,9 +125,12 @@ export function BulkDraftCard({
   onRemoveDetail,
 }: Props) {
   const { t, locale } = useT();
-  const images = [...(draft.artwork_images ?? [])].sort(
-    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
-  );
+  const images = [...(draft.artwork_images ?? [])]
+    .filter((img) => {
+      const view = img.view_type ?? "";
+      return view !== "cutout" && view !== "cutout_alpha";
+    })
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const cover = images[0];
   const details = images.slice(1);
   const thumb = cover ? getArtworkImageUrl(cover.storage_path, "thumb") : null;
@@ -326,7 +329,7 @@ export function BulkDraftCard({
             className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-900"
           >
             <UploadCloudMark className="h-3.5 w-3.5" />
-            {detailsOpen ? t("bulk.details") : t("bulk.cardUpload")}
+            {t("bulk.details")}
             <span aria-hidden className="no-underline">
               {detailsOpen ? "▴" : "▾"}
             </span>

@@ -31,7 +31,7 @@ for (const [name, src] of [
 assert.match(editor, /void detectArtworkQuad\(file\)/);
 assert.match(editor, /setBoundaryMode\("quad"\)/);
 assert.match(editor, /silhouetteFileRef\.current = null/);
-assert.match(bulk, /await detectArtworkQuad\(file\)/);
+assert.equal(bulk.includes("detectArtworkQuad"), false, "bulk ingest does not batch-enhance");
 assert.equal(bulk.includes("requestObjectEnhancement"), false);
 assert.match(single, /key=\{`\$\{img\.id\}-\$\{img\.file\.name\}/);
 assert.match(dialog, /file\.name\}-\$\{file\.size\}-\$\{file\.lastModified\}/);

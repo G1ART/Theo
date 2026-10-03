@@ -1692,7 +1692,7 @@ export const messages = {
     "bulk.dropzone": "Drop images or click to select",
     "bulk.dropzoneHint":
       "Up to {batch} images per batch · up to {maxMb} MB each — large photos are quietly auto-compressed and your originals are safely kept",
-    "bulk.uploadProgress": "Uploading {current} of {total}...",
+    "bulk.uploadProgress": "Adding photos {current} of {total}…",
     "bulk.uploadDone": "Uploaded {total} drafts",
     "bulk.uploadDoneWithFailures": "Uploaded {ok} of {total} · {failed} failed",
     "bulk.uploadAllFailed":
@@ -1705,7 +1705,9 @@ export const messages = {
     "bulk.applyToAll": "Apply to all",
     "bulk.workspaceDrop":
       "Upload one or multiple images at once (JPG, PNG, WebP, GIF). Max. {maxMb} MB per image. Edit each work's information individually or apply shared info to all.",
-    "bulk.dropLine1": "Drop the images here first, then a caption CSV (JPG, PNG, WebP, GIF).",
+    "bulk.dropLine1": "Add images here, or click to choose them (JPG, PNG, WebP, GIF).",
+    "bulk.dropLineMore": "Add more images and each one becomes a work card.",
+    "bulk.dropMark": "Photos",
     "bulk.dropLine2":
       "Max. {maxMb} MB per image. Edit each work's information individually or apply shared info to all.",
     "bulk.setSharedInfo": "Set Shared Info",
@@ -1714,8 +1716,9 @@ export const messages = {
     "bulk.amount": "Amount",
     "bulk.currency": "Currency",
     "bulk.csvOpen": "Import captions (CSV)",
-    "bulk.csvForThese": "Add a CSV to these photos",
+    "bulk.csvForThese": "Add captions to these photos",
     "bulk.csvTheseHint": "Next, add a caption CSV for these photos.",
+    "bulk.cardPlacing": "Adding this photo…",
     "bulk.csvFilled": "Captions are on {n} photo(s).",
     "bulk.csvUnmatched": "Not matched: {names}.",
     "bulk.csvWaiting": "Saved {n} caption draft(s). Drop the images and they will attach.",
@@ -6507,7 +6510,7 @@ export const messages = {
     "bulk.dropzone": "이미지를 놓거나 클릭하여 선택",
     "bulk.dropzoneHint":
       "한 묶음에 최대 {batch}장 · 파일당 {maxMb}MB까지 — 큰 사진은 조용히 자동 압축되고, 원본은 그대로 보관돼요",
-    "bulk.uploadProgress": "업로드 중 {current} / {total}...",
+    "bulk.uploadProgress": "사진 넣는 중 {current} / {total}",
     "bulk.uploadDone": "{total}개 초안 업로드 완료",
     "bulk.uploadDoneWithFailures": "{total}개 중 {ok}개 업로드 완료 · {failed}개 실패",
     "bulk.uploadAllFailed":
@@ -6520,7 +6523,9 @@ export const messages = {
     "bulk.applyToAll": "전체 적용",
     "bulk.workspaceDrop":
       "이미지를 한 장 또는 여러 장 한 번에 올리세요 (JPG, PNG, WebP, GIF). 이미지당 최대 {maxMb}MB. 작품마다 적거나, 공통 정보를 전체에 적용할 수 있습니다.",
-    "bulk.dropLine1": "이미지를 먼저 여기에 놓고, 이어서 캡션 CSV를 놓으세요 (JPG, PNG, WebP, GIF).",
+    "bulk.dropLine1": "사진을 여기에 놓거나 클릭해서 고르세요 (JPG, PNG, WebP, GIF).",
+    "bulk.dropLineMore": "사진을 더 놓으면 작품 카드가 바로 생겨요.",
+    "bulk.dropMark": "사진",
     "bulk.dropLine2":
       "이미지당 최대 {maxMb}MB. 작품마다 적거나, 공통 정보를 전체에 적용할 수 있습니다.",
     "bulk.setSharedInfo": "공통 정보 설정",
@@ -6529,8 +6534,9 @@ export const messages = {
     "bulk.amount": "금액",
     "bulk.currency": "통화",
     "bulk.csvOpen": "CSV로 캡션 가져오기",
-    "bulk.csvForThese": "이 사진에 CSV 캡션 넣기",
+    "bulk.csvForThese": "이 사진에 캡션 넣기",
     "bulk.csvTheseHint": "다음으로 이 사진에 캡션 CSV를 넣으세요.",
+    "bulk.cardPlacing": "사진을 넣고 있어요",
     "bulk.csvFilled": "사진 {n}장에 캡션을 넣었어요.",
     "bulk.csvUnmatched": "못 맞춘 항목: {names}.",
     "bulk.csvWaiting": "캡션 초안 {n}개를 만들어 두었어요. 이미지를 올리면 그 사진에 붙어요.",

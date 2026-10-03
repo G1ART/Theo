@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fitMatteForegroundQuad } from "../src/lib/image/enhancement/wallMatte";
-import { galleryMatteMask, paintBorderWall, restoreGalleryMatte } from "../src/lib/image/enhancement/borderWall";
+import {
+  borderIsLightFringe,
+  galleryMatteMask,
+  paintBorderWall,
+  restoreGalleryMatte,
+  shouldPaintStudioShadow,
+} from "../src/lib/image/enhancement/borderWall";
 import { parseEnhanceSessionPreset } from "../src/lib/image/enhancement/sharedPreset";
 import { dampenAwbGain } from "../src/lib/image/enhancement/awb";
 
@@ -183,5 +189,41 @@ const engine = readFileSync(
   "utf8",
 );
 assert.match(engine, /shadowBlur/, "studio drop shadow stays on the matte");
+assert.match(engine, /shouldPaintStudioShadow/, "shadow is gated on a real wall");
+assert.match(engine, /if \(wallOutsideQuad\)/, "tight crop does not inward-fill");
+
+// Light fringe on white. Threads must stay; a straight #f3f3f3 cut is the bug.
+const fringeW = 80;
+const fringeH = 48;
+const fringe = new Uint8ClampedArray(fringeW * fringeH * 4);
+for (let y = 0; y < fringeH; y += 1) {
+  for (let x = 0; x < fringeW; x += 1) {
+    const band = x < 8 || y < 8 || x >= fringeW - 8 || y >= fringeH - 8;
+    const thread = (x + y) % 2 === 0;
+    put(fringe, fringeW, x, y, band ? (thread ? [236, 236, 234] : [255, 255, 255]) : [30, 30, 30]);
+  }
+}
+paintBorderWall(fringe, fringeW, fringeH, { r: 248, g: 248, b: 246 });
+assert.notEqual(at(fringe, fringeW, 1, 20), 243, "left fringe is not painted into a matte line");
+assert.notEqual(at(fringe, fringeW, 40, fringeH - 2), 243, "bottom fringe stays");
+assert.equal(borderIsLightFringe(fringe, fringeW, fringeH), true);
+
+// Quad tight on a textured edge: the whole frame is the weave.
+const tightW = 40;
+const tightH = 32;
+const tightTex = new Uint8ClampedArray(tightW * tightH * 4);
+for (let y = 0; y < tightH; y += 1) {
+  for (let x = 0; x < tightW; x += 1) {
+    const thread = (x + y) % 2 === 0;
+    put(tightTex, tightW, x, y, thread ? [210, 208, 200] : [248, 248, 244]);
+  }
+}
+const before = at(tightTex, tightW, 0, 10);
+paintBorderWall(tightTex, tightW, tightH, { r: 230, g: 228, b: 220 });
+assert.equal(at(tightTex, tightW, 0, 10), before, "textured edge is not inward-filled");
+
+assert.equal(shouldPaintStudioShadow({ wallOutsideQuad: false, fringe: true }), false);
+assert.equal(shouldPaintStudioShadow({ wallOutsideQuad: true, fringe: true }), false);
+assert.equal(shouldPaintStudioShadow({ wallOutsideQuad: true, fringe: false }), true);
 
 console.log("wall-matte.test.ts: ok");

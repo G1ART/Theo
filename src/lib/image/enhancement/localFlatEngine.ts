@@ -33,7 +33,13 @@
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
-import { galleryMatteMask, paintBorderWall, restoreGalleryMatte } from "./borderWall";
+import {
+  borderIsLightFringe,
+  galleryMatteMask,
+  paintBorderWall,
+  restoreGalleryMatte,
+  shouldPaintStudioShadow,
+} from "./borderWall";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
   applyAwb,
@@ -746,6 +752,9 @@ export async function runFlatEnhancement(
   const needsWarp = cornersInCrop
     ? cornersLookQuadrilateral(cornersInCrop, outW, outH) || aspectDivergent
     : false;
+  // Pixels outside the quad are a real wall. A tight quad means the
+  // crop edge is the artwork, so later stages must not matte or shadow it.
+  let wallOutsideQuad = false;
   // Track the *post-warp* dimensions so downstream stages (tone,
   // proLook, bezel, encode) all agree on the current canvas geometry.
   let workW = outW;
@@ -772,6 +781,7 @@ export async function runFlatEnhancement(
       // the earlier near-white gate skipped repaint on anything but
       // bright matte and left the pre-warp wall bleeding through.
       const wallRef = sampleWallRefOutsideQuad(srcData, pxCorners);
+      wallOutsideQuad = wallRef != null;
       const targetAspect =
         typeof input.targetAspect === "number" &&
         Number.isFinite(input.targetAspect) &&
@@ -792,7 +802,11 @@ export async function runFlatEnhancement(
       if (H) {
         const warped = warpPerspectiveNearest(srcData, H, warpOutW, warpOutH);
         if (warped) {
-          paintBorderWall(warped.data, warpOutW, warpOutH, wallRef);
+          // No surrounding wall: the rectified edge is the artwork.
+          // Inward #f3f3f3 would cut a fringe or a flat weave into a line.
+          if (wallOutsideQuad) {
+            paintBorderWall(warped.data, warpOutW, warpOutH, wallRef);
+          }
           // Replace the source canvas with a fresh surface sized to
           // the rectified aspect so subsequent stages (tone, proLook,
           // bezel, encode) don't have to know a warp happened.
@@ -939,12 +953,15 @@ export async function runFlatEnhancement(
   if (isAborted()) return bail("aborted");
 
   // Bezel — even studio margin (#f3f3f3) on all four sides so the
-  // artwork sits in the center of the gallery wall. Drop shadow is
-  // drawn into that margin (not extra canvas below), otherwise the
-  // bottom matte reads larger than the top.
+  // artwork sits in the center of the gallery wall. The drop shadow
+  // is only for a real wall outside a stretched canvas. A tight crop
+  // or a textile fringe keeps the edge as it is.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
   const shadowBlur = Math.max(8, Math.round(bezelPx * 0.4));
   const shadowOffsetY = Math.max(4, Math.round(bezelPx * 0.18));
+  const fringe = borderIsLightFringe(processed.data, workW, workH);
+  const paintStudioShadow =
+    bezelPx > 0 && shouldPaintStudioShadow({ wallOutsideQuad, fringe });
   const finalW = workW + bezelPx * 2;
   const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
@@ -953,12 +970,14 @@ export async function runFlatEnhancement(
     const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
     matCtx.fillStyle = "#f3f3f3";
     matCtx.fillRect(0, 0, finalW, finalH);
-    // Studio shadow is part of the presentation, painted once after
-    // color. Later brightness/contrast passes skip this margin.
-    matCtx.shadowColor = "rgba(0,0,0,0.22)";
-    matCtx.shadowBlur = shadowBlur;
-    matCtx.shadowOffsetX = 0;
-    matCtx.shadowOffsetY = shadowOffsetY;
+    // Studio shadow sits in the matte margin, once, after color.
+    // Later brightness/contrast passes skip this margin.
+    if (paintStudioShadow) {
+      matCtx.shadowColor = "rgba(0,0,0,0.22)";
+      matCtx.shadowBlur = shadowBlur;
+      matCtx.shadowOffsetX = 0;
+      matCtx.shadowOffsetY = shadowOffsetY;
+    }
     matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
     matCtx.shadowColor = "transparent";
     blob = await canvasToBlob(matCanvas, "image/webp", 0.9);

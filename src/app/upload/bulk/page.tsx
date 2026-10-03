@@ -10,7 +10,6 @@ import {
   deleteArtwork,
   deleteArtworkImage,
   deleteDraftArtworks,
-  getStorageUrl,
   listMyDraftArtworks,
   mergeDraftImagesInto,
   publishArtworks,
@@ -26,37 +25,8 @@ import {
 import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
-import type { EnhancementDraft } from "@/components/upload/ImageStandardizeEditor";
 import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDialog";
-import {
-  runFlatEnhancement,
-  flatBlobToFile,
-} from "@/lib/image/enhancement/localFlatEngine";
-import { detectArtworkQuad } from "@/lib/image/enhancement/detectArtworkQuad";
-import { flatPresetFromVision } from "@/lib/image/enhancement/visionEnhancePreset";
-import {
-  cleanupEnhancedPath,
-  cleanupStagingPath,
-} from "@/lib/image/enhancement/objectClient";
-import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
-import {
-  BATCH_ENVELOPE,
-  PORTFOLIO_ENVELOPE,
-  applyToneDelta,
-  buildBatchNormalizationMeta,
-  buildPortfolioCoherenceMeta,
-  computeToneDelta,
-  toneSignature,
-  type ToneDelta,
-  type ToneSignature,
-} from "@/lib/image/enhancement/coherence";
-import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
-import { fetchArtistPortfolioToneStats } from "@/lib/image/enhancement/portfolioToneStatsClient";
-import { enhancementErrorMessageKey } from "@/lib/image/enhancement/errorMessages";
-import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
-import { recordUsageEvent } from "@/lib/metering";
-import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
@@ -182,63 +152,8 @@ export default function BulkUploadPage() {
   const [uploadSucceeded, setUploadSucceeded] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [tipsOpen, setTipsOpen] = useState(false);
-  const [pendingFiles, setPendingFiles] = useState<{ id: string; file: File }[]>([]);
-  /**
-   * Theo Image Enhance (Beta, 2026-08-05) — per-pending-file
-   * enhancement state. Tracked as a Map so lookups stay O(1) as the
-   * queue grows.
-   */
-  type EnhanceStatus =
-    | { kind: "queued" }
-    | { kind: "processing" }
-    | { kind: "previewing"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean }
-    | { kind: "approved"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean }
-    | { kind: "rejected" }
-    | { kind: "failed"; reason: string };
-  const [pendingEnhance, setPendingEnhance] = useState<Record<string, EnhanceStatus>>({});
-  const [pendingSelected, setPendingSelected] = useState<Set<string>>(new Set());
-  const [bulkEnhanceRunning, setBulkEnhanceRunning] = useState(false);
-  /**
-   * Theo Image Enhance (Beta, 2026-08-06) — per-row AbortController so
-   * a user can hit "reject" or delete a row mid-enhance and cancel the
-   * inflight staging upload + fetch + best-effort staging cleanup.
-   * Refs (not state) since the controllers themselves aren't rendered.
-   */
-  const enhanceAbortRef = useRef<Record<string, AbortController>>({});
-  /** 2026-08-06 — batch uniformity chip. OFF by default; requires all
-   *  enhance previews to be complete before it can be applied. */
-  const [bulkUniformity, setBulkUniformity] = useState(false);
-  /** 2026-08-06 — artist portfolio coherence chip. Default ON when
-   *  sample_count >= 3, hidden when sample_count < 3. */
-  const [portfolioCoherence, setPortfolioCoherence] = useState(false);
-  /**
-   * 2026-08-07 — G / H auto-wiring bookkeeping.
-   *
-   * `run tokens` bump every time a chip toggles OFF → ON so we can
-   * re-run the pass on the same set of rows without triggering the
-   * "already applied" guard. `appliedTokenRef` records the last-applied
-   * combination of (token, sorted-ids, artistId) to enforce
-   * apply-once-per-batch semantics.
-   *
-   * `portfolioStatsRef` is the N+1 protection contract enforcement:
-   *   ONE `artist_portfolio_tone_stats` RPC call per artist per bulk
-   *   session, cached in a Map keyed by artist id. This ref is read
-   *   inside effects and MUST NOT be replaced by a per-file fetch —
-   *   verify by grepping `fetchArtistPortfolioToneStats` and ensuring
-   *   the only call site is the memoized effect below.
-   */
-  const bulkUniformityRunToken = useRef<number>(0);
-  const portfolioCoherenceRunToken = useRef<number>(0);
-  const bulkAppliedTokenRef = useRef<string>("");
-  const portfolioAppliedTokenRef = useRef<string>("");
-  const portfolioStatsRef = useRef<
-    Map<string, { signature: ToneSignature; sampleCount: number } | null>
-  >(new Map());
-  const [portfolioFetchState, setPortfolioFetchState] = useState<
-    Record<string, "idle" | "fetching" | "ready">
-  >({});
-  const uniformityApplyingRef = useRef<boolean>(false);
-  const meteringSourceForBulk = fromExhibition ? "exhibition_bulk" : "bulk";
+  /** Local thumbs shown as cards while storage catches up. Not a filename queue. */
+  const [placing, setPlacing] = useState<{ id: string; previewUrl: string }[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /**
@@ -288,6 +203,11 @@ export default function BulkUploadPage() {
   type BatchSlot = { pendingId: string; originalName: string; draftId: string | null };
   const batchSlotsRef = useRef<BatchSlot[]>([]);
   const pendingFilesRef = useRef<{ id: string; file: File }[]>([]);
+  const startUploadRef = useRef<
+    (opts?: { attachToDraftId?: Record<string, string> }) => Promise<
+      { pendingId: string; draftId: string; name: string }[]
+    >
+  >(async () => []);
   const csvTextRef = useRef("");
   const heldRowsRef = useRef<{ draftId: string; rowIndex: number }[] | null>(null);
   const captionLockRef = useRef(false);
@@ -470,7 +390,6 @@ export default function BulkUploadPage() {
       const added = take.map((file) => ({ id: crypto.randomUUID(), file }));
       const next = [...prev, ...added];
       pendingFilesRef.current = next;
-      setPendingFiles(next);
       for (const item of added) {
         batchSlotsRef.current.push({
           pendingId: item.id,
@@ -478,7 +397,17 @@ export default function BulkUploadPage() {
           draftId: null,
         });
       }
+      setPlacing((cards) => [
+        ...cards,
+        ...added.map((item) => ({
+          id: item.id,
+          previewUrl: URL.createObjectURL(item.file),
+        })),
+      ]);
+      // Photos become draft cards immediately. A caption CSV already
+      // on the page attaches as those cards are created.
       if (csvTextRef.current.trim()) scheduleCaptionRef.current();
+      else void startUploadRef.current();
     },
     [t],
   );
@@ -581,566 +510,27 @@ export default function BulkUploadPage() {
     addIncomingFiles(files);
   }
 
-  function removePendingFile(id: string) {
-    // 2026-08-06 — abort any inflight enhance on this row. The
-    // processOne handler surfaces the abort as `rejected`, and the
-    // objectClient does a best-effort `cleanupStagingPath` for us.
-    const inflight = enhanceAbortRef.current[id];
-    if (inflight) {
-      try {
-        inflight.abort();
-      } catch {}
-      delete enhanceAbortRef.current[id];
-    }
-    pendingFilesRef.current = pendingFilesRef.current.filter((p) => p.id !== id);
-    batchSlotsRef.current = batchSlotsRef.current.filter((slot) => slot.pendingId !== id);
-    setPendingFiles(pendingFilesRef.current);
-    setPendingSelected((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    setPendingEnhance((prev) => {
-      const existing = prev[id];
-      if (!existing) return prev;
-      if (existing.kind === "previewing" || existing.kind === "approved") {
-        try {
-          URL.revokeObjectURL(existing.draft.previewUrl);
-        } catch {}
-        if (existing.enhancedPath) {
-          void cleanupEnhancedPath(existing.enhancedPath);
-        }
-      }
-      const clone = { ...prev };
-      delete clone[id];
-      return clone;
-    });
-  }
-
-  function clearPendingFiles() {
-    // Best-effort cleanup of any inflight enhanced blobs / staged paths.
-    for (const [, status] of Object.entries(pendingEnhance)) {
-      if (status.kind === "previewing" || status.kind === "approved") {
-        try {
-          URL.revokeObjectURL(status.draft.previewUrl);
-        } catch {}
-        if (status.enhancedPath) {
-          void cleanupEnhancedPath(status.enhancedPath);
-        }
-      }
-    }
-    const pendingIds = new Set(pendingFilesRef.current.map((p) => p.id));
-    batchSlotsRef.current = batchSlotsRef.current.filter((slot) => !pendingIds.has(slot.pendingId));
-    pendingFilesRef.current = [];
-    setPendingFiles([]);
-    setPendingSelected(new Set());
-    setPendingEnhance({});
-  }
-
-  function togglePendingSelected(id: string) {
-    setPendingSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function selectAllPending() {
-    setPendingSelected(new Set(pendingFiles.map((p) => p.id)));
-  }
-
-  function clearPendingSelection() {
-    setPendingSelected(new Set());
-  }
-
-  async function enhanceSelectedPending() {
-    if (bulkEnhanceRunning) return;
-    const ids = pendingFiles
-      .filter((p) => pendingSelected.has(p.id))
-      .map((p) => p.id);
-    if (ids.length === 0) {
-      setToast(t("bulk.enhance.selectFirst"));
-      setTimeout(() => setToast(null), 3000);
-      return;
-    }
-    const { data: { session } } = await getSession();
-    if (!session?.user?.id) {
-      setUploadError(t("bulk.uploadNotAuthenticated"));
-      return;
-    }
-    const userId = session.user.id;
-    setBulkEnhanceRunning(true);
-    setPendingEnhance((prev) => {
-      const next = { ...prev };
-      for (const id of ids) next[id] = { kind: "processing" };
-      return next;
-    });
-
-    const queue = pendingFiles.filter((p) => ids.includes(p.id));
-    const CONCURRENCY = 2;
-    let nextIdx = 0;
-
-    const processOne = async (slot: { id: string; file: File }) => {
-      const { id, file } = slot;
-      // 2026-08-06 — abort plumbing. One controller per pending file.
-      // Reject / removePendingFile aborts it; the in-flight fetch is
-      // cancelled and the server route sees `req.signal.aborted`.
-      const controller = new AbortController();
-      enhanceAbortRef.current[id] = controller;
-      void recordUsageEvent({
-        userId,
-        key: USAGE_KEYS.AI_IMAGE_ENHANCE_REQUESTED,
-        featureKey: "ai.image_enhance",
-        metadata: {
-          mode: "flat",
-          provider: "local_opencv",
-          source: meteringSourceForBulk,
-          latency_ms: null,
-        },
-      });
-      const startedAt = performance.now();
-      try {
-          // Bulk clamps `maxLongEdge` to 2560 to keep concurrency-2
-          // enhance passes from OOMing mobile Safari on 4K captures.
-          // Single upload still uses the full 4096 cap (one image at
-          // a time is safe).
-          // Vision picks the canvas corners and the color starting
-          // point. A miss or a timeout falls through to the local
-          // engine with no corners, same as before this call existed.
-          let visionPreset: ReturnType<typeof flatPresetFromVision> = {};
-          try {
-            visionPreset = flatPresetFromVision(await detectArtworkQuad(file));
-          } catch {
-            visionPreset = {};
-          }
-          const result = await runFlatEnhancement({
-            file,
-            maxLongEdge: 2560,
-            signal: controller.signal,
-            ...visionPreset,
-          });
-          if (!result.blob) {
-            // See localFlatEngine.RunFlatResult.blob — null means the
-            // pipeline bailed out and we must not wrap the raw source
-            // bytes in a `.webp` File.
-            throw new Error(result.stageError ?? "local_pipeline_error");
-          }
-          const displayFile = flatBlobToFile(file.name, result.blob);
-          const url = URL.createObjectURL(displayFile);
-          const sourceHash = await computeFileSha256(file);
-          const draft: EnhancementDraft = {
-            displayFile,
-            previewUrl: url,
-            meta: {
-              provider: "local_opencv",
-              mode: "flat",
-              recipe: { kind: "flat", params: result.recipe },
-              confidence: result.confidence,
-              sourceHashSha256: sourceHash,
-              processedAtIso: new Date().toISOString(),
-              latencyMs: result.latencyMs,
-              versions: {
-                schema: ENHANCEMENT_META_SCHEMA_VERSION,
-                engine: "local_canvas_v1",
-              },
-            },
-          };
-          setPendingEnhance((prev) => ({
-            ...prev,
-            [id]: { kind: "previewing", draft },
-          }));
-          void recordUsageEvent({
-            userId,
-            key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
-            featureKey: "ai.image_enhance",
-            metadata: {
-              mode: "flat",
-              provider: "local_opencv",
-              source: meteringSourceForBulk,
-              latency_ms: Math.round(performance.now() - startedAt),
-              stage_decode_ms: result.stageTimings.decodeMs,
-              stage_tone_ms: result.stageTimings.toneMs,
-              stage_sharpen_ms: result.stageTimings.sharpenMs,
-              stage_encode_ms: result.stageTimings.encodeMs,
-            },
-          });
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : "error";
-        // User-initiated abort → surface as "rejected", not "failed".
-        const wasAborted = controller.signal.aborted || reason === "aborted";
-        setPendingEnhance((prev) => ({
-          ...prev,
-          [id]: wasAborted ? { kind: "rejected" } : { kind: "failed", reason },
-        }));
-        void recordUsageEvent({
-          userId,
-          key: wasAborted
-            ? USAGE_KEYS.AI_IMAGE_ENHANCE_REJECTED
-            : USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
-          featureKey: "ai.image_enhance",
-          metadata: {
-            mode: "flat",
-            provider: "local_opencv",
-            source: meteringSourceForBulk,
-            reason: wasAborted ? "aborted" : reason,
-            latency_ms: Math.round(performance.now() - startedAt),
-          },
-        });
-      } finally {
-        delete enhanceAbortRef.current[id];
-      }
-    };
-
-    const worker = async () => {
-      while (true) {
-        const idx = nextIdx++;
-        if (idx >= queue.length) return;
-        await processOne(queue[idx]);
-      }
-    };
-    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker());
-    await Promise.all(workers);
-    setBulkEnhanceRunning(false);
-  }
-
-  function approveEnhancement(id: string) {
-    setPendingEnhance((prev) => {
-      const current = prev[id];
-      if (!current || current.kind !== "previewing") return prev;
-      void recordUsageEvent({
-        key: USAGE_KEYS.AI_IMAGE_ENHANCE_ACCEPTED,
-        featureKey: "ai.image_enhance",
-        metadata: {
-          mode: current.draft.meta.mode,
-          provider: current.draft.meta.provider,
-          source: meteringSourceForBulk,
-          latency_ms: current.draft.meta.latencyMs,
-        },
-      });
-      return {
-        ...prev,
-        [id]: {
-          kind: "approved",
-          draft: current.draft,
-          enhancedPath: current.enhancedPath,
-          exhibitionScoped: current.exhibitionScoped,
-        },
-      };
-    });
-  }
-
-  function rejectEnhancement(id: string) {
-    // Abort any inflight fetch for this row before flipping state.
-    const inflight = enhanceAbortRef.current[id];
-    if (inflight) {
-      try {
-        inflight.abort();
-      } catch {}
-      delete enhanceAbortRef.current[id];
-    }
-    setPendingEnhance((prev) => {
-      const current = prev[id];
-      if (!current) return prev;
-      if (current.kind === "previewing" || current.kind === "approved") {
-        try {
-          URL.revokeObjectURL(current.draft.previewUrl);
-        } catch {}
-        if (current.enhancedPath) {
-          void cleanupEnhancedPath(current.enhancedPath);
-        }
-        void recordUsageEvent({
-          key: USAGE_KEYS.AI_IMAGE_ENHANCE_REJECTED,
-          featureKey: "ai.image_enhance",
-          metadata: {
-            mode: current.draft.meta.mode,
-            provider: current.draft.meta.provider,
-            source: meteringSourceForBulk,
-            latency_ms: current.draft.meta.latencyMs,
-          },
-        });
-      }
-      return { ...prev, [id]: { kind: "rejected" } };
-    });
-    // Also make sure the staging path (if any) is cleaned. `enhancedPath` above
-    // handles the server output; staging paths are cleaned by the server
-    // route itself on completion (so no extra work required here).
-    void cleanupStagingPath(null);
-  }
-
-  // 2026-08-07 — Toggle-tracker: bump the run token every OFF → ON so a
-  // user can re-apply after toggling. We also RESET the applied token
-  // so the effect below can re-fire on the same row set.
-  useEffect(() => {
-    if (bulkUniformity) {
-      bulkUniformityRunToken.current += 1;
-      bulkAppliedTokenRef.current = "";
-    }
-  }, [bulkUniformity]);
-  useEffect(() => {
-    if (portfolioCoherence) {
-      portfolioCoherenceRunToken.current += 1;
-      portfolioAppliedTokenRef.current = "";
-    }
-  }, [portfolioCoherence]);
-
-  // 2026-08-07 — Artist id resolution for the portfolio coherence pass.
-  // Prefer an explicitly selected artist; fall back to the acting-as
-  // principal so delegate-uploaded batches still get coherence when the
-  // delegate is uploading on behalf of a known artist principal.
-  const artistIdForCoherence: string | null =
-    selectedArtist?.id ?? actingAsProfileId ?? null;
-
-  // 2026-08-07 — Fetch portfolio tone stats ONCE per artist per bulk
-  // session, memoized in `portfolioStatsRef`. This is the N+1
-  // protection contract from release brief §H — DO NOT call this RPC
-  // from inside the per-file loop; if you find another callsite,
-  // consolidate through this cache.
-  useEffect(() => {
-    if (!portfolioCoherence) return;
-    const artistId = artistIdForCoherence;
-    if (!artistId) return;
-    if (portfolioStatsRef.current.has(artistId)) return;
-    if (portfolioFetchState[artistId] === "fetching") return;
-    setPortfolioFetchState((s) => ({ ...s, [artistId]: "fetching" }));
-    void fetchArtistPortfolioToneStats(artistId).then((stats) => {
-      portfolioStatsRef.current.set(artistId, stats);
-      setPortfolioFetchState((s) => ({ ...s, [artistId]: "ready" }));
-    });
-  }, [portfolioCoherence, artistIdForCoherence, portfolioFetchState]);
-
-  // 2026-08-07 — G + H auto-wiring effect. Fires when:
-  //   (a) at least one chip is on
-  //   (b) every pendingEnhance entry is in `previewing` or `approved`
-  //   (c) apply-once-per-batch guard hasn't already fired for this
-  //       combination of (chip run token × row-id set × artist id)
-  //
-  // Portfolio coherence layers on TOP of batch uniformity — apply
-  // batch delta first, then compute portfolio delta on the shifted
-  // signature so the two nudges compose without exceeding either
-  // envelope's intent.
-  useEffect(() => {
-    const rows = Object.entries(pendingEnhance);
-    if (rows.length === 0) return;
-    // Every row must be past the preview stage.
-    const eligible = rows.filter(
-      ([, s]) => s.kind === "previewing" || s.kind === "approved",
-    );
-    if (eligible.length !== rows.length || eligible.length === 0) return;
-    if (uniformityApplyingRef.current) return;
-
-    const rowIds = eligible.map(([id]) => id).sort().join(",");
-    const bulkKey = `${bulkUniformityRunToken.current}:${rowIds}`;
-    const portfolioKey = `${portfolioCoherenceRunToken.current}:${rowIds}:${artistIdForCoherence ?? ""}`;
-    const shouldRunBulk =
-      bulkUniformity && bulkAppliedTokenRef.current !== bulkKey;
-    const portfolioSample =
-      artistIdForCoherence
-        ? portfolioStatsRef.current.get(artistIdForCoherence) ?? null
-        : null;
-    const shouldRunPortfolio =
-      portfolioCoherence &&
-      portfolioAppliedTokenRef.current !== portfolioKey &&
-      !!artistIdForCoherence &&
-      !!portfolioSample &&
-      portfolioSample.sampleCount >= 3;
-    if (!shouldRunBulk && !shouldRunPortfolio) return;
-
-    // Mark tokens synchronously so re-renders during the async apply
-    // don't queue a second pass.
-    if (shouldRunBulk) bulkAppliedTokenRef.current = bulkKey;
-    if (shouldRunPortfolio) portfolioAppliedTokenRef.current = portfolioKey;
-    uniformityApplyingRef.current = true;
-
-    (async () => {
-      try {
-        // Snapshot the row set at effect fire — the async work must
-        // not race with mutations that happen while we re-encode.
-        const snapshot: Array<{
-          id: string;
-          draft: EnhancementDraft;
-          enhancedPath?: string | null;
-          exhibitionScoped?: boolean;
-          kind: "previewing" | "approved";
-        }> = eligible.map(([id, s]) => {
-          const status = s as
-            | { kind: "previewing"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean }
-            | { kind: "approved"; draft: EnhancementDraft; enhancedPath?: string | null; exhibitionScoped?: boolean };
-          return {
-            id,
-            draft: status.draft,
-            enhancedPath: status.enhancedPath,
-            exhibitionScoped: status.exhibitionScoped,
-            kind: status.kind,
-          };
-        });
-
-        // Extract the tone triples currently baked into each recipe.
-        const triples = snapshot.map(({ draft }) => {
-          const recipe = draft.meta.recipe;
-          if (recipe.kind === "flat") {
-            return recipe.params.tone;
-          }
-          // Object recipes don't carry an explicit tone triple. Fall
-          // back to the neutral 1/1/1 point so the target average is
-          // dominated by flat rows (which are the ones we can actually
-          // nudge visually anyway).
-          return { b: 1, c: 1, s: 1 };
-        });
-
-        const batchTarget: ToneSignature = shouldRunBulk
-          ? {
-              meanLuma:
-                triples.reduce((sum, t) => sum + t.b * 128, 0) / triples.length,
-              meanChroma:
-                triples.reduce((sum, t) => sum + t.c * t.s * 60, 0) / triples.length,
-              meanSat:
-                triples.reduce((sum, t) => sum + t.s, 0) / triples.length,
-              meanContrast:
-                triples.reduce((sum, t) => sum + t.c, 0) / triples.length,
-            }
-          : { meanLuma: 0, meanChroma: 0, meanSat: 0, meanContrast: 0 };
-
-        // Process rows sequentially so we never OOM by running four
-        // canvas decodes in parallel on mobile Safari. This is a
-        // display-only re-tone; each row is ~40–120ms.
-        let appliedAny = false;
-        for (const row of snapshot) {
-          const current = row.draft.meta.recipe.kind === "flat"
-            ? row.draft.meta.recipe.params.tone
-            : { b: 1, c: 1, s: 1 };
-          const currentSig = toneSignature(current);
-
-          const batchDelta: ToneDelta = shouldRunBulk
-            ? computeToneDelta(currentSig, batchTarget, BATCH_ENVELOPE)
-            : { b: 0, c: 0, s: 0 };
-          const afterBatch = shouldRunBulk
-            ? applyToneDelta(current, batchDelta)
-            : current;
-
-          let portfolioDelta: ToneDelta = { b: 0, c: 0, s: 0 };
-          let finalTone = afterBatch;
-          if (shouldRunPortfolio && portfolioSample) {
-            const afterBatchSig = toneSignature(afterBatch);
-            portfolioDelta = computeToneDelta(
-              afterBatchSig,
-              portfolioSample.signature,
-              PORTFOLIO_ENVELOPE,
-            );
-            finalTone = applyToneDelta(afterBatch, portfolioDelta);
-          }
-
-          // Compose the visual delta as the sum of the two deltas so
-          // the canvas re-tone stays a single pass. Clamp per envelope.
-          const combinedDelta: ToneDelta = {
-            b: (shouldRunBulk ? batchDelta.b : 0) + (shouldRunPortfolio ? portfolioDelta.b : 0),
-            c: (shouldRunBulk ? batchDelta.c : 0) + (shouldRunPortfolio ? portfolioDelta.c : 0),
-            s: (shouldRunBulk ? batchDelta.s : 0) + (shouldRunPortfolio ? portfolioDelta.s : 0),
-          };
-          const retone = await applyToneDeltaToFile(row.draft.displayFile, combinedDelta);
-
-          const nextMeta: typeof row.draft.meta = {
-            ...row.draft.meta,
-            recipe:
-              row.draft.meta.recipe.kind === "flat"
-                ? {
-                    kind: "flat",
-                    params: {
-                      ...row.draft.meta.recipe.params,
-                      tone: finalTone,
-                    },
-                  }
-                : row.draft.meta.recipe,
-            ...(shouldRunBulk
-              ? { batchNormalization: buildBatchNormalizationMeta(batchTarget, batchDelta) }
-              : {}),
-            ...(shouldRunPortfolio && portfolioSample
-              ? {
-                  portfolioCoherence: buildPortfolioCoherenceMeta(
-                    portfolioSample.signature,
-                    portfolioDelta,
-                    portfolioSample.sampleCount,
-                  ),
-                }
-              : {}),
-          };
-
-          const oldPreviewUrl = row.draft.previewUrl;
-          const nextDraft: EnhancementDraft = retone
-            ? {
-                displayFile: retone.file,
-                previewUrl: retone.previewUrl,
-                meta: nextMeta,
-              }
-            : {
-                displayFile: row.draft.displayFile,
-                previewUrl: row.draft.previewUrl,
-                meta: nextMeta,
-              };
-
-          setPendingEnhance((prev) => {
-            const existing = prev[row.id];
-            if (!existing || (existing.kind !== "previewing" && existing.kind !== "approved")) {
-              return prev;
-            }
-            return {
-              ...prev,
-              [row.id]: {
-                kind: existing.kind,
-                draft: nextDraft,
-                enhancedPath: existing.enhancedPath,
-                exhibitionScoped: existing.exhibitionScoped,
-              },
-            };
-          });
-          if (retone && oldPreviewUrl && oldPreviewUrl.startsWith("blob:")) {
-            try {
-              URL.revokeObjectURL(oldPreviewUrl);
-            } catch {}
-          }
-          appliedAny = true;
-        }
-        if (appliedAny && shouldRunBulk) {
-          setToast(t("bulk.enhance.uniformityApplied"));
-          setTimeout(() => setToast(null), 2500);
-        } else if (appliedAny && shouldRunPortfolio) {
-          setToast(t("enhance.portfolioCoherenceApplied"));
-          setTimeout(() => setToast(null), 2500);
-        }
-      } finally {
-        uniformityApplyingRef.current = false;
-      }
-    })();
-  }, [
-    pendingEnhance,
-    bulkUniformity,
-    portfolioCoherence,
-    artistIdForCoherence,
-    portfolioFetchState,
-    t,
-  ]);
-
   async function startUpload(opts?: {
     attachToDraftId?: Record<string, string>;
   }): Promise<{ pendingId: string; draftId: string; name: string }[]> {
     const queue = [...pendingFilesRef.current];
     if (queue.length === 0 || uploadingRef.current) return [];
+    uploadingRef.current = true;
+    pendingFilesRef.current = [];
     const { data: { session } } = await getSession();
     if (!session?.user?.id) {
+      pendingFilesRef.current = [...queue, ...pendingFilesRef.current];
+      uploadingRef.current = false;
       setUploadError(t("bulk.uploadNotAuthenticated"));
       return [];
     }
     const userId = session.user.id;
     setUploadError(null);
-    uploadingRef.current = true;
     setUploading(true);
     setUploadTotal(queue.length);
     setUploadCurrent(0);
     setUploadSucceeded(0);
     setUploadFailures([]);
-    pendingFilesRef.current = [];
-    setPendingFiles([]);
     const uploadedIds: string[] = [];
     const failures: { name: string; message: string }[] = [];
     const results: ({ pendingId: string; draftId: string; name: string } | null)[] = new Array(queue.length).fill(null);
@@ -1157,9 +547,6 @@ export default function BulkUploadPage() {
       const slot = queue[idx];
       if (!slot) return;
       const { id: slotId, file } = slot;
-      const enhanceStatus = pendingEnhance[slotId];
-      const approvedEnhancement =
-        enhanceStatus && enhanceStatus.kind === "approved" ? enhanceStatus : null;
       const title = deriveTitle(file.name);
       let artworkId: string | null = null;
       let createdHere = false;
@@ -1206,17 +593,8 @@ export default function BulkUploadPage() {
         // display copy (local pipeline) OR reuse the server-produced
         // enhanced path (photoroom hybrid) instead of running the default
         // compressor.
-        uploadResult = await uploadArtworkImage(file, storageOwner, {
-          preparedDisplayFile:
-            approvedEnhancement && !approvedEnhancement.enhancedPath
-              ? approvedEnhancement.draft.displayFile
-              : null,
-          preparedDisplayPath: approvedEnhancement?.enhancedPath ?? null,
-          enhancementMeta: approvedEnhancement?.draft.meta ?? null,
-        });
-        // QA 2026-07-28: bulk uploads never silently auto-apply tone or
-        // crop; DisplayAdjust stays null. Enhancement, when approved,
-        // flows through `enhancement_meta` instead.
+        uploadResult = await uploadArtworkImage(file, storageOwner);
+        // DisplayAdjust stays null. Correction happens later, on the card.
         const displayAdjust: import("@/lib/image/displayAdjust").DisplayAdjust | null = null;
         const { error: attachErr } = await attachArtworkImage(
           artworkId,
@@ -1227,7 +605,6 @@ export default function BulkUploadPage() {
             displayBytes: uploadResult.displayBytes,
             originalBytes: uploadResult.originalBytes,
             compressionMeta: uploadResult.compressionMeta,
-            enhancementMeta: approvedEnhancement?.draft.meta ?? null,
           },
         );
         if (attachErr) throw attachErr;
@@ -1236,49 +613,6 @@ export default function BulkUploadPage() {
         if (batchSlot) batchSlot.draftId = artworkId;
         results[idx] = { pendingId: slotId, draftId: artworkId, name: file.name };
         setUploadSucceeded((n) => n + 1);
-        // Display Simulation Phase 2 (2026-08-20) — Track 1 auto-fire.
-        // Fire-and-forget: request an AI bounding-box crop for the
-        // freshly-uploaded artwork so future placements in a space
-        // render tight to the painting. Failure paths (unauthorized
-        // / low confidence / already tight) all silently no-op —
-        // the primary image stays as the canonical row so nothing
-        // in the bulk upload flow ever waits on this. Import kept
-        // dynamic so the bundle for users who never place their
-        // work in a space doesn't pay the cost.
-        try {
-          const displayPath = uploadResult.displayPath;
-          const bboxArtworkId = artworkId;
-          void import("@/lib/simulation/cutoutClient").then(
-            ({ runVisionBboxCrop }) => {
-              const displayUrl = getStorageUrl(displayPath);
-              return runVisionBboxCrop({
-                artworkId: bboxArtworkId,
-                imageUrl: displayUrl,
-              }).catch(() => undefined);
-            },
-          );
-        } catch {
-          // best-effort — never block the bulk publish flow
-        }
-        // 2026-08-07 — Publish-time `.completed` emit. Semantic split
-        // from the preview-time `.previewed` emit above; only fires
-        // for rows that actually shipped an approved enhancement so
-        // dashboards can measure the "preview → publish" funnel.
-        if (approvedEnhancement) {
-          void recordUsageEvent({
-            userId,
-            key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
-            featureKey: "ai.image_enhance",
-            metadata: {
-              mode: approvedEnhancement.draft.meta.mode,
-              provider: approvedEnhancement.draft.meta.provider,
-              source: meteringSourceForBulk,
-              latency_ms: approvedEnhancement.draft.meta.latencyMs,
-              batch_normalization_applied: !!approvedEnhancement.draft.meta.batchNormalization,
-              portfolio_coherence_applied: !!approvedEnhancement.draft.meta.portfolioCoherence,
-            },
-          });
-        }
       } catch (err) {
         const message = formatBulkFileUploadFailure(file.name, err, t);
         // Surface the latest failure prominently AND keep a per-file log
@@ -1359,16 +693,37 @@ export default function BulkUploadPage() {
       setTimeout(() => setToast(null), 6000);
     }
     await fetchDrafts();
+    const done = new Set(queue.map((item) => item.id));
+    setPlacing((prev) => {
+      const keep: { id: string; previewUrl: string }[] = [];
+      for (const card of prev) {
+        if (!done.has(card.id)) {
+          keep.push(card);
+          continue;
+        }
+        try {
+          URL.revokeObjectURL(card.previewUrl);
+        } catch {}
+      }
+      return keep;
+    });
     if (applyDepthRef.current === 0 && csvTextRef.current.trim()) {
       scheduleCaptionRef.current();
+    } else if (pendingFilesRef.current.length > 0) {
+      void startUpload();
     }
     return results.filter((row): row is { pendingId: string; draftId: string; name: string } => !!row);
   }
 
+  startUploadRef.current = startUpload;
+
   function orderedImages(d: ArtworkWithLikes) {
-    return [...(d.artwork_images ?? [])].sort(
-      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
-    );
+    return [...(d.artwork_images ?? [])]
+      .filter((img) => {
+        const view = img.view_type ?? "";
+        return view !== "cutout" && view !== "cutout_alpha";
+      })
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   }
 
   async function addDetailsToDraft(artworkId: string, list: FileList | File[] | null) {
@@ -2703,14 +2058,14 @@ export default function BulkUploadPage() {
               addPendingFiles(e.target.files);
               e.target.value = "";
             }}
-            disabled={uploading || csvBusy}
+            disabled={csvBusy}
           />
           <div className="mx-auto flex h-14 w-14 flex-col items-center justify-center rounded-lg border border-zinc-300 text-zinc-700">
             <UploadCloudMark className="h-6 w-6" />
-            <span className="text-[10px] leading-none">{t("bulk.cardUpload")}</span>
+            <span className="text-[10px] leading-none">{t("bulk.dropMark")}</span>
           </div>
           <p className="mx-auto mt-4 max-w-lg text-xs leading-relaxed text-zinc-500">
-            {t("bulk.dropLine1")}
+            {drafts.length > 0 || placing.length > 0 ? t("bulk.dropLineMore") : t("bulk.dropLine1")}
           </p>
           <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
             {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
@@ -2727,176 +2082,16 @@ export default function BulkUploadPage() {
             if (file) ingestCaptionFile(file);
           }}
         />
-        {pendingFiles.length === 0 && (
+        {drafts.length === 0 && placing.length === 0 && (
           <div className="mb-6 text-center">
             <button
               type="button"
-              disabled={csvBusy || uploading}
+              disabled={csvBusy}
               onClick={() => csvInputRef.current?.click()}
-              className="rounded-full border border-zinc-800 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+              className="text-sm text-zinc-500 underline underline-offset-2 hover:text-zinc-800 disabled:opacity-50"
             >
-              {csvBusy ? "…" : drafts.length > 0 ? t("bulk.csvForThese") : t("bulk.csvOpen")}
+              {csvBusy ? "…" : t("bulk.csvOpen")}
             </button>
-          </div>
-        )}
-
-        {/* Pending files */}
-        {pendingFiles.length > 0 && !uploading && (
-          <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-            <h3 className="mb-2 text-sm font-medium">{t("bulk.pendingFiles")} ({pendingFiles.length})</h3>
-
-            <p className="mb-3 text-xs leading-relaxed text-zinc-500">
-              {t("bulk.enhance.rowAfterUpload")}
-            </p>
-
-            <div className="mb-3 flex flex-wrap gap-2">
-              {pendingFiles.map(({ id, file }) => {
-                // 2026-07-28 auto-compression — quiet chip: show the
-                // pre-upload size so the operator can eyeball what's
-                // about to happen. For compressible formats above ~5 MB
-                // we hint that auto-compression will run, without being
-                // preachy about it.
-                const mb = file.size / (1024 * 1024);
-                const compressible = isCompressibleMime(file.type);
-                const willCompress = compressible && file.size > 5 * 1024 * 1024;
-                const selected = pendingSelected.has(id);
-                const enhance = pendingEnhance[id];
-                return (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1 text-sm text-zinc-700"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => togglePendingSelected(id)}
-                      className="h-3.5 w-3.5 accent-zinc-900"
-                      aria-label={t("bulk.enhance.selectFile")}
-                    />
-                    <span className="min-w-0 truncate">{file.name}</span>
-                    <span className="text-[11px] text-zinc-400">
-                      {mb < 0.1 ? "<0.1" : mb.toFixed(1)} MB
-                    </span>
-                    {willCompress && (
-                      <span
-                        className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-                        title={t("upload.autoCompressHint")}
-                      >
-                        {t("upload.autoCompressChip")}
-                      </span>
-                    )}
-                    {enhance?.kind === "processing" && (
-                      <>
-                        <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
-                          {t("bulk.enhance.status.processing")}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const inflight = enhanceAbortRef.current[id];
-                            if (inflight) {
-                              try {
-                                inflight.abort();
-                              } catch {}
-                            }
-                          }}
-                          className="rounded-full border border-zinc-300 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 hover:bg-zinc-50"
-                          title={t("bulk.enhance.cancelRow")}
-                          aria-label={t("bulk.enhance.cancelRow")}
-                        >
-                          ×
-                        </button>
-                      </>
-                    )}
-                    {enhance?.kind === "previewing" && (
-                      <>
-                        <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
-                          {t("bulk.enhance.status.previewing")}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => approveEnhancement(id)}
-                          className="rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-zinc-800"
-                        >
-                          {t("bulk.enhance.approve")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => rejectEnhancement(id)}
-                          className="rounded-full border border-zinc-300 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-zinc-50"
-                        >
-                          {t("bulk.enhance.reject")}
-                        </button>
-                      </>
-                    )}
-                    {enhance?.kind === "approved" && (
-                      <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                        {t("bulk.enhance.status.approved")}
-                      </span>
-                    )}
-                    {enhance?.kind === "rejected" && (
-                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
-                        {t("bulk.enhance.status.rejected")}
-                      </span>
-                    )}
-                    {enhance?.kind === "failed" && (
-                      <span
-                        className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                        title={t(enhancementErrorMessageKey(enhance.reason))}
-                      >
-                        {t("bulk.enhance.status.failed")}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); removePendingFile(id); }}
-                      className="text-red-600 hover:text-red-800"
-                      aria-label={t("bulk.removePending")}
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-            <div className="mb-3">
-              <p className="text-sm text-zinc-800">{t("bulk.csvTheseHint")}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={csvBusy || uploading}
-                onClick={() => csvInputRef.current?.click()}
-                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {csvBusy ? "…" : t("bulk.csvForThese")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void enhanceSelectedPending()}
-                disabled={bulkEnhanceRunning || pendingSelected.size === 0}
-                className="rounded-full border border-zinc-800 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
-              >
-                {bulkEnhanceRunning ? t("bulk.enhance.running") : t("bulk.enhance.action")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (csvTextRef.current.trim()) scheduleCaptionRef.current();
-                  else void startUpload();
-                }}
-                className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-              >
-                {t("bulk.startUpload")} ({pendingFiles.length})
-              </button>
-              <button
-                type="button"
-                onClick={clearPendingFiles}
-                className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-              >
-                {t("bulk.clear")}
-              </button>
-            </div>
           </div>
         )}
 
@@ -2951,7 +2146,7 @@ export default function BulkUploadPage() {
               {t("bulk.moreTools")}
             </summary>
             <div className="space-y-4 border-t border-zinc-200 px-4 py-4">
-            <BulkUploadGuidance t={t} pendingCount={pendingFiles.length} draftCount={drafts.length} />
+            <BulkUploadGuidance t={t} pendingCount={0} draftCount={drafts.length} />
             <div>
               <WebsiteImportPanel
                 t={t}
@@ -3052,6 +2247,19 @@ export default function BulkUploadPage() {
         )}
 
         <div id="upload-drafts" className="space-y-4">
+          {(drafts.length > 0 || placing.length > 0) && (
+            <div>
+              <p className="mb-2 text-sm text-zinc-800">{t("bulk.csvTheseHint")}</p>
+              <button
+                type="button"
+                disabled={csvBusy}
+                onClick={() => csvInputRef.current?.click()}
+                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {csvBusy ? "…" : t("bulk.csvForThese")}
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -3332,6 +2540,20 @@ export default function BulkUploadPage() {
               </div>
             </div>
           )}
+
+          {placing.map((card) => (
+            <article key={card.id} className="rounded-md border border-zinc-300 bg-white p-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-[88px] w-[88px] shrink-0 bg-zinc-200 bg-cover bg-center"
+                  style={{ backgroundImage: `url("${card.previewUrl}")` }}
+                  role="img"
+                  aria-label={t("bulk.cardPlacing")}
+                />
+                <p className="text-xs text-zinc-500">{t("bulk.cardPlacing")}</p>
+              </div>
+            </article>
+          ))}
 
           {loading ? (
             <p className="text-zinc-600">{t("common.loading")}</p>

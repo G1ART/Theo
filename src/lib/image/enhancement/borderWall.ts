@@ -85,6 +85,7 @@ export function paintBorderWall(
   // wall still walks the full depth and stops at the first different pixel.
   const guardWhiteCanvas =
     !!wallRef && looksLikeWhiteCanvas(wallRef.r, wallRef.g, wallRef.b);
+  const fringe = lightFringeEdges(data, width, height, maxDepth);
   const repaintInward = (
     offsetAt: (depth: number) => number,
     paintAt: (depth: number) => void,
@@ -100,31 +101,137 @@ export function paintBorderWall(
     for (let depth = 0; depth < run; depth += 1) paintAt(depth);
   };
   for (let x = 0; x < width; x += 1) {
-    repaintInward(
-      (depth) => (depth < height ? (depth * width + x) * 4 : -1),
-      (depth) => paint(x, depth),
-    );
-    repaintInward(
-      (depth) => {
-        const y = height - 1 - depth;
-        return y >= 0 ? (y * width + x) * 4 : -1;
-      },
-      (depth) => paint(x, height - 1 - depth),
-    );
+    if (!fringe.top) {
+      repaintInward(
+        (depth) => (depth < height ? (depth * width + x) * 4 : -1),
+        (depth) => paint(x, depth),
+      );
+    }
+    if (!fringe.bottom) {
+      repaintInward(
+        (depth) => {
+          const y = height - 1 - depth;
+          return y >= 0 ? (y * width + x) * 4 : -1;
+        },
+        (depth) => paint(x, height - 1 - depth),
+      );
+    }
   }
   for (let y = 0; y < height; y += 1) {
-    repaintInward(
-      (depth) => (depth < width ? (y * width + depth) * 4 : -1),
-      (depth) => paint(depth, y),
-    );
-    repaintInward(
-      (depth) => {
-        const x = width - 1 - depth;
+    if (!fringe.left) {
+      repaintInward(
+        (depth) => (depth < width ? (y * width + depth) * 4 : -1),
+        (depth) => paint(depth, y),
+      );
+    }
+    if (!fringe.right) {
+      repaintInward(
+        (depth) => {
+          const x = width - 1 - depth;
+          return x >= 0 ? (y * width + x) * 4 : -1;
+        },
+        (depth) => paint(width - 1 - depth, y),
+      );
+    }
+  }
+}
+
+function lumaOf(data: Uint8ClampedArray, offset: number): number {
+  return 0.2126 * data[offset] + 0.7152 * data[offset + 1] + 0.0722 * data[offset + 2];
+}
+
+/**
+ * Light threads and gaps along one side. A flat wall has almost no
+ * neighbor jumps, so it does not count. A textile fringe does.
+ */
+function edgeIsLightFringe(
+  data: Uint8ClampedArray,
+  sample: (along: number, depth: number) => number,
+  alongCount: number,
+  depth: number,
+): boolean {
+  if (alongCount < 8 || depth < 2) return false;
+  let light = 0;
+  let jumps = 0;
+  let n = 0;
+  const step = Math.max(1, Math.floor(alongCount / 64));
+  for (let i = 0; i < alongCount; i += step) {
+    for (let d = 0; d < depth; d += 1) {
+      const a = sample(i, d);
+      if (a < 0) continue;
+      n += 1;
+      const luma = lumaOf(data, a);
+      if (luma >= 160) light += 1;
+      const b = sample(i, d + 1);
+      if (b < 0) continue;
+      const next = lumaOf(data, b);
+      if (luma >= 150 && next >= 150 && Math.abs(luma - next) >= 16) jumps += 1;
+    }
+  }
+  if (n < 8) return false;
+  return light / n >= 0.55 && jumps / n >= 0.12;
+}
+
+export function lightFringeEdges(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  depth = Math.max(2, Math.round(Math.min(width, height) * 0.06)),
+): { top: boolean; right: boolean; bottom: boolean; left: boolean } {
+  return {
+    top: edgeIsLightFringe(
+      data,
+      (x, d) => (d < height ? (d * width + x) * 4 : -1),
+      width,
+      Math.min(depth, height - 1),
+    ),
+    bottom: edgeIsLightFringe(
+      data,
+      (x, d) => {
+        const y = height - 1 - d;
+        return y >= 0 ? (y * width + x) * 4 : -1;
+      },
+      width,
+      Math.min(depth, height - 1),
+    ),
+    left: edgeIsLightFringe(
+      data,
+      (y, d) => (d < width ? (y * width + d) * 4 : -1),
+      height,
+      Math.min(depth, width - 1),
+    ),
+    right: edgeIsLightFringe(
+      data,
+      (y, d) => {
+        const x = width - 1 - d;
         return x >= 0 ? (y * width + x) * 4 : -1;
       },
-      (depth) => paint(width - 1 - depth, y),
-    );
-  }
+      height,
+      Math.min(depth, width - 1),
+    ),
+  };
+}
+
+/** Any side is a light textile fringe rather than empty wall. */
+export function borderIsLightFringe(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+): boolean {
+  const edges = lightFringeEdges(data, width, height);
+  return edges.top || edges.right || edges.bottom || edges.left;
+}
+
+/**
+ * The studio drop shadow belongs on a real wall matte outside a
+ * stretched canvas. A tight crop (the edge is the artwork) or a
+ * textile fringe does not get that shadow.
+ */
+export function shouldPaintStudioShadow(input: {
+  wallOutsideQuad: boolean;
+  fringe: boolean;
+}): boolean {
+  return input.wallOutsideQuad && !input.fringe;
 }
 
 /** Gallery wall. Color passes must not move these pixels. */
