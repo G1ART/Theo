@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { FollowButton } from "@/components/FollowButton";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
+import { visibleModule } from "@/lib/feed/walk/content";
 import { fillTemplate } from "@/lib/feed/walk/fill";
 import type {
   FeedModule,
@@ -27,17 +28,19 @@ type Props = {
 };
 
 export function WalkModuleView({ module, userId, lane }: Props) {
+  const shown = visibleModule(module);
+  if (!shown) return null;
   return (
-    <section className="mb-4 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby={module.key}>
-      <ModuleHeading id={module.key} titleKey={moduleTitleKey(module)} reason={module.reason} />
-      {module.type === "artist_card" && (
-        <ArtistCard person={module.person} works={module.works} userId={userId} lane={lane} />
+    <section className="mb-4 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby={shown.key}>
+      <ModuleHeading id={shown.key} titleKey={moduleTitleKey(shown)} reason={shown.reason} />
+      {shown.type === "artist_card" && (
+        <ArtistCard person={shown.person} works={shown.works} userId={userId} lane={lane} />
       )}
-      {module.type === "artwork_gallery" && <WorkTrio works={module.works} mode="gallery" />}
-      {module.type === "exhibition_card" && <ExhibitionCard exhibition={module.exhibition} />}
-      {module.type === "related_network" && <Network people={module.people} />}
-      {(module.type === "curators_view" || module.type === "related_artwork") && (
-        <WorkTrio works={module.works} mode="credits" />
+      {shown.type === "artwork_gallery" && <WorkTrio works={shown.works} mode="gallery" />}
+      {shown.type === "exhibition_card" && <ExhibitionCard exhibition={shown.exhibition} />}
+      {shown.type === "related_network" && <Network people={shown.people} />}
+      {(shown.type === "curators_view" || shown.type === "related_artwork") && (
+        <WorkTrio works={shown.works} mode="credits" />
       )}
     </section>
   );

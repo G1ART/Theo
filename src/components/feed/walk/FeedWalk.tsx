@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { EmptyState, FeedGridSkeleton } from "@/components/ds";
+import { keepVisibleModules } from "@/lib/feed/walk/content";
 import type { FeedModule, WalkLane, WalkPage } from "@/lib/feed/walk/types";
+import { readFeedSnapshot, saveFeedSnapshot } from "@/lib/feed/scrollSnapshot";
 import { useT } from "@/lib/i18n/useT";
 import { supabase } from "@/lib/supabase/client";
 import { WalkModuleView } from "./WalkModules";
@@ -13,18 +16,57 @@ type Props = {
   sort: "latest" | "popular";
 };
 
+type WalkSnap = {
+  userId: string | null;
+  modules: FeedModule[];
+  cursor: string | null;
+  hasMore: boolean;
+};
+
+function snapshotKeyFor(pathname: string, search: string, lane: WalkLane, sort: string): string {
+  const query = search.startsWith("?") ? search.slice(1) : search;
+  return `walk:${pathname || "/feed"}${query ? `?${query}` : ""}:${lane}:${sort}`;
+}
+
+function readWalkSnap(key: string, userId: string | null): { modules: FeedModule[]; cursor: string | null; hasMore: boolean; scrollY: number } | null {
+  const snap = readFeedSnapshot<WalkSnap>(key);
+  const state = snap?.state;
+  if (!snap || !state || state.userId !== userId || !Array.isArray(state.modules)) return null;
+  const modules = keepVisibleModules(state.modules);
+  if (modules.length === 0) return null;
+  return {
+    modules,
+    cursor: typeof state.cursor === "string" ? state.cursor : null,
+    hasMore: Boolean(state.hasMore) && typeof state.cursor === "string",
+    scrollY: snap.scrollY,
+  };
+}
+
 export function FeedWalk({ userId, lane, sort }: Props) {
   const { t, locale } = useT();
-  const [modules, setModules] = useState<FeedModule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const pathname = usePathname() || "/feed";
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString() ?? "";
+  const snapshotKey = snapshotKeyFor(pathname, search, lane, sort);
+  const bootRef = useRef<ReturnType<typeof readWalkSnap> | null | undefined>(undefined);
+  if (bootRef.current === undefined) {
+    bootRef.current = readWalkSnap(snapshotKey, userId);
+  }
+  const boot = bootRef.current;
+
+  const [modules, setModules] = useState<FeedModule[]>(() => boot?.modules ?? []);
+  const [loading, setLoading] = useState(() => !boot);
   const [paging, setPaging] = useState(false);
   const [error, setError] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
+  const [hasMore, setHasMore] = useState(() => Boolean(boot?.hasMore));
   const fetchSeqRef = useRef(0);
-  const cursorRef = useRef<string | null>(null);
+  const cursorRef = useRef<string | null>(boot?.cursor ?? null);
   const loadingMoreRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef<{ cursor: string; promise: Promise<WalkPage> } | null>(null);
+  const restoreY = useRef<number | null>(boot && boot.scrollY > 0 ? boot.scrollY : null);
+  const snapshotKeyRef = useRef(snapshotKey);
+  snapshotKeyRef.current = snapshotKey;
 
   const requestPage = useCallback(
     async (cursor: string | null): Promise<WalkPage> => {
@@ -44,7 +86,7 @@ export function FeedWalk({ userId, lane, sort }: Props) {
       const json = (await response.json()) as Partial<WalkPage>;
       return {
         scenario: json.scenario ?? null,
-        modules: Array.isArray(json.modules) ? json.modules : [],
+        modules: keepVisibleModules(Array.isArray(json.modules) ? json.modules : []),
         nextCursor: typeof json.nextCursor === "string" ? json.nextCursor : null,
       };
     },
@@ -68,10 +110,50 @@ export function FeedWalk({ userId, lane, sort }: Props) {
   );
 
   useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useEffect(() => {
+    const y = restoreY.current;
+    if (y == null || modules.length === 0) return;
+    let frames = 0;
+    let raf = 0;
+    const tick = () => {
+      window.scrollTo(0, y);
+      frames += 1;
+      const landed = Math.abs(window.scrollY - y) <= 2;
+      if (landed || frames >= 24) {
+        restoreY.current = null;
+        return;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [modules]);
+
+  useEffect(() => {
     const seq = ++fetchSeqRef.current;
+    const saved = readWalkSnap(snapshotKey, userId);
+    if (saved) {
+      if (saved.scrollY > 0) restoreY.current = saved.scrollY;
+      cursorRef.current = saved.cursor;
+      setModules(saved.modules);
+      setHasMore(saved.hasMore);
+      setLoading(false);
+      setError(false);
+      prefetch(saved.cursor);
+      return;
+    }
+    restoreY.current = null;
     cursorRef.current = null;
     loadingMoreRef.current = false;
     inflightRef.current = null;
+    setModules([]);
     setLoading(true);
     setPaging(false);
     setError(false);
@@ -91,7 +173,7 @@ export function FeedWalk({ userId, lane, sort }: Props) {
         setHasMore(false);
         setLoading(false);
       });
-  }, [prefetch, requestPage, userId]);
+  }, [prefetch, requestPage, snapshotKey, userId]);
 
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
@@ -132,6 +214,57 @@ export function FeedWalk({ userId, lane, sort }: Props) {
     obs.observe(el);
     return () => obs.disconnect();
   }, [hasMore, loadMore, modules.length]);
+
+  const persistStateRef = useRef<WalkSnap>({
+    userId,
+    modules,
+    cursor: cursorRef.current,
+    hasMore,
+  });
+  useEffect(() => {
+    persistStateRef.current = {
+      userId,
+      modules,
+      cursor: cursorRef.current,
+      hasMore,
+    };
+  });
+
+  useEffect(() => {
+    const persist = () => {
+      const state = persistStateRef.current;
+      if (state.modules.length === 0) return;
+      const y = window.scrollY;
+      const key = snapshotKeyRef.current;
+      if (y === 0) {
+        const existing = readFeedSnapshot<WalkSnap>(key);
+        if (existing && existing.scrollY > 0 && existing.state?.modules?.length) return;
+      }
+      saveFeedSnapshot(key, state, y);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+    const onPageHide = () => persist();
+    const onClick = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") ?? "";
+      if (href.startsWith("/u/") || href.startsWith("/e/") || href.startsWith("/artwork/")) persist();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("click", onClick, true);
+      persist();
+    };
+  }, [snapshotKey]);
 
   if (loading && modules.length === 0) {
     return <FeedGridSkeleton />;
@@ -202,6 +335,6 @@ export function FeedWalk({ userId, lane, sort }: Props) {
 
 function appendUnique(prev: FeedModule[], next: FeedModule[]): FeedModule[] {
   const seen = new Set(prev.map((module) => module.key));
-  const extra = next.filter((module) => module && !seen.has(module.key));
+  const extra = keepVisibleModules(next).filter((module) => module && !seen.has(module.key));
   return extra.length > 0 ? [...prev, ...extra] : prev;
 }

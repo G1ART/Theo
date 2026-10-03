@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { assembleWalk, PERSONALIZED_SCENARIOS } from "../src/lib/feed/walk/assemble";
+import { visibleModule } from "../src/lib/feed/walk/content";
 import { decodeCursor, encodeCursor } from "../src/lib/feed/walk/cursor";
+import { fillTemplate } from "../src/lib/feed/walk/fill";
+import { messages } from "../src/lib/i18n/messages";
 import type {
   FeedModule,
   WalkEngagement,
@@ -509,6 +512,152 @@ function testBadCursorRestarts() {
   assert.equal(page.scenario, "exhibition_network");
 }
 
+function anonViewer(): WalkViewer {
+  return viewer({
+    id: null,
+    school: null,
+    city: null,
+    medium: null,
+    role: null,
+    exhibitionIds: [],
+    artworkIds: [],
+    followingIds: [],
+    savedArtworkIds: [],
+    inquiredArtworkIds: [],
+    likedArtworkIds: [],
+  });
+}
+
+function testPlaceholderExhibitionOmitsShells() {
+  const enPeople = messages.en["feed.walk.public.people.reason"];
+  const koPeople = messages.ko["feed.walk.public.people.reason"];
+  const enShow = messages.en["feed.walk.public.show.reason"];
+  const koShow = messages.ko["feed.walk.public.show.reason"];
+  assert.equal(enPeople, "People in {exhibition}.");
+  assert.equal(koPeople, "{exhibition}의 사람들입니다.");
+  assert.equal(enShow, "Now on view: {exhibition}.");
+  assert.equal(koShow, "지금 공개된 전시, {exhibition}.");
+  assert.equal(fillTemplate(enPeople, { exhibition: "title" }), "");
+  assert.equal(fillTemplate(koPeople, { exhibition: "title" }), "");
+  assert.equal(fillTemplate(enShow, { exhibition: "Title" }), "");
+  assert.equal(fillTemplate(koShow, { exhibition: "" }), "");
+  assert.equal(fillTemplate(enPeople, { exhibition: "Public Room" }), "People in Public Room.");
+  assert.equal(fillTemplate(messages.en["feed.walk.worksOf"], { name: "" }), "");
+  assert.equal(fillTemplate(messages.ko["feed.walk.worksOf"], { name: " " }), "");
+  assert.equal(fillTemplate(messages.en["feed.walk.worksOf"], { name: "Lea" }), "Lea's Artwork");
+
+  const shellNetwork: FeedModule = {
+    type: "related_network",
+    key: "public:people:lea",
+    title: { key: "feed.walk.public.people.title", params: {} },
+    reason: { key: "feed.walk.public.people.reason", params: { exhibition: "title" } },
+    people: [
+      { ...person({ id: "Lea", name: "Lea", username: "lea" }), mutualAvatars: null },
+    ],
+  };
+  assert.equal(visibleModule(shellNetwork), null);
+  const shellShow: FeedModule = {
+    type: "exhibition_card",
+    key: "public:show:bad",
+    title: { key: "feed.walk.public.show.title", params: {} },
+    reason: { key: "feed.walk.public.show.reason", params: { exhibition: "title" } },
+    exhibition: {
+      id: "Ebad",
+      title: "title",
+      startDate: null,
+      endDate: null,
+      curator: { id: "Lea", name: "Lea", username: "lea", avatarUrl: null },
+      gallery: { id: "Lea", name: "Lea", username: "lea", avatarUrl: null },
+      coverPath: null,
+      city: null,
+    },
+  };
+  assert.equal(visibleModule(shellShow), null);
+  const blankShow: FeedModule = {
+    ...shellShow,
+    exhibition: { ...shellShow.exhibition, title: "  " },
+    reason: { key: "feed.walk.public.show.reason", params: { exhibition: "  " } },
+  };
+  assert.equal(visibleModule(blankShow), null);
+  const emptyGallery: FeedModule = {
+    type: "artwork_gallery",
+    key: "public:works:empty",
+    title: { key: "feed.walk.public.works.title", params: {} },
+    reason: { key: "feed.walk.public.works.reason", params: {} },
+    works: [],
+  };
+  assert.equal(visibleModule(emptyGallery), null);
+  const realShow = visibleModule({
+    ...shellShow,
+    exhibition: { ...shellShow.exhibition, title: "Public Room", coverPath: null },
+    reason: { key: "feed.walk.public.show.reason", params: { exhibition: "Public Room" } },
+  });
+  assert.equal(realShow?.type, "exhibition_card");
+
+  for (const title of ["title", "Title", "TITLE", "", "   "]) {
+    const pools: WalkPools = {
+      people: [
+        person({ id: "Lea", name: "Lea", username: "lea" }),
+        person({ id: "Yoon", name: "Yoon Lee" }),
+        person({ id: "Qiqi", name: "Qiqi Zhou" }),
+        person({ id: "Jiwon", name: "지웬닛아트코리아" }),
+      ],
+      works: [
+        work({ id: "W1", artistId: "Yoon", title: "Mother", imagePath: "mother.jpg" }),
+        work({ id: "W2", artistId: "Qiqi", title: "Untitled", imagePath: "untitled.jpg" }),
+        work({ id: "W3", artistId: "Jiwon", title: "Narrow Opening", imagePath: "narrow.jpg" }),
+      ],
+      exhibitions: [
+        exhibition({
+          id: "Ebad",
+          title,
+          curatorId: "Lea",
+          hostProfileId: "Lea",
+          hostName: "Lea",
+          participantIds: ["Lea"],
+          workIds: [],
+          coverPath: null,
+        }),
+      ],
+      engagements: [],
+      follows: [],
+    };
+    const page = assembleWalk({
+      lane: "public",
+      viewer: anonViewer(),
+      pools,
+      cursor: null,
+    });
+    assert.equal(page.scenario, "public", title);
+    assert.equal(
+      page.modules.some((mod) => mod.type === "exhibition_card"),
+      false,
+      title
+    );
+    assert.equal(
+      page.modules.some((mod) => mod.type === "related_network"),
+      false,
+      title
+    );
+    const gallery = page.modules.find((mod) => mod.type === "artwork_gallery");
+    assert.ok(gallery && gallery.type === "artwork_gallery", title);
+    assert.ok(gallery.works.length >= 1, title);
+    assert.deepEqual(
+      gallery.works.map((row) => row.title),
+      ["Mother", "Untitled", "Narrow Opening"]
+    );
+    for (const mod of page.modules) {
+      for (const value of Object.values(mod.reason.params)) {
+        assert.notEqual(value.trim().toLowerCase(), "title");
+        assert.notEqual(value.trim(), "");
+      }
+    }
+    const blob = JSON.stringify(page.modules);
+    assert.equal(blob.includes("People in title"), false);
+    assert.equal(blob.includes("Now on view: title"), false);
+  }
+}
+
 testOrderAndCursor();
 testSkipWhenMissing();
 testEmptyWhenNothingReal();
@@ -516,5 +665,6 @@ testCollectorEndsOnExhibition();
 testLoggedOutIsPublic();
 testFollowingGroupsRealFollows();
 testBadCursorRestarts();
+testPlaceholderExhibitionOmitsShells();
 
 console.log("feed-walk-assemble: ok");

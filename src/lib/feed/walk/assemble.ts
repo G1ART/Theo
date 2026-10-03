@@ -1,4 +1,6 @@
+import { keepVisibleModules } from "./content";
 import { encodeCursor } from "./cursor";
+import { isFilledSlot } from "./fill";
 import type {
   FeedModule,
   WalkCopy,
@@ -72,7 +74,8 @@ export function assembleWalk(input: AssembleInput): WalkPage {
   for (let n = 0; n < rotation.length; n++) {
     const name = rotation[si]!;
     const built = buildScenario(name, ctx);
-    if (built && built.modules.length > 0) {
+    const modules = built ? keepVisibleModules(built.modules) : [];
+    if (built && modules.length > 0) {
       for (const key of built.touch) used.add(key);
       const nextSi = (si + 1) % rotation.length;
       const next = encodeCursor({
@@ -81,7 +84,7 @@ export function assembleWalk(input: AssembleInput): WalkPage {
         off: (start?.off ?? 0) + 1,
         used: [...used].slice(-400),
       });
-      return { scenario: name, modules: built.modules, nextCursor: next };
+      return { scenario: name, modules, nextCursor: next };
     }
     si = (si + 1) % rotation.length;
   }
@@ -183,7 +186,7 @@ function openGate(ctx: Ctx): Gate {
       return person;
     },
     takeExhibition(exhibition) {
-      if (!exhibition || !exhibition.title.trim()) return null;
+      if (!exhibition || !isFilledSlot(exhibition.title)) return null;
       const key = keyE(exhibition.id);
       if (blocked.has(key)) return null;
       claim(key);
@@ -830,14 +833,38 @@ function buildCollector(ctx: Ctx): Built | null {
 function buildPublic(ctx: Ctx): Built | null {
   const loose = ctx.pools.works.filter((work) => ctx.idx.people.has(work.artistId));
   for (const exhibition of ctx.pools.exhibitions) {
+    if (!isFilledSlot(exhibition.title)) continue;
     const full = storyPublic(ctx, exhibition, loose, true);
     if (full) return full;
   }
   for (const exhibition of ctx.pools.exhibitions) {
+    if (!isFilledSlot(exhibition.title)) continue;
     const short = storyPublic(ctx, exhibition, loose, false);
     if (short) return short;
   }
-  return null;
+  return publicWorksOnly(ctx, loose);
+}
+
+/** Recent public works still render when every exhibition title is blank or "title". */
+function publicWorksOnly(ctx: Ctx, loose: WalkWork[]): Built | null {
+  const gate = openGate(ctx);
+  const gallery = gate.takeWorks(loose, TRIO);
+  if (!gallery) return null;
+  return {
+    touch: gate.touch,
+    modules: [
+      mod(
+        "artwork_gallery",
+        "public",
+        "works",
+        copy("feed.walk.public.works.title"),
+        copy("feed.walk.public.works.reason"),
+        {
+          works: gallery.map((work) => toWork(work, ctx.idx)),
+        }
+      ),
+    ],
+  };
 }
 
 function storyPublic(
