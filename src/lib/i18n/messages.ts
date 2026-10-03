@@ -1392,6 +1392,16 @@ export const messages = {
     "upload.imageEnhance.flow.cropHint":
       "Align the four canvas corners, then crop. Floor and neighboring works must stay out.",
     "upload.imageEnhance.flow.cropConfirm": "Crop to this area",
+    "upload.imageEnhance.flow.boundaryQuad": "Rectangle corners",
+    "upload.imageEnhance.flow.boundaryShape": "Keep this shape",
+    "upload.imageEnhance.flow.boundaryShapeHint":
+      "Lifts a circle, oval, or irregular work off the background. Rectangular canvases stay on corner crop.",
+    "upload.imageEnhance.flow.boundaryShapeRun": "Trace this shape",
+    "upload.imageEnhance.flow.boundaryShapeRunning": "Tracing the shape…",
+    "upload.imageEnhance.flow.boundaryShapeNoKey":
+      "Shape tracing isn’t available. Use rectangle corners instead.",
+    "upload.imageEnhance.flow.boundaryShapeFailed":
+      "Couldn’t trace the edge. Try again, or use rectangle corners.",
     "upload.imageEnhance.flow.cropNeedCorners":
       "Couldn’t lock the edges. Tap the four corners of the artwork.",
     "upload.imageEnhance.flow.cropRecrop": "Adjust artwork area",
@@ -6035,6 +6045,16 @@ export const messages = {
     "upload.imageEnhance.flow.cropHint":
       "캔버스 네 모서리를 맞춘 뒤 잘라 주세요. 바닥·옆 작품이 들어가면 안 됩니다.",
     "upload.imageEnhance.flow.cropConfirm": "이 영역으로 자르기",
+    "upload.imageEnhance.flow.boundaryQuad": "사각형 모서리",
+    "upload.imageEnhance.flow.boundaryShape": "이 모양 그대로",
+    "upload.imageEnhance.flow.boundaryShapeHint":
+      "원, 타원, 유기적 형태를 배경에서 분리합니다. 사각형 캔버스는 모서리 자르기를 그대로 쓰세요.",
+    "upload.imageEnhance.flow.boundaryShapeRun": "모양 따기",
+    "upload.imageEnhance.flow.boundaryShapeRunning": "모양을 따는 중…",
+    "upload.imageEnhance.flow.boundaryShapeNoKey":
+      "모양 따기를 쓸 수 없습니다. 사각형 모서리로 잘라 주세요.",
+    "upload.imageEnhance.flow.boundaryShapeFailed":
+      "경계를 따지 못했습니다. 다시 시도하거나 사각형 모서리를 쓰세요.",
     "upload.imageEnhance.flow.cropNeedCorners":
       "경계를 확신할 수 없어요. 작품 네 모서리를 직접 찍어 주세요.",
     "upload.imageEnhance.flow.cropRecrop": "작품 영역 다시 잡기",

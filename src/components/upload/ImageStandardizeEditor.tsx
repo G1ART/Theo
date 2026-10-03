@@ -72,6 +72,7 @@ import {
   detectArtworkQuad,
   type ArtworkVisionSeed,
 } from "@/lib/image/enhancement/detectArtworkQuad";
+import { requestSilhouetteCutout } from "@/lib/image/enhancement/silhouetteClient";
 import { aiApi } from "@/lib/ai/browser";
 import type { ArtworkQualityGateResult } from "@/lib/ai/types";
 import {
@@ -1197,6 +1198,16 @@ export function ImageStandardizeEditor({
   // step 2 without applying any perspective correction (source
   // corners forced to null so the pipeline runs crop-only).
   const [perspectiveSkipped, setPerspectiveSkipped] = useState<boolean>(false);
+  // Quad corners stay the default. Silhouette is opt-in and never
+  // writes those corners, so the rectangular crop path is unchanged
+  // until the artist explicitly chooses "이 모양 그대로".
+  const [boundaryMode, setBoundaryMode] = useState<"quad" | "silhouette">("quad");
+  const boundaryModeRef = useRef(boundaryMode);
+  boundaryModeRef.current = boundaryMode;
+  const silhouetteFileRef = useRef<File | null>(null);
+  const [silhouetteUrl, setSilhouetteUrl] = useState<string | null>(null);
+  const [silhouetteRunning, setSilhouetteRunning] = useState(false);
+  const [silhouetteError, setSilhouetteError] = useState<string | null>(null);
   // Advanced-fold: 2026-10-02 output aspect selector. Replaces the
   // pre-2026-10 single `keepOriginalAspect` checkbox. `aspectMode =
   // "auto"` is the default and preserves the engine's historical
@@ -1566,7 +1577,9 @@ export function ImageStandardizeEditor({
                   rectangleConfidence: analysis.rectangleConfidence,
                 }) as Quad | null)
               : null));
-    if (pathChoice === "ai" && !perspectiveSkipped && !sourceCornersToSend) {
+    const useSilhouette =
+      boundaryModeRef.current === "silhouette" && silhouetteFileRef.current != null;
+    if (pathChoice === "ai" && !perspectiveSkipped && !useSilhouette && !sourceCornersToSend) {
       // Do not full-frame enhance over a confirmed (or pending) crop.
       return;
     }
@@ -1590,7 +1603,7 @@ export function ImageStandardizeEditor({
       // Color handling: "원본 색감" disables AWB + Pro Look entirely;
       // "선명 보정" runs both (AWB at partial strength — see the
       // `awb.strength` thread below).
-      const wantsAwb = !isOriginalColor;
+      const wantsAwb = !isOriginalColor && !useSilhouette;
       const wantsProLook = proLookEnabled;
       // Intensity multiplier. "선명 보정" stays deliberately gentle (0.6x
       // base) so Pro Look adds clarity without the lurid over-boost the
@@ -1663,19 +1676,21 @@ export function ImageStandardizeEditor({
             ? { b: -0.05, c: -0.06, s: -0.04 }
             : { b: 0.02, c: 0.03, s: 0.01 };
       const result = await runFlatEnhancement({
-        file,
+        file: useSilhouette ? silhouetteFileRef.current! : file,
         // G5 (2026-08-10): unify long-edge cap to 2560 across every
         // upload path. Single + exhibition-linked used to inherit the
         // engine's 4096 default; bulk was already at 2560. Never
         // upscales (see `scale = longestCropEdge > maxLongEdge`).
         maxLongEdge: 2560,
-        bezel: STANDARD_STUDIO_BEZEL,
+        // The silhouette route already matted the subject. A second
+        // bezel would frame the frame. Quad mode keeps the studio bezel.
+        bezel: useSilhouette ? 0 : STANDARD_STUDIO_BEZEL,
         // When corners exist, omit AABB crop so suggestedCrop cannot
         // become the warp rectangle. normalizeCropFromCorners already
-        // prefers the corner AABB.
-        crop: sourceCornersToSend ? null : seedCrop,
-        sourceCorners: sourceCornersToSend,
-        targetAspect: targetAspectOverride,
+        // prefers the corner AABB. Silhouette has no corners to warp.
+        crop: useSilhouette || sourceCornersToSend ? null : seedCrop,
+        sourceCorners: useSilhouette ? null : sourceCornersToSend,
+        targetAspect: useSilhouette ? undefined : targetAspectOverride,
         tone: {
           // The classic tone pass only runs when Pro Look is OFF (i.e.
           // "원본 색감"); the engine skips it under Pro Look. So the
@@ -2019,6 +2034,8 @@ export function ImageStandardizeEditor({
     pathChoice,
     skipped: perspectiveSkipped,
     corners: perspectiveCorners,
+    boundary: boundaryMode,
+    silhouette: silhouetteUrl ? "ready" : "",
   });
   const lastPreviewRecipeKeyRef = useRef<string>("");
 
@@ -2032,7 +2049,14 @@ export function ImageStandardizeEditor({
     if (pathChoice !== "ai") return;
     if (tab !== "enhance") return;
     if (wizardStep !== "tone") return;
-    if (!perspectiveSkipped && !perspectiveCorners && !perspectiveCornersRef.current) {
+    const silhouetteReady =
+      boundaryModeRef.current === "silhouette" && silhouetteFileRef.current != null;
+    if (
+      !silhouetteReady &&
+      !perspectiveSkipped &&
+      !perspectiveCorners &&
+      !perspectiveCornersRef.current
+    ) {
       return;
     }
     if (resolvedAutoMode === "object") return;
@@ -2075,6 +2099,13 @@ export function ImageStandardizeEditor({
     setVisionQuad(null);
     setVisionConfidence(0);
     setVisionLook(null);
+    setBoundaryMode("quad");
+    silhouetteFileRef.current = null;
+    setSilhouetteUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setSilhouetteError(null);
     colorSeedLockedRef.current = Boolean(sharedPreset);
     setVisionStatus("idle");
     setDetectingArtwork(false);
@@ -2565,7 +2596,9 @@ export function ImageStandardizeEditor({
                   </p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
                     {wizardStep === "perspective"
-                      ? t("upload.imageEnhance.flow.cropHint")
+                      ? boundaryMode === "silhouette"
+                        ? t("upload.imageEnhance.flow.boundaryShapeHint")
+                        : t("upload.imageEnhance.flow.cropHint")
                       : t("upload.imageEnhance.flow.lightHint")}
                   </p>
                 </div>
@@ -2628,8 +2661,81 @@ export function ImageStandardizeEditor({
                     </span>
                   </div>
 
-                  {/* Picker — always inline on this step */}
-                  {previewUrl && !perspectiveSkipped && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setBoundaryMode("quad")}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                        boundaryMode === "quad"
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      {t("upload.imageEnhance.flow.boundaryQuad")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBoundaryMode("silhouette")}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                        boundaryMode === "silhouette"
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      {t("upload.imageEnhance.flow.boundaryShape")}
+                    </button>
+                  </div>
+
+                  {boundaryMode === "silhouette" ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] leading-relaxed text-zinc-500">
+                        {t("upload.imageEnhance.flow.boundaryShapeHint")}
+                      </p>
+                      {silhouetteUrl ? (
+                        <div className="overflow-hidden rounded-lg bg-[#f3f3f3]">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={silhouetteUrl} alt="" className="mx-auto max-h-[420px] w-full object-contain" />
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={silhouetteRunning}
+                        onClick={() => {
+                          setSilhouetteError(null);
+                          setSilhouetteRunning(true);
+                          void requestSilhouetteCutout(file)
+                            .then((blob) => {
+                              const next = new File([blob], "silhouette.webp", { type: "image/webp" });
+                              silhouetteFileRef.current = next;
+                              setSilhouetteUrl((prev) => {
+                                if (prev) URL.revokeObjectURL(prev);
+                                return URL.createObjectURL(next);
+                              });
+                            })
+                            .catch((err: unknown) => {
+                              const reason = err instanceof Error ? err.message : "error";
+                              setSilhouetteError(
+                                reason === "no_key"
+                                  ? t("upload.imageEnhance.flow.boundaryShapeNoKey")
+                                  : t("upload.imageEnhance.flow.boundaryShapeFailed"),
+                              );
+                            })
+                            .finally(() => setSilhouetteRunning(false));
+                        }}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-[11px] text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        {silhouetteRunning
+                          ? t("upload.imageEnhance.flow.boundaryShapeRunning")
+                          : t("upload.imageEnhance.flow.boundaryShapeRun")}
+                      </button>
+                      {silhouetteError ? (
+                        <p className="text-[11px] text-amber-800" role="alert">{silhouetteError}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* Picker — rectangular works only. Silhouette does not touch it. */}
+                  {boundaryMode === "quad" && previewUrl && !perspectiveSkipped && (
                     <PerspectiveCornerPicker
                       imageUrl={previewUrl}
                       imageWidth={pickerImageWidth}
@@ -2653,7 +2759,7 @@ export function ImageStandardizeEditor({
                       hideActions
                     />
                   )}
-                  {perspectiveSkipped && previewUrl && (
+                  {boundaryMode === "quad" && perspectiveSkipped && previewUrl && (
                     <div
                       className="relative w-full overflow-hidden rounded-lg bg-zinc-100"
                       style={{
@@ -2674,17 +2780,17 @@ export function ImageStandardizeEditor({
                   )}
 
                   {/* Hint */}
-                  {detectingArtwork && (
+                  {boundaryMode === "quad" && detectingArtwork && (
                     <p className="text-[11px] leading-relaxed text-zinc-500" aria-live="polite">
                       {t("upload.imageEnhance.flow.detectingArtwork")}
                     </p>
                   )}
-                  {!detectingArtwork && visionStatus === "miss" && !matteReady && !perspectiveUserAdjusted && (
+                  {boundaryMode === "quad" && !detectingArtwork && visionStatus === "miss" && !matteReady && !perspectiveUserAdjusted && (
                     <p className="text-[11px] leading-relaxed text-amber-800" role="status">
                       {t("upload.imageEnhance.flow.cropNeedCorners")}
                     </p>
                   )}
-                  {!detectingArtwork && (visionStatus !== "miss" || matteReady) && (
+                  {boundaryMode === "quad" && !detectingArtwork && (visionStatus !== "miss" || matteReady) && (
                     <p className="text-[11px] leading-relaxed text-zinc-500">
                       {t("imageEnhance.wizard.perspectiveHint")}
                     </p>
@@ -2695,7 +2801,7 @@ export function ImageStandardizeEditor({
                       apex of each curved edge keeps the warp honest
                       and lets `paintBorderWall` do its wall-color
                       cleanup on the thin leftover band. */}
-                  {!perspectiveSkipped &&
+                  {boundaryMode === "quad" && !perspectiveSkipped &&
                     (visionStatus === "miss" || matteReady || perspectiveUserAdjusted) && (
                       <p className="text-[11px] leading-relaxed text-amber-700">
                         {t("imageEnhance.wizard.perspectiveLensHint")}
@@ -2721,9 +2827,17 @@ export function ImageStandardizeEditor({
                     </div>
                     <button
                       type="button"
-                      disabled={(detectingArtwork && !matteReady) || !canConfirmCrop}
+                      disabled={
+                        boundaryMode === "silhouette"
+                          ? silhouetteRunning || !silhouetteUrl
+                          : (detectingArtwork && !matteReady) || !canConfirmCrop
+                      }
                       onClick={() => {
-                        if (perspectiveSkipped) {
+                        if (boundaryMode === "silhouette") {
+                          if (!silhouetteFileRef.current) return;
+                          perspectiveCornersRef.current = null;
+                          setPerspectiveCorners(null);
+                        } else if (perspectiveSkipped) {
                           perspectiveCornersRef.current = null;
                           setPerspectiveCorners(null);
                         } else {
