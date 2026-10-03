@@ -3,8 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSession } from "@/lib/supabase/auth";
-import { FeedContent } from "@/components/FeedContent";
 import { ExploreTaxonomyContent } from "@/components/ExploreTaxonomyContent";
+import { FeedWalk } from "@/components/feed/walk/FeedWalk";
 import { PageShell } from "@/components/ds/PageShell";
 import { FeedHeader, type ExploreTab } from "@/components/feed/FeedHeader";
 import { BilingualDiscoveryBanner } from "@/components/bilingual/BilingualDiscoveryBanner";
@@ -121,14 +121,17 @@ export function FeedClient() {
       */}
       {sessionReady && userId && <BilingualDiscoveryBanner />}
 
-      {!sessionReady ? null : tab === "foryou" ? (
-        <FeedContent
-          tab="all"
-          sort={sortValue}
+      {!sessionReady ? null : tab === "foryou" || (!userId && tab === "all") ? (
+        <FeedWalk
           userId={userId}
-          onTabChange={() => {}}
-          onSortChange={handleSortChange}
-          suppressHeader
+          lane={
+            userId && (rawTab ?? "").trim().toLowerCase() === "following"
+              ? "following"
+              : userId
+                ? "personalized"
+                : "public"
+          }
+          sort={sortValue}
         />
       ) : (
         <ExploreTaxonomyContent
