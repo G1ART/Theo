@@ -9,8 +9,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
-import { PageHeader } from "@/components/ds/PageHeader";
 import { AppShell } from "@/components/shell/AppShell";
+import { UPLOAD_MAX_IMAGE_MB_LABEL } from "@/lib/upload/limits";
 
 /**
  * Upload chrome sits in the existing 3-column shell (sidebar | center |
@@ -26,6 +26,7 @@ export default function UploadLayout({
   const router = useRouter();
   const { t } = useT();
   const [query, setQuery] = useState("");
+  const [bulkHelp, setBulkHelp] = useState(false);
 
   useEffect(() => {
     setQuery(window.location.search || "");
@@ -48,39 +49,33 @@ export default function UploadLayout({
   }
 
   const tabClass = (active: boolean) =>
-    active
-      ? "-mb-px border-b-2 border-zinc-900 pb-2 text-sm font-medium text-zinc-900"
-      : "pb-2 text-sm text-zinc-400 hover:text-zinc-700";
+    active ? "text-sm text-zinc-900" : "text-sm text-zinc-300 hover:text-zinc-500";
 
   const modeClass = (active: boolean) =>
-    active
-      ? "border-b border-zinc-900 pb-0.5 text-sm font-medium text-zinc-900"
-      : "pb-0.5 text-sm text-zinc-400 hover:text-zinc-700";
+    active ? "text-sm text-zinc-900" : "text-sm text-zinc-300 hover:text-zinc-500";
 
   return (
     <AppShell>
       <PageShell variant="studio">
-        <PageHeader
-          variant="plain"
-          title={t("upload.title")}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={jumpToDrafts}
-                className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-              >
-                {t("bulk.statusDraft")}
-              </button>
-              <TourHelpButton tourId={TOUR_IDS.upload} />
-            </>
-          }
-          density="tight"
-        />
+        <header className="mb-1 flex items-start justify-between gap-3">
+          <h1 className="text-[2rem] font-normal tracking-tight text-zinc-900">
+            {t("upload.title")}
+          </h1>
+          <div className="flex items-center gap-2 pt-2">
+            <TourHelpButton tourId={TOUR_IDS.upload} />
+            <button
+              type="button"
+              onClick={jumpToDrafts}
+              className="rounded-full border border-zinc-400 px-4 py-1 text-sm text-zinc-800 hover:bg-zinc-50"
+            >
+              {t("bulk.statusDraft")}
+            </button>
+          </div>
+        </header>
         <nav
           data-tour="upload-tabs"
           aria-label={t("upload.title")}
-          className="mb-5 flex items-center justify-center gap-12 border-b border-zinc-200"
+          className="mt-4 grid grid-cols-2 border-b border-zinc-200 pb-2 text-center"
         >
           <Link href={hrefWithQuery("/upload")} className={tabClass(onArtworks)}>
             {t("upload.tabArtworks")}
@@ -94,7 +89,7 @@ export default function UploadLayout({
           </Link>
         </nav>
         {onArtworks && (
-          <div className="mb-6 flex items-center justify-center gap-16">
+          <div className="relative mt-6 mb-6 grid grid-cols-2 text-center">
             <Link
               href={hrefWithQuery("/upload/single")}
               data-tour="upload-tab-single"
@@ -102,19 +97,32 @@ export default function UploadLayout({
             >
               {t("upload.modeSingle")}
             </Link>
-            <Link
-              href={hrefWithQuery(pathname.startsWith("/upload/bulk") ? "/upload/bulk" : "/upload")}
-              data-tour="upload-tab-bulk"
-              className={modeClass(!onSingle)}
-            >
-              {t("upload.modeBulk")}
-              <span
-                className="ml-1 text-xs font-normal text-zinc-400"
-                title={t("bulk.workspaceDrop")}
+            <div className="relative inline-flex items-center justify-center gap-1">
+              <Link
+                href={hrefWithQuery(pathname.startsWith("/upload/bulk") ? "/upload/bulk" : "/upload")}
+                data-tour="upload-tab-bulk"
+                className={modeClass(!onSingle)}
               >
-                (?)
-              </span>
-            </Link>
+                {t("upload.modeBulk")}
+              </Link>
+              <button
+                type="button"
+                aria-expanded={bulkHelp}
+                aria-label={t("upload.modeBulk")}
+                onClick={() => setBulkHelp((open) => !open)}
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-400 text-[10px] leading-none text-zinc-500"
+              >
+                ?
+              </button>
+              {bulkHelp && (
+                <div className="absolute left-[58%] top-7 z-20 w-64 rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs leading-relaxed text-zinc-600 shadow-sm">
+                  <p>{t("bulk.dropLine1")}</p>
+                  <p className="mt-1">
+                    {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
         <ErrorBoundary

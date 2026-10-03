@@ -8,6 +8,7 @@ import {
   attachArtworkImage,
   createDraftArtwork,
   deleteArtwork,
+  deleteArtworkImage,
   deleteDraftArtworks,
   getStorageUrl,
   listMyDraftArtworks,
@@ -15,7 +16,9 @@ import {
   publishArtworks,
   publishArtworksWithProvenance,
   updateArtwork,
+  updateArtworkImageViewType,
   validatePublish,
+  type ArtworkImageViewType,
   type ArtworkWithLikes,
   type UpdateArtworkPayload,
 } from "@/lib/supabase/artworks";
@@ -267,7 +270,7 @@ export default function BulkUploadPage() {
   // this (rows use uncontrolled defaultValue inputs) so typing keeps focus.
   const [bulkVersion, setBulkVersion] = useState(0);
 
-  const [titleBulkMode, setTitleBulkMode] = useState<"none" | "set" | "prefix" | "suffix" | "replace">("none");
+  const [titleBulkMode, setTitleBulkMode] = useState<"none" | "set" | "prefix" | "suffix" | "replace">("set");
   const [titleBulkText, setTitleBulkText] = useState("");
   const [titleReplaceFrom, setTitleReplaceFrom] = useState("");
   const [titleReplaceTo, setTitleReplaceTo] = useState("");
@@ -297,6 +300,7 @@ export default function BulkUploadPage() {
   const [linkingExhibition, setLinkingExhibition] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [csvBusy, setCsvBusy] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(false);
   const [stagedArtworkIds, setStagedArtworkIds] = useState<string[]>([]);
 
   // Persona / intent — from exhibition add: pre-fill CURATED + artist, skip intent/attribution steps
@@ -1541,6 +1545,37 @@ export default function BulkUploadPage() {
     void fetchDrafts({ silent: true });
   }
 
+  async function setDetailView(artworkId: string, storagePath: string, viewType: ArtworkImageViewType) {
+    const { error } = await updateArtworkImageViewType(artworkId, storagePath, viewType);
+    if (error) {
+      setToast(t("bulk.group.addFailed"));
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+    void fetchDrafts({ silent: true });
+  }
+
+  async function removeDetailImage(artworkId: string, storagePath: string) {
+    const { error } = await deleteArtworkImage(artworkId, storagePath);
+    if (error) {
+      setToast(t("bulk.group.addFailed"));
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+    try { await removeStorageFile(storagePath); } catch { /* row is already gone */ }
+    void fetchDrafts({ silent: true });
+  }
+
+  function publishAllReady() {
+    const ready = drafts.filter((d) => validatePublish(d).ok).map((d) => d.id);
+    if (ready.length === 0) {
+      setToast(t("bulk.publishAllNone"));
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+    void handlePublish(ready);
+  }
+
   async function confirmGroups(groups: string[][]) {
     setGroupBusy(true);
     for (const ids of groups) {
@@ -1844,8 +1879,8 @@ export default function BulkUploadPage() {
     }
   }
 
-  async function handlePublish() {
-    const ids = Array.from(selected);
+  async function handlePublish(idsOverride?: string[]) {
+    const ids = idsOverride ?? Array.from(selected);
     if (ids.length === 0) return;
     const toPublish = drafts.filter((d) => ids.includes(d.id));
     const invalid = toPublish.filter((d) => !validatePublish(d).ok);
@@ -2179,7 +2214,7 @@ export default function BulkUploadPage() {
   }
 
   async function applySharedWorkspace() {
-    const ids = targetDraftIds();
+    const ids = drafts.map((d) => d.id);
     if (ids.length === 0) {
       setToast(t("bulk.noDrafts"));
       setTimeout(() => setToast(null), 2000);
@@ -2212,19 +2247,44 @@ export default function BulkUploadPage() {
       partial.size = parts.join(" × ");
       partial.size_unit = bulkSizeUnit === "" ? "cm" : bulkSizeUnit;
     }
-    if (titleBulkText.trim()) {
+    const sameTitle = titleBulkMode === "set" && titleBulkText.trim();
+    if (sameTitle) {
       const title = titleBulkText.trim();
       partial.title = title;
       if (locale === "ko") partial.title_ko = title;
       else partial.title_en = title;
     }
-    if (Object.keys(partial).length === 0 && !linkExhibitionId) {
+    const reshapeTitle =
+      (titleBulkMode === "prefix" || titleBulkMode === "suffix" || titleBulkMode === "replace") &&
+      (titleBulkMode === "replace" ? titleReplaceFrom.trim() : titleBulkText.trim());
+    if (Object.keys(partial).length === 0 && !linkExhibitionId && !reshapeTitle) {
       setToast(t("bulk.sharedNothing"));
       setTimeout(() => setToast(null), 2000);
       return;
     }
     if (Object.keys(partial).length > 0) {
       await applyToDrafts(ids, partial);
+    }
+    if (reshapeTitle) {
+      for (const id of ids) {
+        const d = drafts.find((x) => x.id === id);
+        const next = transformTitle(
+          d?.title ?? null,
+          titleBulkMode,
+          titleBulkText,
+          titleReplaceFrom,
+          titleReplaceTo,
+        );
+        const titlePatch: UpdateArtworkPayload = { title: next || d?.title || "" };
+        if (locale === "ko") titlePatch.title_ko = titlePatch.title || null;
+        else titlePatch.title_en = titlePatch.title || null;
+        await updateArtwork(id, titlePatch, {
+          actingSubjectProfileId: actingAsProfileId ?? null,
+          auditAction: "bulk.artwork.update",
+        });
+      }
+      await fetchDrafts({ silent: true });
+      setBulkVersion((v) => v + 1);
     }
     if (linkExhibitionId) {
       setLinkingExhibition(true);
@@ -2243,7 +2303,7 @@ export default function BulkUploadPage() {
         setLinkingExhibition(false);
       }
     }
-    setToast(selected.size > 0 ? t("bulk.applyToSelected") : t("bulk.applyToAll"));
+    setToast(t("bulk.applyToAll"));
     setTimeout(() => setToast(null), 2000);
   }
 
@@ -2685,6 +2745,7 @@ export default function BulkUploadPage() {
           <div className="mb-4 flex justify-end">
             <button
               type="button"
+              data-tour="upload-intent-selector"
               onClick={() => {
                 setIntent("CURATED");
                 setAttributionOpen(true);
@@ -2698,7 +2759,7 @@ export default function BulkUploadPage() {
         )}
 
         <div
-          className="mb-6 cursor-pointer rounded-xl border border-zinc-200 bg-white px-6 py-10 text-center hover:border-zinc-400"
+          className="mb-2 cursor-pointer rounded-md border border-zinc-300 bg-white px-6 py-10 text-center hover:border-zinc-400"
           onClick={() => document.getElementById("bulk-file-input")?.click()}
           onDrop={(e) => {
             e.preventDefault();
@@ -2709,17 +2770,74 @@ export default function BulkUploadPage() {
           <input
             id="bulk-file-input"
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/gif"
             multiple
             className="hidden"
             onChange={(e) => addPendingFiles(e.target.files)}
             disabled={uploading}
           />
-          <UploadCloudMark className="mx-auto h-8 w-8 text-zinc-500" />
-          <p className="mt-2 text-sm font-medium text-zinc-800">{t("bulk.cardUpload")}</p>
-          <p className="mx-auto mt-2 max-w-lg text-xs leading-relaxed text-zinc-500">
-            {t("bulk.workspaceDrop").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+          <div className="mx-auto flex h-14 w-14 flex-col items-center justify-center rounded-lg border border-zinc-300 text-zinc-700">
+            <UploadCloudMark className="h-6 w-6" />
+            <span className="text-[10px] leading-none">{t("bulk.cardUpload")}</span>
+          </div>
+          <p className="mx-auto mt-4 max-w-lg text-xs leading-relaxed text-zinc-500">
+            {t("bulk.dropLine1")}
           </p>
+          <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+            {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+          </p>
+        </div>
+        <div className="mb-6 text-center">
+          <button
+            type="button"
+            onClick={() => setCsvOpen((open) => !open)}
+            aria-expanded={csvOpen}
+            className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
+          >
+            {t("bulk.csvOpen")}
+          </button>
+          {csvOpen && (
+            <div className="mx-auto mt-3 max-w-xl rounded-md border border-zinc-300 bg-white px-4 py-3 text-left">
+              <p className="mb-2 text-xs font-medium text-zinc-800">{t("bulk.csvTitle")}</p>
+              <p className="mb-2 text-xs leading-relaxed text-zinc-500">{t("bulk.csvHint")}</p>
+              <input
+                type="file"
+                accept=".csv,.tsv,text/csv,text/tab-separated-values"
+                className="mb-2 block text-xs text-zinc-600"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  void file.text().then(setCsvText);
+                }}
+              />
+              <textarea
+                value={csvText}
+                onChange={(e) => setCsvText(e.target.value)}
+                placeholder={t("bulk.csvPlaceholder")}
+                rows={4}
+                className="mb-2 w-full rounded border border-zinc-300 px-2 py-1 font-mono text-xs"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={csvBusy}
+                  onClick={() => void importCsvDrafts("auto")}
+                  className="rounded-full border border-zinc-800 px-4 py-1.5 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  {csvBusy ? "…" : t("bulk.csvImport")}
+                </button>
+                <button
+                  type="button"
+                  disabled={csvBusy || !csvOrderReady()}
+                  onClick={() => void importCsvDrafts("order")}
+                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 disabled:opacity-50"
+                >
+                  {t("bulk.csvApplyInOrder")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Pending files */}
@@ -3016,246 +3134,6 @@ export default function BulkUploadPage() {
                 </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-3">
-              <input
-                type="number"
-                placeholder={t("bulk.year")}
-                className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
-                onBlur={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  if (!isNaN(v)) handleApply("year", v);
-                }}
-              />
-              <input
-                type="text"
-                placeholder={t("bulk.medium")}
-                className="w-40 rounded border border-zinc-300 px-2 py-1 text-sm"
-                onBlur={(e) => handleApply("medium", e.target.value)}
-              />
-              <select
-                className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                onChange={(e) => handleApply("ownership_status", e.target.value)}
-              >
-                <option value="">{t("bulk.ownershipStatus")}</option>
-                {OWNERSHIP_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                ))}
-              </select>
-              <select
-                className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                onChange={(e) => handleApply("pricing_mode", e.target.value as "fixed" | "inquire")}
-              >
-                <option value="">{t("bulk.pricingMode")}</option>
-                <option value="inquire">{t("bulk.inquire")}</option>
-                <option value="fixed">{t("bulk.fixed")}</option>
-              </select>
-              <label className="flex items-center gap-1 text-sm text-zinc-700">
-                <input
-                  type="checkbox"
-                  onChange={(e) => handleApply("is_price_public", e.target.checked)}
-                />
-                {t("bulk.pricePublic")}
-              </label>
-            </div>
-            <div className="mt-4 space-y-2 border-t border-zinc-200 pt-3">
-              <p className="text-xs font-medium text-zinc-600">{t("bulk.applyTitleBulk")}</p>
-              <div className="flex flex-wrap gap-2">
-                <select
-                  value={titleBulkMode}
-                  onChange={(e) => setTitleBulkMode(e.target.value as typeof titleBulkMode)}
-                  className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                >
-                  <option value="none">{t("bulk.titleModeNone")}</option>
-                  <option value="set">{t("bulk.titleModeSet")}</option>
-                  <option value="prefix">{t("bulk.titleModePrefix")}</option>
-                  <option value="suffix">{t("bulk.titleModeSuffix")}</option>
-                  <option value="replace">{t("bulk.titleModeReplace")}</option>
-                </select>
-                {titleBulkMode !== "replace" && titleBulkMode !== "none" && (
-                  <input
-                    value={titleBulkText}
-                    onChange={(e) => setTitleBulkText(e.target.value)}
-                    placeholder={titleBulkMode === "set" ? t("bulk.titleSetPlaceholder") : t("bulk.titleNewSegment")}
-                    className="w-48 rounded border border-zinc-300 px-2 py-1 text-sm"
-                  />
-                )}
-                {titleBulkMode === "replace" && (
-                  <>
-                    <input
-                      value={titleReplaceFrom}
-                      onChange={(e) => setTitleReplaceFrom(e.target.value)}
-                      placeholder={t("bulk.titleReplaceFrom")}
-                      className="w-36 rounded border border-zinc-300 px-2 py-1 text-sm"
-                    />
-                    <input
-                      value={titleReplaceTo}
-                      onChange={(e) => setTitleReplaceTo(e.target.value)}
-                      placeholder={t("bulk.titleReplaceTo")}
-                      className="w-36 rounded border border-zinc-300 px-2 py-1 text-sm"
-                    />
-                  </>
-                )}
-                <button
-                  type="button"
-                  disabled={titleBulkMode === "none"}
-                  onClick={() =>
-                    openBulkConfirm(
-                      t("bulk.confirmDestructive").replace("{n}", String(targetDraftIds().length)),
-                      runTitleBulk
-                    )
-                  }
-                  className="rounded-full bg-zinc-800 px-3 py-1 text-sm text-white disabled:opacity-50"
-                >
-                  {t("bulk.applyTitleBulk")}
-                </button>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200 pt-3">
-              <input
-                value={bulkSize}
-                onChange={(e) => setBulkSize(e.target.value)}
-                placeholder={t("bulk.size")}
-                className="w-28 rounded border border-zinc-300 px-2 py-1 text-sm"
-              />
-              <select
-                value={bulkSizeUnit}
-                onChange={(e) => setBulkSizeUnit(e.target.value as "" | "cm" | "in")}
-                className="rounded border border-zinc-300 px-2 py-1 text-sm"
-              >
-                <option value="">{t("bulk.sizeUnit")}</option>
-                <option value="cm">cm</option>
-                <option value="in">in</option>
-              </select>
-              <button
-                type="button"
-                onClick={() =>
-                  openBulkConfirm(
-                    t("bulk.confirmDestructive").replace("{n}", String(targetDraftIds().length)),
-                    applySizeBulk
-                  )
-                }
-                className="rounded-full border border-zinc-300 px-3 py-1 text-sm"
-              >
-                {t("bulk.applySize")}
-              </button>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200 pt-3">
-              <input
-                type="number"
-                value={bulkPriceAmount}
-                onChange={(e) => setBulkPriceAmount(e.target.value)}
-                placeholder={t("bulk.fixedPrice")}
-                className="w-32 rounded border border-zinc-300 px-2 py-1 text-sm"
-              />
-              <input
-                value={bulkPriceCurrency}
-                onChange={(e) => setBulkPriceCurrency(e.target.value)}
-                placeholder={t("bulk.priceCurrency")}
-                className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm"
-              />
-              <label className="flex items-center gap-1 text-sm">
-                <input
-                  type="checkbox"
-                  checked={bulkPricePublic}
-                  onChange={(e) => setBulkPricePublic(e.target.checked)}
-                />
-                {t("bulk.pricePublic")}
-              </label>
-              <button
-                type="button"
-                onClick={() =>
-                  openBulkConfirm(
-                    t("bulk.confirmDestructive").replace("{n}", String(targetDraftIds().length)),
-                    applyPriceBulk
-                  )
-                }
-                className="rounded-full border border-zinc-300 px-3 py-1 text-sm"
-              >
-                {t("bulk.applyPrice")}
-              </button>
-            </div>
-            {myExhibitions.length > 0 && (
-              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-3">
-                <select
-                  value={linkExhibitionId}
-                  onChange={(e) => setLinkExhibitionId(e.target.value)}
-                  className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                >
-                  <option value="">{t("bulk.exhibitionSelectorPlaceholder")}</option>
-                  {myExhibitions.map((ex) => (
-                    <option key={ex.id} value={ex.id}>
-                      {pickLocalizedTitle(ex, locale) || ex.title}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!linkExhibitionId || linkingExhibition}
-                  onClick={() =>
-                    openBulkConfirm(
-                      t("bulk.confirmDestructive").replace("{n}", String(targetDraftIds().length)),
-                      linkSelectedToExhibition
-                    )
-                  }
-                  className="rounded-full bg-zinc-800 px-3 py-1 text-sm text-white disabled:opacity-50"
-                >
-                  {t("bulk.linkToExhibition")}
-                </button>
-                <button
-                  type="button"
-                  disabled={!linkExhibitionId || linkingExhibition}
-                  onClick={() =>
-                    openBulkConfirm(
-                      t("bulk.confirmDestructive").replace("{n}", String(targetDraftIds().length)),
-                      unlinkSelectedFromExhibition
-                    )
-                  }
-                  className="rounded-full border border-red-200 px-3 py-1 text-sm text-red-800 disabled:opacity-50"
-                >
-                  {t("bulk.unlinkFromExhibition")}
-                </button>
-              </div>
-            )}
-            <div className="mt-4 border-t border-zinc-200 pt-3">
-              <p className="mb-2 text-xs font-medium text-zinc-700">{t("bulk.csvTitle")}</p>
-              <p className="mb-2 text-xs text-zinc-500">{t("bulk.csvHint")}</p>
-              <input
-                type="file"
-                accept=".csv,.tsv,text/csv,text/tab-separated-values"
-                className="mb-2 block text-xs text-zinc-600"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (!file) return;
-                  void file.text().then(setCsvText);
-                }}
-              />
-              <textarea
-                value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
-                placeholder={t("bulk.csvPlaceholder")}
-                rows={5}
-                className="mb-2 w-full rounded border border-zinc-300 px-2 py-1 font-mono text-xs"
-              />
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={csvBusy}
-                  onClick={() => void importCsvDrafts("auto")}
-                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm text-white disabled:opacity-50"
-                >
-                  {csvBusy ? "…" : t("bulk.csvImport")}
-                </button>
-                <button
-                  type="button"
-                  disabled={csvBusy || !csvOrderReady()}
-                  onClick={() => void importCsvDrafts("order")}
-                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-800 disabled:opacity-50"
-                >
-                  {t("bulk.csvApplyInOrder")}
-                </button>
-              </div>
-            </div>
             </div>
           </details>
 
@@ -3324,13 +3202,13 @@ export default function BulkUploadPage() {
           </div>
         )}
 
-        <div id="upload-drafts" className="space-y-3">
+        <div id="upload-drafts" className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handleDeleteSelected}
               disabled={selectedIds.length === 0 || deleting}
-              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              className="rounded-full border border-zinc-400 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-40"
             >
               {t("bulk.deleteSelected")}
             </button>
@@ -3338,73 +3216,84 @@ export default function BulkUploadPage() {
               type="button"
               onClick={handleDeleteAll}
               disabled={drafts.length === 0 || deleting}
-              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              className="rounded-full border border-zinc-400 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-40"
             >
               {t("bulk.deleteAll")}
             </button>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {drafts.length > 0 && (
-                <span className="text-xs text-zinc-500">
-                  {t("bulk.readyToPublish")
-                    .replace("{ready}", String(selectedIds.length > 0 ? selectedReady : readyCount))
-                    .replace("{total}", String(selectedIds.length > 0 ? selectedIds.length : drafts.length))}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setGroupOpen(true)}
-                disabled={selectedIds.length < 2 || groupBusy}
-                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                {t("bulk.group.open")}
-              </button>
-              <button
-                type="button"
-                onClick={handlePublish}
-                disabled={!canPublishSelected || publishing}
-                className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {t("bulk.publishSelected")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSharedOpen((o) => !o)}
-                aria-expanded={sharedOpen}
-                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50"
-              >
-                <span className="mr-1 text-zinc-400">?</span>
-                {t("bulk.setSharedInfo")}
-                <span className="ml-1 text-zinc-400">{sharedOpen ? "▴" : "▾"}</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setSharedOpen((o) => !o)}
+              aria-expanded={sharedOpen}
+              className="ml-auto inline-flex items-center gap-1 text-sm text-zinc-800 hover:text-zinc-950"
+            >
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-400 text-[10px] text-zinc-500">
+                ?
+              </span>
+              {t("bulk.setSharedInfo")}
+              <span aria-hidden className="text-zinc-400">{sharedOpen ? "▴" : "▾"}</span>
+            </button>
           </div>
 
           {sharedOpen && (
-            <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_5.5rem_minmax(0,1.3fr)]">
-                <label className="block text-[11px] text-zinc-500">
-                  {t("bulk.tableTitle")}
-                  <input
-                    value={titleBulkText}
-                    onChange={(e) => setTitleBulkText(e.target.value)}
-                    placeholder={t("bulk.sharedTitlePlaceholder")}
-                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
-                  />
-                </label>
-                <label className="block text-[11px] text-zinc-500">
+            <div className="rounded-md border border-zinc-300 bg-white p-4">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.4fr)_6.5rem_minmax(0,1.2fr)]">
+                <div>
+                  <p className="mb-1 text-xs text-zinc-800">{t("bulk.tableTitle")}</p>
+                  <div className="flex gap-2">
+                    <select
+                      value={titleBulkMode === "none" ? "set" : titleBulkMode}
+                      onChange={(e) => setTitleBulkMode(e.target.value as typeof titleBulkMode)}
+                      aria-label={t("bulk.sharedTitlePlaceholder")}
+                      className="w-36 shrink-0 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value="set">{t("bulk.sharedTitlePlaceholder")}</option>
+                      <option value="prefix">{t("bulk.titleModePrefix")}</option>
+                      <option value="suffix">{t("bulk.titleModeSuffix")}</option>
+                      <option value="replace">{t("bulk.titleModeReplace")}</option>
+                    </select>
+                    {titleBulkMode !== "replace" && (
+                      <input
+                        value={titleBulkText}
+                        onChange={(e) => setTitleBulkText(e.target.value)}
+                        placeholder={t("bulk.tableTitle")}
+                        className="min-w-0 flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                    )}
+                  </div>
+                  {titleBulkMode === "replace" && (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        value={titleReplaceFrom}
+                        onChange={(e) => setTitleReplaceFrom(e.target.value)}
+                        placeholder={t("bulk.titleReplaceFrom")}
+                        className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                      <input
+                        value={titleReplaceTo}
+                        onChange={(e) => setTitleReplaceTo(e.target.value)}
+                        placeholder={t("bulk.titleReplaceTo")}
+                        className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
+                <label className="block text-xs text-zinc-800">
                   {t("bulk.year")}
-                  <input
+                  <select
                     value={sharedYear}
                     onChange={(e) => setSharedYear(e.target.value)}
-                    inputMode="numeric"
-                    placeholder={t("bulk.year")}
-                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
-                  />
+                    className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                  >
+                    <option value=""> </option>
+                    {Array.from({ length: 81 }, (_, i) => String(new Date().getFullYear() - i)).map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
                 </label>
-                <div className="text-[11px] text-zinc-500">
-                  <span className="flex flex-wrap items-center gap-2">
-                    {t("bulk.size")}
-                    <span className="inline-flex overflow-hidden rounded-md border border-zinc-200 text-[10px] font-medium">
+                <div>
+                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-zinc-800">
+                    <span>{t("bulk.size")}</span>
+                    <span className="inline-flex overflow-hidden rounded border border-zinc-300 text-[10px] leading-none">
                       {(["cm", "in"] as const).map((u) => (
                         <button
                           key={u}
@@ -3413,116 +3302,44 @@ export default function BulkUploadPage() {
                             setSharedSizeNa(false);
                             setBulkSizeUnit(u);
                           }}
-                          className={`px-1.5 py-0.5 ${
+                          className={`px-1.5 py-1 ${
                             !sharedSizeNa && (bulkSizeUnit || "cm") === u
-                              ? "bg-zinc-900 text-white"
-                              : "bg-white text-zinc-500"
+                              ? "bg-zinc-800 text-white"
+                              : "bg-zinc-100 text-zinc-500"
                           }`}
                         >
-                          {u.toUpperCase()}
+                          {u}
                         </button>
                       ))}
                     </span>
-                    <label className="inline-flex items-center gap-1 font-normal">
-                      <input
-                        type="checkbox"
-                        checked={sharedSizeNa}
-                        onChange={(e) => setSharedSizeNa(e.target.checked)}
-                        className="h-3 w-3 accent-zinc-900"
-                      />
-                      {t("bulk.sizeNotApplicable")}
-                    </label>
-                  </span>
-                  <div className="mt-0.5 flex items-center gap-1">
-                    <input
-                      value={sharedH}
-                      disabled={sharedSizeNa}
-                      onChange={(e) => setSharedH(e.target.value)}
-                      placeholder={t("bulk.dimHeight")}
-                      aria-label={t("bulk.dimHeight")}
-                      className="w-14 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm disabled:bg-zinc-100"
-                    />
-                    <span className="text-zinc-300">×</span>
-                    <input
-                      value={sharedW}
-                      disabled={sharedSizeNa}
-                      onChange={(e) => setSharedW(e.target.value)}
-                      placeholder={t("bulk.dimWidth")}
-                      aria-label={t("bulk.dimWidth")}
-                      className="w-14 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm disabled:bg-zinc-100"
-                    />
-                    <span className="text-zinc-300">×</span>
-                    <input
-                      value={sharedD}
-                      disabled={sharedSizeNa}
-                      onChange={(e) => setSharedD(e.target.value)}
-                      placeholder={t("bulk.dimDepth")}
-                      aria-label={t("bulk.dimDepth")}
-                      className="w-14 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm disabled:bg-zinc-100"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div>
-                <p className="text-[11px] text-zinc-500">{t("bulk.medium")}</p>
-                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                  {sharedMediums.map((chip) => (
-                    <span
-                      key={chip}
-                      className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-xs text-zinc-800"
+                    <button
+                      type="button"
+                      onClick={() => setSharedSizeNa((v) => !v)}
+                      className="inline-flex items-center gap-1 text-zinc-600"
                     >
-                      {chip}
-                      <button
-                        type="button"
-                        className="text-zinc-400 hover:text-zinc-800"
-                        onClick={() => setSharedMediums((prev) => prev.filter((m) => m !== chip))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    value={sharedMediumQuery}
-                    onChange={(e) => setSharedMediumQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addSharedMedium(sharedMediumQuery);
-                      }
-                    }}
-                    placeholder={t("bulk.mediumSearch")}
-                    className="min-w-[8rem] flex-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => addSharedMedium(sharedMediumQuery)}
-                    className="rounded-full border border-zinc-300 px-2 py-0.5 text-sm text-zinc-700 hover:bg-zinc-50"
-                  >
-                    +
-                  </button>
-                </div>
-                {sharedMediumSuggestions.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {sharedMediumSuggestions.map((name) => (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() => addSharedMedium(name)}
-                        className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-50"
-                      >
-                        {name}
-                      </button>
-                    ))}
+                      <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${sharedSizeNa ? "border-zinc-800" : "border-zinc-400"}`}>
+                        {sharedSizeNa && <span className="h-1.5 w-1.5 rounded-full bg-zinc-800" />}
+                      </span>
+                      {t("bulk.sizeNotApplicable")}
+                    </button>
                   </div>
-                )}
+                  <div className="flex items-center gap-1">
+                    <input value={sharedH} disabled={sharedSizeNa} onChange={(e) => setSharedH(e.target.value)} placeholder={t("bulk.dimHeight")} aria-label={t("bulk.dimHeight")} className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50" />
+                    <span className="text-xs text-zinc-400">×</span>
+                    <input value={sharedW} disabled={sharedSizeNa} onChange={(e) => setSharedW(e.target.value)} placeholder={t("bulk.dimWidth")} aria-label={t("bulk.dimWidth")} className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50" />
+                    <span className="text-xs text-zinc-400">×</span>
+                    <input value={sharedD} disabled={sharedSizeNa} onChange={(e) => setSharedD(e.target.value)} placeholder={t("bulk.dimDepth")} aria-label={t("bulk.dimDepth")} className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50" />
+                  </div>
+                </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <label className="block text-[11px] text-zinc-500">
+
+              <div className="mt-4 grid grid-cols-1 gap-3 border-b border-zinc-200 pb-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.35fr)]">
+                <label className="block text-xs text-zinc-800">
                   {t("upload.tabExhibitionShort")}
                   <select
                     value={linkExhibitionId}
                     onChange={(e) => setLinkExhibitionId(e.target.value)}
-                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                    className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
                   >
                     <option value="">{t("bulk.exhibitionSelectorPlaceholder")}</option>
                     {myExhibitions.map((ex) => (
@@ -3532,60 +3349,135 @@ export default function BulkUploadPage() {
                     ))}
                   </select>
                 </label>
-                <label className="block text-[11px] text-zinc-500">
+                <label className="block text-xs text-zinc-800">
                   {t("bulk.ownershipStatus")}
                   <select
                     value={sharedOwnership}
                     onChange={(e) => setSharedOwnership(e.target.value)}
-                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                    className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
                   >
-                    <option value="">—</option>
+                    <option value=""> </option>
                     {OWNERSHIP_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {t(o.labelKey)}
-                      </option>
+                      <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                     ))}
                   </select>
                 </label>
-                <label className="block text-[11px] text-zinc-500">
-                  {t("bulk.pricingMode")}
-                  <select
-                    value={sharedPricing}
-                    onChange={(e) => setSharedPricing(e.target.value as "" | "inquire" | "fixed")}
-                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
-                  >
-                    <option value="">—</option>
-                    <option value="inquire">{t("bulk.inquire")}</option>
-                    <option value="fixed">{t("bulk.fixed")}</option>
-                  </select>
-                </label>
+                <div>
+                  <p className="mb-1 text-xs text-zinc-800">{t("bulk.pricingMode")}</p>
+                  <div className="flex gap-2">
+                    <select
+                      value={sharedPricing}
+                      onChange={(e) => setSharedPricing(e.target.value as "" | "inquire" | "fixed")}
+                      aria-label={t("bulk.pricingMode")}
+                      className="w-28 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value=""> </option>
+                      <option value="inquire">{t("bulk.inquire")}</option>
+                      <option value="fixed">{t("bulk.fixed")}</option>
+                    </select>
+                    <input
+                      value={bulkPriceAmount}
+                      onChange={(e) => {
+                        setBulkPriceAmount(e.target.value);
+                        if (e.target.value.trim()) setSharedPricing("fixed");
+                      }}
+                      disabled={sharedPricing === "inquire"}
+                      placeholder={t("bulk.amount")}
+                      aria-label={t("bulk.amount")}
+                      className="w-24 rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50"
+                    />
+                    <select
+                      value={bulkPriceCurrency}
+                      onChange={(e) => setBulkPriceCurrency(e.target.value)}
+                      aria-label={t("bulk.currency")}
+                      className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value="USD">USD</option>
+                      <option value="KRW">KRW</option>
+                    </select>
+                  </div>
+                  {sharedPricing === "fixed" && (
+                    <label className="mt-2 flex items-center gap-1.5 text-xs text-zinc-600">
+                      <input
+                        type="checkbox"
+                        checked={bulkPricePublic}
+                        onChange={(e) => setBulkPricePublic(e.target.checked)}
+                      />
+                      {t("bulk.pricePublic")}
+                    </label>
+                  )}
+                </div>
               </div>
-              {sharedPricing === "fixed" && (
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    value={bulkPriceAmount}
-                    onChange={(e) => setBulkPriceAmount(e.target.value)}
-                    placeholder={t("bulk.fixedPrice")}
-                    className="w-28 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
-                  />
-                  <input
-                    value={bulkPriceCurrency}
-                    onChange={(e) => setBulkPriceCurrency(e.target.value)}
-                    placeholder={t("bulk.priceCurrency")}
-                    className="w-24 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
-                  />
+
+              <div className="mt-4">
+                <p className="mb-1 text-xs text-zinc-800">
+                  {t("bulk.medium")}
+                  <span className="ml-2 font-normal text-zinc-400">{t("bulk.mediumSearch")}</span>
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex min-w-[14rem] flex-1 items-center rounded border border-zinc-300">
+                    <input
+                      value={sharedMediumQuery}
+                      onChange={(e) => setSharedMediumQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addSharedMedium(sharedMediumQuery);
+                        }
+                      }}
+                      placeholder={t("bulk.mediumSearch")}
+                      className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addSharedMedium(sharedMediumQuery)}
+                      className="px-2 text-lg leading-none text-zinc-500"
+                      aria-label={t("bulk.mediumAdd")}
+                    >
+                      +
+                    </button>
+                  </div>
+                  {sharedMediums.map((chip) => (
+                    <span key={chip} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2.5 py-1 text-xs text-zinc-800">
+                      {chip}
+                      <button type="button" className="text-zinc-400 hover:text-zinc-800" onClick={() => setSharedMediums((prev) => prev.filter((m) => m !== chip))}>×</button>
+                    </span>
+                  ))}
+                </div>
+                {sharedMediumSuggestions.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {sharedMediumSuggestions.map((name) => (
+                      <button key={name} type="button" onClick={() => addSharedMedium(name)} className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-50">
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {linkExhibitionId && (
+                <div className="mt-3 text-right">
+                  <button
+                    type="button"
+                    disabled={linkingExhibition}
+                    onClick={() => void unlinkSelectedFromExhibition()}
+                    className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800 disabled:opacity-40"
+                  >
+                    {t("bulk.unlinkFromExhibition")}
+                  </button>
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-3">
+
+              <div className="mt-5 text-center">
                 <button
                   type="button"
                   onClick={() => void applySharedWorkspace()}
                   disabled={linkingExhibition}
-                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
+                  className="rounded-full bg-zinc-900 px-5 py-1.5 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  {selected.size > 0 ? t("bulk.applyToSelected") : t("bulk.applyToAll")}
+                  {t("bulk.applyToAll")}
                 </button>
-                <p className="text-xs text-zinc-500">{t("bulk.sharedOverwrite")}</p>
+                <p className="mt-2 text-xs text-zinc-500">{t("bulk.sharedOverwrite")}</p>
               </div>
             </div>
           )}
@@ -3612,9 +3504,53 @@ export default function BulkUploadPage() {
                 onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
                 onSave={(patch) => void saveDraftPatch(d.id, patch)}
                 onLinkExhibition={(exhibitionId) => void linkOneExhibition(d.id, exhibitionId)}
+                onSetViewType={(storagePath, viewType) => void setDetailView(d.id, storagePath, viewType)}
+                onRemoveDetail={(storagePath) => void removeDetailImage(d.id, storagePath)}
               />
             ))
           )}
+
+          {selectedIds.length >= 2 && (
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => setGroupOpen(true)}
+                disabled={groupBusy}
+                className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800 disabled:opacity-40"
+              >
+                {t("bulk.group.open")}
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-6">
+            <button
+              type="button"
+              onClick={() => {
+                setToast(t("bulk.savedDraft"));
+                setTimeout(() => setToast(null), 2000);
+              }}
+              className="min-w-[10.5rem] rounded-full border border-zinc-800 px-5 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+            >
+              {t("bulk.saveToDraft")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePublish()}
+              disabled={!canPublishSelected || publishing}
+              className="min-w-[10.5rem] rounded-full border border-zinc-800 px-5 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
+            >
+              {t("bulk.publishSelected")}
+            </button>
+            <button
+              type="button"
+              onClick={publishAllReady}
+              disabled={readyCount === 0 || publishing}
+              className="min-w-[10.5rem] rounded-full border border-zinc-800 px-5 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
+            >
+              {t("bulk.publishAll")}
+            </button>
+          </div>
         </div>
 
           </div>

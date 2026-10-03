@@ -1710,6 +1710,28 @@ export async function updateArtworkImageDisplayAdjust(
     .eq("storage_path", storagePath);
 }
 
+/** Perspective tag on an existing image row (Detail / Alt. Angle / In Situ / Other). */
+export async function updateArtworkImageViewType(
+  artworkId: string,
+  storagePath: string,
+  viewType: ArtworkImageViewType,
+) {
+  return supabase
+    .from("artwork_images")
+    .update({ view_type: viewType })
+    .eq("artwork_id", artworkId)
+    .eq("storage_path", storagePath);
+}
+
+/** Remove one extra shot. Callers should not pass the cover image. */
+export async function deleteArtworkImage(artworkId: string, storagePath: string) {
+  return supabase
+    .from("artwork_images")
+    .delete()
+    .eq("artwork_id", artworkId)
+    .eq("storage_path", storagePath);
+}
+
 /**
  * Point one draft image at a corrected display file. The phone original
  * stays. A previous corrected display is removed after the row updates.

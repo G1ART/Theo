@@ -22,7 +22,7 @@ import {
 import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
-import { addWorkToExhibition } from "@/lib/supabase/exhibitions";
+import { addWorkToExhibition, listMyExhibitions, type ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { useActingAs } from "@/context/ActingAsContext";
@@ -36,13 +36,14 @@ import {
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
+import { UploadCloudMark } from "@/components/upload/BulkDraftCard";
 import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
 import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
-import { pickLegacyForSave, pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
+import { pickLegacyForSave, pickLocalizedDisplayName, pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
 import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
@@ -113,7 +114,7 @@ function UploadPageContent() {
   const { actingAsProfileId } = useActingAs();
   const [userId, setUserId] = useState<string | null>(null);
   const [step, setStep] = useState<UploadStep>(() => {
-    if (!fromExhibition) return "intent";
+    if (!fromExhibition) return "form";
     if (preselectedArtistId) return "form";
     if (preselectedExternalName && (externalEmailReady || linkLaterFromExhibition)) {
       return "form";
@@ -121,7 +122,7 @@ function UploadPageContent() {
     if (preselectedExternalName) return "attribution";
     return "form";
   });
-  const [intent, setIntent] = useState<IntentType | null>(fromExhibition ? "CURATED" : null);
+  const [intent, setIntent] = useState<IntentType | null>(fromExhibition ? "CURATED" : "CREATED");
 
   // Attribution (non-CREATED)
   const [artistSearch, setArtistSearch] = useState("");
@@ -257,10 +258,19 @@ function UploadPageContent() {
   const [storyKo, setStoryKo] = useState("");
   const [storyEn, setStoryEn] = useState("");
   const [ownershipStatus, setOwnershipStatus] = useState("available");
-  const [pricingMode, setPricingMode] = useState<"fixed" | "inquire">("fixed");
+  const [pricingMode, setPricingMode] = useState<"fixed" | "inquire">("inquire");
   const [priceCurrency, setPriceCurrency] = useState("USD");
   const [priceAmount, setPriceAmount] = useState("");
   const [isPricePublic, setIsPricePublic] = useState(false);
+  const [myExhibitions, setMyExhibitions] = useState<ExhibitionWithCredits[]>([]);
+  const [exhibitionPick, setExhibitionPick] = useState(addToExhibitionId ?? "");
+  const [mediumQuery, setMediumQuery] = useState("");
+  const [sizeNa, setSizeNa] = useState(false);
+  const [dimH, setDimH] = useState("");
+  const [dimW, setDimW] = useState("");
+  const [dimD, setDimD] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
   const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
 
   // Dedup
@@ -276,6 +286,12 @@ function UploadPageContent() {
       setUserId(session?.user?.id ?? null);
     });
   }, []);
+
+  useEffect(() => {
+    void listMyExhibitions({ forProfileId: actingAsProfileId ?? null }).then(({ data }) => {
+      setMyExhibitions(data ?? []);
+    });
+  }, [actingAsProfileId]);
 
   // When coming from exhibition add with dropped file(s), pre-fill image (single) so user goes straight to form
   useEffect(() => {
@@ -293,7 +309,7 @@ function UploadPageContent() {
           viewType: "wall_mounted",
           previewUrl: URL.createObjectURL(pending.files[0]),
           displayAdjust: null,
-          standardizeOpen: true,
+          standardizeOpen: false,
           enhancement: null,
         },
       ]);
@@ -371,17 +387,6 @@ function UploadPageContent() {
 
   const needsAttribution = (v: IntentType | null) => v !== "CREATED";
 
-  function handleIntentSelect(value: IntentType) {
-    setIntent(value);
-    setError(null);
-    if (value === "CREATED") {
-      setStep("form");
-    } else {
-      setStep("attribution");
-      setSelectedArtist(null);
-    }
-  }
-
   function handleAttributionNext() {
     if (needsAttribution(intent)) {
       if (useExternalArtist) {
@@ -407,7 +412,7 @@ function UploadPageContent() {
   function handleFormNext(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (images.length === 0 || !title.trim() || !year || !medium.trim() || !size.trim()) {
+    if (images.length === 0 || !title.trim() || !year || !medium.trim() || (!sizeNa && !size.trim())) {
       setError(t("common.pleaseFillRequired"));
       return;
     }
@@ -661,9 +666,10 @@ function UploadPageContent() {
         }
       }
 
-      if (addToExhibitionId?.trim()) {
+      const linkedExhibitionId = (exhibitionPick || addToExhibitionId || "").trim();
+      if (linkedExhibitionId) {
         const { error: addExErr } = await addWorkToExhibition(
-          addToExhibitionId.trim(),
+          linkedExhibitionId,
           artworkId,
           { actingSubjectProfileId: actingAsProfileId ?? null }
         );
@@ -731,6 +737,99 @@ function UploadPageContent() {
     }
   }
 
+  function ingestFiles(list: FileList | null, mode: "primary" | "details") {
+    const files = Array.from(list ?? []);
+    if (files.length === 0) return;
+    const oversize = files.find((f) => f.size > getUploadCeilingBytes(f));
+    if (oversize) {
+      const compressible = isCompressibleMime(oversize.type);
+      const ceilingMb = compressible
+        ? UPLOAD_MAX_COMPRESSIBLE_MB_LABEL
+        : UPLOAD_MAX_IMAGE_MB_LABEL;
+      const key = compressible
+        ? "upload.fileTooLargeCompressible"
+        : "upload.fileTooLargeUnsupported";
+      setError(t(key).replace("{maxMb}", String(ceilingMb)));
+      return;
+    }
+    setError(null);
+    const make = (file: File, viewType: ArtworkImageViewType): PendingImage => ({
+      id: crypto.randomUUID(),
+      file,
+      viewType,
+      previewUrl: URL.createObjectURL(file),
+      displayAdjust: null,
+      standardizeOpen: false,
+      enhancement: null,
+    });
+    setImages((prev) => {
+      const next = [...prev];
+      if (mode === "details") {
+        const incoming = [...files];
+        if (next.length === 0 && incoming.length > 0) {
+          const cover = incoming.shift();
+          if (cover) next.push(make(cover, "wall_mounted"));
+        }
+        for (const file of incoming) next.push(make(file, "detail"));
+        return next;
+      }
+      const [first, ...rest] = files;
+      if (!first) return next;
+      if (next.length === 0) next.push(make(first, "wall_mounted"));
+      else {
+        const old = next[0];
+        try { URL.revokeObjectURL(old.previewUrl); } catch { /* already revoked */ }
+        if (old.enhancement?.previewUrl) {
+          try { URL.revokeObjectURL(old.enhancement.previewUrl); } catch { /* already revoked */ }
+        }
+        next[0] = {
+          ...old,
+          file: first,
+          viewType: "wall_mounted",
+          previewUrl: URL.createObjectURL(first),
+          displayAdjust: null,
+          enhancement: null,
+          standardizeOpen: false,
+        };
+      }
+      for (const file of rest) next.push(make(file, "detail"));
+      return next;
+    });
+  }
+
+  const mediumChips = (locale === "ko" ? mediumKo || medium : mediumEn || medium)
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  function setMediumChips(next: string[]) {
+    const joined = next.join(", ");
+    setMedium(joined);
+    if (locale === "ko") setMediumKo(joined);
+    else setMediumEn(joined);
+  }
+  function addMediumChip(raw: string) {
+    const value = raw.trim();
+    if (!value) return;
+    if (mediumChips.some((m) => m.toLowerCase() === value.toLowerCase())) {
+      setMediumQuery("");
+      return;
+    }
+    setMediumQuery("");
+    setMediumChips([...mediumChips, value]);
+  }
+  const mediumSuggestions = TAXONOMY.mediumOptions
+    .map((opt) => t(opt.labelKey))
+    .filter((name) => {
+      const q = mediumQuery.trim().toLowerCase();
+      if (!q) return false;
+      return name.toLowerCase().includes(q) && !mediumChips.some((m) => m.toLowerCase() === name.toLowerCase());
+    })
+    .slice(0, 6);
+  const yearOptions = Array.from({ length: 81 }, (_, i) => String(new Date().getFullYear() - i));
+  const coverImage = images[0];
+  const detailImages = images.slice(1);
+  const coverBlocked = coverImage ? publishBlockedByGate : false;
+
   return (
       <div>
         {/*
@@ -751,34 +850,23 @@ function UploadPageContent() {
 
         <ActingAsChip mode="posting" />
 
-        {/* Step: Intent */}
-        {step === "intent" && (
-          <div className="space-y-4" data-tour="upload-intent-selector">
-            <p className="text-sm text-zinc-600">{t("upload.whatUploading")}</p>
-            <div className="grid gap-3">
-              {INTENTS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => handleIntentSelect(opt.value)}
-                  className="group flex w-full items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-left font-medium text-zinc-900 transition-colors hover:border-zinc-300 hover:bg-zinc-50/70"
-                >
-                  <span>{t(opt.labelKey)}</span>
-                  <span
-                    aria-hidden
-                    className="text-zinc-400 transition-colors group-hover:text-zinc-600"
-                  >
-                    →
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Step: Attribution (OWNS, INVENTORY, CURATED) */}
         {step === "attribution" && needsAttribution(intent) && (
           <div className="space-y-4">
+            <label className="block text-sm font-medium text-zinc-900">
+              {t("bulk.attributeSomeoneElse")}
+              <select
+                value={intent ?? "CURATED"}
+                onChange={(e) => setIntent(e.target.value as IntentType)}
+                className="mt-1 w-full max-w-md rounded border border-zinc-300 bg-white px-3 py-2 text-sm"
+              >
+                {INTENTS.filter((opt) => opt.value !== "CREATED").map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="text-sm text-zinc-600">{t("upload.linkArtist")}</p>
             <div className="flex items-center justify-between">
               <label className="block text-sm font-medium">{t("upload.searchArtist")}</label>
@@ -1081,7 +1169,12 @@ function UploadPageContent() {
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => setStep("intent")}
+                onClick={() => {
+                  setIntent("CREATED");
+                  setSelectedArtist(null);
+                  setUseExternalArtist(false);
+                  setStep("form");
+                }}
                 className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
               >
                 {t("common.back")}
@@ -1134,645 +1227,644 @@ function UploadPageContent() {
                 onChange={() => setStep("attribution")}
               />
             )}
-            <div>
-              <label className="mb-1 block text-sm font-medium">{t("common.imageLabel")}</label>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                multiple
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  e.target.value = "";
-                  // 2026-07-28 auto-compression: compressible formats
-                  // now have a 200 MB ceiling (compressor guarantees the
-                  // display file lands ≤ 50 MiB); uncompressible formats
-                  // (HEIC/animated GIF) still use the 50 MB legacy cap.
-                  // Split messaging by case so the guidance is accurate:
-                  // "auto-compress covers this" vs "convert to a
-                  // supported format".
-                  const oversize = files.find(
-                    (f) => f.size > getUploadCeilingBytes(f),
-                  );
-                  if (oversize) {
-                    const compressible = isCompressibleMime(oversize.type);
-                    const ceilingMb = compressible
-                      ? UPLOAD_MAX_COMPRESSIBLE_MB_LABEL
-                      : UPLOAD_MAX_IMAGE_MB_LABEL;
-                    const key = compressible
-                      ? "upload.fileTooLargeCompressible"
-                      : "upload.fileTooLargeUnsupported";
-                    setError(t(key).replace("{maxMb}", String(ceilingMb)));
-                    return;
-                  }
-                  setError(null);
-                  // First added image keeps view_type = wall_mounted
-                  // (primary canvas); subsequent ones default to
-                  // `detail` since users overwhelmingly add detail
-                  // shots as the second slide. They can change it
-                  // per-image inline.
-                  setImages((prev) => {
-                    const startedEmpty = prev.length === 0;
-                    const next = [...prev];
-                    files.forEach((f, idx) => {
-                      next.push({
-                        id: crypto.randomUUID(),
-                        file: f,
-                        viewType:
-                          startedEmpty && idx === 0
-                            ? "wall_mounted"
-                            : "detail",
-                        previewUrl: URL.createObjectURL(f),
-                        displayAdjust: null,
-                        standardizeOpen: true,
-                        enhancement: null,
-                      });
-                    });
-                    return next;
-                  });
-                }}
-                className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-              />
-              <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-                {t("upload.multiImageHint").replace(
-                  "{maxMb}",
-                  String(UPLOAD_MAX_IMAGE_MB_LABEL),
-                )}
-              </p>
-              {images.length > 0 && (
-                <ul className="mt-3 space-y-2">
-                  {images.map((img, idx) => (
-                    <li
-                      key={img.id}
-                      className="rounded-md border border-zinc-200 bg-white px-2 py-2"
+            {intent === "CREATED" && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  data-tour="upload-intent-selector"
+                  onClick={() => {
+                    setIntent("CURATED");
+                    setStep("attribution");
+                  }}
+                  className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
+                >
+                  {t("bulk.attributeSomeoneElse")}
+                </button>
+              </div>
+            )}
+            <article className="rounded-md border border-zinc-300 bg-white p-3">
+              <div className="flex gap-3">
+                <div className="w-[88px] shrink-0">
+                  <div className="relative h-[88px] w-[88px]">
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById("single-cover-input")?.click()}
+                      className="block h-full w-full bg-zinc-200"
                     >
-                    <div className="flex items-center gap-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={img.enhancement?.previewUrl ?? img.previewUrl}
-                        alt=""
-                        className="h-14 w-14 shrink-0 rounded object-cover"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 truncate text-xs text-zinc-700">
-                          {idx === 0 && (
-                            <span className="mr-1 rounded bg-zinc-900 px-1 py-0.5 text-[10px] font-medium text-white">
-                              {t("upload.imagePrimaryChip")}
-                            </span>
-                          )}
-                          <span className="truncate">{img.file.name}</span>
-                          {/*
-                            2026-07-28 auto-compression quiet chip.
-                            Only rendered when the file is a compressible
-                            format AND above 5 MB, so it doesn't clutter
-                            small file rows.
-                          */}
-                          <span className="shrink-0 text-[10px] text-zinc-400">
-                            {(img.file.size / (1024 * 1024)).toFixed(1)} MB
-                          </span>
-                          {isCompressibleMime(img.file.type) && img.file.size > 5 * 1024 * 1024 && (
-                            <span
-                              className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-                              title={t("upload.autoCompressHint")}
-                            >
-                              {t("upload.autoCompressChip")}
-                            </span>
-                          )}
-                        </div>
-                        <label className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
-                          <span>{t("upload.imageViewTypeLabel")}</span>
-                          <select
-                            value={img.viewType}
-                            onChange={(e) => {
-                              const v = e.target.value as ArtworkImageViewType;
-                              setImages((prev) =>
-                                prev.map((p) =>
-                                  p.id === img.id ? { ...p, viewType: v } : p,
-                                ),
-                              );
-                            }}
-                            className="rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-800"
-                          >
-                            <option value="wall_mounted">
-                              {t("upload.viewType.wall_mounted")}
-                            </option>
-                            <option value="detail">
-                              {t("upload.viewType.detail")}
-                            </option>
-                            <option value="angle">
-                              {t("upload.viewType.angle")}
-                            </option>
-                            <option value="in_situ">
-                              {t("upload.viewType.in_situ")}
-                            </option>
-                            <option value="other">
-                              {t("upload.viewType.other")}
-                            </option>
-                          </select>
-                        </label>
-                      </div>
-                      <div className="flex shrink-0 flex-col gap-1">
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={() => {
-                            setImages((prev) => {
-                              if (idx === 0) return prev;
-                              const next = [...prev];
-                              const [moved] = next.splice(idx, 1);
-                              next.splice(idx - 1, 0, moved);
-                              return next;
-                            });
-                          }}
-                          className="rounded px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-30"
-                          aria-label={t("upload.imageMoveUp")}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          disabled={idx === images.length - 1}
-                          onClick={() => {
-                            setImages((prev) => {
-                              if (idx === prev.length - 1) return prev;
-                              const next = [...prev];
-                              const [moved] = next.splice(idx, 1);
-                              next.splice(idx + 1, 0, moved);
-                              return next;
-                            });
-                          }}
-                          className="rounded px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-30"
-                          aria-label={t("upload.imageMoveDown")}
-                        >
-                          ↓
-                        </button>
-                      </div>
+                      {coverImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={coverImage.enhancement?.previewUrl ?? coverImage.previewUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full items-center justify-center text-3xl font-light text-zinc-400">×</span>
+                      )}
+                    </button>
+                    {coverImage && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setImages((prev) => {
-                            const removed = prev.find((p) => p.id === img.id);
-                            if (removed) {
-                              try { URL.revokeObjectURL(removed.previewUrl); } catch {}
-                              if (removed.enhancement?.previewUrl) {
-                                try {
-                                  URL.revokeObjectURL(removed.enhancement.previewUrl);
-                                } catch {}
-                              }
-                            }
-                            return prev.filter((p) => p.id !== img.id);
-                          });
-                        }}
-                        className="rounded px-2 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50"
-                        aria-label={t("upload.imageRemove")}
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 pl-[68px] text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => {
+                        onClick={() =>
                           setImages((prev) =>
                             prev.map((p) =>
-                              p.id === img.id
-                                ? { ...p, standardizeOpen: !p.standardizeOpen }
-                                : p,
+                              p.id === coverImage.id ? { ...p, standardizeOpen: !p.standardizeOpen } : p,
                             ),
-                          );
-                        }}
-                        className="rounded-full border border-zinc-300 px-2.5 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-50"
-                      >
-                        {img.standardizeOpen
-                          ? t("upload.imageStandardize.hide")
-                          : t("upload.imageStandardize.edit")}
-                      </button>
-                      {img.displayAdjust && !img.standardizeOpen && (
-                        <span className="text-[11px] text-zinc-500">
-                          {t("upload.imageStandardize.appliedChip")}
-                        </span>
-                      )}
-                      {img.enhancement && !img.standardizeOpen && (
-                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
-                          {t("upload.imageEnhance.appliedChip")}
-                        </span>
-                      )}
-                    </div>
-                    {img.standardizeOpen && (
-                      <div className="mt-2">
-                        <ImageStandardizeEditor
-                          key={`${img.id}-${img.file.name}-${img.file.size}-${img.file.lastModified}`}
-                          file={img.file}
-                          value={img.displayAdjust}
-                          onChange={(next) => {
-                            setImages((prev) =>
-                              prev.map((p) =>
-                                p.id === img.id
-                                  ? { ...p, displayAdjust: next }
-                                  : p,
-                              ),
-                            );
-                          }}
-                          enhancement={img.enhancement}
-                          onEnhance={(next) => {
-                            setImages((prev) =>
-                              prev.map((p) => {
-                                if (p.id !== img.id) return p;
-                                if (
-                                  p.enhancement?.previewUrl &&
-                                  p.enhancement.previewUrl !== next?.previewUrl
-                                ) {
-                                  try {
-                                    URL.revokeObjectURL(p.enhancement.previewUrl);
-                                  } catch {}
-                                }
-                                return {
-                                  ...p,
-                                  enhancement: next,
-                                };
-                              }),
-                            );
-                          }}
-                          meteringSource={fromExhibition ? "exhibition_single" : "single"}
-                          artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
-                          onQualityGate={(gate) => {
-                            setImageQualityGates((prev) => {
-                              if (!gate) {
-                                if (!prev[img.id]) return prev;
-                                const next = { ...prev };
-                                delete next[img.id];
-                                return next;
-                              }
-                              return { ...prev, [img.id]: gate };
-                            });
-                          }}
-                          onReshootRequest={() => {
-                            setImages((prev) => prev.filter((p) => p.id !== img.id));
-                            setImageQualityGates((prev) => {
-                              if (!prev[img.id]) return prev;
-                              const next = { ...prev };
-                              delete next[img.id];
-                              return next;
-                            });
-                          }}
-                        />
-                      </div>
-                    )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <BilingualFieldPair
-              label={t("upload.labelTitle")}
-              hint={t("bilingual.hintTitle")}
-              addKoKey="bilingual.addKoTitle"
-              addEnKey="bilingual.addEnTitle"
-              placeholderKo={t("upload.placeholderTitle")}
-              placeholderEn={t("upload.placeholderTitle")}
-              valueKo={titleKo}
-              valueEn={titleEn}
-              onChangeKo={(v) => {
-                setTitleKo(v);
-                if (locale === "ko") setTitle(v);
-              }}
-              onChangeEn={(v) => {
-                setTitleEn(v);
-                if (locale !== "ko") setTitle(v);
-              }}
-              renderSecondaryAssist={({ secondaryLang }) => {
-                const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
-                const src = primaryLang === "ko" ? titleKo : titleEn;
-                return (
-                  <AiTranslationDraftButton
-                    sourceText={src}
-                    sourceLocale={primaryLang}
-                    targetLocale={secondaryLang}
-                    fieldKind="title"
-                    onDraft={(text) => {
-                      if (secondaryLang === "ko") {
-                        setTitleKo(text);
-                        if (locale === "ko") setTitle(text);
-                      } else {
-                        setTitleEn(text);
-                        if (locale !== "ko") setTitle(text);
-                      }
-                    }}
-                    compact
-                  />
-                );
-              }}
-            />
-            <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelYear")}</label>
-              <input
-                type="number"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                required
-                min={1000}
-                max={9999}
-                placeholder={t("upload.placeholderYear")}
-                className="w-full rounded border border-zinc-300 px-3 py-2"
-              />
-            </div>
-            <div>
-              {/* QA 2026-06-26 (#4) — datalist of canonical mediums
-                  so the user gets one-click pick from the taxonomy
-                  the rest of the app already knows about (filters,
-                  AI categorisation, etc.), while still allowing
-                  free-form text for niche or hybrid materials.
-                  QA 2026-07-28 — 이중언어 (KO/EN) 슬롯이 열려도 datalist
-                  suggestions 는 primary 슬롯에만 붙는다. BilingualFieldPair
-                  의 primary input 에는 datalist 를 직접 붙일 수 없으므로
-                  약간 더 넓게 캡슐화한다. */}
-              <BilingualFieldPair
-                label={t("upload.labelMedium")}
-                addKoKey="bilingual.addKoMedium"
-                addEnKey="bilingual.addEnMedium"
-                placeholderKo={t("upload.placeholderMedium")}
-                placeholderEn={t("upload.placeholderMedium")}
-                valueKo={mediumKo}
-                valueEn={mediumEn}
-                onChangeKo={(v) => {
-                  setMediumKo(v);
-                  if (locale === "ko") setMedium(v);
-                }}
-                onChangeEn={(v) => {
-                  setMediumEn(v);
-                  if (locale !== "ko") setMedium(v);
-                }}
-                renderSecondaryAssist={({ secondaryLang }) => {
-                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
-                  const src = primaryLang === "ko" ? mediumKo : mediumEn;
-                  return (
-                    <AiTranslationDraftButton
-                      sourceText={src}
-                      sourceLocale={primaryLang}
-                      targetLocale={secondaryLang}
-                      fieldKind="medium"
-                      onDraft={(text) => {
-                        if (secondaryLang === "ko") {
-                          setMediumKo(text);
-                          if (locale === "ko") setMedium(text);
-                        } else {
-                          setMediumEn(text);
-                          if (locale !== "ko") setMedium(text);
+                          )
                         }
-                      }}
-                      compact
-                    />
-                  );
-                }}
-              />
-              <datalist id="upload-medium-suggestions">
-                {TAXONOMY.mediumOptions.map((opt) => (
-                  <option key={opt.value} value={t(opt.labelKey)} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelSize")}</label>
-              {locale === "ko" && (
-                <div className="mb-2 flex flex-wrap items-center gap-3">
-                  <span className="text-xs text-zinc-500">{t("size.hosuLabel")}</span>
+                        className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] text-zinc-800 shadow-sm"
+                      >
+                        {t("bulk.enhance.row")}
+                      </button>
+                    )}
+                  </div>
                   <input
-                    type="number"
-                    min={0}
-                    className="h-8 w-16 rounded border border-zinc-300 px-2 text-xs"
-                    placeholder={t("size.hosuPlaceholder")}
-                    value={hosuNumber}
-                    onChange={(e) => setHosuNumber(e.target.value)}
+                    id="single-cover-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      ingestFiles(e.target.files, "primary");
+                      e.target.value = "";
+                    }}
                   />
-                  {(["F", "P", "M"] as const).map((tType) => (
-                    <button
-                      key={tType}
-                      type="button"
-                      onClick={() => setHosuType(tType)}
-                      className={`rounded-full px-2 py-1 text-xs ${
-                        hosuType === tType
-                          ? "bg-zinc-900 text-white"
-                          : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
-                      }`}
-                    >
-                      {tType}
-                    </button>
-                  ))}
+                  {coverImage && (
+                    <p className="mt-4 flex justify-center">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${
+                          coverBlocked
+                            ? "border-red-400 text-red-500"
+                            : "border-emerald-500 text-emerald-600"
+                        }`}
+                      >
+                        {coverBlocked ? t("bulk.statusBlocked") : t("bulk.statusReady")}
+                      </span>
+                    </p>
+                  )}
+                  <input
+                    id="single-detail-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      ingestFiles(e.target.files, "details");
+                      e.target.value = "";
+                      setDetailsOpen(true);
+                    }}
+                  />
                   <button
                     type="button"
-                    onClick={() => {
-                      const n = parseInt(hosuNumber, 10);
-                      if (!Number.isFinite(n) || !hosuType) return;
-                      const h = findHosuSize(n, hosuType);
-                      if (!h) {
-                        setHosuWarning(t("size.hosuNotFound"));
-                        return;
-                      }
-                      setSize(
-                        `${n}${hosuType} (${h.widthCm.toFixed(1)} x ${h.heightCm.toFixed(1)} cm)`
-                      );
-                      setSizeUnit("cm"); // hosu is a cm standard
-                      setHosuWarning(null);
-                    }}
-                    className="rounded-full border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setDetailsOpen((open) => !open)}
+                    aria-expanded={detailsOpen}
+                    className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-700 underline decoration-zinc-300 underline-offset-2"
                   >
-                    {t("size.hosuApply")}
+                    <UploadCloudMark className="h-3.5 w-3.5" />
+                    {detailsOpen ? t("bulk.details") : t("bulk.cardUpload")}
+                    <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                   </button>
-                  {hosuWarning && (
-                    <p className="mt-1 text-xs text-amber-700">{hosuWarning}</p>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.15fr)_5.25rem_minmax(0,1.35fr)]">
+                    <label className="block text-xs text-zinc-800">
+                      {t("bulk.tableTitle")}
+                      <input
+                        value={locale === "ko" ? titleKo || title : titleEn || title}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTitle(v);
+                          if (locale === "ko") setTitleKo(v);
+                          else setTitleEn(v);
+                        }}
+                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                    </label>
+                    <label className="block text-xs text-zinc-800">
+                      {t("bulk.year")}
+                      <select
+                        value={year}
+                        onChange={(e) => setYear(e.target.value)}
+                        required
+                        className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                      >
+                        <option value=""> </option>
+                        {yearOptions.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div>
+                      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-zinc-800">
+                        <span>{t("bulk.size")} *</span>
+                        <span className="inline-flex overflow-hidden rounded border border-zinc-300 text-[10px] leading-none">
+                          {(["cm", "in"] as const).map((u) => (
+                            <button
+                              key={u}
+                              type="button"
+                              onClick={() => {
+                                setSizeNa(false);
+                                setSizeUnit(u);
+                                setSize((prev) => convertSizeString(prev, u));
+                              }}
+                              className={`px-1.5 py-1 ${
+                                !sizeNa && sizeUnit === u ? "bg-zinc-800 text-white" : "bg-zinc-100 text-zinc-500"
+                              }`}
+                            >
+                              {u}
+                            </button>
+                          ))}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !sizeNa;
+                            setSizeNa(next);
+                            if (next) {
+                              setSize("");
+                              setDimH("");
+                              setDimW("");
+                              setDimD("");
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-zinc-600"
+                        >
+                          <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${sizeNa ? "border-zinc-800" : "border-zinc-400"}`}>
+                            {sizeNa && <span className="h-1.5 w-1.5 rounded-full bg-zinc-800" />}
+                          </span>
+                          {t("bulk.sizeNotApplicable")}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          value={dimH}
+                          disabled={sizeNa}
+                          inputMode="decimal"
+                          placeholder={t("bulk.dimHeight")}
+                          aria-label={t("bulk.dimHeight")}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setDimH(v);
+                            setSizeNa(false);
+                            setSize([dimW, v, dimD].map((s) => s.trim()).filter(Boolean).join(" × "));
+                          }}
+                          className="w-[4.5rem] rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50"
+                        />
+                        <span className="text-xs text-zinc-400">×</span>
+                        <input
+                          value={dimW}
+                          disabled={sizeNa}
+                          inputMode="decimal"
+                          placeholder={t("bulk.dimWidth")}
+                          aria-label={t("bulk.dimWidth")}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setDimW(v);
+                            setSizeNa(false);
+                            setSize([v, dimH, dimD].map((s) => s.trim()).filter(Boolean).join(" × "));
+                          }}
+                          className="w-[4.5rem] rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50"
+                        />
+                        <span className="text-xs text-zinc-400">×</span>
+                        <input
+                          value={dimD}
+                          disabled={sizeNa}
+                          inputMode="decimal"
+                          placeholder={t("bulk.dimDepth")}
+                          aria-label={t("bulk.dimDepth")}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setDimD(v);
+                            setSizeNa(false);
+                            setSize([dimW, dimH, v].map((s) => s.trim()).filter(Boolean).join(" × "));
+                          }}
+                          className="w-[4.5rem] rounded border border-zinc-300 px-2 py-1.5 text-sm disabled:bg-zinc-50"
+                        />
+                      </div>
+                      {locale === "ko" && !sizeNa && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] text-zinc-500">{t("size.hosuLabel")}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={hosuNumber}
+                            onChange={(e) => setHosuNumber(e.target.value)}
+                            placeholder={t("size.hosuPlaceholder")}
+                            className="h-7 w-14 rounded border border-zinc-300 px-1.5 text-xs"
+                          />
+                          {(["F", "P", "M"] as const).map((kind) => (
+                            <button
+                              key={kind}
+                              type="button"
+                              onClick={() => setHosuType(kind)}
+                              className={`rounded-full px-2 py-0.5 text-[11px] ${
+                                hosuType === kind ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
+                              }`}
+                            >
+                              {kind}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const n = parseInt(hosuNumber, 10);
+                              if (!Number.isFinite(n) || !hosuType) return;
+                              const h = findHosuSize(n, hosuType);
+                              if (!h) {
+                                setHosuWarning(t("size.hosuNotFound"));
+                                return;
+                              }
+                              setSize(`${n}${hosuType} (${h.widthCm.toFixed(1)} x ${h.heightCm.toFixed(1)} cm)`);
+                              setSizeUnit("cm");
+                              setDimH(String(h.heightCm));
+                              setDimW(String(h.widthCm));
+                              setDimD("");
+                              setSizeNa(false);
+                              setHosuWarning(null);
+                            }}
+                            className="rounded-full border border-zinc-300 px-2 py-0.5 text-[11px] text-zinc-700"
+                          >
+                            {t("size.hosuApply")}
+                          </button>
+                          {hosuWarning && <p className="text-[11px] text-amber-700">{hosuWarning}</p>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1.35fr)]">
+                    <div>
+                      <p className="mb-1 text-xs text-zinc-800">
+                        {t("bulk.medium")} *
+                        <span className="ml-2 font-normal text-zinc-400">{t("bulk.mediumSearch")}</span>
+                      </p>
+                      <div className="flex items-center rounded border border-zinc-300">
+                        <input
+                          value={mediumQuery}
+                          onChange={(e) => setMediumQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addMediumChip(mediumQuery);
+                            }
+                          }}
+                          placeholder={t("bulk.mediumSearch")}
+                          className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => addMediumChip(mediumQuery)}
+                          className="px-2 text-lg leading-none text-zinc-500"
+                          aria-label={t("bulk.mediumAdd")}
+                        >
+                          +
+                        </button>
+                      </div>
+                      {mediumSuggestions.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {mediumSuggestions.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => addMediumChip(name)}
+                              className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] text-zinc-600"
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {mediumChips.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {mediumChips.map((chip) => (
+                            <span key={chip} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-0.5 text-xs">
+                              {chip}
+                              <button
+                                type="button"
+                                aria-label={chip}
+                                onClick={() => setMediumChips(mediumChips.filter((m) => m !== chip))}
+                                className="text-zinc-400"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <label className="block text-xs text-zinc-800">
+                        {t("upload.tabExhibitionShort")}
+                        <select
+                          value={exhibitionPick}
+                          onChange={(e) => setExhibitionPick(e.target.value)}
+                          className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                        >
+                          <option value="">{t("bulk.exhibitionSelectorPlaceholder")}</option>
+                          {myExhibitions.map((ex) => (
+                            <option key={ex.id} value={ex.id}>
+                              {pickLocalizedTitle(ex, locale) || ex.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-xs text-zinc-800">
+                        {t("bulk.ownershipStatus")}
+                        <select
+                          value={ownershipStatus}
+                          onChange={(e) => setOwnershipStatus(e.target.value)}
+                          required
+                          className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                        >
+                          {OWNERSHIP_STATUSES.map((o) => (
+                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-xs text-zinc-800">
+                        {t("bulk.pricingMode")}
+                        <select
+                          value={pricingMode}
+                          onChange={(e) => setPricingMode(e.target.value as "fixed" | "inquire")}
+                          className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                        >
+                          {PRICING_MODES.map((p) => (
+                            <option key={p.value} value={p.value}>{t(p.labelKey)}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  {pricingMode === "fixed" && (
+                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      <input
+                        type="number"
+                        value={priceAmount}
+                        onChange={(e) => setPriceAmount(e.target.value)}
+                        required
+                        min={0}
+                        step="any"
+                        placeholder={t("bulk.amount")}
+                        aria-label={t("bulk.amount")}
+                        className="w-28 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                      <select
+                        value={priceCurrency}
+                        onChange={(e) => setPriceCurrency(e.target.value)}
+                        aria-label={t("bulk.currency")}
+                        className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      >
+                        {PRICE_CURRENCIES.map((c) => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </select>
+                      <label className="flex items-center gap-1 text-xs text-zinc-600">
+                        <input
+                          type="checkbox"
+                          checked={isPricePublic}
+                          onChange={(e) => setIsPricePublic(e.target.checked)}
+                        />
+                        {t("bulk.pricePublic")}
+                      </label>
+                    </div>
+                  )}
+                  {(intent === "INVENTORY" || intent === "CURATED") && (
+                    <label className="mt-3 block text-xs text-zinc-800">
+                      {t("artwork.periodLabel")} *
+                      <select
+                        value={periodStatus}
+                        onChange={(e) => setPeriodStatus(e.target.value as "past" | "current" | "future")}
+                        required
+                        className="mt-1 w-full max-w-xs rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                      >
+                        <option value="past">{t("artwork.periodPast")}</option>
+                        <option value="current">{t("artwork.periodCurrent")}</option>
+                        <option value="future">{t("artwork.periodFuture")}</option>
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {detailsOpen && (
+                <div className="mt-4">
+                  {detailImages.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById("single-detail-input")?.click()}
+                      className="flex w-full flex-col items-center rounded border border-zinc-300 px-4 py-8 text-center hover:bg-zinc-50"
+                    >
+                      <UploadCloudMark className="h-8 w-8 text-zinc-500" />
+                      <p className="mt-2 text-xs text-zinc-500">{t("bulk.detailsEmptyLine1")}</p>
+                      <p className="text-xs text-zinc-500">
+                        {t("bulk.detailsEmptyLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+                      </p>
+                    </button>
+                  ) : (
+                    <div className="flex items-end gap-3 rounded border border-zinc-300 px-3 py-3">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
+                        {detailImages.map((img) => (
+                          <div key={img.id} className="w-16">
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setImages((prev) => {
+                                    const removed = prev.find((p) => p.id === img.id);
+                                    if (removed) {
+                                      try { URL.revokeObjectURL(removed.previewUrl); } catch { /* gone */ }
+                                      if (removed.enhancement?.previewUrl) {
+                                        try { URL.revokeObjectURL(removed.enhancement.previewUrl); } catch { /* gone */ }
+                                      }
+                                    }
+                                    return prev.filter((p) => p.id !== img.id);
+                                  });
+                                }}
+                                className="absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 bg-white text-[10px]"
+                                aria-label={t("upload.imageRemove")}
+                              >
+                                ×
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setImages((prev) =>
+                                    prev.map((p) =>
+                                      p.id === img.id ? { ...p, standardizeOpen: !p.standardizeOpen } : p,
+                                    ),
+                                  )
+                                }
+                                className="block h-16 w-16 overflow-hidden border border-zinc-200 bg-zinc-200"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={img.enhancement?.previewUrl ?? img.previewUrl}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              </button>
+                              <div className={`h-1 ${coverBlocked ? "bg-red-500" : "bg-emerald-500"}`} />
+                            </div>
+                            <select
+                              value={img.viewType === "wall_mounted" ? "detail" : img.viewType}
+                              onChange={(e) => {
+                                const v = e.target.value as ArtworkImageViewType;
+                                setImages((prev) => prev.map((p) => (p.id === img.id ? { ...p, viewType: v } : p)));
+                              }}
+                              aria-label={t("upload.imageViewTypeLabel")}
+                              className="mt-1 w-full rounded-full border border-zinc-300 bg-white px-1 py-0.5 text-[10px]"
+                            >
+                              <option value="detail">{t("bulk.view.detail")}</option>
+                              <option value="angle">{t("bulk.view.angle")}</option>
+                              <option value="in_situ">{t("bulk.view.inSitu")}</option>
+                              <option value="other">{t("bulk.view.other")}</option>
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById("single-detail-input")?.click()}
+                        className="mb-5 flex shrink-0 flex-col items-center gap-1 text-zinc-500"
+                      >
+                        <UploadCloudMark className="h-8 w-8" />
+                        <span className="text-[11px]">{t("bulk.detailsMore")}</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
-              <div className="flex items-stretch gap-2">
-                <input
-                  type="text"
-                  value={size}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSize(val);
-                    // If the artist typed an explicit unit, keep the
-                    // selector in sync so the stored size_unit matches.
-                    const declared = parseSizeWithUnit(val)?.unit;
-                    if (declared) setSizeUnit(declared);
-                  }}
-                  required
-                  placeholder={t("upload.placeholderSize")}
-                  className="flex-1 rounded border border-zinc-300 px-3 py-2"
-                />
-                {/* Explicit cm / in selector — the artist declares the
-                    unit; it is stored verbatim in size_unit. Toggling also
-                    re-anchors the suffix on the visible string for clarity. */}
-                {(["cm", "in"] as const).map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    aria-pressed={sizeUnit === u}
-                    onClick={() => {
-                      setSizeUnit(u);
-                      setSize((prev) => convertSizeString(prev, u));
+            </article>
+
+            {images.some((img) => img.standardizeOpen) && (
+              <div className="space-y-3">
+                {images.filter((img) => img.standardizeOpen).map((img) => (
+                  <ImageStandardizeEditor
+                    key={`${img.id}-${img.file.name}-${img.file.size}-${img.file.lastModified}`}
+                    file={img.file}
+                    value={img.displayAdjust}
+                    onChange={(next) => {
+                      setImages((prev) => prev.map((p) => (p.id === img.id ? { ...p, displayAdjust: next } : p)));
                     }}
-                    className={`rounded border px-3 text-xs font-medium ${
-                      sizeUnit === u
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <BilingualFieldPair
-                label={t("upload.labelStory")}
-                hint={t("bilingual.hintProse")}
-                addKoKey="bilingual.addKoStory"
-                addEnKey="bilingual.addEnStory"
-                placeholderKo={t("artwork.field.storyPlaceholder")}
-                placeholderEn={t("artwork.field.storyPlaceholder")}
-                valueKo={storyKo}
-                valueEn={storyEn}
-                onChangeKo={(v) => {
-                  const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
-                  setStoryKo(trimmed);
-                  if (locale === "ko") setStory(trimmed);
-                }}
-                onChangeEn={(v) => {
-                  const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
-                  setStoryEn(trimmed);
-                  if (locale !== "ko") setStory(trimmed);
-                }}
-                renderSecondaryAssist={({ secondaryLang }) => {
-                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
-                  const src = primaryLang === "ko" ? storyKo : storyEn;
-                  return (
-                    <AiTranslationDraftButton
-                      sourceText={src}
-                      sourceLocale={primaryLang}
-                      targetLocale={secondaryLang}
-                      fieldKind="story"
-                      onDraft={(text) => {
-                        if (secondaryLang === "ko") {
-                          setStoryKo(text);
-                          if (locale === "ko") setStory(text);
-                        } else {
-                          setStoryEn(text);
-                          if (locale !== "ko") setStory(text);
+                    enhancement={img.enhancement}
+                    onEnhance={(next) => {
+                      setImages((prev) =>
+                        prev.map((p) => {
+                          if (p.id !== img.id) return p;
+                          if (p.enhancement?.previewUrl && p.enhancement.previewUrl !== next?.previewUrl) {
+                            try { URL.revokeObjectURL(p.enhancement.previewUrl); } catch { /* gone */ }
+                          }
+                          return { ...p, enhancement: next };
+                        }),
+                      );
+                    }}
+                    meteringSource={fromExhibition ? "exhibition_single" : "single"}
+                    artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
+                    onQualityGate={(gate) => {
+                      setImageQualityGates((prev) => {
+                        if (!gate) {
+                          if (!prev[img.id]) return prev;
+                          const next = { ...prev };
+                          delete next[img.id];
+                          return next;
                         }
-                      }}
-                      compact
-                    />
-                  );
-                }}
-                as="textarea"
-                rows={4}
-                maxLength={2000}
-              />
-              <p className="mt-1 text-right text-xs text-zinc-500">
-                {t("artwork.story.charCount").replace("{count}", String(story.length))}
-              </p>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelOwnership")}</label>
-              <select
-                value={ownershipStatus}
-                onChange={(e) => setOwnershipStatus(e.target.value)}
-                required
-                className="w-full rounded border border-zinc-300 px-3 py-2"
-              >
-                {OWNERSHIP_STATUSES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {t(o.labelKey)}
-                  </option>
+                        return { ...prev, [img.id]: gate };
+                      });
+                    }}
+                    onReshootRequest={() => {
+                      setImages((prev) => prev.filter((p) => p.id !== img.id));
+                      setImageQualityGates((prev) => {
+                        if (!prev[img.id]) return prev;
+                        const next = { ...prev };
+                        delete next[img.id];
+                        return next;
+                      });
+                    }}
+                  />
                 ))}
-              </select>
-            </div>
-            {(intent === "INVENTORY" || intent === "CURATED") && (
-              <div>
-                <label className="mb-1 block text-sm font-medium">{t("artwork.periodLabel")} *</label>
-                <select
-                  value={periodStatus}
-                  onChange={(e) => setPeriodStatus(e.target.value as "past" | "current" | "future")}
-                  required
-                  className="w-full rounded border border-zinc-300 px-3 py-2"
-                >
-                  <option value="past">{t("artwork.periodPast")}</option>
-                  <option value="current">{t("artwork.periodCurrent")}</option>
-                  <option value="future">{t("artwork.periodFuture")}</option>
-                </select>
               </div>
             )}
-            <div>
-              <label className="mb-1 block text-sm font-medium">{t("upload.labelPricingMode")}</label>
-              <select
-                value={pricingMode}
-                onChange={(e) => setPricingMode(e.target.value as "fixed" | "inquire")}
-                className="w-full rounded border border-zinc-300 px-3 py-2"
-              >
-                {PRICING_MODES.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {t(p.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {pricingMode === "fixed" && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">{t("upload.labelCurrency")}</label>
-                    <select
-                      value={priceCurrency}
-                      onChange={(e) => setPriceCurrency(e.target.value)}
-                      className="w-full rounded border border-zinc-300 px-3 py-2"
-                    >
-                      {PRICE_CURRENCIES.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">{t("upload.labelAmount")}</label>
-                    <input
-                      type="number"
-                      value={priceAmount}
-                      onChange={(e) => setPriceAmount(e.target.value)}
-                      required={pricingMode === "fixed"}
-                      min={0}
-                      step="any"
-                      placeholder={t("upload.placeholderAmount")}
-                      className="w-full rounded border border-zinc-300 px-3 py-2"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="pricePublic"
-                    checked={isPricePublic}
-                    onChange={(e) => setIsPricePublic(e.target.checked)}
-                    className="rounded"
-                  />
-                  <label htmlFor="pricePublic" className="text-sm">
-                    {t("upload.showPricePublicly")}
-                  </label>
-                </div>
-              </>
-            )}
-            {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-            <div className="flex gap-3">
+
+            <div className="rounded-md border border-zinc-200">
               <button
                 type="button"
-                onClick={() => (needsAttribution(intent) ? setStep("attribution") : setStep("intent"))}
-                className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setStoryOpen((open) => !open)}
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-zinc-600"
+                aria-expanded={storyOpen}
               >
-                {t("common.back")}
+                {t("upload.labelStory")}
+                <span>{storyOpen ? "▴" : "▾"}</span>
               </button>
+              {storyOpen && (
+                <div className="border-t border-zinc-200 px-3 py-3">
+                  <BilingualFieldPair
+                    label={null}
+                    hint={t("bilingual.hintProse")}
+                    addKoKey="bilingual.addKoStory"
+                    addEnKey="bilingual.addEnStory"
+                    placeholderKo={t("artwork.field.storyPlaceholder")}
+                    placeholderEn={t("artwork.field.storyPlaceholder")}
+                    valueKo={storyKo}
+                    valueEn={storyEn}
+                    onChangeKo={(v) => {
+                      const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
+                      setStoryKo(trimmed);
+                      if (locale === "ko") setStory(trimmed);
+                    }}
+                    onChangeEn={(v) => {
+                      const trimmed = v.length > 2000 ? v.slice(0, 2000) : v;
+                      setStoryEn(trimmed);
+                      if (locale !== "ko") setStory(trimmed);
+                    }}
+                    renderSecondaryAssist={({ secondaryLang }) => {
+                      const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                      const src = primaryLang === "ko" ? storyKo : storyEn;
+                      return (
+                        <AiTranslationDraftButton
+                          sourceText={src}
+                          sourceLocale={primaryLang}
+                          targetLocale={secondaryLang}
+                          fieldKind="story"
+                          onDraft={(text) => {
+                            if (secondaryLang === "ko") {
+                              setStoryKo(text);
+                              if (locale === "ko") setStory(text);
+                            } else {
+                              setStoryEn(text);
+                              if (locale !== "ko") setStory(text);
+                            }
+                          }}
+                          compact
+                        />
+                      );
+                    }}
+                    as="textarea"
+                    rows={4}
+                    maxLength={2000}
+                  />
+                  <div className="mt-3">
+                    <p className="mb-1 text-xs text-zinc-500">{t("bilingual.addEnTitle")}</p>
+                    <input
+                      value={locale === "ko" ? titleEn : titleKo}
+                      onChange={(e) => {
+                        if (locale === "ko") setTitleEn(e.target.value);
+                        else setTitleKo(e.target.value);
+                      }}
+                      placeholder={t("upload.placeholderTitle")}
+                      className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+            <div className="flex justify-center pt-2">
               <button
                 type="submit"
                 disabled={publishBlockedByGate}
-                className="flex-1 rounded-full bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 disabled:opacity-50"
+                className="min-w-[10.5rem] rounded-full border border-zinc-800 px-5 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
               >
                 {t("upload.nextCheckDedup")}
               </button>
