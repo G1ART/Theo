@@ -1393,7 +1393,7 @@ export const messages = {
       "Align the four canvas corners, then crop. Floor and neighboring works must stay out.",
     "upload.imageEnhance.flow.cropConfirm": "Crop to this area",
     "upload.imageEnhance.flow.boundaryQuad": "Rectangle corners",
-    "upload.imageEnhance.flow.boundaryShape": "Keep this shape",
+    "upload.imageEnhance.flow.boundaryShape": "Circle or irregular",
     "upload.imageEnhance.flow.boundaryShapeHint":
       "Lifts a circle, oval, or irregular work off the background. Rectangular canvases stay on corner crop.",
     "upload.imageEnhance.flow.boundaryShapeBoxHint":
@@ -6051,7 +6051,7 @@ export const messages = {
       "캔버스 네 모서리를 맞춘 뒤 잘라 주세요. 바닥·옆 작품이 들어가면 안 됩니다.",
     "upload.imageEnhance.flow.cropConfirm": "이 영역으로 자르기",
     "upload.imageEnhance.flow.boundaryQuad": "사각형 모서리",
-    "upload.imageEnhance.flow.boundaryShape": "이 모양 그대로",
+    "upload.imageEnhance.flow.boundaryShape": "원형 또는 비정형",
     "upload.imageEnhance.flow.boundaryShapeHint":
       "원, 타원, 유기적 형태를 배경에서 분리합니다. 사각형 캔버스는 모서리 자르기를 그대로 쓰세요.",
     "upload.imageEnhance.flow.boundaryShapeBoxHint":

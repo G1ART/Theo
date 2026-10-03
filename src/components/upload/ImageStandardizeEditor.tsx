@@ -1205,7 +1205,7 @@ export function ImageStandardizeEditor({
   const [perspectiveSkipped, setPerspectiveSkipped] = useState<boolean>(false);
   // Quad corners stay the default. Silhouette is opt-in and never
   // writes those corners, so the rectangular crop path is unchanged
-  // until the artist explicitly chooses "이 모양 그대로".
+  // until the artist explicitly chooses "원형 또는 비정형".
   const [boundaryMode, setBoundaryMode] = useState<"quad" | "silhouette">("quad");
   const boundaryModeRef = useRef(boundaryMode);
   boundaryModeRef.current = boundaryMode;
