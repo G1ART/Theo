@@ -19,7 +19,6 @@ import {
   toFilterCss,
 } from "@/lib/image/displayAdjust";
 import { analyzeImageFile, type ImageAnalysis } from "@/lib/image/analyze";
-import { boxAroundEllipse, prefersRoundCutout } from "@/lib/image/shapeRoute";
 import { useT } from "@/lib/i18n/useT";
 import {
   type EnhancementMeta,
@@ -601,7 +600,6 @@ export function ImageStandardizeEditor({
   const [analysis, setAnalysis] = useState<ImageAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const shapeRoutedRef = useRef(false);
 
   // Local slider state — mirrors `value` but stays smooth during drag.
   const [b, setB] = useState<number>(value?.b ?? NEUTRAL.b);
@@ -691,6 +689,7 @@ export function ImageStandardizeEditor({
   // top-of-file contract.
   useEffect(() => {
     let alive = true;
+    setAnalysis(null);
     setAnalyzing(true);
     setAnalyzeError(null);
     analyzeImageFile(file)
@@ -2122,7 +2121,6 @@ export function ImageStandardizeEditor({
     colorSeedLockedRef.current = Boolean(sharedPreset);
     setVisionStatus("idle");
     setDetectingArtwork(false);
-    shapeRoutedRef.current = false;
     setPerspectiveCorners(null);
     setWizardPerspectiveDraft(null);
     setPerspectiveUserAdjusted(false);
@@ -2134,64 +2132,15 @@ export function ImageStandardizeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- file identity only
   }, [file]);
 
-  // Local shape check first (no network). A round subject skips the
-  // vision corner call and goes straight to background removal.
-  // Everything else still asks the model for rectangle corners, at
-  // low reasoning effort so the wait is shorter.
+  // Every file starts on rectangle corners. Photoroom runs only after
+  // the artist taps "원형 또는 비정형". A previous image's ellipse must
+  // not skip this call — bulk and a second upload share the editor.
   useEffect(() => {
     if (pathChoice !== "ai") return;
     if (enhancement && !editingAfterSave) return;
-    if (perspectiveCorners) return;
-    if (!analysis && !analyzeError) {
-      setDetectingArtwork(true);
-      setVisionStatus("loading");
-      return;
-    }
-    if (shapeRoutedRef.current) return;
-    shapeRoutedRef.current = true;
     let cancelled = false;
-    if (analysis && prefersRoundCutout(analysis)) {
-      const box = boxAroundEllipse(analysis.ellipse!);
-      setBoundaryMode("silhouette");
-      setSilhouetteBox(box);
-      setVisionStatus("ok");
-      setDetectingArtwork(false);
-      setSilhouetteError(null);
-      setSilhouetteRunning(true);
-      void cropFileToNormBox(file, box)
-        .then((cropped) => requestSilhouetteCutout(cropped))
-        .then((blob) => {
-          if (cancelled) return;
-          const next = new File([blob], "silhouette.webp", { type: "image/webp" });
-          silhouetteFileRef.current = next;
-          setSilhouetteUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return URL.createObjectURL(next);
-          });
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          const reason = err instanceof Error ? err.message : "error";
-          setSilhouetteError(
-            reason === "no_key"
-              ? t("upload.imageEnhance.flow.boundaryShapeNoKey")
-              : reason === "provider_quota"
-                ? t("upload.imageEnhance.flow.boundaryShapeQuota")
-                : t("upload.imageEnhance.flow.boundaryShapeFailed"),
-          );
-        })
-        .finally(() => {
-          if (!cancelled) setSilhouetteRunning(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    // Local corners are already on screen. Don't freeze the picker
-    // for the vision round-trip; replace them when the model returns
-    // if the artist hasn't dragged.
     setDetectingArtwork(false);
-    setVisionStatus(matteReady ? "ok" : "loading");
+    setVisionStatus("loading");
     void detectArtworkQuad(file)
       .then((seed) => {
         if (cancelled) return;
@@ -2220,7 +2169,7 @@ export function ImageStandardizeEditor({
     return () => {
       cancelled = true;
     };
-  }, [pathChoice, file, enhancement, editingAfterSave, perspectiveCorners, analysis, analyzeError, t]);
+  }, [pathChoice, file, enhancement, editingAfterSave, t]);
 
   const handleEnhanceApprove = useCallback(async () => {
     if (!onEnhance) return;

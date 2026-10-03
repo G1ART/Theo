@@ -1360,6 +1360,7 @@ function UploadPageContent() {
                     {img.standardizeOpen && (
                       <div className="mt-2">
                         <ImageStandardizeEditor
+                          key={`${img.id}-${img.file.name}-${img.file.size}-${img.file.lastModified}`}
                           file={img.file}
                           value={img.displayAdjust}
                           onChange={(next) => {
