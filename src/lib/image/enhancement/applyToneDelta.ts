@@ -24,6 +24,7 @@
  */
 
 import { TONE_MAX, TONE_MIN } from "@/lib/image/displayAdjust";
+import { galleryMatteMask } from "./borderWall";
 import { flatBlobToFile } from "./localFlatEngine";
 
 /** Maximum absolute delta accepted by this helper. Anything larger is
@@ -191,6 +192,19 @@ export function applyUserFineTuneToImageData(
   const inset = size?.insetPx ?? 0;
   const w = size?.width ?? 0;
   const h = size?.height ?? 0;
+  if (inset <= 0 && w > 0 && h > 0) {
+    const matte = galleryMatteMask(data, w, h);
+    if (matte) {
+      for (let y = 0; y < h; y += 1) {
+        for (let x = 0; x < w; x += 1) {
+          const i = y * w + x;
+          if (matte[i]) continue;
+          applyUserFineTunePixel(data, i * 4, b, c, s);
+        }
+      }
+      return;
+    }
+  }
   if (inset > 0 && w > 0 && h > 0) {
     const x0 = inset;
     const y0 = inset;

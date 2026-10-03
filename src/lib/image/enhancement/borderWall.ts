@@ -89,3 +89,71 @@ export function paintBorderWall(
     }
   }
 }
+
+/** Gallery wall. Color passes must not move these pixels. */
+export const GALLERY_MATTE_RGB = 243;
+
+/**
+ * Pixels connected to the image border that are already the gallery
+ * matte. A pale sky inside a circle is not included, because it does
+ * not touch the border through matte pixels.
+ * Returns null when there is no meaningful matte surround.
+ */
+export function galleryMatteMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  tolerance = 2,
+): Uint8Array | null {
+  if (width < 4 || height < 4) return null;
+  const mask = new Uint8Array(width * height);
+  const isMatte = (i: number) => {
+    const p = i * 4;
+    return (
+      Math.abs(data[p] - GALLERY_MATTE_RGB) <= tolerance &&
+      Math.abs(data[p + 1] - GALLERY_MATTE_RGB) <= tolerance &&
+      Math.abs(data[p + 2] - GALLERY_MATTE_RGB) <= tolerance
+    );
+  };
+  const stack: number[] = [];
+  const push = (x: number, y: number) => {
+    const i = y * width + x;
+    if (mask[i] || !isMatte(i)) return;
+    mask[i] = 1;
+    stack.push(i);
+  };
+  for (let x = 0; x < width; x += 1) {
+    push(x, 0);
+    push(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    push(0, y);
+    push(width - 1, y);
+  }
+  while (stack.length > 0) {
+    const i = stack.pop() as number;
+    const x = i % width;
+    const y = (i / width) | 0;
+    if (x > 0) push(x - 1, y);
+    if (x + 1 < width) push(x + 1, y);
+    if (y > 0) push(x, y - 1);
+    if (y + 1 < height) push(x, y + 1);
+  }
+  let count = 0;
+  for (let i = 0; i < mask.length; i += 1) if (mask[i]) count += 1;
+  const ratio = count / mask.length;
+  if (ratio < 0.02 || ratio > 0.92) return null;
+  return mask;
+}
+
+/** Force masked pixels back to flat #f3f3f3. */
+export function restoreGalleryMatte(data: Uint8ClampedArray, mask: Uint8Array): void {
+  for (let i = 0; i < mask.length; i += 1) {
+    if (!mask[i]) continue;
+    const p = i * 4;
+    data[p] = GALLERY_MATTE_RGB;
+    data[p + 1] = GALLERY_MATTE_RGB;
+    data[p + 2] = GALLERY_MATTE_RGB;
+    data[p + 3] = 255;
+  }
+}

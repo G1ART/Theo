@@ -33,7 +33,7 @@
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
-import { paintBorderWall } from "./borderWall";
+import { galleryMatteMask, paintBorderWall, restoreGalleryMatte } from "./borderWall";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
   applyAwb,
@@ -814,6 +814,10 @@ export async function runFlatEnhancement(
   if (isAborted()) return bail("aborted");
 
   let processed: ImageData;
+  // Captured before tone / Pro Look. Those passes shift the matte
+  // off #f3f3f3, so the mask cannot be rebuilt afterwards.
+  const lockedMatte =
+    bezel === 0 ? galleryMatteMask(ctx.getImageData(0, 0, workW, workH).data, workW, workH) : null;
   try {
     // AWB. Runs before tone so tone/sat operate on a neutral base.
     // Uses the current canvas ImageData directly — no downsample —
@@ -926,6 +930,7 @@ export async function runFlatEnhancement(
       applyUnsharp(processed, sharpen);
       stageTimings.sharpenMs = Math.max(0, Math.round(performance.now() - t1));
     }
+    if (lockedMatte) restoreGalleryMatte(processed.data, lockedMatte);
     ctx.putImageData(processed, 0, 0);
   } catch {
     return bail("decode_failed");
@@ -938,8 +943,6 @@ export async function runFlatEnhancement(
   // drawn into that margin (not extra canvas below), otherwise the
   // bottom matte reads larger than the top.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
-  const shadowBlur = Math.max(8, Math.round(bezelPx * 0.4));
-  const shadowOffsetY = Math.max(4, Math.round(bezelPx * 0.18));
   const finalW = workW + bezelPx * 2;
   const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
@@ -948,12 +951,8 @@ export async function runFlatEnhancement(
     const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
     matCtx.fillStyle = "#f3f3f3";
     matCtx.fillRect(0, 0, finalW, finalH);
-    matCtx.shadowColor = "rgba(0,0,0,0.22)";
-    matCtx.shadowBlur = shadowBlur;
-    matCtx.shadowOffsetX = 0;
-    matCtx.shadowOffsetY = shadowOffsetY;
+    // Flat matte only. A drop shadow would change the wall.
     matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
-    matCtx.shadowColor = "transparent";
     blob = await canvasToBlob(matCanvas, "image/webp", 0.9);
     stageTimings.encodeMs = Math.max(0, Math.round(performance.now() - t0));
   } catch {

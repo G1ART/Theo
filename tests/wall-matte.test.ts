@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fitMatteForegroundQuad } from "../src/lib/image/enhancement/wallMatte";
-import { paintBorderWall } from "../src/lib/image/enhancement/borderWall";
+import { galleryMatteMask, paintBorderWall, restoreGalleryMatte } from "../src/lib/image/enhancement/borderWall";
 import { parseEnhanceSessionPreset } from "../src/lib/image/enhancement/sharedPreset";
 import { dampenAwbGain } from "../src/lib/image/enhancement/awb";
 
@@ -105,5 +105,34 @@ assert.ok(Math.abs(dampenAwbGain(0.8, 0.5) - 0.9) < 1e-9, "half strength works b
 assert.equal(dampenAwbGain(1.4, 0), 1, "zero strength = no-op");
 assert.equal(dampenAwbGain(1.4, NaN), 1.4, "bad strength falls back to full");
 assert.equal(dampenAwbGain(NaN, 0.5), 1, "bad multiplier falls back to 1");
+
+// Edge-connected #f3f3f3 is the wall. A pale pixel inside the subject
+// that does not touch that wall stays paintable.
+const framed = new Uint8ClampedArray(10 * 10 * 4);
+for (let i = 0; i < framed.length; i += 4) {
+  framed[i] = framed[i + 1] = framed[i + 2] = 243;
+  framed[i + 3] = 255;
+}
+for (let y = 3; y <= 6; y += 1) {
+  for (let x = 3; x <= 6; x += 1) {
+    const p = (y * 10 + x) * 4;
+    framed[p] = 20;
+    framed[p + 1] = 40;
+    framed[p + 2] = 80;
+  }
+}
+// A 243 pixel trapped inside the subject must not count as wall.
+framed[(4 * 10 + 4) * 4] = 243;
+framed[(4 * 10 + 4) * 4 + 1] = 243;
+framed[(4 * 10 + 4) * 4 + 2] = 243;
+const matte = galleryMatteMask(framed, 10, 10);
+assert.ok(matte);
+assert.equal(matte[0], 1);
+assert.equal(matte[4 * 10 + 4], 0);
+assert.equal(matte[3 * 10 + 3], 0);
+framed[0] = 10;
+restoreGalleryMatte(framed, matte);
+assert.equal(framed[0], 243);
+assert.equal(framed[(3 * 10 + 3) * 4], 20);
 
 console.log("wall-matte.test.ts: ok");
