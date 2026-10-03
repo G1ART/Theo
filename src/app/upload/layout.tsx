@@ -59,7 +59,7 @@ export default function UploadLayout({
 
   return (
     <AppShell>
-      <PageShell variant="narrow">
+      <PageShell variant="studio">
         <PageHeader
           variant="plain"
           title={t("upload.title")}

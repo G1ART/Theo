@@ -3227,213 +3227,211 @@ export default function BulkUploadPage() {
         ) : drafts.length === 0 ? (
           <p className="py-12 text-center text-zinc-600">{t("bulk.noDrafts")}</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200">
-                  <th className="p-2 text-left">
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={selectedIds.length === 0 || deleting}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {t("bulk.deleteSelected")}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAll}
+                disabled={deleting}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {t("bulk.deleteAll")}
+              </button>
+            </div>
+            {drafts.map((d) => {
+              const val = validatePublish(d);
+              const images = orderedImages(d);
+              const img = images[0];
+              const thumb = img ? getArtworkImageUrl(img.storage_path, "thumb") : null;
+              const field = "w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm";
+              return (
+                <article key={`${d.id}-${bulkVersion}`} className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="flex gap-3">
                     <input
                       type="checkbox"
-                      checked={drafts.length > 0 && selected.size === drafts.length}
-                      onChange={toggleSelectAll}
+                      checked={selected.has(d.id)}
+                      onChange={() => toggleSelect(d.id)}
+                      className="mt-2 h-4 w-4 accent-zinc-900"
                     />
-                  </th>
-                  <th className="p-2 text-left"> </th>
-                  <th className="min-w-[220px] p-2 text-left">{t("bulk.tableTitle")}</th>
-                  <th className="p-2 text-left">{t("bulk.year")}</th>
-                  <th className="p-2 text-left">{t("bulk.medium")}</th>
-                  <th className="p-2 text-left">{t("bulk.size")}</th>
-                  <th className="p-2 text-left">{t("bulk.ownershipStatus")}</th>
-                  <th className="p-2 text-left">{t("bulk.pricingMode")}</th>
-                  <th className="p-2 text-left">{t("bulk.status")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drafts.map((d) => {
-                  const val = validatePublish(d);
-                  const images = orderedImages(d);
-                  const img = images[0];
-                  const thumb = img ? getArtworkImageUrl(img.storage_path, "thumb") : null;
-                  return (
-                    <tr key={`${d.id}-${bulkVersion}`} className="border-b border-zinc-100">
-                      <td className="p-2">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(d.id)}
-                          onChange={() => toggleSelect(d.id)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`relative h-12 w-12 overflow-hidden rounded bg-zinc-200 ${
-                              dropOnId === d.id ? "ring-2 ring-zinc-900" : ""
-                            }`}
-                            onDragOver={(e) => {
-                              if (![...e.dataTransfer.types].includes("Files")) return;
-                              e.preventDefault();
-                              setDropOnId(d.id);
-                            }}
-                            onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              setDropOnId(null);
-                              void addDetailsToDraft(d.id, e.dataTransfer.files);
-                            }}
-                          >
-                            {thumb ? (
-                              <Image src={thumb} alt="" width={48} height={48} sizes="48px" loading="lazy" className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-zinc-400 text-xs">—</div>
-                            )}
-                          </div>
-                          <input
-                            id={`bulk-add-${d.id}`}
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              void addDetailsToDraft(d.id, e.target.files);
-                              e.target.value = "";
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById(`bulk-add-${d.id}`)?.click()}
-                            className="rounded-full border border-zinc-300 px-2 py-1 text-[11px] text-zinc-800 hover:bg-zinc-50"
-                            title={t("bulk.group.addHint")}
-                          >
-                            {t("bulk.group.add")}
-                          </button>
-                          {img?.storage_path && (
-                            <div className="flex flex-col items-start gap-1">
-                              <button
-                                type="button"
-                                onClick={() => setEnhanceDraft(d)}
-                                className="rounded-full border border-zinc-300 px-2.5 py-1 text-xs text-zinc-800 hover:bg-zinc-50"
-                              >
-                                {t("bulk.enhance.row")}
-                              </button>
-                              {img.enhancement_meta && (
-                                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
-                                  {t("bulk.enhance.rowDone")}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {images.length > 1 && (
-                          <div className="mt-1.5 flex max-w-[220px] flex-wrap items-center gap-1">
-                            {images.slice(1, 7).map((detail, index) => {
-                              const detailThumb = getArtworkImageUrl(detail.storage_path, "thumb");
-                              return (
-                                <div
-                                  key={detail.storage_path || `${d.id}-detail-${index}`}
-                                  className="h-10 w-10 overflow-hidden rounded border border-zinc-200 bg-zinc-100"
-                                  title={t("bulk.group.detailThumb")}
-                                >
-                                  <Image
-                                    src={detailThumb}
-                                    alt=""
-                                    width={40}
-                                    height={40}
-                                    sizes="40px"
-                                    loading="lazy"
-                                    className="h-full w-full object-cover"
-                                  />
-                                </div>
-                              );
-                            })}
-                            {images.length > 7 && (
-                              <span className="text-[10px] text-zinc-500">+{images.length - 7}</span>
-                            )}
-                          </div>
+                    <div className="w-24 shrink-0">
+                      <div
+                        className={`relative h-24 w-24 overflow-hidden rounded-md bg-zinc-100 ${
+                          dropOnId === d.id ? "ring-2 ring-zinc-900" : ""
+                        }`}
+                        onDragOver={(e) => {
+                          if (![...e.dataTransfer.types].includes("Files")) return;
+                          e.preventDefault();
+                          setDropOnId(d.id);
+                        }}
+                        onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDropOnId(null);
+                          void addDetailsToDraft(d.id, e.dataTransfer.files);
+                        }}
+                      >
+                        {thumb ? (
+                          <Image src={thumb} alt="" width={96} height={96} sizes="96px" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-zinc-400">—</div>
                         )}
-                      </td>
-                      <td className="min-w-[220px] p-2">
-                        <input
-                          type="text"
-                          defaultValue={d.title ?? ""}
-                          className="w-full min-w-[200px] rounded border border-zinc-300 px-2 py-1"
-                          onBlur={(e) => updateDraftField(d.id, "title", e.target.value)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          defaultValue={d.year ?? ""}
-                          placeholder="—"
-                          className="w-20 rounded border border-zinc-300 px-2 py-1"
-                          onBlur={(e) => updateDraftField(d.id, "year", e.target.value ? parseInt(e.target.value, 10) : null)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="text"
-                          defaultValue={d.medium ?? ""}
-                          placeholder="—"
-                          className="w-32 rounded border border-zinc-300 px-2 py-1"
-                          onBlur={(e) => updateDraftField(d.id, "medium", e.target.value)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-1">
+                      </div>
+                      {img?.storage_path && (
+                        <button
+                          type="button"
+                          onClick={() => setEnhanceDraft(d)}
+                          className="mt-1 w-full rounded-full border border-zinc-300 py-0.5 text-[10px] text-zinc-800 hover:bg-zinc-50"
+                        >
+                          {t("bulk.enhance.row")}
+                        </button>
+                      )}
+                      <p className={`mt-1 text-center text-[10px] ${val.ok ? "text-emerald-700" : "text-amber-700"}`}>
+                        {val.ok ? t("bulk.statusReady") : t("bulk.missing")}
+                      </p>
+                      <input
+                        id={`bulk-add-${d.id}`}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          void addDetailsToDraft(d.id, e.target.files);
+                          e.target.value = "";
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById(`bulk-add-${d.id}`)?.click()}
+                        className="mt-1 w-full text-center text-[10px] text-zinc-500 hover:text-zinc-800"
+                      >
+                        {t("bulk.group.add")}
+                      </button>
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="grid gap-2 sm:grid-cols-[1fr_5rem_auto]">
+                        <label className="block text-[11px] text-zinc-500">
+                          {t("bulk.tableTitle")}
                           <input
                             type="text"
-                            defaultValue={d.size ?? ""}
-                            placeholder="—"
-                            className="w-24 rounded border border-zinc-300 px-2 py-1"
-                            onBlur={(e) => updateDraftField(d.id, "size", e.target.value)}
+                            defaultValue={d.title ?? ""}
+                            className={`${field} mt-0.5`}
+                            onBlur={(e) => updateDraftField(d.id, "title", e.target.value)}
                           />
-                          <select
-                            defaultValue={d.size_unit ?? ""}
-                            className="rounded border border-zinc-300 px-1 py-1"
-                            onChange={(e) => updateDraftField(d.id, "size_unit", e.target.value || null)}
-                          >
-                            <option value="">—</option>
-                            <option value="cm">cm</option>
-                            <option value="in">in</option>
-                          </select>
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <select
-                          defaultValue={d.ownership_status ?? ""}
-                          className="rounded border border-zinc-300 px-2 py-1"
-                          onChange={(e) => updateDraftField(d.id, "ownership_status", e.target.value || null)}
-                        >
-                          <option value="">—</option>
-                          {OWNERSHIP_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="p-2">
-                        <select
-                          defaultValue={d.pricing_mode ?? ""}
-                          className="rounded border border-zinc-300 px-2 py-1"
-                          onChange={(e) => updateDraftField(d.id, "pricing_mode", e.target.value || null)}
-                        >
-                          <option value="">—</option>
-                          <option value="inquire">{t("bulk.inquire")}</option>
-                          <option value="fixed">{t("bulk.fixed")}</option>
-                        </select>
-                      </td>
-                      <td className="p-2">
-                        {val.ok ? (
-                          <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">{t("bulk.statusReady")}</span>
-                        ) : (
-                          <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800" title={val.missing.join(", ")}>
-                            {t("bulk.missing")}: {val.missing.join(", ")}
+                        </label>
+                        <label className="block text-[11px] text-zinc-500">
+                          {t("bulk.year")}
+                          <input
+                            type="number"
+                            defaultValue={d.year ?? ""}
+                            className={`${field} mt-0.5`}
+                            onBlur={(e) => updateDraftField(d.id, "year", e.target.value ? parseInt(e.target.value, 10) : null)}
+                          />
+                        </label>
+                        <div className="text-[11px] text-zinc-500">
+                          <span className="flex items-center gap-2">
+                            {t("bulk.size")}
+                            <span className="rounded-full border border-zinc-200 px-1.5 py-0.5 text-[10px]">
+                              {(d.size_unit ?? "cm").toUpperCase()}
+                            </span>
                           </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <div className="mt-0.5 flex items-center gap-1">
+                            <input
+                              type="text"
+                              defaultValue={d.size ?? ""}
+                              placeholder={t("bulk.size")}
+                              className={`${field} w-24`}
+                              onBlur={(e) => updateDraftField(d.id, "size", e.target.value)}
+                            />
+                            <select
+                              defaultValue={d.size_unit ?? "cm"}
+                              className="rounded-md border border-zinc-200 px-1 py-1.5 text-xs"
+                              onChange={(e) => updateDraftField(d.id, "size_unit", e.target.value || null)}
+                            >
+                              <option value="cm">cm</option>
+                              <option value="in">in</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="block text-[11px] text-zinc-500">
+                          {t("bulk.medium")}
+                          <input
+                            type="text"
+                            defaultValue={d.medium ?? ""}
+                            placeholder={t("bulk.mediumSearch")}
+                            className={`${field} mt-0.5`}
+                            onBlur={(e) => updateDraftField(d.id, "medium", e.target.value)}
+                          />
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <label className="block text-[11px] text-zinc-500">
+                            {t("bulk.ownershipStatus")}
+                            <select
+                              defaultValue={d.ownership_status ?? ""}
+                              className={`${field} mt-0.5`}
+                              onChange={(e) => updateDraftField(d.id, "ownership_status", e.target.value || null)}
+                            >
+                              <option value="">—</option>
+                              {OWNERSHIP_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="col-span-2 block text-[11px] text-zinc-500">
+                            {t("bulk.pricingMode")}
+                            <select
+                              defaultValue={d.pricing_mode ?? ""}
+                              className={`${field} mt-0.5`}
+                              onChange={(e) => updateDraftField(d.id, "pricing_mode", e.target.value || null)}
+                            >
+                              <option value="">—</option>
+                              <option value="inquire">{t("bulk.inquire")}</option>
+                              <option value="fixed">{t("bulk.fixed")}</option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                      {images.length > 1 && (
+                        <div className="flex flex-wrap items-end gap-2 pt-1">
+                          {images.slice(1, 7).map((detail, index) => {
+                            const detailThumb = getArtworkImageUrl(detail.storage_path, "thumb");
+                            const view = String(detail.view_type ?? "detail");
+                            const viewKey =
+                              view === "angle"
+                                ? "bulk.view.angle"
+                                : view === "in_situ"
+                                  ? "bulk.view.inSitu"
+                                  : view === "other"
+                                    ? "bulk.view.other"
+                                    : "bulk.view.detail";
+                            return (
+                              <div key={detail.storage_path || `${d.id}-d-${index}`} className="w-14">
+                                <div className="h-14 overflow-hidden rounded border border-zinc-200 bg-zinc-100">
+                                  <Image src={detailThumb} alt="" width={56} height={56} sizes="56px" className="h-full w-full object-cover" />
+                                </div>
+                                <p className="mt-0.5 truncate text-center text-[9px] text-zinc-500">{t(viewKey)}</p>
+                              </div>
+                            );
+                          })}
+                          {images.length > 7 && (
+                            <span className="pb-4 text-[10px] text-zinc-500">+{images.length - 7}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
           </>
