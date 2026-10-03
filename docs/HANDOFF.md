@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-03
 
+## 2026-10-03 — 업로드 보정은 계정 일일 30회 한도로 막지 않는다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.** `AI_USER_DAILY_SOFT_CAP` 은 더 이상 읽지 않는다. Vercel에 넣을 값도, 지울 값도 없다.
+
+30은 OpenAI나 gpt-5.6-sol의 한도가 아니었다. `src/lib/ai/softCap.ts`의 `checkDailySoftCap`이 `ai_events`를 UTC 자정부터 세고, 계정당 30회에 닿으면 `handleAiRoute`가 모델을 호출하기 전에 429 `error_code=cap`을 돌려주던 우리 앱의 초안 한도다.
+
+- 그 조회와 429 조기 반환을 뺐다. `softCap.ts`는 지웠다. 로그인한 작가의 사각형 감지, 품질 게이트, 같은 라우트의 다른 초안·보정 호출은 하루 30회로 막히지 않는다.
+- 로그인은 그대로다. 플랜 entitlement와 Photoroom의 제공자 한도(429·키 없음)는 그대로다. `ai_events` 테이블은 호출 기록으로 남고, 한도 집계에는 쓰지 않는다. 캡·타임아웃·키 없음 응답을 모서리 없음으로 캐시하지 않는 규칙은 그대로다.
+- 비용은 OpenAI 토큰 과금과, 모양 따기일 때의 Photoroom 크레딧이다. gpt-5.6-sol에 하루 30회 상품 한도를 거는 코드는 없다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-bbox-soft-cap.test.ts`.
+
 ## 2026-10-03 — 사각형 감지가 한도에 막혀 실패 배너로 보이던 문제
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가 없음.**

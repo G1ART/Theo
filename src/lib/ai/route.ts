@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { generateJSON, GENERATE_TIMEOUT_MS, type ImageInput } from "./client";
-import { AiSoftCapError, checkDailySoftCap } from "./softCap";
 import { logAiEvent } from "./events";
 import { assertSafePrompt } from "./safety";
 import type { AiDegradation, AiFeatureKey } from "./types";
@@ -72,6 +71,11 @@ function degradedResponse(
 export async function handleAiRoute<TBody, TResult extends AiDegradation>(
   req: Request,
   def: RouteHandlerDefinition<TBody, TResult>,
+  /**
+   * Tests pass a client so the handler runs without a live project.
+   * Production routes omit this and keep the bearer-token client.
+   */
+  deps?: { supabase?: SupabaseClient },
 ): Promise<NextResponse> {
   try {
     assertSafePrompt(def.feature);
@@ -80,7 +84,7 @@ export async function handleAiRoute<TBody, TResult extends AiDegradation>(
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
     if (!token) return degradedResponse(401, "unauthorized");
 
-    const supabase = buildSupabaseForToken(token);
+    const supabase = deps?.supabase ?? buildSupabaseForToken(token);
     if (!supabase) return degradedResponse(500, "error", { error: "Server misconfigured" });
 
     const {
@@ -142,20 +146,9 @@ export async function handleAiRoute<TBody, TResult extends AiDegradation>(
       }
     }
 
-    try {
-      await checkDailySoftCap(supabase, user.id, def.feature);
-    } catch (err) {
-      if (err instanceof AiSoftCapError) {
-        await logAiEvent(supabase, {
-          user_id: user.id,
-          feature_key: def.feature,
-          error_code: "cap",
-        });
-        return degradedResponse(429, "cap", { error: "Soft cap reached" });
-      }
-      throw err;
-    }
-
+    // Account-day draft counts are not a gate. Rectangle detection,
+    // the quality gate, and the other calls on this handler are not
+    // stopped at 30. OpenAI bills per token; this route does not.
     const prepared = await def.buildPromptInput({
       feature: def.feature,
       body,

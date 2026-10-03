@@ -1,109 +1,121 @@
+process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://stub.example.com";
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "stub-anon-key";
+
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  AiSoftCapError,
-  checkDailySoftCap,
-  isSoftCapExempt,
-} from "../src/lib/ai/softCap";
+import { NextResponse } from "next/server";
+import type { AiFeatureKey } from "../src/lib/ai/types";
 
 /**
- * 2026-10-03 — opening the enhancer logs a quality gate and a painting
- * bbox. Fifteen photos filled the draft soft cap (30). Later rectangle
- * detects returned `cap` before gpt-5.6-sol ran, and the editor showed
- * the manual-corner banner. Bbox detection must not consult that cap,
- * and its rows must not count toward it.
+ * 2026-10-03 — the 30 was our account-day draft counter (`ai_events`
+ * since UTC midnight), not an OpenAI / gpt-5.6-sol quota. Opening a
+ * photo used to fill it, and the next call returned 429 `cap` before
+ * the model ran. Authenticated quality-gate, rectangle, and draft
+ * calls must not be rejected for that count. A missing bearer token
+ * is still 401.
  */
 
-assert.equal(isSoftCapExempt("artwork_painting_bbox"), true);
-assert.equal(isSoftCapExempt("artwork_quality_gate"), false);
-assert.equal(isSoftCapExempt("bio_draft"), false);
-
-type Thenable = {
-  select: (...args: unknown[]) => Thenable;
-  eq: (...args: unknown[]) => Thenable;
-  gte: (...args: unknown[]) => Thenable;
-  neq: (col: string, val: string) => Thenable;
-  then: (resolve: (value: { count: number; error: null }) => void) => void;
-};
-
-function client(opts: { count: number; touched: string[] }): SupabaseClient {
-  const builder: Thenable = {
-    select() {
-      opts.touched.push("select");
-      return builder;
-    },
-    eq() {
-      opts.touched.push("eq");
-      return builder;
-    },
-    gte() {
-      opts.touched.push("gte");
-      return builder;
-    },
-    neq(col, val) {
-      opts.touched.push(`neq:${col}:${val}`);
-      return builder;
-    },
-    then(resolve) {
-      resolve({ count: opts.count, error: null });
+function countingClient(count: number, touched: string[]): SupabaseClient {
+  const handler: ProxyHandler<object> = {
+    get(_target, prop) {
+      if (prop === "then") {
+        return (
+          resolve: (value: { count: number; error: null; data: null }) => void,
+        ) => {
+          resolve({ count, error: null, data: null });
+        };
+      }
+      if (typeof prop !== "string") return undefined;
+      return () => new Proxy({}, handler);
     },
   };
+
   return {
+    auth: {
+      async getUser() {
+        touched.push("getUser");
+        return { data: { user: { id: "artist-1" } }, error: null };
+      },
+    },
     from(table: string) {
-      opts.touched.push(`from:${table}`);
-      return builder;
+      touched.push(`from:${table}`);
+      return new Proxy({}, handler);
     },
   } as unknown as SupabaseClient;
 }
 
-const previousCap = process.env.AI_USER_DAILY_SOFT_CAP;
-process.env.AI_USER_DAILY_SOFT_CAP = "30";
-
-async function main(): Promise<void> {
-  const exemptTouch: string[] = [];
-  await checkDailySoftCap(
-    client({ count: 999, touched: exemptTouch }),
-    "user",
-    "artwork_painting_bbox",
-  );
-  assert.deepEqual(
-    exemptTouch,
-    [],
-    "rectangle vision does not read the draft cap",
-  );
-
-  const blockedTouch: string[] = [];
-  await assert.rejects(
-    () =>
-      checkDailySoftCap(
-        client({ count: 30, touched: blockedTouch }),
-        "user",
-        "bio_draft",
-      ),
-    (err: unknown) => err instanceof AiSoftCapError,
-  );
-  assert.ok(
-    blockedTouch.includes("neq:feature_key:artwork_painting_bbox"),
-    "draft cap ignores painting-bbox rows",
-  );
-
-  const openTouch: string[] = [];
-  await checkDailySoftCap(
-    client({ count: 29, touched: openTouch }),
-    "user",
-    "bio_draft",
-  );
-  assert.ok(openTouch.includes("from:ai_events"));
-
-  console.log("artwork bbox soft cap: OK");
+function authedRequest(path: string): Request {
+  return new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-token",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
 }
 
-main()
-  .catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => {
-    if (previousCap === undefined) delete process.env.AI_USER_DAILY_SOFT_CAP;
-    else process.env.AI_USER_DAILY_SOFT_CAP = previousCap;
-  });
+async function main(): Promise<void> {
+  const { handleAiRoute } = await import("../src/lib/ai/route");
+
+  const anonymous = await handleAiRoute(
+    new Request("http://localhost/api/ai/artwork-quality-gate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+    {
+      feature: "artwork_quality_gate",
+      async buildPromptInput() {
+        throw new Error("unauthenticated calls must not reach the model");
+      },
+    },
+  );
+  assert.equal(anonymous.status, 401);
+  const anonymousBody = (await anonymous.json()) as { reason?: string };
+  assert.equal(anonymousBody.reason, "unauthorized");
+
+  const cases: Array<{ feature: AiFeatureKey; count: number; path: string }> = [
+    { feature: "artwork_quality_gate", count: 30, path: "/api/ai/artwork-quality-gate" },
+    { feature: "artwork_painting_bbox", count: 999, path: "/api/ai/artwork-painting-bbox" },
+    { feature: "bio_draft", count: 999, path: "/api/ai/bio-draft" },
+  ];
+
+  for (const item of cases) {
+    const touched: string[] = [];
+    let built = false;
+    const res = await handleAiRoute(
+      authedRequest(item.path),
+      {
+        feature: item.feature,
+        async buildPromptInput() {
+          built = true;
+          return NextResponse.json({ ok: true, feature: item.feature });
+        },
+      },
+      { supabase: countingClient(item.count, touched) },
+    );
+    const body = (await res.json()) as { reason?: string; error?: string; ok?: boolean };
+    assert.notEqual(
+      res.status,
+      429,
+      `${item.feature} must not 429 when ${item.count} draft rows already exist today`,
+    );
+    assert.notEqual(body.reason, "cap", `${item.feature} must not return reason=cap`);
+    assert.notEqual(body.error, "Soft cap reached");
+    assert.equal(res.status, 200, `${item.feature} should pass the daily counter`);
+    assert.equal(built, true, `${item.feature} should reach prompt build`);
+    assert.equal(body.ok, true);
+    assert.ok(
+      !touched.includes("from:ai_events"),
+      `${item.feature} must not consult the daily ai_events counter`,
+    );
+  }
+
+  console.log("draft daily cap is not enforced: OK");
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

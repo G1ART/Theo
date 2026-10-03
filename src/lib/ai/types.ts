@@ -1,8 +1,8 @@
 // Result shapes for the AI-Native Studio Layer (Wave 1).
 // Each route returns a typed JSON body that the UI renders into editable
 // preview cards. All variants carry a `degraded` flag so the UI can fall
-// back to static copy when OpenAI is unavailable, the soft cap is hit, or
-// JSON parsing fails.
+// back to static copy when OpenAI is unavailable, a plan gate blocks
+// the call, or JSON parsing fails.
 
 export type AiDegradation = {
   degraded?: boolean;
@@ -14,7 +14,7 @@ export type AiDegradation = {
     | "error"
     | "unauthorized"
     | "invalid_input"
-    /** OpenAI or upstream rate limit (distinct from product soft cap). */
+    /** OpenAI or upstream rate limit (distinct from a plan-quota cap). */
     | "rate_limit"
     /** Prompt or combined context too large for the model. */
     | "context_limit"
@@ -256,7 +256,7 @@ export type AiFeatureKey =
    * 등) 만 "재촬영 권장" 으로 조기 경고한다. DSP 파이프라인(perspective
    * / AWB / Pro Look) 앞단에서만 동작하며 게이트가 실패(no_key, timeout
    * 등) 하면 조용히 통과시킨다 — AI 인프라 장애가 정상 업로드를 막지
-   * 않도록. entitlement 없음, 소프트캡만 공유.
+   * 않도록. entitlement 없음. 계정별 일일 호출 한도로 막지 않는다.
    */
   | "artwork_quality_gate"
   /**

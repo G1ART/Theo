@@ -169,7 +169,7 @@ export const AI_FEATURE_TO_METER_KEY: Record<string, string> = {
    * for the simulation cutout pipeline. Fires per successful vision
    * verdict; the client may still skip the crop when confidence < 0.7
    * or `alreadyTight === true`, so this meter counts DETECTIONS not
-   * CROPS. Reuses the shared soft cap via `handleAiRoute`.
+   * CROPS. Goes through `handleAiRoute` with no per-account daily cap.
    */
   artwork_painting_bbox: USAGE_KEYS.AI_ARTWORK_PAINTING_BBOX_DETECTED,
 };
