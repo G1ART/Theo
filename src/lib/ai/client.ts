@@ -216,11 +216,10 @@ export async function generateJSON<T extends object>(
         // Classic models keep 0.7.
         ...(reasoning
           ? {
-              // Corner detection is on the upload critical path. Low
-              // effort keeps the same model but skips the long think
-              // that was costing ~15s. Other features stay at medium.
-              reasoning_effort:
-                opts.feature === "artwork_painting_bbox" ? ("low" as const) : ("medium" as const),
+              // Corner detection stays at medium. Low effort (tried
+              // 2026-10-02) shortened the wait but loosened the quad
+              // on real canvases. Other features are medium too.
+              reasoning_effort: "medium" as const,
             }
           : { temperature: 0.7 }),
         max_completion_tokens: reasoning ? 8192 : 2048,

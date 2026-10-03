@@ -2187,8 +2187,11 @@ export function ImageStandardizeEditor({
         cancelled = true;
       };
     }
-    setDetectingArtwork(true);
-    setVisionStatus("loading");
+    // Local corners are already on screen. Don't freeze the picker
+    // for the vision round-trip; replace them when the model returns
+    // if the artist hasn't dragged.
+    setDetectingArtwork(false);
+    setVisionStatus(matteReady ? "ok" : "loading");
     void detectArtworkQuad(file)
       .then((seed) => {
         if (cancelled) return;
