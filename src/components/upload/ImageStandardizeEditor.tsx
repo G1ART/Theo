@@ -46,6 +46,7 @@ import {
 import {
   hasValidArea,
   isPhotoBoundQuad,
+  rectangleQuadChrome,
   resolveAutoCorners,
   resolveRectangleSeed,
   type Quad,
@@ -1429,34 +1430,22 @@ export function ImageStandardizeEditor({
       }),
     [perspectiveCorners, matteQuad, visionQuad, analysis],
   );
-  // 2026-10-01 — surface low-confidence auto corners as a dashed
-  // hint rather than a solid outline, so the user understands they
-  // should confirm instead of trusting the shape. Hint fires when
-  // the seed came from the matte fallback (confidence proxy low),
-  // from a low-confidence rectangle detector (<0.55), or when the
-  // picker is sitting on the default inset quad (no seed at all).
-  // User-committed corners never get the hint.
-  const perspectiveAutoHint = useMemo<boolean>(() => {
-    if (perspectiveCorners) return false;
-    const rectConf = analysis?.rectangleConfidence ?? 0;
-    const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
-    // A confident vision quad is a real preset, not a dashed guess.
-    // Below 0.7 the prompt itself says the client should not trust it.
-    if (visionQuad) return visionConfidence < 0.7;
-    if (matteQuad && hasValidArea(matteQuad)) return true;
-    return edgeConf < 0.55 || rectConf < 0.55;
-  }, [perspectiveCorners, matteQuad, visionQuad, visionConfidence, analysis]);
+  // Handles and the dashed quad stay off the photo while sol is
+  // still looking. The 15% inset is not a detection and must not
+  // enable "이 영역으로 자르기". A miss shows the handles so the
+  // artist can place corners, without dashing that inset.
+  const quadChrome = rectangleQuadChrome({
+    visionStatus,
+    hasSolQuad: Boolean(visionQuad),
+    solConfidence: visionConfidence,
+    skipped: perspectiveSkipped,
+    userAdjusted: perspectiveUserAdjusted,
+  });
 
   const pickerImageWidth =
     analysis?.width || previewNaturalSize?.w || 1024;
   const pickerImageHeight =
     analysis?.height || previewNaturalSize?.h || 1024;
-
-  const canConfirmCrop =
-    perspectiveSkipped ||
-    Boolean(visionQuad) ||
-    matteReady ||
-    perspectiveUserAdjusted;
 
   // Honest "we isolated the canvas" only when the displayed draft
   // actually warped from sourceCorners. Silent AABB/full-frame warps
@@ -2777,9 +2766,13 @@ export function ImageStandardizeEditor({
                       imageHeight={pickerImageHeight}
                       initialCorners={wizardPerspectiveDraft ?? wizardPerspectiveSeed}
                       autoDetectedCorners={wizardPerspectiveSeed}
-                      autoHint={!perspectiveUserAdjusted && perspectiveAutoHint}
+                      autoHint={quadChrome.dashed}
+                      showQuadChrome={quadChrome.show}
                       resetToken={perspectiveResetToken}
                       onChange={(q) => {
+                        // The inset held while recognition is in
+                        // progress is not a placement.
+                        if (!quadChrome.show) return;
                         setWizardPerspectiveDraft(q);
                         if (quadsDiffer(q, wizardPerspectiveSeed)) {
                           setPerspectiveUserAdjusted(true);
@@ -2865,7 +2858,7 @@ export function ImageStandardizeEditor({
                       disabled={
                         boundaryMode === "silhouette"
                           ? silhouetteRunning || !silhouetteUrl
-                          : (detectingArtwork && !matteReady) || !canConfirmCrop
+                          : !quadChrome.canCrop
                       }
                       onClick={() => {
                         if (boundaryMode === "silhouette") {

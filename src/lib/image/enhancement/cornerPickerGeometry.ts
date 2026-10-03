@@ -352,6 +352,53 @@ export function resolveRectangleSeed(input: {
   return defaultInsetQuad(0.15);
 }
 
+export type RectangleVisionStatus = "idle" | "loading" | "ok" | "miss";
+
+/**
+ * Corner handles and the quad outline on the crop step.
+ *
+ * gpt-5.6-sol owns the rectangle. While that request is in progress
+ * (`idle` or `loading`, the "사진 안에서 작품을 찾는 중…" chip) the
+ * 15% inset placeholder is not drawn and cannot confirm a crop.
+ * A usable sol quad is shown dashed, at those corners, with no slide
+ * in from the placeholder. A miss is manual placement: the handles
+ * come up so the artist can set the corners, and the inset is not
+ * stroked as a detection.
+ */
+export function rectangleQuadChrome(input: {
+  visionStatus: RectangleVisionStatus;
+  hasSolQuad: boolean;
+  /** Model confidence. A non-finite value is not a detection. */
+  solConfidence?: number;
+  skipped?: boolean;
+  userAdjusted?: boolean;
+}): {
+  show: boolean;
+  dashed: boolean;
+  canCrop: boolean;
+} {
+  if (input.skipped) {
+    return { show: false, dashed: false, canCrop: true };
+  }
+  if (input.visionStatus === "idle" || input.visionStatus === "loading") {
+    return { show: false, dashed: false, canCrop: false };
+  }
+  if (input.visionStatus === "ok" && input.hasSolQuad) {
+    const confidence = input.solConfidence ?? 0;
+    return {
+      show: true,
+      dashed: !input.userAdjusted && Number.isFinite(confidence),
+      canCrop: true,
+    };
+  }
+  if (input.visionStatus === "miss") {
+    // Handles so the artist can place corners. The outline is manual,
+    // not a dashed detection of the 15% inset.
+    return { show: true, dashed: false, canCrop: true };
+  }
+  return { show: false, dashed: false, canCrop: false };
+}
+
 /**
  * Parse a vision model `corners` payload (array of [x,y] or {x,y})
  * into a TL/TR/BR/BL quad. Returns null when the shape is unusable.

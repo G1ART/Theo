@@ -99,6 +99,13 @@ type Props = {
    * rectangle detector (`rectangleConfidence < 0.55`).
    */
   autoHint?: boolean;
+  /**
+   * When false, the photo stays up but the corner handles and the
+   * quad outline stay off. The crop step uses this while gpt-5.6-sol
+   * is still finding the rectangle, so the 15% inset is not drawn
+   * as a detection.
+   */
+  showQuadChrome?: boolean;
 };
 
 const HANDLE_LABELS = ["TL", "TR", "BR", "BL"] as const;
@@ -115,6 +122,7 @@ export function PerspectiveCornerPicker({
   onChange,
   hideActions = false,
   autoHint = false,
+  showQuadChrome = true,
 }: Props) {
   const { t } = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -145,6 +153,19 @@ export function PerspectiveCornerPicker({
   const lastValidQuadRef = useRef<Quad>(seedQuad);
   const dragCornerRef = useRef<CornerIndex | null>(null);
   const dragOriginRef = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
+  // Apply a parent re-seed in this render. The crop step hides the
+  // handles while sol is still looking, then bumps `resetToken` when
+  // a quad arrives. Waiting for an effect would paint the 15% inset
+  // for one frame and then jump — the handles must first appear at
+  // the detected corners.
+  const [seenResetToken, setSeenResetToken] = useState(resetToken);
+  if (resetToken !== seenResetToken) {
+    setSeenResetToken(resetToken);
+    if (dragCornerRef.current == null) {
+      lastValidQuadRef.current = seedQuad;
+      setQuadRaw(seedQuad);
+    }
+  }
   // Local reset counter — bumped when the user clicks "reset". Combined
   // with `resetToken` (parent-driven) drives the re-seed effect below.
   const [localResetTick, setLocalResetTick] = useState(0);
@@ -418,6 +439,7 @@ export function PerspectiveCornerPicker({
         ref={containerRef}
         className="relative w-full rounded-lg border border-zinc-300 bg-zinc-100"
         style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+        data-quad-chrome={showQuadChrome ? (autoHint ? "detection" : "manual") : "hidden"}
       >
         {/* Image lives inside its own overflow-hidden wrapper so the
             outer container can host handles that sit right on the
@@ -437,7 +459,7 @@ export function PerspectiveCornerPicker({
             container. `preserveAspectRatio="none"` combined with an
             explicit width/height matching the image rect gives us a
             precise 1:1 mapping from normalized [0,1] to overlay px. */}
-        {imgRect.width > 0 && imgRect.height > 0 && (
+        {showQuadChrome && imgRect.width > 0 && imgRect.height > 0 && (
           <svg
             className="pointer-events-none absolute"
             style={{
@@ -463,7 +485,7 @@ export function PerspectiveCornerPicker({
         {/* Draggable corner handles. The visible dot stays small (~14px)
             but each handle wraps a transparent 44×44 hit target so it's
             easy to grab on touch and never bleeds off the container. */}
-        {imgRect.width > 0 && imgRect.height > 0 && quad.map((pt, idx) => {
+        {showQuadChrome && imgRect.width > 0 && imgRect.height > 0 && quad.map((pt, idx) => {
           const cornerIdx = idx as CornerIndex;
           const [x, y] = pt;
           const isActive = activeCorner === cornerIdx;
@@ -546,7 +568,7 @@ export function PerspectiveCornerPicker({
         {/* Magnifier (2026-10-01). Shows the pixels around the active
             corner at 3× zoom with a crosshair in the center so users
             can land right on the painted edge instead of the wall. */}
-        {magnifier && (
+        {showQuadChrome && magnifier && (
           <div
             aria-hidden
             className="pointer-events-none absolute overflow-hidden rounded-lg border border-zinc-300 bg-zinc-50 shadow-lg"
@@ -581,10 +603,14 @@ export function PerspectiveCornerPicker({
             </span>
           </div>
         )}
-        {/* Data hint used by callers to confirm the polygon renders. */}
-        <span className="sr-only" data-testid="perspective-quad">
-          {points}
-        </span>
+        {/* Data hint used by callers to confirm the polygon renders.
+            Omitted while chrome is hidden so a placeholder quad is
+            not announced as if it were on the photo. */}
+        {showQuadChrome && (
+          <span className="sr-only" data-testid="perspective-quad">
+            {points}
+          </span>
+        )}
       </div>
       {!hideActions && (
         <div className="flex flex-wrap items-center justify-end gap-2 text-xs">

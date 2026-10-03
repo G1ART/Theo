@@ -30,6 +30,7 @@ import assert from "node:assert/strict";
     isPhotoBoundQuad,
     visionAxisScale,
     rectangleCornersFromVision,
+    rectangleQuadChrome,
     resolveRectangleSeed,
   } = await import("../cornerPickerGeometry");
 
@@ -331,6 +332,64 @@ import assert from "node:assert/strict";
     canvas,
     "vision quad wins over a local frame",
   );
+
+  // Quad chrome stays off the photo while sol is still looking.
+  // The 15% inset must not read as a detection or enable the crop.
+  for (const visionStatus of ["idle", "loading"] as const) {
+    const waiting = rectangleQuadChrome({
+      visionStatus,
+      hasSolQuad: false,
+      solConfidence: 0,
+      userAdjusted: true,
+    });
+    assert.equal(waiting.show, false, `${visionStatus} hides handles and the quad`);
+    assert.equal(waiting.dashed, false, `${visionStatus} does not dash a placeholder`);
+    assert.equal(waiting.canCrop, false, `${visionStatus} does not enable crop`);
+  }
+
+  const found = rectangleQuadChrome({
+    visionStatus: "ok",
+    hasSolQuad: true,
+    solConfidence: 0.95,
+  });
+  assert.equal(found.show, true, "a usable sol quad shows the handles");
+  assert.equal(found.dashed, true, "a usable sol quad is the dashed overlay");
+  assert.equal(found.canCrop, true, "a usable sol quad enables crop");
+
+  const adjusted = rectangleQuadChrome({
+    visionStatus: "ok",
+    hasSolQuad: true,
+    solConfidence: 0.95,
+    userAdjusted: true,
+  });
+  assert.equal(adjusted.show, true, "handles stay after the artist moves them");
+  assert.equal(adjusted.dashed, false, "a moved quad is no longer a detection stroke");
+  assert.equal(adjusted.canCrop, true);
+
+  const okWithoutQuad = rectangleQuadChrome({
+    visionStatus: "ok",
+    hasSolQuad: false,
+    solConfidence: 1,
+  });
+  assert.equal(okWithoutQuad.show, false, "ok without a sol quad does not draw the inset");
+  assert.equal(okWithoutQuad.canCrop, false, "a missing sol quad does not enable crop");
+
+  const miss = rectangleQuadChrome({
+    visionStatus: "miss",
+    hasSolQuad: false,
+    solConfidence: 0,
+  });
+  assert.equal(miss.show, true, "failure shows handles so corners can be placed");
+  assert.equal(miss.dashed, false, "failure does not dash the inset as a detection");
+  assert.equal(miss.canCrop, true, "manual failure enables crop");
+
+  const skipped = rectangleQuadChrome({
+    visionStatus: "loading",
+    hasSolQuad: false,
+    skipped: true,
+  });
+  assert.equal(skipped.show, false, "skipping perspective does not draw corners");
+  assert.equal(skipped.canCrop, true, "skipping perspective can advance");
 
   console.log("corner picker geometry contract: OK");
 })().catch((err) => {
