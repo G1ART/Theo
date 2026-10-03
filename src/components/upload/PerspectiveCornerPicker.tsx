@@ -28,6 +28,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -106,6 +107,13 @@ type Props = {
    * as a detection.
    */
   showQuadChrome?: boolean;
+  /**
+   * Fit the largest same-aspect frame inside the parent. Corner
+   * handles stay on the pixels because the frame matches the photo.
+   * The enhance dialog uses this so the crop control can sit beside
+   * the picture instead of under a tall aspect box.
+   */
+  fitFrame?: boolean;
 };
 
 const HANDLE_LABELS = ["TL", "TR", "BR", "BL"] as const;
@@ -123,10 +131,13 @@ export function PerspectiveCornerPicker({
   hideActions = false,
   autoHint = false,
   showQuadChrome = true,
+  fitFrame = false,
 }: Props) {
   const { t } = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const [fitted, setFitted] = useState<{ w: number; h: number } | null>(null);
   // Seed derivation. Re-evaluates on every render but does NOT drive a
   // re-seed effect by itself — see the sentinel guards below.
   const seedQuad = useMemo<Quad>(() => {
@@ -393,7 +404,29 @@ export function PerspectiveCornerPicker({
     }
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [imageUrl, imageWidth, imageHeight]);
+  }, [imageUrl, imageWidth, imageHeight, fitted?.w, fitted?.h]);
+
+  useLayoutEffect(() => {
+    if (!fitFrame) return;
+    const frame = frameRef.current;
+    if (!frame) return;
+    const measure = () => {
+      const rect = frame.getBoundingClientRect();
+      const iw = imageWidth > 0 ? imageWidth : 1;
+      const ih = imageHeight > 0 ? imageHeight : 1;
+      const scale = Math.min(rect.width / iw, rect.height / ih);
+      if (!Number.isFinite(scale) || scale <= 0) return;
+      setFitted({
+        w: Math.max(1, Math.floor(iw * scale)),
+        h: Math.max(1, Math.floor(ih * scale)),
+      });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(frame);
+    return () => ro.disconnect();
+  }, [fitFrame, imageWidth, imageHeight]);
 
   const HANDLE_DOT = 14;
   const HANDLE_HIT = 44;
@@ -434,11 +467,25 @@ export function PerspectiveCornerPicker({
     : null;
 
   return (
-    <div className="space-y-2">
+    <div
+      ref={fitFrame ? frameRef : undefined}
+      className={fitFrame ? "relative h-full min-h-0 w-full" : "space-y-2"}
+    >
       <div
         ref={containerRef}
-        className="relative w-full rounded-lg border border-zinc-300 bg-zinc-100"
-        style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+        className={
+          fitFrame
+            ? "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-300 bg-zinc-100"
+            : "relative w-full rounded-lg border border-zinc-300 bg-zinc-100"
+        }
+        style={
+          fitFrame
+            ? {
+                width: fitted?.w ?? 0,
+                height: fitted?.h ?? 0,
+              }
+            : { aspectRatio: `${imageWidth} / ${imageHeight}` }
+        }
         data-quad-chrome={showQuadChrome ? (autoHint ? "detection" : "manual") : "hidden"}
       >
         {/* Image lives inside its own overflow-hidden wrapper so the

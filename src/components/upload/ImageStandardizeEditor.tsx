@@ -155,12 +155,15 @@ function StudioResultPreview({
   aspect,
   alt,
   onRetiredSrc,
+  fill = false,
 }: {
   src: string;
   aspect: number | null;
   alt: string;
   /** Fired when a previous blob URL is no longer painted (after load + fade). */
   onRetiredSrc?: (url: string) => void;
+  /** Fill the parent instead of locking height to the photo's aspect. */
+  fill?: boolean;
 }) {
   const [baseSrc, setBaseSrc] = useState(src);
   const [incomingSrc, setIncomingSrc] = useState<string | null>(null);
@@ -205,11 +208,21 @@ function StudioResultPreview({
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-lg"
+      className={
+        fill
+          ? "relative h-full min-h-0 w-full overflow-hidden rounded-lg"
+          : "relative w-full overflow-hidden rounded-lg"
+      }
       style={{
         backgroundColor: STUDIO_MATTE,
-        aspectRatio:
-          aspect && Number.isFinite(aspect) && aspect > 0 ? `${aspect}` : "4 / 3",
+        ...(fill
+          ? {}
+          : {
+              aspectRatio:
+                aspect && Number.isFinite(aspect) && aspect > 0
+                  ? `${aspect}`
+                  : "4 / 3",
+            }),
       }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -370,6 +383,12 @@ type Props = {
    */
   artworkWidthCm?: number | null;
   artworkHeightCm?: number | null;
+  /**
+   * Bulk "이 작품 보정" dialog. The photo is already chosen, so the
+   * use-choice screen is skipped and rectangle detection starts at
+   * once. Tools sit beside the picture so the dialog does not scroll.
+   */
+  inEnhanceDialog?: boolean;
 };
 
 /** Debounce a value change so slider drag doesn't spam parent state.
@@ -571,6 +590,7 @@ export function ImageStandardizeEditor({
   onSharedPreset,
   artworkWidthCm = null,
   artworkHeightCm = null,
+  inEnhanceDialog = false,
 }: Props) {
   const { t, locale } = useT();
   const enhancementEnabled = typeof onEnhance === "function";
@@ -957,7 +977,7 @@ export function ImageStandardizeEditor({
    * un-keystone, gallery margin, then lighting.
    */
   const [pathChoice, setPathChoice] = useState<"original" | "ai" | null>(
-    enhancement ? "ai" : null,
+    enhancement || inEnhanceDialog ? "ai" : null,
   );
   // A preview pushed to the parent (so closing the editor cannot drop
   // the blob) is not a confirmed result. Color chips stay until the
@@ -1972,12 +1992,13 @@ export function ImageStandardizeEditor({
     setWizardPerspectiveDraft(null);
     setPerspectiveUserAdjusted(false);
     setWizardStep("perspective");
-    setPathChoice(enhancement ? "ai" : null);
-    // `enhancement` is read only to restore the AI path when a new file
-    // already has a saved result. Corner state must not reset when the
-    // parent merely accepts a preview.
+    setPathChoice(enhancement || inEnhanceDialog ? "ai" : null);
+    // `enhancement` restores the AI path when a new file already has a
+    // saved result. The dialog skips the use-choice screen and starts
+    // rectangle detection immediately. Corner state must not reset when
+    // the parent merely accepts a preview.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- file identity only
-  }, [file]);
+  }, [file, inEnhanceDialog]);
 
   // Every file starts on rectangle corners. Photoroom runs only after
   // the artist taps "원형 또는 비정형". A previous image's ellipse must
@@ -2217,7 +2238,11 @@ export function ImageStandardizeEditor({
 
   return (
     <div
-      className={`space-y-3 rounded-xl border border-zinc-200 bg-white p-3 ${className}`}
+      className={
+        inEnhanceDialog
+          ? `flex h-full min-h-0 flex-col overflow-hidden ${className}`
+          : `space-y-3 rounded-xl border border-zinc-200 bg-white p-3 ${className}`
+      }
     >
       {!compact && (
         <div className="flex items-start justify-between gap-3">
@@ -2248,7 +2273,7 @@ export function ImageStandardizeEditor({
       )}
 
       {enhancementEnabled && pathChoice === null && (!enhancementIsCommitted || editingAfterSave) && (
-        <div className="space-y-3">
+        <div className={inEnhanceDialog ? "min-h-0 flex-1 space-y-3 overflow-y-auto" : "space-y-3"}>
           <div>
             <p className="text-sm font-medium text-zinc-900">
               {t("upload.imageEnhance.flow.chooseTitle")}
@@ -2314,7 +2339,7 @@ export function ImageStandardizeEditor({
       )}
 
       {enhancementEnabled && enhancementIsCommitted && !editingAfterSave && (
-        <div className="space-y-3">
+        <div className={inEnhanceDialog ? "min-h-0 flex-1 space-y-3 overflow-y-auto" : "space-y-3"}>
           <StudioResultPreview
             src={enhancement.previewUrl}
             aspect={enhancePreviewAspect}
@@ -2377,7 +2402,7 @@ export function ImageStandardizeEditor({
       )}
 
       {enhancementEnabled && pathChoice === "ai" && (!enhancementIsCommitted || editingAfterSave) && (
-        <div className="space-y-3">
+        <div className={inEnhanceDialog ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" : "space-y-3"}>
           {/* Aria-live region — announces save/reset transitions for
               screen readers. Kept visually hidden. */}
           <p
@@ -2396,7 +2421,7 @@ export function ImageStandardizeEditor({
                   toggle) are absorbed into the wizard; each step's
                   own Advanced fold hosts the fine-grained controls
                   that used to sit in the shared Advanced surface. */}
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex shrink-0 items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-zinc-900">
                     {wizardStep === "perspective"
@@ -2450,9 +2475,15 @@ export function ImageStandardizeEditor({
 
               {/* ─────────────────── STEP 1 — Perspective & Crop (extra) */}
               {wizardStep === "perspective" && (
-                <div className="space-y-3">
+                <div
+                  className={
+                    inEnhanceDialog
+                      ? "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(220px,300px)] grid-rows-[auto_auto_auto_auto_minmax(0,1fr)] gap-x-4 gap-y-2 overflow-hidden"
+                      : "space-y-3"
+                  }
+                >
                   {/* Chip strip — auto-seed provenance */}
-                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <div className={`flex flex-wrap items-center gap-2 text-[11px] ${inEnhanceDialog ? "col-start-2 row-start-1" : ""}`}>
                     <span
                       className={`rounded-full border px-2.5 py-1 ${
                         visionStatus === "ok"
@@ -2470,7 +2501,7 @@ export function ImageStandardizeEditor({
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className={`flex flex-wrap gap-1.5 ${inEnhanceDialog ? "col-start-2 row-start-2" : ""}`}>
                     <button
                       type="button"
                       onClick={() => setBoundaryMode("quad")}
@@ -2495,6 +2526,14 @@ export function ImageStandardizeEditor({
                     </button>
                   </div>
 
+                  <div
+                    className={
+                      inEnhanceDialog
+                        ? "relative col-start-1 row-start-1 row-span-5 min-h-0 min-w-0"
+                        : ""
+                    }
+                  >
+                  <div className={inEnhanceDialog ? "absolute inset-0 overflow-y-auto" : "space-y-3"}>
                   {boundaryMode === "silhouette" ? (
                     <div className="space-y-2">
                       <p className="text-[11px] leading-relaxed text-zinc-500">
@@ -2573,6 +2612,7 @@ export function ImageStandardizeEditor({
                       autoDetectedCorners={wizardPerspectiveSeed}
                       autoHint={quadChrome.dashed}
                       showQuadChrome={quadChrome.show}
+                      fitFrame={inEnhanceDialog}
                       resetToken={perspectiveResetToken}
                       onChange={(q) => {
                         // The inset held while recognition is in
@@ -2594,13 +2634,21 @@ export function ImageStandardizeEditor({
                   )}
                   {boundaryMode === "quad" && perspectiveSkipped && previewUrl && (
                     <div
-                      className="relative w-full overflow-hidden rounded-lg bg-zinc-100"
-                      style={{
-                        aspectRatio:
-                          imageAspect && Number.isFinite(imageAspect)
-                            ? `${imageAspect}`
-                            : "4 / 3",
-                      }}
+                      className={
+                        inEnhanceDialog
+                          ? "relative h-full w-full overflow-hidden rounded-lg bg-zinc-100"
+                          : "relative w-full overflow-hidden rounded-lg bg-zinc-100"
+                      }
+                      style={
+                        inEnhanceDialog
+                          ? undefined
+                          : {
+                              aspectRatio:
+                                imageAspect && Number.isFinite(imageAspect)
+                                  ? `${imageAspect}`
+                                  : "4 / 3",
+                            }
+                      }
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -2611,7 +2659,10 @@ export function ImageStandardizeEditor({
                       />
                     </div>
                   )}
+                  </div>
+                  </div>
 
+                  <div className={inEnhanceDialog ? "col-start-2 row-start-3 space-y-2" : "space-y-3"}>
                   {/* Hint */}
                   {boundaryMode === "quad" && detectingArtwork && (
                     <p className="text-[11px] leading-relaxed text-zinc-500" aria-live="polite">
@@ -2640,9 +2691,10 @@ export function ImageStandardizeEditor({
                         {t("imageEnhance.wizard.perspectiveLensHint")}
                       </p>
                     )}
+                  </div>
 
                   {/* Actions */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className={`flex flex-wrap items-center justify-between gap-2 text-xs ${inEnhanceDialog ? "col-start-2 row-start-4" : ""}`}>
                     <div className="flex items-center gap-2">
                       {perspectiveUserAdjusted && !perspectiveSkipped && (
                         <button
@@ -2691,7 +2743,7 @@ export function ImageStandardizeEditor({
                         // result lands. Nulling here showed the raw
                         // studio photo under "보정 결과".
                       }}
-                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      className={`rounded-full bg-zinc-900 px-4 py-1.5 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 ${inEnhanceDialog ? "w-full text-center" : ""}`}
                     >
                       {t("upload.imageEnhance.flow.cropConfirm")}
                     </button>
@@ -2703,7 +2755,7 @@ export function ImageStandardizeEditor({
                     onToggle={(e) =>
                       setPerspectiveAdvancedOpen((e.target as HTMLDetailsElement).open)
                     }
-                    className="rounded-lg border border-zinc-200 bg-white"
+                    className={`rounded-lg border border-zinc-200 bg-white ${inEnhanceDialog ? "col-start-2 row-start-5 max-h-full min-h-0 self-start overflow-y-auto" : ""}`}
                   >
                     <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
                       {t("imageEnhance.wizard.advancedPerspectiveTitle")}
@@ -2837,27 +2889,52 @@ export function ImageStandardizeEditor({
 
               {/* ─────────────────── STEP 2 — Tone & Wall */}
               {wizardStep === "tone" && (
-                <div className="space-y-3">
+                <div
+                  className={
+                    inEnhanceDialog
+                      ? "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(240px,320px)] gap-4 overflow-hidden"
+                      : "space-y-3"
+                  }
+                >
+                  <div className={inEnhanceDialog ? "relative min-h-0 min-w-0" : ""}>
                   {/* Never fall back to the original studio photo once
                       corners are confirmed. */}
                   {enhancePreview ? (
-                    <StudioResultPreview
-                      src={enhancePreview.previewUrl}
-                      aspect={enhancePreviewAspect}
-                      alt={t("upload.imageEnhance.afterAlt")}
-                      onRetiredSrc={handleRetiredPreviewSrc}
-                    />
+                    inEnhanceDialog ? (
+                      <div className="absolute inset-0">
+                        <StudioResultPreview
+                          src={enhancePreview.previewUrl}
+                          aspect={enhancePreviewAspect}
+                          alt={t("upload.imageEnhance.afterAlt")}
+                          onRetiredSrc={handleRetiredPreviewSrc}
+                          fill
+                        />
+                      </div>
+                    ) : (
+                      <StudioResultPreview
+                        src={enhancePreview.previewUrl}
+                        aspect={enhancePreviewAspect}
+                        alt={t("upload.imageEnhance.afterAlt")}
+                        onRetiredSrc={handleRetiredPreviewSrc}
+                      />
+                    )
                   ) : (
                     <div
-                      className="relative w-full overflow-hidden rounded-lg"
+                      className={
+                        inEnhanceDialog
+                          ? "absolute inset-0 overflow-hidden rounded-lg"
+                          : "relative w-full overflow-hidden rounded-lg"
+                      }
                       style={{
                         backgroundColor: STUDIO_MATTE,
-                        minHeight: 192,
+                        minHeight: inEnhanceDialog ? undefined : 192,
                       }}
                       aria-busy="true"
                     />
                   )}
+                  </div>
 
+                  <div className={inEnhanceDialog ? "flex min-h-0 flex-col gap-2 overflow-y-auto" : "space-y-3"}>
                   {/* Auto-detect status chips */}
                   {enhancePreview && autoWarpFired && (
                     <p className="text-[11px] text-zinc-500">
@@ -2997,12 +3074,13 @@ export function ImageStandardizeEditor({
                       {enhanceError}
                     </p>
                   )}
+                  </div>
                 </div>
               )}
 
               {/* ─────────────────── STEP 3 — Review & Save */}
               {wizardStep === "confirm" && enhancePreview && (
-                <div className="space-y-3">
+                <div className={inEnhanceDialog ? "min-h-0 flex-1 space-y-3 overflow-y-auto" : "space-y-3"}>
                   <StudioResultPreview
                     src={enhancePreview.previewUrl}
                     aspect={enhancePreviewAspect}
@@ -3106,7 +3184,7 @@ export function ImageStandardizeEditor({
               )}
 
               {wizardStep === "confirm" && !enhancePreview && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                <div className={`rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 ${inEnhanceDialog ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
                   {t("upload.imageEnhance.preparing")}
                 </div>
               )}

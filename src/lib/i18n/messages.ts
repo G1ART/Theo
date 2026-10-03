@@ -1395,7 +1395,7 @@ export const messages = {
     "upload.imageEnhance.flow.cropTitle": "Artwork area",
     "upload.imageEnhance.flow.cropHint":
       "Align the four canvas corners, then crop. Floor and neighboring works must stay out.",
-    "upload.imageEnhance.flow.cropConfirm": "Crop to this area",
+    "upload.imageEnhance.flow.cropConfirm": "Crop this area and fine-tune",
     "upload.imageEnhance.flow.boundaryQuad": "Rectangle corners",
     "upload.imageEnhance.flow.boundaryShape": "Circle or irregular",
     "upload.imageEnhance.flow.boundaryShapeHint":
@@ -6213,7 +6213,7 @@ export const messages = {
     "upload.imageEnhance.flow.cropTitle": "작품 영역",
     "upload.imageEnhance.flow.cropHint":
       "캔버스 네 모서리를 맞춘 뒤 잘라 주세요. 바닥·옆 작품이 들어가면 안 됩니다.",
-    "upload.imageEnhance.flow.cropConfirm": "이 영역으로 자르기",
+    "upload.imageEnhance.flow.cropConfirm": "이 영역으로 자르고 세부 보정",
     "upload.imageEnhance.flow.boundaryQuad": "사각형 모서리",
     "upload.imageEnhance.flow.boundaryShape": "원형 또는 비정형",
     "upload.imageEnhance.flow.boundaryShapeHint":

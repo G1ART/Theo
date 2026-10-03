@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ImageStandardizeEditor,
   type EnhancementDraft,
@@ -63,6 +64,7 @@ export function BulkEnhanceDialog({
 }) {
   const { t } = useT();
   const titleId = useId();
+  const [mounted, setMounted] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   /**
@@ -106,6 +108,10 @@ export function BulkEnhanceDialog({
 
   useEffect(() => {
     setPreset(readEnhanceSessionPreset());
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -280,26 +286,28 @@ export function BulkEnhanceDialog({
     onSaved();
   }
 
-  return (
+  if (!mounted) return null;
+
+  // Portaled to document.body so the scrim is a viewport layer. Inside
+  // the center column, z-index cannot cover the right rail: that rail's
+  // sticky box paints above the column's stacking context.
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 px-3 py-6 sm:items-center sm:px-6"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-3 sm:p-4"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[min(92vh,880px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white"
+        className="flex h-[calc(100dvh-1.5rem)] w-[min(1180px,calc(100vw-1.5rem))] max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-200 px-4 py-3">
           <div>
             <h2 id={titleId} className="text-sm font-medium text-zinc-900">
               {t("bulk.enhance.rowTitle")}
             </h2>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-              {t("bulk.enhance.rowHint")}
-            </p>
             {preset && (
               <p className="mt-1 text-xs leading-relaxed text-zinc-500">
                 {t("bulk.enhance.rowCarry")}
@@ -314,7 +322,7 @@ export function BulkEnhanceDialog({
             {t("bulk.enhance.rowClose")}
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-3">
           {loadError && (
             <p className="text-sm text-red-600" role="alert">
               {t("bulk.enhance.rowLoadError")}
@@ -327,12 +335,12 @@ export function BulkEnhanceDialog({
             lands (`file` becomes non-null and the editor takes over).
           */}
           {!file && !loadError && thumbUrl && (
-            <div className="mb-3 flex flex-col items-center gap-2">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={thumbUrl}
                 alt=""
-                className="max-h-72 w-auto rounded-lg border border-zinc-200 bg-zinc-100 object-contain"
+                className="max-h-full w-auto max-w-full rounded-lg border border-zinc-200 bg-zinc-100 object-contain"
                 draggable={false}
               />
               <p className="text-xs text-zinc-500">
@@ -344,46 +352,31 @@ export function BulkEnhanceDialog({
             <p className="text-sm text-zinc-500">{t("bulk.enhance.rowLoading")}</p>
           )}
           {file && displayOnly && (
-            <p className="mb-2 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] text-amber-800">
+            <p className="mb-2 inline-flex shrink-0 items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] text-amber-800">
               {t("bulk.enhance.rowDisplayOnly")}
             </p>
           )}
-          <label className="mb-3 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-700">
-            <input
-              type="file"
-              accept="image/*"
-              className="text-xs"
-              onChange={(e) => {
-                const next = e.target.files?.[0];
-                e.target.value = "";
-                if (!next || next.size <= 0) return;
-                setReplaced(true);
-                setDisplayOnly(false);
-                setEnhancement(null);
-                setLoadError(false);
-                setFile(next);
-              }}
-            />
-            {t("bulk.enhance.rowReplace")}
-          </label>
           {file && (
-            <ImageStandardizeEditor
-              key={`${image?.id ?? image?.storage_path ?? "slot"}-${file.name}-${file.size}-${file.lastModified}`}
-              file={file}
-              value={null}
-              onChange={() => {}}
-              compact
-              onEnhance={setEnhancement}
-              meteringSource="bulk"
-              artistProfileId={artistProfileId}
-              sharedPreset={preset}
-              onSharedPreset={(next) => {
-                writeEnhanceSessionPreset(next);
-                setPreset(next);
-              }}
-              artworkWidthCm={artworkWidthCm}
-              artworkHeightCm={artworkHeightCm}
-            />
+            <div className="min-h-0 flex-1">
+              <ImageStandardizeEditor
+                key={`${image?.id ?? image?.storage_path ?? "slot"}-${file.name}-${file.size}-${file.lastModified}`}
+                file={file}
+                value={null}
+                onChange={() => {}}
+                compact
+                inEnhanceDialog
+                onEnhance={setEnhancement}
+                meteringSource="bulk"
+                artistProfileId={artistProfileId}
+                sharedPreset={preset}
+                onSharedPreset={(next) => {
+                  writeEnhanceSessionPreset(next);
+                  setPreset(next);
+                }}
+                artworkWidthCm={artworkWidthCm}
+                artworkHeightCm={artworkHeightCm}
+              />
+            </div>
           )}
           {/*
             Todo 4 — thumb strip. Only renders when the artwork has
@@ -393,11 +386,11 @@ export function BulkEnhanceDialog({
             the chosen slot.
           */}
           {images.length > 1 && (
-            <div className="mt-4">
+            <div className="mt-2 shrink-0">
               <p className="mb-2 text-[11px] text-zinc-500">
                 {t("bulk.enhance.rowPick")}
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2 overflow-x-auto">
                 {images.map((img, idx) => {
                   const url = getArtworkImageUrl(img.storage_path, "thumb");
                   const active = idx === safeIndex;
@@ -447,7 +440,7 @@ export function BulkEnhanceDialog({
             </div>
           )}
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3">
           <p
             className={`text-xs ${saveError ? "text-red-600" : "text-zinc-500"}`}
             role={saveError ? "alert" : "status"}
@@ -470,6 +463,7 @@ export function BulkEnhanceDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
