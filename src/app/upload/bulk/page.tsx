@@ -31,6 +31,8 @@ import {
   runFlatEnhancement,
   flatBlobToFile,
 } from "@/lib/image/enhancement/localFlatEngine";
+import { detectArtworkQuad } from "@/lib/image/enhancement/detectArtworkQuad";
+import { flatPresetFromVision } from "@/lib/image/enhancement/visionEnhancePreset";
 import {
   cleanupEnhancedPath,
   cleanupStagingPath,
@@ -757,10 +759,20 @@ export default function BulkUploadPage() {
           // enhance passes from OOMing mobile Safari on 4K captures.
           // Single upload still uses the full 4096 cap (one image at
           // a time is safe).
+          // Vision picks the canvas corners and the color starting
+          // point. A miss or a timeout falls through to the local
+          // engine with no corners, same as before this call existed.
+          let visionPreset: ReturnType<typeof flatPresetFromVision> = {};
+          try {
+            visionPreset = flatPresetFromVision(await detectArtworkQuad(file));
+          } catch {
+            visionPreset = {};
+          }
           const result = await runFlatEnhancement({
             file,
             maxLongEdge: 2560,
             signal: controller.signal,
+            ...visionPreset,
           });
           if (!result.blob) {
             // See localFlatEngine.RunFlatResult.blob — null means the

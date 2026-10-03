@@ -28,7 +28,9 @@ export type ArtworkVisionSeed = {
 
 export async function detectArtworkQuad(file: File | Blob): Promise<ArtworkVisionSeed | null> {
   const payload = await prepareImageForVision(file, {
-    maxLongEdge: 1280,
+    // 1600 stays inside gpt-5.6-sol `detail: high` (2048px and 2,500
+    // patches) while giving the model a sharper canvas edge than 1280.
+    maxLongEdge: 1600,
     quality: 0.9,
   });
   const result = await getOrFetchVisionResult(

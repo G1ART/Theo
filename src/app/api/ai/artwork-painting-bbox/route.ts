@@ -34,11 +34,9 @@ export const maxDuration = 60;
  * risks slicing into the actual artwork.
  *
  * Model (2026-10-02): this route uses the shared default
- * (`gpt-6-astra` via `resolveModelForFeature`), the same model as
- * every other AI feature. The previous bbox-only `gpt-4o` pin was
- * a downgrade once the default moved past 4o. The prompt still
- * rejects the symmetric 10% fallback bbox that `gpt-4o-mini` used
- * to emit.
+ * (`gpt-5.6-sol` via `resolveModelForFeature`), the same model as
+ * every other AI feature. The prompt still rejects the symmetric
+ * 10% fallback bbox that `gpt-4o-mini` used to emit.
  *
  * Entitlement + soft-cap gating reuses `handleAiRoute` (feature key
  * `artwork_painting_bbox` maps to entitlement `simulation.2d` —

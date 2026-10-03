@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-02
 
+## 2026-10-02 (94) — 기본 모델 gpt-5.6-sol + 벌크 보정도 비전 경계·색 시작점
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수: Vercel `OPENAI_MODEL` 이 `gpt-6-astra`, `gpt-4o`, `gpt-4o-mini` 이면 지울 것.** 코드가 그 값을 무시하고 `gpt-5.6-sol` 을 쓴다. `OPENAI_API_KEY` 는 그대로. 새 변수 없음.
+>
+> **비용:** `gpt-5.6-sol` 은 입력 $4 / 출력 $20 per 1M (2026-10-02, 11월 21일까지 프로모션 단가로 고지됨). Astra 대비 약 40%. 작품 보정 한 장(영역+품질 게이트)은 대략 $0.04–$0.12.
+
+### 변경
+
+- `RECOMMENDED_MODEL` = `gpt-5.6-sol`. 소개문·번역·문의·전시 초안·매치·CV·벽·공간 스케일·품질 게이트·작품 영역이 전부 이 모델. 추론 강도는 텍스트·비전 모두 `medium` (Sol 기본값). 이전에 텍스트만 `low` 로 깎아 두던 것을 풀었다.
+- 작품 영역 이미지는 긴 변 1600px (`detail: high`, Sol 의 2048px / 2,500 패치 안). 경계가 더 선명하게 들어간다.
+- **벌크 보정**도 단일 업로드와 같이 `detectArtworkQuad` 로 코너와 `look` 을 받은 뒤 로컬 엔진에 넘긴다 (`visionEnhancePreset.ts`). 비전 실패 시 예전처럼 코너 없는 로컬 보정으로 떨어진다. `original` 은 약한 명채도 리프트, `enhance` 는 AWB 0.35/0.5/0.7 + Pro Look.
+- CV 가져오기 페이지 이미지는 `detail: low` → `high`.
+
+**Verified:** `npx tsc --noEmit`, `visionEnhancePreset.test.ts`.
+
 ## 2026-10-02 (93) — AI 모델 gpt-6-astra 승격 + 작품 영역·보정 시작점을 비전이 먼저
 
 > **Supabase SQL 돌려야 할 것은 없음.**

@@ -178,9 +178,10 @@ export async function POST(req: Request) {
           imageInputs: body.images.map((img) => ({
             mime: img.mime,
             base64: img.base64,
-            // "low" detail keeps token cost bounded — CV pages don't
-            // need pixel-level resolution to be readable.
-            detail: "low" as const,
+            // High detail so Sol actually reads small type on a CV page.
+            // Multi-page scans cost more; the model is the one doing
+            // the extraction, so a blurry page is a wasted call.
+            detail: "high" as const,
           })),
         };
       }

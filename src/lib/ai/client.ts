@@ -14,15 +14,15 @@ import { SAFETY_FOOTER, assertSafePrompt } from "./safety";
 const CONFIGURED_MODEL = (process.env.OPENAI_MODEL ?? "").trim();
 
 /**
- * Flagship as of 2026-10-02 (OpenAI models index: start here).
- * Vision input + chat completions + JSON mode. Replaces the retired
- * `gpt-4o` / `gpt-4o-mini` pair — `gpt-4o-2024-05-13` is scheduled to
- * shut down 2026-10-23, and mini was missing edges on artwork photos.
+ * Default for every AI feature (2026-10-02). Vision + chat completions
+ * + JSON. Chosen over `gpt-6-astra` for artwork boundary / crop /
+ * correction volume: same image tokenizer, about 40% of the price
+ * ($4 / $20 per 1M). `gpt-5.6` aliases to this snapshot.
  */
-export const RECOMMENDED_MODEL = "gpt-6-astra";
+export const RECOMMENDED_MODEL = "gpt-5.6-sol";
 
-/** Env pins we refuse to keep. A stale Vercel `OPENAI_MODEL=gpt-4o-mini`
- *  must not silently undo this upgrade. */
+/** Env pins we refuse to keep, including the one-day `gpt-6-astra`
+ *  default, so a stale Vercel value cannot undo this choice. */
 const RETIRED_MODELS = new Set([
   "gpt-4o",
   "gpt-4o-2024-05-13",
@@ -32,6 +32,7 @@ const RETIRED_MODELS = new Set([
   "gpt-4o-mini-2024-07-18",
   "gpt-4.1-mini",
   "gpt-4.1-nano",
+  "gpt-6-astra",
 ]);
 
 export const DEFAULT_MODEL =
@@ -48,10 +49,8 @@ export const GENERATE_TIMEOUT_MS = 45_000;
 /**
  * Per-feature model overrides (2026-08-19).
  *
- * Every feature rides `DEFAULT_MODEL` (`gpt-6-astra` unless a
- * non-retired `OPENAI_MODEL` is set). The old bbox-only `gpt-4o`
- * override was removed on 2026-10-02: pinning one route to 4o would
- * now be a downgrade. Add a key here only to diverge from the default.
+ * Every feature rides `DEFAULT_MODEL` (`gpt-5.6-sol` unless a
+ * non-retired `OPENAI_MODEL` is set). Add a key here only to diverge.
  */
 export const FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>> = {};
 
@@ -63,14 +62,6 @@ export const FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>> = {};
 export function resolveModelForFeature(feature: AiFeatureKey): string {
   return FEATURE_MODEL_OVERRIDE[feature] ?? DEFAULT_MODEL;
 }
-
-const VISION_FEATURES = new Set<AiFeatureKey>([
-  "artwork_painting_bbox",
-  "artwork_quality_gate",
-  "space.calibrate",
-  "space.wall_detect",
-  "cv_import",
-]);
 
 function modelUsesReasoning(model: string): boolean {
   return /^(gpt-5|gpt-6|o\d)/.test(model);
@@ -220,15 +211,15 @@ export async function generateJSON<T extends object>(
     return ai.chat.completions.create(
       {
         model,
-        // Reasoning models reject a non-default temperature and spend
-        // completion budget on hidden reasoning tokens. Keep drafts on
-        // low effort; vision geometry (corners, walls) gets medium so
-        // the model actually inspects edges. Classic models keep 0.7.
+        // Reasoning models reject a non-default temperature. Medium
+        // matches gpt-5.6-sol's own default for both vision and text.
+        // Classic models keep 0.7.
         ...(reasoning
           ? {
-              reasoning_effort: VISION_FEATURES.has(opts.feature)
-                ? ("medium" as const)
-                : ("low" as const),
+              // Sol's own default is medium. Vision (corners, walls,
+              // CV pages) and text drafts both stay there so a cheaper
+              // model is not also asked to think less.
+              reasoning_effort: "medium" as const,
             }
           : { temperature: 0.7 }),
         max_completion_tokens: reasoning ? 8192 : 2048,
