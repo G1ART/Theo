@@ -34,7 +34,7 @@ assert.match(storage, /idx_artwork_images_storage_path/);
 
 // 3) soft-required email -----------------------------------------------------
 for (const rel of [
-  "src/app/upload/page.tsx",
+  "src/app/upload/single/page.tsx",
   "src/app/upload/bulk/page.tsx",
   "src/app/artwork/[id]/edit/page.tsx",
 ]) {

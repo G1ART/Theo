@@ -11,7 +11,7 @@ const editor = readFileSync(
   join(root, "src/components/upload/ImageStandardizeEditor.tsx"),
   "utf8",
 );
-const upload = readFileSync(join(root, "src/app/upload/page.tsx"), "utf8");
+const upload = readFileSync(join(root, "src/app/upload/single/page.tsx"), "utf8");
 const storage = readFileSync(join(root, "src/lib/supabase/storage.ts"), "utf8");
 
 assert.match(editor, /const pushDraftToParent = useCallback/);

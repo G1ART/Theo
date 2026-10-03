@@ -58,7 +58,7 @@ const SRC = read("src/lib/supabase/artworks.ts");
 
 // 4. The single-upload page must mirror the same fix.
 {
-  const SINGLE = read("src/app/upload/page.tsx");
+  const SINGLE = read("src/app/upload/single/page.tsx");
   // Grab the existing-artist claim call site.
   const claimCall = SINGLE.match(
     /createClaimForExistingArtist\(\{[\s\S]*?\}\);/

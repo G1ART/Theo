@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   appendArtworkDetailImages,
@@ -90,6 +89,8 @@ import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { WebsiteImportPanel } from "@/components/upload/WebsiteImportPanel";
 import { BulkUploadGuidance } from "@/components/upload/BulkUploadGuidance";
+import { BulkDraftCard, UploadCloudMark } from "@/components/upload/BulkDraftCard";
+import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
 import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import { BetaFeedbackPrompt } from "@/components/beta";
@@ -101,6 +102,7 @@ import {
   BULK_MY_DRAFTS_QUERY_LIMIT,
   BULK_WEBSITE_STAGED_IDS_MAX,
   UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
+  UPLOAD_MAX_IMAGE_MB_LABEL,
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleMime } from "@/lib/image/compress";
@@ -176,7 +178,7 @@ export default function BulkUploadPage() {
   const [uploadFailures, setUploadFailures] = useState<{ name: string; message: string }[]>([]);
   const [uploadSucceeded, setUploadSucceeded] = useState(0);
   const [publishing, setPublishing] = useState(false);
-  const [tipsOpen, setTipsOpen] = useState(true);
+  const [tipsOpen, setTipsOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<{ id: string; file: File }[]>([]);
   /**
    * Theo Image Enhance (Beta, 2026-08-05) — per-pending-file
@@ -279,6 +281,17 @@ export default function BulkUploadPage() {
   const [bulkPriceAmount, setBulkPriceAmount] = useState("");
   const [bulkPriceCurrency, setBulkPriceCurrency] = useState("USD");
   const [bulkPricePublic, setBulkPricePublic] = useState(false);
+  const [sharedOpen, setSharedOpen] = useState(false);
+  const [sharedYear, setSharedYear] = useState("");
+  const [sharedOwnership, setSharedOwnership] = useState("");
+  const [sharedPricing, setSharedPricing] = useState<"" | "inquire" | "fixed">("");
+  const [sharedMediums, setSharedMediums] = useState<string[]>([]);
+  const [sharedMediumQuery, setSharedMediumQuery] = useState("");
+  const [sharedH, setSharedH] = useState("");
+  const [sharedW, setSharedW] = useState("");
+  const [sharedD, setSharedD] = useState("");
+  const [sharedSizeNa, setSharedSizeNa] = useState(false);
+  const [cardExhibition, setCardExhibition] = useState<Record<string, string>>({});
   const [myExhibitions, setMyExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [linkExhibitionId, setLinkExhibitionId] = useState("");
   const [linkingExhibition, setLinkingExhibition] = useState(false);
@@ -288,7 +301,7 @@ export default function BulkUploadPage() {
 
   // Persona / intent — from exhibition add: pre-fill CURATED + artist, skip intent/attribution steps
   const [intent, setIntent] = useState<IntentType | null>(
-    fromExhibition && addToExhibitionId ? "CURATED" : null
+    fromExhibition && addToExhibitionId ? "CURATED" : "CREATED"
   );
   const [artistSearch, setArtistSearch] = useState("");
   // Unified search results (profiles + external), replacing the old
@@ -353,6 +366,21 @@ export default function BulkUploadPage() {
       addToExhibitionId &&
       (preselectedArtistId ||
         (preselectedExternalName && (externalEmailReady || linkLaterFromExhibition)))
+    ),
+  );
+  /**
+   * Attribution stays inside the workspace. It opens for exhibition
+   * hand-off that still needs an artist, or when the operator asks to
+   * upload for someone else. It is not the first screen.
+   */
+  const [attributionOpen, setAttributionOpen] = useState(
+    Boolean(
+      fromExhibition &&
+        addToExhibitionId &&
+        !(
+          preselectedArtistId ||
+          (preselectedExternalName && (externalEmailReady || linkLaterFromExhibition))
+        ),
     ),
   );
 
@@ -2068,9 +2096,14 @@ export default function BulkUploadPage() {
     externalNoEmail || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(externalArtistEmail.trim());
   const attributionValid =
     !needsAttribution || selectedArtist !== null || (externalNameValid && externalEmailValid);
-  const showIntent = intent === null;
-  const showAttribution = intent !== null && needsAttribution && !attributionStepDone;
-  const showMain = intent !== null && (!needsAttribution || attributionStepDone);
+  const showAttribution = attributionOpen && needsAttribution && !attributionStepDone;
+  const showMain = true;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#upload-drafts") return;
+    document.getElementById("upload-drafts")?.scrollIntoView({ block: "start" });
+  }, []);
 
   useEffect(() => {
     if (!showMain) return;
@@ -2110,6 +2143,119 @@ export default function BulkUploadPage() {
     return base;
   }
 
+  async function saveDraftPatch(id: string, partial: UpdateArtworkPayload) {
+    await updateArtwork(id, partial, {
+      actingSubjectProfileId: actingAsProfileId ?? null,
+      auditAction: "bulk.artwork.update",
+    });
+    await fetchDrafts({ silent: true });
+  }
+
+  async function linkOneExhibition(workId: string, exhibitionId: string) {
+    if (!exhibitionId) return;
+    const prev = cardExhibition[workId];
+    if (prev && prev !== exhibitionId) {
+      await removeWorkFromExhibition(prev, workId);
+    }
+    const { error } = await addWorkToExhibition(exhibitionId, workId, {
+      actingSubjectProfileId: actingAsProfileId ?? null,
+    });
+    if (error) {
+      setToast(t("bulk.group.addFailed"));
+    } else {
+      setCardExhibition((m) => ({ ...m, [workId]: exhibitionId }));
+      setToast(t("bulk.exhibitionLinked"));
+    }
+    setTimeout(() => setToast(null), 2000);
+  }
+
+  function addSharedMedium(raw: string) {
+    const value = raw.trim();
+    if (!value) return;
+    setSharedMediums((prev) =>
+      prev.some((m) => m.toLowerCase() === value.toLowerCase()) ? prev : [...prev, value],
+    );
+    setSharedMediumQuery("");
+  }
+
+  async function applySharedWorkspace() {
+    const ids = targetDraftIds();
+    if (ids.length === 0) {
+      setToast(t("bulk.noDrafts"));
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+    const partial: UpdateArtworkPayload = {};
+    const year = parseInt(sharedYear, 10);
+    if (sharedYear.trim() && !Number.isNaN(year)) partial.year = year;
+    if (sharedMediums.length > 0) {
+      const medium = sharedMediums.join(", ");
+      partial.medium = medium;
+      if (locale === "ko") partial.medium_ko = medium;
+      else partial.medium_en = medium;
+    }
+    if (sharedOwnership) partial.ownership_status = sharedOwnership;
+    if (sharedPricing === "inquire" || sharedPricing === "fixed") {
+      partial.pricing_mode = sharedPricing;
+    }
+    if (sharedPricing === "fixed") {
+      const n = parseFloat(bulkPriceAmount);
+      partial.price_input_amount = Number.isFinite(n) ? n : null;
+      partial.price_input_currency = bulkPriceCurrency.trim() || null;
+      partial.is_price_public = bulkPricePublic;
+    }
+    if (sharedSizeNa) {
+      partial.size = null;
+      partial.size_unit = null;
+    } else if (sharedW.trim() || sharedH.trim() || sharedD.trim()) {
+      const parts = [sharedW, sharedH, sharedD].map((s) => s.trim()).filter(Boolean);
+      partial.size = parts.join(" × ");
+      partial.size_unit = bulkSizeUnit === "" ? "cm" : bulkSizeUnit;
+    }
+    if (titleBulkText.trim()) {
+      const title = titleBulkText.trim();
+      partial.title = title;
+      if (locale === "ko") partial.title_ko = title;
+      else partial.title_en = title;
+    }
+    if (Object.keys(partial).length === 0 && !linkExhibitionId) {
+      setToast(t("bulk.sharedNothing"));
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+    if (Object.keys(partial).length > 0) {
+      await applyToDrafts(ids, partial);
+    }
+    if (linkExhibitionId) {
+      setLinkingExhibition(true);
+      try {
+        for (const workId of ids) {
+          await addWorkToExhibition(linkExhibitionId, workId, {
+            actingSubjectProfileId: actingAsProfileId ?? null,
+          });
+        }
+        setCardExhibition((prev) => {
+          const next = { ...prev };
+          for (const id of ids) next[id] = linkExhibitionId;
+          return next;
+        });
+      } finally {
+        setLinkingExhibition(false);
+      }
+    }
+    setToast(selected.size > 0 ? t("bulk.applyToSelected") : t("bulk.applyToAll"));
+    setTimeout(() => setToast(null), 2000);
+  }
+
+  const sharedMediumSuggestions = TAXONOMY.mediumOptions
+    .map((opt) => t(opt.labelKey))
+    .filter((name) => {
+      const q = sharedMediumQuery.trim().toLowerCase();
+      if (!q) return false;
+      return name.toLowerCase().includes(q) && !sharedMediums.some((m) => m.toLowerCase() === name.toLowerCase());
+    })
+    .slice(0, 6);
+
   return (
       <div>
         {/*
@@ -2138,35 +2284,31 @@ export default function BulkUploadPage() {
 
         <ActingAsChip mode="posting" />
 
-        {(showIntent || showAttribution) && (
-          <div>
-        {showIntent && (
-          <div className="mb-8 space-y-4">
-            <p className="text-sm text-zinc-600">{t("bulk.intentHint")}</p>
-            <div className="grid gap-3">
-              {INTENT_KEYS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setIntent(opt.value)}
-                  className="group flex w-full items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-left font-medium text-zinc-900 transition-colors hover:border-zinc-300 hover:bg-zinc-50/70"
-                >
-                  <span>{t(opt.labelKey)}</span>
-                  <span
-                    aria-hidden
-                    className="text-zinc-400 transition-colors group-hover:text-zinc-600"
-                  >
-                    →
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Step: Attribution (OWNS, INVENTORY, CURATED) */}
         {showAttribution && (
-          <div className="mb-8 space-y-4">
+          <div className="mb-6 space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
+            <label className="block text-sm font-medium text-zinc-900">
+              {t("bulk.attributeSomeoneElse")}
+              <select
+                value={intent ?? "CURATED"}
+                onChange={(e) => {
+                  const next = e.target.value as IntentType;
+                  setIntent(next);
+                  if (next === "CREATED") {
+                    setAttributionOpen(false);
+                    setAttributionStepDone(false);
+                    setSelectedArtist(null);
+                    setUseExternalArtist(false);
+                  }
+                }}
+                className="mt-1 w-full max-w-md rounded border border-zinc-300 bg-white px-3 py-2 text-sm"
+              >
+                {INTENT_KEYS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="text-sm text-zinc-600">{t("upload.linkArtist")}</p>
             <div className="flex items-center justify-between">
               <label className="block text-sm font-medium">{t("upload.searchArtist")}</label>
@@ -2464,7 +2606,8 @@ export default function BulkUploadPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setIntent(null);
+                  setIntent("CREATED");
+                  setAttributionOpen(false);
                   setAttributionStepDone(false);
                   setSelectedArtist(null);
                   setUseExternalArtist(false);
@@ -2487,6 +2630,7 @@ export default function BulkUploadPage() {
                   if (useExternalArtist && externalArtistName.trim().length < 2) return;
                   if (useExternalArtist && !externalEmailValid) return;
                   setAttributionStepDone(true);
+                  setAttributionOpen(false);
                 }}
                 className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -2509,12 +2653,10 @@ export default function BulkUploadPage() {
             )}
           </div>
         )}
-          </div>
-        )}
 
         {/* Main bulk UI */}
         {showMain && (
-          <>
+          <div className="flex flex-col">
         {/*
           Persistent attribution context bar (QA 2026-07 Phase 2-1). Keeps
           the "who am I uploading for?" answer visible once the operator
@@ -2534,51 +2676,29 @@ export default function BulkUploadPage() {
               Boolean(preselectedExternalArtistId) || pendingInviteForEmail
             }
             onChange={() => {
-              // Reset back to attribution step. Mirror the "back" button
-              // in the attribution step to keep state hygiene consistent.
               setAttributionStepDone(false);
+              setAttributionOpen(true);
             }}
           />
         )}
-        <BulkUploadGuidance t={t} pendingCount={pendingFiles.length} draftCount={drafts.length} />
+        {intent === "CREATED" && !attributionOpen && (
+          <div className="mb-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setIntent("CURATED");
+                setAttributionOpen(true);
+                setAttributionStepDone(false);
+              }}
+              className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
+            >
+              {t("bulk.attributeSomeoneElse")}
+            </button>
+          </div>
+        )}
 
-        <div data-tour="upload-website-import">
-          <WebsiteImportPanel
-            t={t}
-            actingAsProfileId={actingAsProfileId}
-            drafts={drafts}
-            stagedArtworkIds={stagedArtworkIds}
-            onApplied={() => fetchDrafts({ silent: true })}
-            onApplyToast={(n) => {
-              setToast(t("bulk.wi.appliedToast").replace("{n}", String(n)));
-              setTimeout(() => setToast(null), 3200);
-            }}
-            onSessionReset={() => setStagedArtworkIds([])}
-          />
-        </div>
-
-        {/* Tips accordion */}
-        <div className="mb-6 rounded-lg border border-zinc-200">
-          <button
-            type="button"
-            onClick={() => setTipsOpen((o) => !o)}
-            className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-zinc-900"
-          >
-            {t("bulk.tipsTitle")}
-            <span className="text-zinc-500">{tipsOpen ? "−" : "+"}</span>
-          </button>
-          {tipsOpen && (
-            <div className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600 space-y-1">
-              <p>• {t("bulk.tip1")}</p>
-              <p>• {t("bulk.tip2")}</p>
-              <p>• {t("bulk.tip3")}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Dropzone */}
         <div
-          className="mb-6 cursor-pointer rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-6 py-12 text-center hover:border-zinc-400"
+          className="mb-6 cursor-pointer rounded-xl border border-zinc-200 bg-white px-6 py-10 text-center hover:border-zinc-400"
           onClick={() => document.getElementById("bulk-file-input")?.click()}
           onDrop={(e) => {
             e.preventDefault();
@@ -2595,11 +2715,10 @@ export default function BulkUploadPage() {
             onChange={(e) => addPendingFiles(e.target.files)}
             disabled={uploading}
           />
-          <p className="text-sm text-zinc-600">{t("bulk.dropzone")}</p>
-          <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-            {t("bulk.dropzoneHint")
-              .replace("{batch}", String(BULK_MAX_FILES_PER_BATCH))
-              .replace("{maxMb}", String(UPLOAD_MAX_COMPRESSIBLE_MB_LABEL))}
+          <UploadCloudMark className="mx-auto h-8 w-8 text-zinc-500" />
+          <p className="mt-2 text-sm font-medium text-zinc-800">{t("bulk.cardUpload")}</p>
+          <p className="mx-auto mt-2 max-w-lg text-xs leading-relaxed text-zinc-500">
+            {t("bulk.workspaceDrop").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
           </p>
         </div>
 
@@ -2860,13 +2979,43 @@ export default function BulkUploadPage() {
           </div>
         )}
 
-        {/* Apply-to-all */}
-        {drafts.length > 0 && (
-          <details className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-zinc-900">
-              {t("bulk.applyToSelected")} / {t("bulk.applyToAll")}
+        <details data-tour="upload-website-import" className="order-last mt-8 rounded-lg border border-zinc-200">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-zinc-700">
+              {t("bulk.moreTools")}
             </summary>
-            <div className="border-t border-zinc-200 px-4 py-4">
+            <div className="space-y-4 border-t border-zinc-200 px-4 py-4">
+            <BulkUploadGuidance t={t} pendingCount={pendingFiles.length} draftCount={drafts.length} />
+            <div>
+              <WebsiteImportPanel
+                t={t}
+                actingAsProfileId={actingAsProfileId}
+                drafts={drafts}
+                stagedArtworkIds={stagedArtworkIds}
+                onApplied={() => fetchDrafts({ silent: true })}
+                onApplyToast={(n) => {
+                  setToast(t("bulk.wi.appliedToast").replace("{n}", String(n)));
+                  setTimeout(() => setToast(null), 3200);
+                }}
+                onSessionReset={() => setStagedArtworkIds([])}
+              />
+            </div>
+            <div className="rounded-lg border border-zinc-200">
+              <button
+                type="button"
+                onClick={() => setTipsOpen((o) => !o)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-zinc-900"
+              >
+                {t("bulk.tipsTitle")}
+                <span className="text-zinc-500">{tipsOpen ? "−" : "+"}</span>
+              </button>
+              {tipsOpen && (
+                <div className="space-y-1 border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600">
+                  <p>• {t("bulk.tip1")}</p>
+                  <p>• {t("bulk.tip2")}</p>
+                  <p>• {t("bulk.tip3")}</p>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-3">
               <input
                 type="number"
@@ -3109,7 +3258,6 @@ export default function BulkUploadPage() {
             </div>
             </div>
           </details>
-        )}
 
         {groupOpen && (
           <BulkGroupDialog
@@ -3170,271 +3318,306 @@ export default function BulkUploadPage() {
           </div>
         )}
 
-        {/* Publish + Delete panel */}
-        {drafts.length > 0 && (
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-zinc-200 px-4 py-3">
-            <span className="text-sm">
-              {t("bulk.readyToPublish")
-                .replace("{ready}", String(selectedIds.length > 0 ? selectedReady : readyCount))
-                .replace("{total}", String(selectedIds.length > 0 ? selectedIds.length : drafts.length))}
-            </span>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setGroupOpen(true)}
-                disabled={selectedIds.length < 2 || groupBusy}
-                className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                {t("bulk.group.open")}
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteSelected}
-                disabled={selectedIds.length === 0 || deleting}
-                className="rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-              >
-                {t("bulk.deleteSelected")}
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteAll}
-                disabled={deleting}
-                className="rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-              >
-                {t("bulk.deleteAll")}
-              </button>
-              <button
-                type="button"
-                onClick={handlePublish}
-                disabled={!canPublishSelected || publishing}
-                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {t("bulk.publishSelected")}
-              </button>
-            </div>
-          </div>
-        )}
-
         {toast && (
           <div className="fixed bottom-4 right-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg">
             {toast}
           </div>
         )}
 
-        {/* Draft list */}
-        {loading ? (
-          <p className="text-zinc-600">{t("common.loading")}</p>
-        ) : drafts.length === 0 ? (
-          <p className="py-12 text-center text-zinc-600">{t("bulk.noDrafts")}</p>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+        <div id="upload-drafts" className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDeleteSelected}
+              disabled={selectedIds.length === 0 || deleting}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {t("bulk.deleteSelected")}
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteAll}
+              disabled={drafts.length === 0 || deleting}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {t("bulk.deleteAll")}
+            </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {drafts.length > 0 && (
+                <span className="text-xs text-zinc-500">
+                  {t("bulk.readyToPublish")
+                    .replace("{ready}", String(selectedIds.length > 0 ? selectedReady : readyCount))
+                    .replace("{total}", String(selectedIds.length > 0 ? selectedIds.length : drafts.length))}
+                </span>
+              )}
               <button
                 type="button"
-                onClick={handleDeleteSelected}
-                disabled={selectedIds.length === 0 || deleting}
+                onClick={() => setGroupOpen(true)}
+                disabled={selectedIds.length < 2 || groupBusy}
                 className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
               >
-                {t("bulk.deleteSelected")}
+                {t("bulk.group.open")}
               </button>
               <button
                 type="button"
-                onClick={handleDeleteAll}
-                disabled={deleting}
-                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                onClick={handlePublish}
+                disabled={!canPublishSelected || publishing}
+                className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {t("bulk.deleteAll")}
+                {t("bulk.publishSelected")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSharedOpen((o) => !o)}
+                aria-expanded={sharedOpen}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50"
+              >
+                <span className="mr-1 text-zinc-400">?</span>
+                {t("bulk.setSharedInfo")}
+                <span className="ml-1 text-zinc-400">{sharedOpen ? "▴" : "▾"}</span>
               </button>
             </div>
-            {drafts.map((d) => {
-              const val = validatePublish(d);
-              const images = orderedImages(d);
-              const img = images[0];
-              const thumb = img ? getArtworkImageUrl(img.storage_path, "thumb") : null;
-              const field = "w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm";
-              return (
-                <article key={`${d.id}-${bulkVersion}`} className="rounded-xl border border-zinc-200 bg-white p-3">
-                  <div className="flex gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(d.id)}
-                      onChange={() => toggleSelect(d.id)}
-                      className="mt-2 h-4 w-4 accent-zinc-900"
-                    />
-                    <div className="w-24 shrink-0">
-                      <div
-                        className={`relative h-24 w-24 overflow-hidden rounded-md bg-zinc-100 ${
-                          dropOnId === d.id ? "ring-2 ring-zinc-900" : ""
-                        }`}
-                        onDragOver={(e) => {
-                          if (![...e.dataTransfer.types].includes("Files")) return;
-                          e.preventDefault();
-                          setDropOnId(d.id);
-                        }}
-                        onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setDropOnId(null);
-                          void addDetailsToDraft(d.id, e.dataTransfer.files);
-                        }}
-                      >
-                        {thumb ? (
-                          <Image src={thumb} alt="" width={96} height={96} sizes="96px" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-zinc-400">—</div>
-                        )}
-                      </div>
-                      {img?.storage_path && (
+          </div>
+
+          {sharedOpen && (
+            <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_5.5rem_minmax(0,1.3fr)]">
+                <label className="block text-[11px] text-zinc-500">
+                  {t("bulk.tableTitle")}
+                  <input
+                    value={titleBulkText}
+                    onChange={(e) => setTitleBulkText(e.target.value)}
+                    placeholder={t("bulk.sharedTitlePlaceholder")}
+                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <label className="block text-[11px] text-zinc-500">
+                  {t("bulk.year")}
+                  <input
+                    value={sharedYear}
+                    onChange={(e) => setSharedYear(e.target.value)}
+                    inputMode="numeric"
+                    placeholder={t("bulk.year")}
+                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <div className="text-[11px] text-zinc-500">
+                  <span className="flex flex-wrap items-center gap-2">
+                    {t("bulk.size")}
+                    <span className="inline-flex overflow-hidden rounded-md border border-zinc-200 text-[10px] font-medium">
+                      {(["cm", "in"] as const).map((u) => (
                         <button
+                          key={u}
                           type="button"
-                          onClick={() => setEnhanceDraft(d)}
-                          className="mt-1 w-full rounded-full border border-zinc-300 py-0.5 text-[10px] text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setSharedSizeNa(false);
+                            setBulkSizeUnit(u);
+                          }}
+                          className={`px-1.5 py-0.5 ${
+                            !sharedSizeNa && (bulkSizeUnit || "cm") === u
+                              ? "bg-zinc-900 text-white"
+                              : "bg-white text-zinc-500"
+                          }`}
                         >
-                          {t("bulk.enhance.row")}
+                          {u.toUpperCase()}
                         </button>
-                      )}
-                      <p className={`mt-1 text-center text-[10px] ${val.ok ? "text-emerald-700" : "text-amber-700"}`}>
-                        {val.ok ? t("bulk.statusReady") : t("bulk.missing")}
-                      </p>
+                      ))}
+                    </span>
+                    <label className="inline-flex items-center gap-1 font-normal">
                       <input
-                        id={`bulk-add-${d.id}`}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          void addDetailsToDraft(d.id, e.target.files);
-                          e.target.value = "";
-                        }}
+                        type="checkbox"
+                        checked={sharedSizeNa}
+                        onChange={(e) => setSharedSizeNa(e.target.checked)}
+                        className="h-3 w-3 accent-zinc-900"
                       />
+                      {t("bulk.sizeNotApplicable")}
+                    </label>
+                  </span>
+                  <div className="mt-0.5 flex items-center gap-1">
+                    <input
+                      value={sharedH}
+                      disabled={sharedSizeNa}
+                      onChange={(e) => setSharedH(e.target.value)}
+                      placeholder={t("bulk.dimHeight")}
+                      aria-label={t("bulk.dimHeight")}
+                      className="w-14 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm disabled:bg-zinc-100"
+                    />
+                    <span className="text-zinc-300">×</span>
+                    <input
+                      value={sharedW}
+                      disabled={sharedSizeNa}
+                      onChange={(e) => setSharedW(e.target.value)}
+                      placeholder={t("bulk.dimWidth")}
+                      aria-label={t("bulk.dimWidth")}
+                      className="w-14 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm disabled:bg-zinc-100"
+                    />
+                    <span className="text-zinc-300">×</span>
+                    <input
+                      value={sharedD}
+                      disabled={sharedSizeNa}
+                      onChange={(e) => setSharedD(e.target.value)}
+                      placeholder={t("bulk.dimDepth")}
+                      aria-label={t("bulk.dimDepth")}
+                      className="w-14 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm disabled:bg-zinc-100"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] text-zinc-500">{t("bulk.medium")}</p>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  {sharedMediums.map((chip) => (
+                    <span
+                      key={chip}
+                      className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-xs text-zinc-800"
+                    >
+                      {chip}
                       <button
                         type="button"
-                        onClick={() => document.getElementById(`bulk-add-${d.id}`)?.click()}
-                        className="mt-1 w-full text-center text-[10px] text-zinc-500 hover:text-zinc-800"
+                        className="text-zinc-400 hover:text-zinc-800"
+                        onClick={() => setSharedMediums((prev) => prev.filter((m) => m !== chip))}
                       >
-                        {t("bulk.group.add")}
+                        ×
                       </button>
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="grid gap-2 sm:grid-cols-[1fr_5rem_auto]">
-                        <label className="block text-[11px] text-zinc-500">
-                          {t("bulk.tableTitle")}
-                          <input
-                            type="text"
-                            defaultValue={d.title ?? ""}
-                            className={`${field} mt-0.5`}
-                            onBlur={(e) => updateDraftField(d.id, "title", e.target.value)}
-                          />
-                        </label>
-                        <label className="block text-[11px] text-zinc-500">
-                          {t("bulk.year")}
-                          <input
-                            type="number"
-                            defaultValue={d.year ?? ""}
-                            className={`${field} mt-0.5`}
-                            onBlur={(e) => updateDraftField(d.id, "year", e.target.value ? parseInt(e.target.value, 10) : null)}
-                          />
-                        </label>
-                        <div className="text-[11px] text-zinc-500">
-                          <span className="flex items-center gap-2">
-                            {t("bulk.size")}
-                            <span className="rounded-full border border-zinc-200 px-1.5 py-0.5 text-[10px]">
-                              {(d.size_unit ?? "cm").toUpperCase()}
-                            </span>
-                          </span>
-                          <div className="mt-0.5 flex items-center gap-1">
-                            <input
-                              type="text"
-                              defaultValue={d.size ?? ""}
-                              placeholder={t("bulk.size")}
-                              className={`${field} w-24`}
-                              onBlur={(e) => updateDraftField(d.id, "size", e.target.value)}
-                            />
-                            <select
-                              defaultValue={d.size_unit ?? "cm"}
-                              className="rounded-md border border-zinc-200 px-1 py-1.5 text-xs"
-                              onChange={(e) => updateDraftField(d.id, "size_unit", e.target.value || null)}
-                            >
-                              <option value="cm">cm</option>
-                              <option value="in">in</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="block text-[11px] text-zinc-500">
-                          {t("bulk.medium")}
-                          <input
-                            type="text"
-                            defaultValue={d.medium ?? ""}
-                            placeholder={t("bulk.mediumSearch")}
-                            className={`${field} mt-0.5`}
-                            onBlur={(e) => updateDraftField(d.id, "medium", e.target.value)}
-                          />
-                        </label>
-                        <div className="grid grid-cols-3 gap-2">
-                          <label className="block text-[11px] text-zinc-500">
-                            {t("bulk.ownershipStatus")}
-                            <select
-                              defaultValue={d.ownership_status ?? ""}
-                              className={`${field} mt-0.5`}
-                              onChange={(e) => updateDraftField(d.id, "ownership_status", e.target.value || null)}
-                            >
-                              <option value="">—</option>
-                              {OWNERSHIP_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="col-span-2 block text-[11px] text-zinc-500">
-                            {t("bulk.pricingMode")}
-                            <select
-                              defaultValue={d.pricing_mode ?? ""}
-                              className={`${field} mt-0.5`}
-                              onChange={(e) => updateDraftField(d.id, "pricing_mode", e.target.value || null)}
-                            >
-                              <option value="">—</option>
-                              <option value="inquire">{t("bulk.inquire")}</option>
-                              <option value="fixed">{t("bulk.fixed")}</option>
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-                      {images.length > 1 && (
-                        <div className="flex flex-wrap items-end gap-2 pt-1">
-                          {images.slice(1, 7).map((detail, index) => {
-                            const detailThumb = getArtworkImageUrl(detail.storage_path, "thumb");
-                            const view = String(detail.view_type ?? "detail");
-                            const viewKey =
-                              view === "angle"
-                                ? "bulk.view.angle"
-                                : view === "in_situ"
-                                  ? "bulk.view.inSitu"
-                                  : view === "other"
-                                    ? "bulk.view.other"
-                                    : "bulk.view.detail";
-                            return (
-                              <div key={detail.storage_path || `${d.id}-d-${index}`} className="w-14">
-                                <div className="h-14 overflow-hidden rounded border border-zinc-200 bg-zinc-100">
-                                  <Image src={detailThumb} alt="" width={56} height={56} sizes="56px" className="h-full w-full object-cover" />
-                                </div>
-                                <p className="mt-0.5 truncate text-center text-[9px] text-zinc-500">{t(viewKey)}</p>
-                              </div>
-                            );
-                          })}
-                          {images.length > 7 && (
-                            <span className="pb-4 text-[10px] text-zinc-500">+{images.length - 7}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    </span>
+                  ))}
+                  <input
+                    value={sharedMediumQuery}
+                    onChange={(e) => setSharedMediumQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addSharedMedium(sharedMediumQuery);
+                      }
+                    }}
+                    placeholder={t("bulk.mediumSearch")}
+                    className="min-w-[8rem] flex-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addSharedMedium(sharedMediumQuery)}
+                    className="rounded-full border border-zinc-300 px-2 py-0.5 text-sm text-zinc-700 hover:bg-zinc-50"
+                  >
+                    +
+                  </button>
+                </div>
+                {sharedMediumSuggestions.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {sharedMediumSuggestions.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => addSharedMedium(name)}
+                        className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-50"
+                      >
+                        {name}
+                      </button>
+                    ))}
                   </div>
-                </article>
-              );
-            })}
+                )}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <label className="block text-[11px] text-zinc-500">
+                  {t("upload.tabExhibitionShort")}
+                  <select
+                    value={linkExhibitionId}
+                    onChange={(e) => setLinkExhibitionId(e.target.value)}
+                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  >
+                    <option value="">{t("bulk.exhibitionSelectorPlaceholder")}</option>
+                    {myExhibitions.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {pickLocalizedTitle(ex, locale) || ex.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-[11px] text-zinc-500">
+                  {t("bulk.ownershipStatus")}
+                  <select
+                    value={sharedOwnership}
+                    onChange={(e) => setSharedOwnership(e.target.value)}
+                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  >
+                    <option value="">—</option>
+                    {OWNERSHIP_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(o.labelKey)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-[11px] text-zinc-500">
+                  {t("bulk.pricingMode")}
+                  <select
+                    value={sharedPricing}
+                    onChange={(e) => setSharedPricing(e.target.value as "" | "inquire" | "fixed")}
+                    className="mt-0.5 w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  >
+                    <option value="">—</option>
+                    <option value="inquire">{t("bulk.inquire")}</option>
+                    <option value="fixed">{t("bulk.fixed")}</option>
+                  </select>
+                </label>
+              </div>
+              {sharedPricing === "fixed" && (
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    value={bulkPriceAmount}
+                    onChange={(e) => setBulkPriceAmount(e.target.value)}
+                    placeholder={t("bulk.fixedPrice")}
+                    className="w-28 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    value={bulkPriceCurrency}
+                    onChange={(e) => setBulkPriceCurrency(e.target.value)}
+                    placeholder={t("bulk.priceCurrency")}
+                    className="w-24 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                  />
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void applySharedWorkspace()}
+                  disabled={linkingExhibition}
+                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {selected.size > 0 ? t("bulk.applyToSelected") : t("bulk.applyToAll")}
+                </button>
+                <p className="text-xs text-zinc-500">{t("bulk.sharedOverwrite")}</p>
+              </div>
+            </div>
+          )}
+
+          {loading ? (
+            <p className="text-zinc-600">{t("common.loading")}</p>
+          ) : (
+            drafts.map((d) => (
+              <BulkDraftCard
+                key={`${d.id}-${bulkVersion}`}
+                draft={d}
+                bulkVersion={bulkVersion}
+                selected={selected.has(d.id)}
+                dropActive={dropOnId === d.id}
+                exhibitions={myExhibitions}
+                exhibitionId={cardExhibition[d.id] ?? ""}
+                onToggle={() => toggleSelect(d.id)}
+                onEnhance={() => setEnhanceDraft(d)}
+                onAddFiles={(files) => {
+                  setDropOnId(null);
+                  void addDetailsToDraft(d.id, files);
+                }}
+                onDragOver={() => setDropOnId(d.id)}
+                onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
+                onSave={(patch) => void saveDraftPatch(d.id, patch)}
+                onLinkExhibition={(exhibitionId) => void linkOneExhibition(d.id, exhibitionId)}
+              />
+            ))
+          )}
+        </div>
+
           </div>
-        )}
-          </>
         )}
         <BetaFeedbackPrompt pageKey="bulk_upload" />
       </div>

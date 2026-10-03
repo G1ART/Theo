@@ -1401,7 +1401,7 @@ export default function AddWorkToExhibitionPage() {
                               files,
                             });
                             if (files.length === 1) {
-                              router.push(`/upload?${singleQs.toString()}`);
+                              router.push(`/upload/single?${singleQs.toString()}`);
                             } else {
                               router.push(`/upload/bulk?${bulkQs.toString()}`);
                             }
@@ -1416,7 +1416,7 @@ export default function AddWorkToExhibitionPage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <Link
-                            href={`/upload?${singleQs.toString()}`}
+                            href={`/upload/single?${singleQs.toString()}`}
                             className="inline-flex items-center rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
                           >
                             {t("exhibition.uploadSingleWork")}
@@ -1494,7 +1494,7 @@ export default function AddWorkToExhibitionPage() {
                                 files,
                               });
                               if (files.length === 1) {
-                                router.push(`/upload?${singleQs.toString()}`);
+                                router.push(`/upload/single?${singleQs.toString()}`);
                               } else {
                                 router.push(`/upload/bulk?${bulkQs.toString()}`);
                               }
@@ -1509,7 +1509,7 @@ export default function AddWorkToExhibitionPage() {
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <Link
-                              href={`/upload?${singleQs.toString()}`}
+                              href={`/upload/single?${singleQs.toString()}`}
                               className="inline-flex items-center rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
                             >
                               {t("exhibition.uploadSingleWork")}

@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import { AuthGate } from "@/components/AuthGate";
@@ -9,31 +10,12 @@ import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
-import { LaneChips, type LaneOption } from "@/components/ds/LaneChips";
-// 2026-08-03 (Phase A redesign) — Upload joins the 3-column shell so
-// the left sidebar / right rail render consistently across primary
-// surfaces. The inner PageShell keeps the narrow max-width for the
-// upload form itself.
 import { AppShell } from "@/components/shell/AppShell";
 
-type TabKey = "single" | "bulk" | "exhibition";
-
-const TABS: ReadonlyArray<{
-  key: TabKey;
-  href: string;
-  labelKey: "upload.tabSingle" | "upload.tabBulk" | "upload.tabExhibition";
-  anchor: string;
-}> = [
-  { key: "single", href: "/upload", labelKey: "upload.tabSingle", anchor: "upload-tab-single" },
-  { key: "bulk", href: "/upload/bulk", labelKey: "upload.tabBulk", anchor: "upload-tab-bulk" },
-  { key: "exhibition", href: "/upload/exhibition", labelKey: "upload.tabExhibition", anchor: "upload-tab-exhibition" },
-];
-
 /**
- * Upload chrome (sidebar + title + tabs) must paint even when the
- * session check is slow or hung. AuthGate only wraps the form body.
- * Desktop shell routes hide the global Header, so gating the chrome
- * used to leave a blank white canvas.
+ * Upload chrome sits in the existing 3-column shell (sidebar | center |
+ * My Connection). Artworks is the entry workspace; Exhibition keeps the
+ * exhibition composer. Single is the one-work form, Bulk is the default.
  */
 export default function UploadLayout({
   children,
@@ -41,21 +23,39 @@ export default function UploadLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { t } = useT();
+  const [query, setQuery] = useState("");
 
-  const activeKey: TabKey =
-    pathname.startsWith("/upload/bulk")
-      ? "bulk"
-      : pathname.startsWith("/upload/exhibition")
-        ? "exhibition"
-        : "single";
+  useEffect(() => {
+    setQuery(window.location.search || "");
+  }, [pathname]);
 
-  const options: ReadonlyArray<LaneOption<TabKey>> = TABS.map((tab) => ({
-    id: tab.key,
-    label: t(tab.labelKey),
-    href: tab.href,
-    "data-tour": tab.anchor,
-  }));
+  const onExhibition = pathname.startsWith("/upload/exhibition");
+  const onSingle = pathname.startsWith("/upload/single");
+  const onArtworks = !onExhibition;
+
+  function hrefWithQuery(path: string) {
+    return query ? `${path}${query}` : path;
+  }
+
+  function jumpToDrafts() {
+    if (onArtworks && !onSingle) {
+      document.getElementById("upload-drafts")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    router.push("/upload#upload-drafts");
+  }
+
+  const tabClass = (active: boolean) =>
+    active
+      ? "-mb-px border-b-2 border-zinc-900 pb-2 text-sm font-medium text-zinc-900"
+      : "pb-2 text-sm text-zinc-400 hover:text-zinc-700";
+
+  const modeClass = (active: boolean) =>
+    active
+      ? "border-b border-zinc-900 pb-0.5 text-sm font-medium text-zinc-900"
+      : "pb-0.5 text-sm text-zinc-400 hover:text-zinc-700";
 
   return (
     <AppShell>
@@ -63,18 +63,60 @@ export default function UploadLayout({
         <PageHeader
           variant="plain"
           title={t("upload.title")}
-          lead={t("upload.layoutLead")}
-          actions={<TourHelpButton tourId={TOUR_IDS.upload} />}
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={jumpToDrafts}
+                className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+              >
+                {t("bulk.statusDraft")}
+              </button>
+              <TourHelpButton tourId={TOUR_IDS.upload} />
+            </>
+          }
           density="tight"
         />
-        <LaneChips
-          variant="lane"
-          options={options}
-          active={activeKey}
-          ariaLabel={t("upload.title")}
+        <nav
           data-tour="upload-tabs"
-          className="mb-8"
-        />
+          aria-label={t("upload.title")}
+          className="mb-5 flex items-center justify-center gap-12 border-b border-zinc-200"
+        >
+          <Link href={hrefWithQuery("/upload")} className={tabClass(onArtworks)}>
+            {t("upload.tabArtworks")}
+          </Link>
+          <Link
+            href={hrefWithQuery("/upload/exhibition")}
+            data-tour="upload-tab-exhibition"
+            className={tabClass(onExhibition)}
+          >
+            {t("upload.tabExhibitionShort")}
+          </Link>
+        </nav>
+        {onArtworks && (
+          <div className="mb-6 flex items-center justify-center gap-16">
+            <Link
+              href={hrefWithQuery("/upload/single")}
+              data-tour="upload-tab-single"
+              className={modeClass(onSingle)}
+            >
+              {t("upload.modeSingle")}
+            </Link>
+            <Link
+              href={hrefWithQuery(pathname.startsWith("/upload/bulk") ? "/upload/bulk" : "/upload")}
+              data-tour="upload-tab-bulk"
+              className={modeClass(!onSingle)}
+            >
+              {t("upload.modeBulk")}
+              <span
+                className="ml-1 text-xs font-normal text-zinc-400"
+                title={t("bulk.workspaceDrop")}
+              >
+                (?)
+              </span>
+            </Link>
+          </div>
+        )}
         <ErrorBoundary
           fallback={({ reset }) => (
             <div>

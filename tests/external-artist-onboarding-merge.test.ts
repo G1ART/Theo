@@ -110,7 +110,7 @@ assert.match(
 );
 
 // Invite OTP pre-create stays. Do not "fix" merge by stopping user creation.
-const upload = read("src/app/upload/page.tsx");
+const upload = read("src/app/upload/single/page.tsx");
 assert.match(upload, /sendMagicLink\(email\)/);
 const bulk = read("src/lib/supabase/artworks.ts");
 assert.match(bulk, /sendMagicLink\(opts\.externalArtistEmail\.trim\(\)\)/);
