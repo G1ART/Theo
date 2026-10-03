@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fitMatteForegroundQuad } from "../src/lib/image/enhancement/wallMatte";
 import { galleryMatteMask, paintBorderWall, restoreGalleryMatte } from "../src/lib/image/enhancement/borderWall";
 import { parseEnhanceSessionPreset } from "../src/lib/image/enhancement/sharedPreset";
@@ -134,5 +136,52 @@ framed[0] = 10;
 restoreGalleryMatte(framed, matte);
 assert.equal(framed[0], 243);
 assert.equal(framed[(3 * 10 + 3) * 4], 20);
+
+function put(data: Uint8ClampedArray, w: number, x: number, y: number, rgb: [number, number, number]) {
+  const i = (y * w + x) * 4;
+  data[i] = rgb[0];
+  data[i + 1] = rgb[1];
+  data[i + 2] = rgb[2];
+  data[i + 3] = 255;
+}
+function at(data: Uint8ClampedArray, w: number, x: number, y: number) {
+  return data[(y * w + x) * 4];
+}
+
+// White wall reference must not eat an unpainted canvas margin.
+// Short side 80 → search depth 5. A 2px wall plus a continuing white
+// margin fills that depth, so the walk stops instead of painting #f3f3f3.
+const wide = 100;
+const tall = 80;
+const margin = new Uint8ClampedArray(wide * tall * 4);
+for (let y = 0; y < tall; y += 1) {
+  for (let x = 0; x < wide; x += 1) {
+    const rim = x < 2 || y < 2 || x >= wide - 2 || y >= tall - 2;
+    const canvasBand = x < 14 || y < 14 || x >= wide - 14 || y >= tall - 14;
+    put(margin, wide, x, y, rim ? [248, 248, 246] : canvasBand ? [255, 255, 255] : [40, 80, 120]);
+  }
+}
+paintBorderWall(margin, wide, tall, { r: 248, g: 248, b: 246 });
+assert.equal(at(margin, wide, 0, 40), 248, "white wall pixel stays the wall");
+assert.equal(at(margin, wide, 6, 40), 255, "white canvas margin is not recolored");
+assert.equal(at(margin, wide, 50, 40), 40, "painting inside the margin stays");
+
+// A thin white crescent that stops at real paint is still the gallery matte.
+const ring = new Uint8ClampedArray(wide * tall * 4);
+for (let y = 0; y < tall; y += 1) {
+  for (let x = 0; x < wide; x += 1) {
+    const rim = x < 2 || y < 2 || x >= wide - 2 || y >= tall - 2;
+    put(ring, wide, x, y, rim ? [250, 250, 250] : [20, 20, 20]);
+  }
+}
+paintBorderWall(ring, wide, tall, { r: 250, g: 250, b: 250 });
+assert.equal(at(ring, wide, 50, 0), 243, "bounded white crescent becomes the matte");
+assert.equal(at(ring, wide, 50, 4), 20, "paint behind that crescent stays");
+
+const engine = readFileSync(
+  join(__dirname, "../src/lib/image/enhancement/localFlatEngine.ts"),
+  "utf8",
+);
+assert.match(engine, /shadowBlur/, "studio drop shadow stays on the matte");
 
 console.log("wall-matte.test.ts: ok");

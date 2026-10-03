@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-03
 
+## 2026-10-03 — 업로드에서 품질 확인을 빼다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**
+
+작품 사진을 열 때, 대기 목록에 넣을 때, 보정 창에서, 자르기·미리보기·다음·게시 어느 시점에도 `POST /api/ai/artwork-quality-gate`를 호출하지 않는다. 품질이 낮아도 영역 자르기와 보정은 그대로 진행한다. 게시 직전에 품질을 다시 보지 않는다. 라우트 파일은 나중에 부를 수 있게 남겨 두었다.
+
+- 비정형으로 끝낸 다음 작품은 사각형으로 다시 시작한다. `ImageStandardizeEditor`는 파일마다 `boundaryMode`를 `quad`로 두고 실루엣 URL·영역 상자를 지운다. 에디터 `key`에 파일 식별이 들어가 다시 마운트된다. AI 보정을 열면 `detectArtworkQuad`가 돌고, 이전 파일의 실루엣 때문에 건너뛰지 않는다.
+- 흰 캔버스 여백은 `#f3f3f3`으로 덮지 않는다. 벽색이 흰 여백과 구분되지 않으면 `paintBorderWall`이 안쪽으로 먹지 않는다. 얇은 흰 초승달처럼 바로 뒤에 다른 색이 있으면 매트는 그대로 칠한다. 스튜디오 그림자는 그대로다.
+- 단일 업로드 배지는 비어 있는 제목·연도·매체·크기·사진을 적는다. 다음을 눌러도 같은 이유가 남는다. 품질 배너 때문에 다음이 죽지 않는다.
+- 일괄 초안은 소유권 `판매 가능`, 가격 `문의`를 단일 업로드와 같이 둔다. 배지는 `validatePublish`가 비어 있다고 보는 항목 이름을 보여 준다.
+- 대기 파일의 "향상 대상 선택"은 `enhanceSelectedPending`으로 이어진다. 파일마다 `detectArtworkQuad`만 쓰고 Photoroom으로 가지 않는다. 품질 낮음·사용 불가·그래도 처리 칩은 업로드 화면에서 뺐다.
+- "이 영역으로 자르기" 뒤 "원본 색감" / "선명 보정"은 확인 전까지 남아 있다.
+- "공통 정보 설정"은 선택된 초안이 있으면 그 카드만, 없으면 전체에 적용한다. 전체일 때만 덮어쓰기 경고를 둔다.
+- 모서리는 gpt-5.6-sol만 쓴다. 인식 중에는 코너와 15% 점선을 그리지 않는다. 벽색 워커와 일일 30회 캡은 되돌리지 않았다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/wall-matte.test.ts`, `tests/upload-readiness.test.ts`, `tests/upload-no-quality-gate.test.ts`, `tests/quality-gate-banner-dismiss.test.ts`, `tests/upload-nav-always-clickable.test.ts`, `tests/enhance-preview-commits-to-parent.test.ts`, `src/lib/image/enhancement/__tests__/cornerPickerGeometry.test.ts`. 브라우저 `/upload`와 `/upload/single`은 로그인 화면으로 넘어가, 인식 중 코너가 없는지는 화면에서 확인하지 못했다.
+
 ## 2026-10-03 — 사각형 인식이 끝나기 전에는 코너를 그리지 않는다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**

@@ -28,7 +28,6 @@ import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import type { EnhancementDraft } from "@/components/upload/ImageStandardizeEditor";
 import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDialog";
-import type { EnhancementMode } from "@/lib/image/enhancement/types";
 import {
   runFlatEnhancement,
   flatBlobToFile,
@@ -38,8 +37,6 @@ import { flatPresetFromVision } from "@/lib/image/enhancement/visionEnhancePrese
 import {
   cleanupEnhancedPath,
   cleanupStagingPath,
-  requestObjectEnhancement,
-  uploadStagingForEnhancement,
 } from "@/lib/image/enhancement/objectClient";
 import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
 import {
@@ -57,14 +54,6 @@ import { applyToneDeltaToFile } from "@/lib/image/enhancement/applyToneDelta";
 import { fetchArtistPortfolioToneStats } from "@/lib/image/enhancement/portfolioToneStatsClient";
 import { enhancementErrorMessageKey } from "@/lib/image/enhancement/errorMessages";
 import { computeFileSha256 } from "@/lib/image/prepareArtworkImageForUpload";
-import { analyzeImageFile } from "@/lib/image/analyze";
-import { aiApi } from "@/lib/ai/browser";
-import type { ArtworkQualityGateResult } from "@/lib/ai/types";
-import {
-  getOrFetchVisionResult,
-  prepareImageForVision,
-} from "@/lib/image/enhancement/aiClient";
-import { useQualityGatePref } from "@/lib/image/enhancement/qualityGatePref";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
@@ -172,6 +161,8 @@ export default function BulkUploadPage() {
   const [dropOnId, setDropOnId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Session-only. Empty size stays required until the artist marks it not applicable. */
+  const [sizeExempt, setSizeExempt] = useState<Record<string, boolean>>({});
   const [uploading, setUploading] = useState(false);
   const [uploadCurrent, setUploadCurrent] = useState(0);
   const [uploadTotal, setUploadTotal] = useState(0);
@@ -197,21 +188,6 @@ export default function BulkUploadPage() {
     | { kind: "failed"; reason: string };
   const [pendingEnhance, setPendingEnhance] = useState<Record<string, EnhanceStatus>>({});
   const [pendingSelected, setPendingSelected] = useState<Set<string>>(new Set());
-  /**
-   * 2026-08-19 — Pre-flight artwork quality gate state. `verdicts` is
-   * keyed by pending-file id; a `block` verdict skips enhance for the
-   * row and shows a badge. `overrides` records the operator's explicit
-   * "그래도 처리" checkbox tick so blocked rows can still upload.
-   * Both maps are keyed by pending file id (never by sha) so the
-   * "remove" affordance can dispose of both entries in one step.
-   */
-  const [pendingQualityGates, setPendingQualityGates] = useState<
-    Record<string, ArtworkQualityGateResult>
-  >({});
-  const [pendingQualityGateOverrides, setPendingQualityGateOverrides] =
-    useState<Record<string, boolean>>({});
-  const qualityGatePref = useQualityGatePref();
-  const [bulkEnhanceMode, setBulkEnhanceMode] = useState<EnhancementMode>("auto");
   const [bulkEnhanceRunning, setBulkEnhanceRunning] = useState(false);
   /**
    * Theo Image Enhance (Beta, 2026-08-06) — per-row AbortController so
@@ -587,96 +563,7 @@ export default function BulkUploadPage() {
       delete clone[id];
       return clone;
     });
-    setPendingQualityGates((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-    setPendingQualityGateOverrides((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
   }
-
-  // 2026-08-19 — Fire the pre-flight quality gate for every newly-added
-  // pending file. Runs in the background — enhance can still preview
-  // for the row while the gate is in flight, but `startUpload` /
-  // `enhanceSelectedPending` will honor the verdict before landing an
-  // enhanced blob or a published copy. Skipped entirely when the
-  // artist has disabled AI quality assist in Settings.
-  useEffect(() => {
-    if (!qualityGatePref) return;
-    const missing = pendingFiles.filter(
-      ({ id }) => !(id in pendingQualityGates),
-    );
-    if (missing.length === 0) return;
-    let alive = true;
-    (async () => {
-      for (const { id, file } of missing) {
-        if (!alive) return;
-        try {
-          const payload = await prepareImageForVision(file);
-          if (!alive) return;
-          const key = `${payload.sha256}:artwork_quality_gate`;
-          const result = await getOrFetchVisionResult<ArtworkQualityGateResult>(
-            key,
-            () =>
-              aiApi.artworkQualityGate({
-                imageBase64: payload.imageBase64,
-                mime: payload.mime,
-                imagePxWidth: payload.imagePxWidth,
-                imagePxHeight: payload.imagePxHeight,
-              }),
-          );
-          if (!alive) return;
-          setPendingQualityGates((prev) => ({ ...prev, [id]: result }));
-        } catch {
-          // Fail open — degraded verdict looks like `ok`.
-          if (!alive) return;
-          setPendingQualityGates((prev) => ({
-            ...prev,
-            [id]: {
-              usable: true,
-              severity: "ok",
-              issues: [],
-              reshootAdviceKo: "",
-              reshootAdviceEn: "",
-              scores: {
-                sharpness: 0.5,
-                glare: 0,
-                exposure: 0.5,
-                framing: 0.5,
-              },
-              degraded: true,
-              reason: "error",
-            },
-          }));
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [pendingFiles, pendingQualityGates, qualityGatePref]);
-
-  // Bulk summary — counts of warn / block rows for the footer chip.
-  // `dismissed` semantics don't apply in bulk (there's no per-row
-  // "proceed" button — the operator either overrides a block or lets
-  // enhance skip); we count all non-degraded verdicts.
-  const qualityGateBulkSummary = (() => {
-    let warn = 0;
-    let block = 0;
-    for (const id of Object.keys(pendingQualityGates)) {
-      const v = pendingQualityGates[id];
-      if (!v || v.degraded) continue;
-      if (v.severity === "warn") warn += 1;
-      else if (v.severity === "block") block += 1;
-    }
-    return { warn, block };
-  })();
 
   function clearPendingFiles() {
     // Best-effort cleanup of any inflight enhanced blobs / staged paths.
@@ -728,7 +615,6 @@ export default function BulkUploadPage() {
       return;
     }
     const userId = session.user.id;
-    const exhibitionScopedId = addToExhibitionId ?? null;
     setBulkEnhanceRunning(true);
     setPendingEnhance((prev) => {
       const next = { ...prev };
@@ -742,23 +628,6 @@ export default function BulkUploadPage() {
 
     const processOne = async (slot: { id: string; file: File }) => {
       const { id, file } = slot;
-      // 2026-08-19 — Pre-flight quality gate short-circuit. A `block`
-      // verdict skips the enhance pass entirely for the row (marking
-      // it as `rejected` so the UI can show a "Blocked" chip) UNLESS
-      // the operator ticked the "override" checkbox first. Degraded
-      // and warn verdicts fall through — warn is a soft advisory that
-      // still auto-enhances (bulk is a batch operation; halting per
-      // warn would tank the batch).
-      const gateVerdict = pendingQualityGates[id];
-      const gateBlocked =
-        gateVerdict &&
-        !gateVerdict.degraded &&
-        gateVerdict.severity === "block" &&
-        !pendingQualityGateOverrides[id];
-      if (gateBlocked) {
-        setPendingEnhance((prev) => ({ ...prev, [id]: { kind: "rejected" } }));
-        return;
-      }
       // 2026-08-06 — abort plumbing. One controller per pending file.
       // Reject / removePendingFile aborts it; the in-flight fetch is
       // cancelled and the server route sees `req.signal.aborted`.
@@ -769,24 +638,14 @@ export default function BulkUploadPage() {
         key: USAGE_KEYS.AI_IMAGE_ENHANCE_REQUESTED,
         featureKey: "ai.image_enhance",
         metadata: {
-          mode: bulkEnhanceMode,
-          provider: "auto",
+          mode: "flat",
+          provider: "local_opencv",
           source: meteringSourceForBulk,
           latency_ms: null,
         },
       });
-      let resolvedMode: EnhancementMode = bulkEnhanceMode;
-      if (bulkEnhanceMode === "auto") {
-        try {
-          const analysis = await analyzeImageFile(file);
-          resolvedMode = analysis.mode === "flat" ? "flat" : "object";
-        } catch {
-          resolvedMode = "object";
-        }
-      }
       const startedAt = performance.now();
       try {
-        if (resolvedMode === "flat") {
           // Bulk clamps `maxLongEdge` to 2560 to keep concurrency-2
           // enhance passes from OOMing mobile Safari on 4K captures.
           // Single upload still uses the full 4096 cap (one image at
@@ -815,24 +674,12 @@ export default function BulkUploadPage() {
           const displayFile = flatBlobToFile(file.name, result.blob);
           const url = URL.createObjectURL(displayFile);
           const sourceHash = await computeFileSha256(file);
-          // 2026-08-19 — Persist the pre-flight quality gate verdict
-          // into the row's enhancement meta so QA can slice on
-          // false-block rates + override signals downstream.
-          const qualityGateProvenance =
-            gateVerdict && !gateVerdict.degraded
-              ? {
-                  severity: gateVerdict.severity,
-                  issues: gateVerdict.issues as string[],
-                  scores: gateVerdict.scores,
-                  ...(pendingQualityGateOverrides[id] ? { override: true } : {}),
-                }
-              : undefined;
           const draft: EnhancementDraft = {
             displayFile,
             previewUrl: url,
             meta: {
               provider: "local_opencv",
-              mode: bulkEnhanceMode,
+              mode: "flat",
               recipe: { kind: "flat", params: result.recipe },
               confidence: result.confidence,
               sourceHashSha256: sourceHash,
@@ -842,9 +689,6 @@ export default function BulkUploadPage() {
                 schema: ENHANCEMENT_META_SCHEMA_VERSION,
                 engine: "local_canvas_v1",
               },
-              ...(qualityGateProvenance
-                ? { qualityGate: qualityGateProvenance }
-                : {}),
             },
           };
           setPendingEnhance((prev) => ({
@@ -853,12 +697,10 @@ export default function BulkUploadPage() {
           }));
           void recordUsageEvent({
             userId,
-            // 2026-08-07 semantic split — preview success = `.previewed`.
-            // `.completed` is emitted only from the publish flow below.
             key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
             featureKey: "ai.image_enhance",
             metadata: {
-              mode: bulkEnhanceMode,
+              mode: "flat",
               provider: "local_opencv",
               source: meteringSourceForBulk,
               latency_ms: Math.round(performance.now() - startedAt),
@@ -868,77 +710,6 @@ export default function BulkUploadPage() {
               stage_encode_ms: result.stageTimings.encodeMs,
             },
           });
-        } else {
-          // Object hybrid — server route. Upload to per-user staging,
-          // request enhancement, keep the server path in status so
-          // reject/cleanup can nuke it.
-          const scope = exhibitionScopedId
-            ? { kind: "exhibition" as const, exhibitionId: exhibitionScopedId }
-            : { kind: "user" as const, userId };
-          const stagingPath = await uploadStagingForEnhancement(
-            file,
-            scope,
-            controller.signal,
-          );
-          const result = await requestObjectEnhancement({
-            inputStoragePath: stagingPath,
-            exhibitionId: exhibitionScopedId,
-            mode: bulkEnhanceMode,
-            signal: controller.signal,
-          });
-          // The server returns a public path; render a preview via getPublicUrl.
-          const { getPublicImageUrl } = await import("@/lib/supabase/storage");
-          const url = getPublicImageUrl(result.enhancedPath);
-          // 2026-08-19 — Merge the pre-flight quality gate provenance
-          // into the server-produced meta (photoroom hybrid). The
-          // server never sees the gate result, so we patch it in
-          // client-side before persistence.
-          const qualityGateProvenance =
-            gateVerdict && !gateVerdict.degraded
-              ? {
-                  severity: gateVerdict.severity,
-                  issues: gateVerdict.issues as string[],
-                  scores: gateVerdict.scores,
-                  ...(pendingQualityGateOverrides[id] ? { override: true } : {}),
-                }
-              : undefined;
-          const draft: EnhancementDraft = {
-            // Server pipeline — no local displayFile. We build a stub
-            // File so downstream typing is preserved; the upload step
-            // switches to preparedDisplayPath.
-            displayFile: new File([], `${file.name}.enhanced.webp`, {
-              type: "image/webp",
-            }),
-            previewUrl: url,
-            meta: {
-              ...result.meta,
-              ...(qualityGateProvenance
-                ? { qualityGate: qualityGateProvenance }
-                : {}),
-            },
-          };
-          setPendingEnhance((prev) => ({
-            ...prev,
-            [id]: {
-              kind: "previewing",
-              draft,
-              enhancedPath: result.enhancedPath,
-              exhibitionScoped: !!exhibitionScopedId,
-            },
-          }));
-          void recordUsageEvent({
-            userId,
-            // 2026-08-07 semantic split — see comment above.
-            key: USAGE_KEYS.AI_IMAGE_ENHANCE_PREVIEWED,
-            featureKey: "ai.image_enhance",
-            metadata: {
-              mode: bulkEnhanceMode,
-              provider: "photoroom_hybrid",
-              source: meteringSourceForBulk,
-              latency_ms: result.latencyMs,
-            },
-          });
-        }
       } catch (err) {
         const reason = err instanceof Error ? err.message : "error";
         // User-initiated abort → surface as "rejected", not "failed".
@@ -954,8 +725,8 @@ export default function BulkUploadPage() {
             : USAGE_KEYS.AI_IMAGE_ENHANCE_FAILED,
           featureKey: "ai.image_enhance",
           metadata: {
-            mode: bulkEnhanceMode,
-            provider: resolvedMode === "flat" ? "local_opencv" : "photoroom_hybrid",
+            mode: "flat",
+            provider: "local_opencv",
             source: meteringSourceForBulk,
             reason: wasAborted ? "aborted" : reason,
             latency_ms: Math.round(performance.now() - startedAt),
@@ -1566,8 +1337,12 @@ export default function BulkUploadPage() {
     void fetchDrafts({ silent: true });
   }
 
+  function draftReady(d: ArtworkWithLikes) {
+    return validatePublish(d, { sizeNotApplicable: sizeExempt[d.id] === true });
+  }
+
   function publishAllReady() {
-    const ready = drafts.filter((d) => validatePublish(d).ok).map((d) => d.id);
+    const ready = drafts.filter((d) => draftReady(d).ok).map((d) => d.id);
     if (ready.length === 0) {
       setToast(t("bulk.publishAllNone"));
       setTimeout(() => setToast(null), 2000);
@@ -1883,7 +1658,7 @@ export default function BulkUploadPage() {
     const ids = idsOverride ?? Array.from(selected);
     if (ids.length === 0) return;
     const toPublish = drafts.filter((d) => ids.includes(d.id));
-    const invalid = toPublish.filter((d) => !validatePublish(d).ok);
+    const invalid = toPublish.filter((d) => !draftReady(d).ok);
     if (invalid.length > 0) return;
     if (needsAttribution) {
       if (useExternalArtist) {
@@ -2121,9 +1896,9 @@ export default function BulkUploadPage() {
     await fetchDrafts({ silent: true });
   }
 
-  const readyCount = drafts.filter((d) => validatePublish(d).ok).length;
+  const readyCount = drafts.filter((d) => draftReady(d).ok).length;
   const selectedIds = Array.from(selected);
-  const selectedReady = drafts.filter((d) => selectedIds.includes(d.id) && validatePublish(d).ok).length;
+  const selectedReady = drafts.filter((d) => selectedIds.includes(d.id) && draftReady(d).ok).length;
   const canPublishSelected = selectedIds.length > 0 && selectedReady === selectedIds.length;
 
   const externalNameValid = useExternalArtist && externalArtistName.trim().length >= 2;
@@ -2214,7 +1989,7 @@ export default function BulkUploadPage() {
   }
 
   async function applySharedWorkspace() {
-    const ids = drafts.map((d) => d.id);
+    const ids = (selected.size > 0 ? drafts.filter((d) => selected.has(d.id)) : drafts).map((d) => d.id);
     if (ids.length === 0) {
       setToast(t("bulk.noDrafts"));
       setTimeout(() => setToast(null), 2000);
@@ -2303,7 +2078,7 @@ export default function BulkUploadPage() {
         setLinkingExhibition(false);
       }
     }
-    setToast(t("bulk.applyToAll"));
+    setToast(selected.size > 0 ? t("bulk.applyToSelected") : t("bulk.applyToAll"));
     setTimeout(() => setToast(null), 2000);
   }
 
@@ -2861,16 +2636,6 @@ export default function BulkUploadPage() {
                 const willCompress = compressible && file.size > 5 * 1024 * 1024;
                 const selected = pendingSelected.has(id);
                 const enhance = pendingEnhance[id];
-                const gateVerdict = pendingQualityGates[id];
-                const gateOverride = pendingQualityGateOverrides[id] === true;
-                const showGateWarn =
-                  gateVerdict &&
-                  !gateVerdict.degraded &&
-                  gateVerdict.severity === "warn";
-                const showGateBlock =
-                  gateVerdict &&
-                  !gateVerdict.degraded &&
-                  gateVerdict.severity === "block";
                 return (
                   <span
                     key={id}
@@ -2894,61 +2659,6 @@ export default function BulkUploadPage() {
                       >
                         {t("upload.autoCompressChip")}
                       </span>
-                    )}
-                    {showGateWarn && (
-                      <span
-                        className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
-                        title={
-                          locale.startsWith("ko")
-                            ? gateVerdict?.reshootAdviceKo
-                            : gateVerdict?.reshootAdviceEn
-                        }
-                      >
-                        {t("enhancement.quality.bulk.warn")}
-                      </span>
-                    )}
-                    {showGateBlock && (
-                      <>
-                        <span
-                          className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-800"
-                          title={
-                            locale.startsWith("ko")
-                              ? gateVerdict?.reshootAdviceKo
-                              : gateVerdict?.reshootAdviceEn
-                          }
-                        >
-                          {t("enhancement.quality.bulk.block")}
-                        </span>
-                        <label className="inline-flex items-center gap-1 text-[10px] font-medium text-red-800">
-                          <input
-                            type="checkbox"
-                            checked={gateOverride}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setPendingQualityGateOverrides((prev) => ({
-                                ...prev,
-                                [id]: checked,
-                              }));
-                              // If the operator unblocks a previously
-                              // skipped row, re-queue the enhance so
-                              // the batch operator can hit "enhance"
-                              // again without removing/re-adding.
-                              if (checked) {
-                                setPendingEnhance((prev) => {
-                                  if (prev[id]?.kind === "rejected") {
-                                    const next = { ...prev };
-                                    delete next[id];
-                                    return next;
-                                  }
-                                  return prev;
-                                });
-                              }
-                            }}
-                            className="h-3 w-3 accent-red-700"
-                          />
-                          {t("enhancement.quality.bulk.override")}
-                        </label>
-                      </>
                     )}
                     {enhance?.kind === "processing" && (
                       <>
@@ -3024,15 +2734,15 @@ export default function BulkUploadPage() {
                 );
               })}
             </div>
-            {(qualityGateBulkSummary.warn > 0 ||
-              qualityGateBulkSummary.block > 0) && (
-              <p className="mb-3 text-xs text-zinc-500" role="status">
-                {t("enhancement.quality.summary")
-                  .replace("{warn}", String(qualityGateBulkSummary.warn))
-                  .replace("{block}", String(qualityGateBulkSummary.block))}
-              </p>
-            )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void enhanceSelectedPending()}
+                disabled={bulkEnhanceRunning || pendingSelected.size === 0}
+                className="rounded-full border border-zinc-800 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
+              >
+                {bulkEnhanceRunning ? t("bulk.enhance.running") : t("bulk.enhance.action")}
+              </button>
               <button
                 type="button"
                 onClick={startUpload}
@@ -3475,9 +3185,11 @@ export default function BulkUploadPage() {
                   disabled={linkingExhibition}
                   className="rounded-full bg-zinc-900 px-5 py-1.5 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  {t("bulk.applyToAll")}
+                  {selected.size > 0 ? t("bulk.applyToSelected") : t("bulk.applyToAll")}
                 </button>
-                <p className="mt-2 text-xs text-zinc-500">{t("bulk.sharedOverwrite")}</p>
+                {selected.size === 0 && (
+                  <p className="mt-2 text-xs text-zinc-500">{t("bulk.sharedOverwrite")}</p>
+                )}
               </div>
             </div>
           )}
@@ -3502,6 +3214,10 @@ export default function BulkUploadPage() {
                 }}
                 onDragOver={() => setDropOnId(d.id)}
                 onDragLeave={() => setDropOnId((id) => (id === d.id ? null : id))}
+                sizeNotApplicable={sizeExempt[d.id] === true}
+                onSizeNotApplicable={(na) =>
+                  setSizeExempt((prev) => ({ ...prev, [d.id]: na }))
+                }
                 onSave={(patch) => void saveDraftPatch(d.id, patch)}
                 onLinkExhibition={(exhibitionId) => void linkOneExhibition(d.id, exhibitionId)}
                 onSetViewType={(storagePath, viewType) => void setDetailView(d.id, storagePath, viewType)}

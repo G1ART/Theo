@@ -4,7 +4,6 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ImageStandardizeEditor,
   type EnhancementDraft,
-  type QualityGateSurfaceState,
 } from "@/components/upload/ImageStandardizeEditor";
 import {
   getArtworkImageUrl,
@@ -76,7 +75,6 @@ export function BulkEnhanceDialog({
   const [replaced, setReplaced] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [enhancement, setEnhancement] = useState<EnhancementDraft | null>(null);
-  const [gate, setGate] = useState<QualityGateSurfaceState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [preset, setPreset] = useState<EnhanceSessionPreset | null>(null);
@@ -154,7 +152,6 @@ export function BulkEnhanceDialog({
     setDisplayOnly(false);
     setLoadError(false);
     setEnhancement(null);
-    setGate(null);
     setReplaced(false);
 
     const originalPath = image.original_storage_path?.trim() || "";
@@ -223,7 +220,6 @@ export function BulkEnhanceDialog({
             // includes name/size/lastModified so it remounts, but
             // we still need to drop any computed enhancement/gate).
             setEnhancement(null);
-            setGate(null);
           })
           .catch(() => {
             if (cancelled) return;
@@ -242,16 +238,9 @@ export function BulkEnhanceDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image?.storage_path, image?.original_storage_path]);
 
-  const gateBlocked =
-    !!gate &&
-    !gate.degraded &&
-    !gate.dismissed &&
-    gate.severity === "block" &&
-    !gate.override;
-
   async function save() {
     const displayFile = enhancement?.displayFile ?? (replaced ? file : null);
-    if (!displayFile || saving || gateBlocked || !image) return;
+    if (!displayFile || saving || !image) return;
     setSaving(true);
     setSaveError(false);
     const { data: { session } } = await getSession();
@@ -385,7 +374,6 @@ export function BulkEnhanceDialog({
               onChange={() => {}}
               compact
               onEnhance={setEnhancement}
-              onQualityGate={setGate}
               meteringSource="bulk"
               artistProfileId={artistProfileId}
               sharedPreset={preset}
@@ -474,7 +462,7 @@ export function BulkEnhanceDialog({
           </p>
           <button
             type="button"
-            disabled={(!enhancement && !replaced) || saving || gateBlocked || !file}
+            disabled={(!enhancement && !replaced) || saving || !file}
             onClick={() => void save()}
             className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
           >

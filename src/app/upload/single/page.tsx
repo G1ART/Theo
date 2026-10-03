@@ -31,8 +31,8 @@ import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
 import {
   ImageStandardizeEditor,
   type EnhancementDraft,
-  type QualityGateSurfaceState,
 } from "@/components/upload/ImageStandardizeEditor";
+import { uploadGapLabelKey, uploadGaps } from "@/lib/upload/readiness";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
@@ -216,23 +216,6 @@ function UploadPageContent() {
     enhancement: EnhancementDraft | null;
   };
   const [images, setImages] = useState<PendingImage[]>([]);
-  /**
-   * 2026-08-19 — Per-image pre-flight quality gate state. Populated
-   * by `ImageStandardizeEditor.onQualityGate`. We use a keyed object
-   * (id → state) instead of extending PendingImage to keep the file's
-   * existing setImages plumbing untouched — the gate is a side channel
-   * that only gates the Publish CTA.
-   */
-  const [imageQualityGates, setImageQualityGates] = useState<
-    Record<string, QualityGateSurfaceState>
-  >({});
-  const publishBlockedByGate = images.some((img) => {
-    const gate = imageQualityGates[img.id];
-    if (!gate) return false;
-    if (gate.degraded) return false;
-    if (gate.dismissed) return false;
-    return gate.severity === "block" && !gate.override;
-  });
   const [title, setTitle] = useState("");
   /**
    * QA 2026-07-28 — 이중언어 title/medium/story 슬롯. 두 언어를 나란히
@@ -409,20 +392,25 @@ function UploadPageContent() {
     setStep("form");
   }
 
+  function currentGaps() {
+    return uploadGaps({
+      title,
+      year,
+      medium,
+      size,
+      sizeNotApplicable: sizeNa,
+      pricingMode,
+      priceAmount,
+      imageCount: images.length,
+    });
+  }
+
   function handleFormNext(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (images.length === 0 || !title.trim() || !year || !medium.trim() || (!sizeNa && !size.trim())) {
-      setError(t("common.pleaseFillRequired"));
-      return;
-    }
-    const yearNum = parseInt(year, 10);
-    if (isNaN(yearNum) || yearNum < 1000 || yearNum > 9999) {
-      setError(t("common.pleaseEnterValidYear"));
-      return;
-    }
-    if (pricingMode === "fixed" && (!priceAmount || parseFloat(priceAmount) <= 0)) {
-      setError(t("common.pleaseEnterValidPrice"));
+    const gaps = currentGaps();
+    if (gaps.length > 0) {
+      setError(gaps.map((gap) => t(uploadGapLabelKey(gap))).join(", "));
       return;
     }
     setStep("dedup");
@@ -828,7 +816,8 @@ function UploadPageContent() {
   const yearOptions = Array.from({ length: 81 }, (_, i) => String(new Date().getFullYear() - i));
   const coverImage = images[0];
   const detailImages = images.slice(1);
-  const coverBlocked = coverImage ? publishBlockedByGate : false;
+  const formGapText = currentGaps().map((gap) => t(uploadGapLabelKey(gap))).join(", ");
+  const coverBlocked = formGapText.length > 0;
 
   return (
       <div>
@@ -1300,6 +1289,11 @@ function UploadPageContent() {
                       >
                         {coverBlocked ? t("bulk.statusBlocked") : t("bulk.statusReady")}
                       </span>
+                      {coverBlocked && formGapText ? (
+                        <span className="mt-1 block text-center text-[10px] leading-snug text-red-600">
+                          {formGapText}
+                        </span>
+                      ) : null}
                     </p>
                   )}
                   <input
@@ -1761,26 +1755,6 @@ function UploadPageContent() {
                     }}
                     meteringSource={fromExhibition ? "exhibition_single" : "single"}
                     artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
-                    onQualityGate={(gate) => {
-                      setImageQualityGates((prev) => {
-                        if (!gate) {
-                          if (!prev[img.id]) return prev;
-                          const next = { ...prev };
-                          delete next[img.id];
-                          return next;
-                        }
-                        return { ...prev, [img.id]: gate };
-                      });
-                    }}
-                    onReshootRequest={() => {
-                      setImages((prev) => prev.filter((p) => p.id !== img.id));
-                      setImageQualityGates((prev) => {
-                        if (!prev[img.id]) return prev;
-                        const next = { ...prev };
-                        delete next[img.id];
-                        return next;
-                      });
-                    }}
                   />
                 ))}
               </div>
@@ -1859,11 +1833,13 @@ function UploadPageContent() {
               )}
             </div>
 
+            {coverImage && formGapText ? (
+              <p className="text-sm text-red-700" role="status">{formGapText}</p>
+            ) : null}
             {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
             <div className="flex justify-center pt-2">
               <button
                 type="submit"
-                disabled={publishBlockedByGate}
                 className="min-w-[10.5rem] rounded-full border border-zinc-800 px-5 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
               >
                 {t("upload.nextCheckDedup")}
@@ -1908,7 +1884,7 @@ function UploadPageContent() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isSubmitting || publishBlockedByGate}
+                disabled={isSubmitting}
                 className="flex-1 rounded-full bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 disabled:opacity-50"
               >
                 {isSubmitting ? t("upload.uploading") : t("nav.upload")}

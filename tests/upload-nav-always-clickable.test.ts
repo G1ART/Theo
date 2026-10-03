@@ -87,8 +87,6 @@ function read(rel: string): string {
   assert.match(sidebar, /ShellNavLink/);
 
   const editor = read("src/components/upload/ImageStandardizeEditor.tsx");
-  assert.match(editor, /fileIdentityKey/);
-  assert.match(editor, /rememberQualityGateAck/);
   assert.match(editor, /setEnhanceWizardActive/);
 
   const provider = read("src/components/tour/TourProvider.tsx");

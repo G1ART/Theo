@@ -18,7 +18,22 @@
  *
  * Paint target is always #f3f3f3 (243,243,243) — the gallery matte
  * white the rest of the pipeline anchors to.
+ *
+ * A white or off-white wall reference is the same bucket as an
+ * unpainted canvas margin. Walking inward up to 6% of the short side
+ * then turns that margin into #f3f3f3 and the painting looks zoomed.
+ * If the matching run is not bounded by a different color inside the
+ * search depth, this function leaves those pixels alone. A thin
+ * crescent that stops at real paint is still recolored. The studio
+ * drop shadow is painted later, around the matte, and is not this pass.
  */
+function looksLikeWhiteCanvas(r: number, g: number, b: number): boolean {
+  const spread = Math.max(r, g, b) - Math.min(r, g, b);
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  // Beige (spread ~40, luma ~180) and mid-grey stay out of this bucket.
+  return luma >= 226 && spread <= 28;
+}
+
 export function paintBorderWall(
   data: Uint8ClampedArray,
   width: number,
@@ -66,27 +81,49 @@ export function paintBorderWall(
     data[offset + 1] = 243;
     data[offset + 2] = 243;
   };
+  // Only when the sampled wall could be an unpainted canvas. A colored
+  // wall still walks the full depth and stops at the first different pixel.
+  const guardWhiteCanvas =
+    !!wallRef && looksLikeWhiteCanvas(wallRef.r, wallRef.g, wallRef.b);
+  const repaintInward = (
+    offsetAt: (depth: number) => number,
+    paintAt: (depth: number) => void,
+  ) => {
+    let run = 0;
+    while (run < maxDepth && wall(offsetAt(run))) run += 1;
+    if (guardWhiteCanvas) {
+      const peek = offsetAt(run);
+      // White continues through the search depth — wall and canvas
+      // cannot be told apart. Leave the artwork's light margin.
+      if (peek < 0 || wall(peek)) return;
+    }
+    for (let depth = 0; depth < run; depth += 1) paintAt(depth);
+  };
   for (let x = 0; x < width; x += 1) {
-    for (let depth = 0; depth < maxDepth; depth += 1) {
-      if (!wall((depth * width + x) * 4)) break;
-      paint(x, depth);
-    }
-    for (let depth = 0; depth < maxDepth; depth += 1) {
-      const y = height - 1 - depth;
-      if (!wall((y * width + x) * 4)) break;
-      paint(x, y);
-    }
+    repaintInward(
+      (depth) => (depth < height ? (depth * width + x) * 4 : -1),
+      (depth) => paint(x, depth),
+    );
+    repaintInward(
+      (depth) => {
+        const y = height - 1 - depth;
+        return y >= 0 ? (y * width + x) * 4 : -1;
+      },
+      (depth) => paint(x, height - 1 - depth),
+    );
   }
   for (let y = 0; y < height; y += 1) {
-    for (let depth = 0; depth < maxDepth; depth += 1) {
-      if (!wall((y * width + depth) * 4)) break;
-      paint(depth, y);
-    }
-    for (let depth = 0; depth < maxDepth; depth += 1) {
-      const x = width - 1 - depth;
-      if (!wall((y * width + x) * 4)) break;
-      paint(x, y);
-    }
+    repaintInward(
+      (depth) => (depth < width ? (y * width + depth) * 4 : -1),
+      (depth) => paint(depth, y),
+    );
+    repaintInward(
+      (depth) => {
+        const x = width - 1 - depth;
+        return x >= 0 ? (y * width + x) * 4 : -1;
+      },
+      (depth) => paint(width - 1 - depth, y),
+    );
   }
 }
 

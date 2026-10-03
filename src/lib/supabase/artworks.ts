@@ -11,6 +11,7 @@ import {
   libraryPageCursor,
   mergeLibraryRows,
 } from "@/lib/artworks/libraryInventory";
+import { uploadGaps } from "@/lib/upload/readiness";
 
 const BUCKET = "artworks";
 
@@ -2142,13 +2143,24 @@ export async function listMyDraftArtworks(
   };
 }
 
-export function validatePublish(artwork: Artwork): { ok: boolean; missing: string[] } {
-  const missing: string[] = [];
-  if (!artwork.title?.trim()) missing.push("title");
-  if (!artwork.ownership_status) missing.push("ownership_status");
-  if (!artwork.pricing_mode) missing.push("pricing_mode");
-  const images = artwork.artwork_images ?? [];
-  if (images.length < 1) missing.push("image");
+export function validatePublish(
+  artwork: Artwork,
+  opts?: { sizeNotApplicable?: boolean },
+): { ok: boolean; missing: string[] } {
+  // Same required set as single upload. Blank ownership / pricing are
+  // the single-form defaults (available / inquire), not gaps. A fixed
+  // price still needs an amount. Size is skipped only when this draft
+  // was marked not applicable in the current session.
+  const missing = uploadGaps({
+    title: artwork.title,
+    year: artwork.year,
+    medium: artwork.medium,
+    size: artwork.size,
+    sizeNotApplicable: opts?.sizeNotApplicable === true,
+    pricingMode: artwork.pricing_mode,
+    priceAmount: artwork.price_input_amount,
+    imageCount: artwork.artwork_images?.length ?? 0,
+  });
   return { ok: missing.length === 0, missing };
 }
 

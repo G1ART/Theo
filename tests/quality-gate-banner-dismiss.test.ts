@@ -80,23 +80,13 @@ function warnResult(): ArtworkQualityGateResult {
   );
 
   const editor = read("src/components/upload/ImageStandardizeEditor.tsx");
-  assert.match(
-    editor,
-    /shouldShowQualityGateBanner/,
-    "editor must use the shared visibility helper",
-  );
-  assert.match(editor, /fileIdentityKey/);
-  assert.match(editor, /rememberQualityGateAck/);
-  assert.match(
-    editor,
-    /onUseAnyway=\{\(\) => \{[\s\S]*setQualityGateOverride\(true\);[\s\S]*setQualityGateDismissed\(true\);/,
-    "그래도 계속 must record override AND dismiss the banner",
-  );
   assert.equal(
-    /qualityGate\.severity === "block" \|\|/.test(editor),
+    editor.includes("artworkQualityGate"),
     false,
-    "block must not render the banner unconditionally",
+    "upload editor no longer calls the quality gate",
   );
+  assert.equal(editor.includes("shouldShowQualityGateBanner"), false);
+  assert.equal(editor.includes("enhancement.quality.detecting"), false);
 
   console.log("quality-gate-banner-dismiss.test.ts: ok");
 })().catch((err) => {

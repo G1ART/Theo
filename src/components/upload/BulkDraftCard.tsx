@@ -14,6 +14,7 @@ import { useT } from "@/lib/i18n/useT";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { UPLOAD_MAX_IMAGE_MB_LABEL } from "@/lib/upload/limits";
+import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
 
 const OWNERSHIP_OPTIONS = [
   { value: "available", labelKey: "upload.ownershipAvailable" },
@@ -92,6 +93,8 @@ type Props = {
   onAddFiles: (files: FileList | null) => void;
   onDragOver: () => void;
   onDragLeave: () => void;
+  sizeNotApplicable: boolean;
+  onSizeNotApplicable: (na: boolean) => void;
   onSave: (patch: UpdateArtworkPayload) => void;
   onLinkExhibition: (exhibitionId: string) => void;
   onSetViewType: (storagePath: string, viewType: ArtworkImageViewType) => void;
@@ -110,6 +113,8 @@ export function BulkDraftCard({
   onAddFiles,
   onDragOver,
   onDragLeave,
+  sizeNotApplicable,
+  onSizeNotApplicable,
   onSave,
   onLinkExhibition,
   onSetViewType,
@@ -122,13 +127,17 @@ export function BulkDraftCard({
   const cover = images[0];
   const details = images.slice(1);
   const thumb = cover ? getArtworkImageUrl(cover.storage_path, "thumb") : null;
-  const publishState = validatePublish(draft);
+  const publishState = validatePublish(draft, { sizeNotApplicable });
   const ready = publishState.ok;
+  const gapText = publishState.missing
+    .filter(isUploadGap)
+    .map((gap) => t(uploadGapLabelKey(gap)))
+    .join(", ");
   const dims = readDims(draft.size);
   const [width, setWidth] = useState(dims.w);
   const [height, setHeight] = useState(dims.h);
   const [depth, setDepth] = useState(dims.d);
-  const [sizeNa, setSizeNa] = useState(!draft.size?.trim());
+  const sizeNa = sizeNotApplicable;
   const [mediums, setMediums] = useState<string[]>(() => splitMedium(draft.medium));
   const [mediumQuery, setMediumQuery] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(details.length > 0);
@@ -142,11 +151,20 @@ export function BulkDraftCard({
     setWidth(next.w);
     setHeight(next.h);
     setDepth(next.d);
-    setSizeNa(!draft.size?.trim());
     setMediums(splitMedium(draft.medium));
     setPriceAmount(draft.price_input_amount != null ? String(draft.price_input_amount) : "");
     setPriceCurrency(draft.price_input_currency || "USD");
   }, [draft.id, bulkVersion, draft.size, draft.medium, draft.price_input_amount, draft.price_input_currency]);
+
+  useEffect(() => {
+    const patch: UpdateArtworkPayload = {};
+    if (!draft.ownership_status) patch.ownership_status = "available";
+    if (!draft.pricing_mode) patch.pricing_mode = "inquire";
+    if (Object.keys(patch).length === 0) return;
+    onSave(patch);
+    // Heal drafts created before the single-upload defaults. One write per id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onSave identity changes every render
+  }, [draft.id, draft.ownership_status, draft.pricing_mode]);
 
   const thisYear = new Date().getFullYear();
   const years = Array.from({ length: 81 }, (_, i) => String(thisYear - i));
@@ -275,6 +293,11 @@ export function BulkDraftCard({
             >
               {ready ? t("bulk.statusReady") : t("bulk.statusBlocked")}
             </span>
+            {!ready && gapText ? (
+              <span className="mt-1 block text-center text-[10px] leading-snug text-red-600">
+                {gapText}
+              </span>
+            ) : null}
           </p>
           <input
             id={fileId}
@@ -348,7 +371,7 @@ export function BulkDraftCard({
                       key={u}
                       type="button"
                       onClick={() => {
-                        setSizeNa(false);
+                        onSizeNotApplicable(false);
                         commitSize({ unit: u, na: false });
                       }}
                       className={`px-1.5 py-1 ${
@@ -365,7 +388,7 @@ export function BulkDraftCard({
                   aria-checked={sizeNa}
                   onClick={() => {
                     const na = !sizeNa;
-                    setSizeNa(na);
+                    onSizeNotApplicable(na);
                     commitSize({ na });
                   }}
                   className="inline-flex items-center gap-1 font-normal text-zinc-600"
@@ -500,7 +523,7 @@ export function BulkDraftCard({
               <label className={label}>
                 {t("bulk.ownershipStatus")}
                 <select
-                  defaultValue={draft.ownership_status ?? ""}
+                  defaultValue={draft.ownership_status || "available"}
                   key={`own-${draft.id}-${bulkVersion}`}
                   className={`${field} mt-1`}
                   onChange={(e) => onSave({ ownership_status: e.target.value || null })}
@@ -516,7 +539,7 @@ export function BulkDraftCard({
               <label className={label}>
                 {t("bulk.pricingMode")}
                 <select
-                  defaultValue={draft.pricing_mode ?? ""}
+                  defaultValue={draft.pricing_mode || "inquire"}
                   key={`price-${draft.id}-${bulkVersion}`}
                   className={`${field} mt-1`}
                   onChange={(e) => {

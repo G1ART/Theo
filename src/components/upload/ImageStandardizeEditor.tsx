@@ -80,20 +80,6 @@ import {
   SilhouetteRegionBox,
   type NormBox,
 } from "@/components/upload/SilhouetteRegionBox";
-import { aiApi } from "@/lib/ai/browser";
-import type { ArtworkQualityGateResult } from "@/lib/ai/types";
-import {
-  getOrFetchVisionResult,
-  prepareImageForVision,
-} from "@/lib/image/enhancement/aiClient";
-import { useQualityGatePref } from "@/lib/image/enhancement/qualityGatePref";
-import { QualityGateBanner } from "@/components/upload/QualityGateBanner";
-import {
-  fileIdentityKey,
-  getQualityGateAck,
-  rememberQualityGateAck,
-  shouldShowQualityGateBanner,
-} from "@/lib/image/enhancement/qualityGateBannerVisibility";
 import { setEnhanceWizardActive } from "@/lib/tours/enhanceWizardTour";
 
 /**
@@ -581,8 +567,6 @@ export function ImageStandardizeEditor({
   onEnhance,
   meteringSource = "single",
   artistProfileId = null,
-  onQualityGate,
-  onReshootRequest,
   sharedPreset = null,
   onSharedPreset,
   artworkWidthCm = null,
@@ -713,129 +697,9 @@ export function ImageStandardizeEditor({
     };
   }, [file]);
 
-  // ------------------------------------------------------------------
-  // 2026-08-19 — Pre-flight artwork quality gate (vision LLM)
-  // ------------------------------------------------------------------
-  //
-  // Runs AFTER `analyzeImageFile` succeeds (so we can pass the DSP
-  // `mode` hint) and BEFORE the "Save" / "Enhance" CTAs enable. The
-  // gate is fail-open — any degraded response silently returns `ok`
-  // so the artist is never hard-blocked by an AI infra failure.
-  //
-  // Dedup: `${sha256}:artwork_quality_gate` via the shared vision
-  // cache. Re-opening the same photo in the wizard never re-hits
-  // OpenAI in the same session.
-  const qualityGatePref = useQualityGatePref();
-  const [qualityGate, setQualityGate] =
-    useState<ArtworkQualityGateResult | null>(null);
-  const [qualityGateRunning, setQualityGateRunning] = useState(false);
-  const [qualityGateOverride, setQualityGateOverride] = useState(
-    () => getQualityGateAck(file).override,
-  );
-  const [qualityGateDismissed, setQualityGateDismissed] = useState(
-    () => getQualityGateAck(file).dismissed,
-  );
-  const fileKey = fileIdentityKey(file);
-
-  useEffect(() => {
-    // Identity (name+size+lastModified), not File object reference —
-    // parent re-renders that wrap a new File for the same photo must
-    // not resurrect the banner.
-    const ack = getQualityGateAck(file);
-    setQualityGate(null);
-    setQualityGateOverride(ack.override);
-    setQualityGateDismissed(ack.dismissed);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fileKey is the identity
-  }, [fileKey]);
-
-  useEffect(() => {
-    // Wait for the DSP analyzer to succeed — we key on `analysis.mode`
-    // for the `contextHint`. If analyze failed, still run the gate
-    // with `unknown` so a broken decode doesn't silence us.
-    if (analyzing) return;
-    if (!qualityGatePref) {
-      setQualityGate(null);
-      return;
-    }
-    let alive = true;
-    setQualityGateRunning(true);
-    (async () => {
-      try {
-        const contextHint =
-          analysis?.mode === "flat"
-            ? "flat_2d"
-            : analysis?.mode === "object"
-              ? "sculpture_3d"
-              : "unknown";
-        const payload = await prepareImageForVision(file);
-        if (!alive) return;
-        const key = `${payload.sha256}:artwork_quality_gate`;
-        const result = await getOrFetchVisionResult<ArtworkQualityGateResult>(
-          key,
-          () =>
-            aiApi.artworkQualityGate({
-              imageBase64: payload.imageBase64,
-              mime: payload.mime,
-              imagePxWidth: payload.imagePxWidth,
-              imagePxHeight: payload.imagePxHeight,
-              contextHint,
-            }),
-        );
-        if (!alive) return;
-        setQualityGate(result);
-      } catch {
-        // Fail open — any exception (decode failed, network dropped)
-        // silently degrades to "ok".
-        if (!alive) return;
-        setQualityGate({
-          usable: true,
-          severity: "ok",
-          issues: [],
-          reshootAdviceKo: "",
-          reshootAdviceEn: "",
-          scores: { sharpness: 0.5, glare: 0, exposure: 0.5, framing: 0.5 },
-          degraded: true,
-          reason: "error",
-        });
-      } finally {
-        if (alive) setQualityGateRunning(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [file, analyzing, analysis?.mode, qualityGatePref]);
-
-  // Push gate state upstream whenever any input to the observable
-  // shape changes. Parent Save/Publish CTAs use this to gate on
-  // `severity === "block" && !override && !degraded && !dismissed`.
-  useEffect(() => {
-    if (!onQualityGate) return;
-    if (!qualityGate) {
-      onQualityGate(null);
-      return;
-    }
-    const isDegraded = qualityGate.degraded === true;
-    onQualityGate({
-      severity: qualityGate.severity,
-      override: qualityGateOverride,
-      degraded: isDegraded,
-      dismissed: qualityGateDismissed,
-    });
-  }, [qualityGate, qualityGateOverride, qualityGateDismissed, onQualityGate]);
-
-  // Effective severity — a degraded verdict or a dismissed warn is
-  // treated as `ok` for auto-preview gating. Block+override still
-  // surfaces the enhance flow; the banner itself is hidden via
-  // `shouldShowQualityGateBanner` once dismissed / overridden.
-  const effectiveGateSeverity: "ok" | "warn" | "block" = (() => {
-    if (!qualityGate) return "ok";
-    if (qualityGate.degraded) return "ok";
-    if (qualityGate.severity === "warn" && qualityGateDismissed) return "ok";
-    return qualityGate.severity;
-  })();
-  const gateBlocked =
-    effectiveGateSeverity === "block" && !qualityGateOverride;
+  // Upload no longer calls /api/ai/artwork-quality-gate. Crop and
+  // enhance proceed without a quality verdict. The route stays in the
+  // repo for a later call site.
 
   // Push tone/crop changes upstream. Only after the user has actually
   // interacted — mount alone must never populate parent state.
@@ -1095,6 +959,15 @@ export function ImageStandardizeEditor({
   const [pathChoice, setPathChoice] = useState<"original" | "ai" | null>(
     enhancement ? "ai" : null,
   );
+  // A preview pushed to the parent (so closing the editor cannot drop
+  // the blob) is not a confirmed result. Color chips stay until the
+  // artist confirms the tone step. A result already on the file when
+  // this editor mounts is one they kept.
+  const [committedPreviewUrl, setCommittedPreviewUrl] = useState<string | null>(
+    () => enhancement?.previewUrl ?? null,
+  );
+  const enhancementIsCommitted =
+    !!enhancement && enhancement.previewUrl === committedPreviewUrl;
   useEffect(() => {
     const active = pathChoice !== null;
     setEnhanceWizardActive(active);
@@ -1524,10 +1397,6 @@ export function ImageStandardizeEditor({
 
   const runEnhancePreview = useCallback(async () => {
     if (!onEnhance) return;
-    // 2026-08-19 — Blocked by the pre-flight quality gate (and not
-    // overridden). The banner tells the artist why; silently no-op
-    // here so any manual "Preview" click also respects the block.
-    if (gateBlocked) return;
     if (resolvedAutoMode === "object") {
       // The local engine only covers the flat pipeline. Object mode
       // requires the server-side Photoroom hybrid, which is wired at
@@ -1780,19 +1649,6 @@ export function ImageStandardizeEditor({
       const capturedAtIso =
         exif?.dateTimeOriginal ?? new Date(file.lastModified).toISOString();
       const captureDevice = exif ? formatCaptureDevice(exif) : null;
-      // 2026-08-19 — Persist the pre-flight quality gate verdict into
-      // enhancement_meta so QA / dashboards can slice on false-block
-      // regressions later (severity + override + issues). Absent when
-      // the gate degraded or was disabled by the user.
-      const qualityGateProvenance =
-        qualityGate && !qualityGate.degraded
-          ? {
-              severity: qualityGate.severity,
-              issues: qualityGate.issues as string[],
-              scores: qualityGate.scores,
-              ...(qualityGateOverride ? { override: true } : {}),
-            }
-          : undefined;
       const meta: EnhancementMeta = {
         provider: "local_opencv",
         mode: enhanceMode,
@@ -1807,7 +1663,6 @@ export function ImageStandardizeEditor({
         },
         capturedAtIso,
         captureDevice,
-        ...(qualityGateProvenance ? { qualityGate: qualityGateProvenance } : {}),
       };
       let finalDisplayFile = displayFile;
       let finalPreviewUrl = URL.createObjectURL(displayFile);
@@ -1957,9 +1812,6 @@ export function ImageStandardizeEditor({
     customAspect,
     artworkWidthCm,
     artworkHeightCm,
-    gateBlocked,
-    qualityGate,
-    qualityGateOverride,
     pathChoice,
     pushDraftToParent,
   ]);
@@ -2066,7 +1918,6 @@ export function ImageStandardizeEditor({
       return;
     }
     if (resolvedAutoMode === "object") return;
-    if (gateBlocked) return;
     if (previewRecipeKey === lastPreviewRecipeKeyRef.current) return;
     lastPreviewRecipeKeyRef.current = previewRecipeKey;
     didAutoPreviewRef.current = true;
@@ -2082,7 +1933,6 @@ export function ImageStandardizeEditor({
     perspectiveSkipped,
     perspectiveCorners,
     resolvedAutoMode,
-    gateBlocked,
     onEnhance,
   ]);
 
@@ -2112,6 +1962,9 @@ export function ImageStandardizeEditor({
       return null;
     });
     setSilhouetteError(null);
+    setSilhouetteRunning(false);
+    setSilhouetteBox({ x: 0.22, y: 0.04, w: 0.56, h: 0.5 });
+    setCommittedPreviewUrl(enhancement?.previewUrl ?? null);
     colorSeedLockedRef.current = Boolean(sharedPreset);
     setVisionStatus("idle");
     setDetectingArtwork(false);
@@ -2188,6 +2041,7 @@ export function ImageStandardizeEditor({
     baseEnhanceRef.current = null;
     // Parent takes ownership of the (possibly fine-tuned) preview blob.
     enhancePreviewUrlRef.current = null;
+    setCommittedPreviewUrl(draft.previewUrl);
     onEnhance(draft);
     onSharedPreset?.({
       inputType,
@@ -2235,6 +2089,7 @@ export function ImageStandardizeEditor({
     enhancePreviewUrlRef.current = null;
     baseEnhanceRef.current = null;
     setEnhancePreview(null);
+    setCommittedPreviewUrl(null);
     setPathChoice(null);
     setEditingAfterSave(false);
     setWizardStep("perspective");
@@ -2392,57 +2247,7 @@ export function ImageStandardizeEditor({
         </div>
       )}
 
-      {/*
-        2026-08-19 — Pre-flight quality gate surface. "detecting"
-        status uses aria-live so screen readers hear the check without
-        stealing focus; the banner itself renders only for warn/block
-        verdicts (fail-open contract — degraded verdicts and ok
-        verdicts are silent).
-       */}
-      {pathChoice === "ai" && qualityGateRunning && !qualityGate && (
-        <p
-          className="text-xs text-zinc-500"
-          role="status"
-          aria-live="polite"
-        >
-          {t("enhancement.quality.detecting")}
-        </p>
-      )}
-      {shouldShowQualityGateBanner({
-        pathChoice,
-        result: qualityGate,
-        dismissed: qualityGateDismissed,
-        override: qualityGateOverride,
-      }) &&
-        qualityGate && (
-          <QualityGateBanner
-            severity={qualityGate.severity}
-            issues={qualityGate.issues}
-            result={qualityGate}
-            locale={locale}
-            onReshoot={() => {
-              if (onReshootRequest) onReshootRequest();
-              else {
-                rememberQualityGateAck(file, { dismissed: true });
-                setQualityGateDismissed(true);
-              }
-            }}
-            onProceed={() => {
-              rememberQualityGateAck(file, { dismissed: true });
-              setQualityGateDismissed(true);
-            }}
-            onUseAnyway={() => {
-              rememberQualityGateAck(file, {
-                override: true,
-                dismissed: true,
-              });
-              setQualityGateOverride(true);
-              setQualityGateDismissed(true);
-            }}
-          />
-        )}
-
-      {enhancementEnabled && pathChoice === null && (!enhancement || editingAfterSave) && (
+      {enhancementEnabled && pathChoice === null && (!enhancementIsCommitted || editingAfterSave) && (
         <div className="space-y-3">
           <div>
             <p className="text-sm font-medium text-zinc-900">
@@ -2508,7 +2313,7 @@ export function ImageStandardizeEditor({
         </div>
       )}
 
-      {enhancementEnabled && enhancement && !editingAfterSave && (
+      {enhancementEnabled && enhancementIsCommitted && !editingAfterSave && (
         <div className="space-y-3">
           <StudioResultPreview
             src={enhancement.previewUrl}
@@ -2571,7 +2376,7 @@ export function ImageStandardizeEditor({
         </div>
       )}
 
-      {enhancementEnabled && pathChoice === "ai" && (!enhancement || editingAfterSave) && (
+      {enhancementEnabled && pathChoice === "ai" && (!enhancementIsCommitted || editingAfterSave) && (
         <div className="space-y-3">
           {/* Aria-live region — announces save/reset transitions for
               screen readers. Kept visually hidden. */}
