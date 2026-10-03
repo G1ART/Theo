@@ -2862,8 +2862,11 @@ export default function BulkUploadPage() {
 
         {/* Apply-to-all */}
         {drafts.length > 0 && (
-          <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-            <h3 className="mb-3 text-sm font-medium">{t("bulk.applyToSelected")} / {t("bulk.applyToAll")}</h3>
+          <details className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-zinc-900">
+              {t("bulk.applyToSelected")} / {t("bulk.applyToAll")}
+            </summary>
+            <div className="border-t border-zinc-200 px-4 py-4">
             <div className="flex flex-wrap gap-3">
               <input
                 type="number"
@@ -3104,7 +3107,8 @@ export default function BulkUploadPage() {
                 </button>
               </div>
             </div>
-          </div>
+            </div>
+          </details>
         )}
 
         {groupOpen && (
@@ -3250,7 +3254,6 @@ export default function BulkUploadPage() {
                   const images = orderedImages(d);
                   const img = images[0];
                   const thumb = img ? getArtworkImageUrl(img.storage_path, "thumb") : null;
-                  const extra = Math.max(0, images.length - 1);
                   return (
                     <tr key={`${d.id}-${bulkVersion}`} className="border-b border-zinc-100">
                       <td className="p-2">
@@ -3282,11 +3285,6 @@ export default function BulkUploadPage() {
                               <Image src={thumb} alt="" width={48} height={48} sizes="48px" loading="lazy" className="h-full w-full object-cover" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-zinc-400 text-xs">—</div>
-                            )}
-                            {extra > 0 && (
-                              <span className="absolute bottom-0.5 right-0.5 rounded-full bg-zinc-900 px-1 text-[10px] text-white">
-                                +{extra}
-                              </span>
                             )}
                           </div>
                           <input
@@ -3325,6 +3323,33 @@ export default function BulkUploadPage() {
                             </div>
                           )}
                         </div>
+                        {images.length > 1 && (
+                          <div className="mt-1.5 flex max-w-[220px] flex-wrap items-center gap-1">
+                            {images.slice(1, 7).map((detail, index) => {
+                              const detailThumb = getArtworkImageUrl(detail.storage_path, "thumb");
+                              return (
+                                <div
+                                  key={detail.storage_path || `${d.id}-detail-${index}`}
+                                  className="h-10 w-10 overflow-hidden rounded border border-zinc-200 bg-zinc-100"
+                                  title={t("bulk.group.detailThumb")}
+                                >
+                                  <Image
+                                    src={detailThumb}
+                                    alt=""
+                                    width={40}
+                                    height={40}
+                                    sizes="40px"
+                                    loading="lazy"
+                                    className="h-full w-full object-cover"
+                                  />
+                                </div>
+                              );
+                            })}
+                            {images.length > 7 && (
+                              <span className="text-[10px] text-zinc-500">+{images.length - 7}</span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="min-w-[220px] p-2">
                         <input
