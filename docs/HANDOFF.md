@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-03
 
+## 2026-10-03 — 사각형 감지가 한도에 막혀 실패 배너로 보이던 문제
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가 없음.**
+
+흰 벽 정면 사진에서 "자동 감지 실패"가 뜬 시각의 `artwork_painting_bbox` 기록은 `error_code=cap`, `model=null`이다. gpt-5.6-sol은 호출되지 않았다. 품질 게이트와 사각형 bbox가 사진을 열 때마다 한 번씩 일일 초안 소프트캡(30, UTC 자정)에 집계되고, 15장을 연 뒤부터는 라우트가 429로 끊긴다. `detectArtworkQuad`는 `degraded`를 모서리 없음으로 바꿔, 에디터가 같은 실패 배너를 띄운다.
+
+- `artwork_painting_bbox`는 그 소프트캡을 보지 않고, 이미 쌓인 행도 한도 집계에서 뺀다. 초안 한도는 그대로다. reasoning medium, 긴 변 1280, detail high, 추론 모델에 temperature 없음, 폐기 모델 핀은 그대로다.
+- 캡·타임아웃·키 없음 응답은 세션 캐시에 남기지 않아, 다음 열기에서 다시 요청한다.
+- 감지 effect가 번역 함수에 매달려 있으면 로케일이 맞춰지는 동안 돌아온 사각형을 버린다. 그 의존을 뺐다. 요청이 끝나기 전에는 실패 배너를 띄우지 않고, 피커는 그대로 쓸 수 있다.
+- 로컬 `.env.local`에 `OPENAI_API_KEY`가 없어 sol 실호출은 하지 않았다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-bbox-soft-cap.test.ts`. `npx tsx src/lib/image/enhancement/__tests__/cornerPickerGeometry.test.ts`.
+
 ## 2026-10-03 — 빈 피드 모듈은 숨기고, 돌아오면 그 자리에 붙는다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가 없음.**

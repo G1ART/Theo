@@ -143,7 +143,7 @@ export async function handleAiRoute<TBody, TResult extends AiDegradation>(
     }
 
     try {
-      await checkDailySoftCap(supabase, user.id);
+      await checkDailySoftCap(supabase, user.id, def.feature);
     } catch (err) {
       if (err instanceof AiSoftCapError) {
         await logAiEvent(supabase, {

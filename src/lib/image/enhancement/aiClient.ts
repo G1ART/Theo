@@ -144,6 +144,11 @@ export function clearVisionCache(): void {
   cache.clear();
 }
 
+/** Drop one cached vision promise so a degraded reply can be retried. */
+export function dropVisionResult(key: string): void {
+  cache.delete(key);
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────

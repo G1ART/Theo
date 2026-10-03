@@ -2174,7 +2174,7 @@ export function ImageStandardizeEditor({
     return () => {
       cancelled = true;
     };
-  }, [pathChoice, file, enhancement, editingAfterSave, t]);
+  }, [pathChoice, file, enhancement, editingAfterSave]);
 
   const handleEnhanceApprove = useCallback(async () => {
     if (!onEnhance) return;

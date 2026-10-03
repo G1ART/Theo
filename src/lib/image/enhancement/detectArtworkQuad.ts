@@ -9,6 +9,7 @@
 
 import { aiApi } from "@/lib/ai/browser";
 import {
+  dropVisionResult,
   getOrFetchVisionResult,
   prepareImageForVision,
 } from "@/lib/image/enhancement/aiClient";
@@ -32,17 +33,21 @@ export async function detectArtworkQuad(file: File | Blob): Promise<ArtworkVisio
     maxLongEdge: 1280,
     quality: 0.9,
   });
-  const result = await getOrFetchVisionResult(
-    `artwork-quad:${payload.sha256}`,
-    () =>
-      aiApi.artworkPaintingBbox({
-        imageBase64: payload.imageBase64,
-        mime: payload.mime,
-        imagePxWidth: payload.imagePxWidth,
-        imagePxHeight: payload.imagePxHeight,
-      }),
+  const cacheKey = `artwork-quad:${payload.sha256}`;
+  const result = await getOrFetchVisionResult(cacheKey, () =>
+    aiApi.artworkPaintingBbox({
+      imageBase64: payload.imageBase64,
+      mime: payload.mime,
+      imagePxWidth: payload.imagePxWidth,
+      imagePxHeight: payload.imagePxHeight,
+    }),
   );
-  if (result.degraded) return null;
+  // A cap, timeout, or missing key is not a geometry answer. Leave it
+  // out of the session cache so the next open sends the request again.
+  if (result.degraded) {
+    dropVisionResult(cacheKey);
+    return null;
+  }
   const fromCorners = parseVisionCorners(result.corners ?? null, {
     width: payload.imagePxWidth,
     height: payload.imagePxHeight,
