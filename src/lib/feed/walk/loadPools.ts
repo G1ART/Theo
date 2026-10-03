@@ -7,9 +7,11 @@ import {
   pickLocalizedMedium,
 } from "@/lib/i18n/pickLocalized";
 import type {
+  WalkCursor,
   WalkEngagement,
   WalkExhibition,
   WalkFollow,
+  WalkLane,
   WalkPerson,
   WalkPools,
   WalkRole,
@@ -23,11 +25,18 @@ const PROFILE_COLS =
 const WORK_COLS =
   "id, title, title_ko, title_en, year, medium, medium_ko, medium_en, artist_id, created_at, likes_count, visibility, artwork_images(storage_path, sort_order)";
 
+const WORK_WITH_ARTIST =
+  WORK_COLS +
+  ", artist:profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public, city, education, mediums)";
+
 const EXH_COLS =
   "id, project_type, title, title_ko, title_en, start_date, end_date, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, created_at";
 
-const WORK_CAP = 120;
-const EXH_CAP = 36;
+const WORK_CAP = 36;
+const EXH_CAP = 10;
+const OPTIONAL_MS = 650;
+
+export type WalkLoadTiming = { ms: number; waves: number[]; skipped: string[] };
 
 type ProfileRow = {
   id: string;
@@ -60,6 +69,7 @@ type WorkRow = {
   likes_count: number | null;
   visibility: string | null;
   artwork_images: ImageRow[] | null;
+  artist?: ProfileRow | ProfileRow[] | null;
 };
 
 type ExhRow = {
@@ -80,45 +90,124 @@ type ExhRow = {
 
 export async function loadWalkPools(
   supabase: SupabaseClient,
-  opts: { userId: string | null; sort: "latest" | "popular"; locale: Locale }
-): Promise<{ viewer: WalkViewer; pools: WalkPools }> {
+  opts: {
+    userId: string | null;
+    sort: "latest" | "popular";
+    locale: Locale;
+    cursor?: WalkCursor | null;
+    lane?: WalkLane;
+  }
+): Promise<{ viewer: WalkViewer; pools: WalkPools; timing: WalkLoadTiming }> {
   const emptyViewer = blankViewer(opts.userId);
   try {
     return await load(supabase, opts);
   } catch {
-    return { viewer: emptyViewer, pools: emptyPools() };
+    return {
+      viewer: emptyViewer,
+      pools: emptyPools(),
+      timing: { ms: 0, waves: [], skipped: ["error"] },
+    };
   }
 }
 
 async function load(
   supabase: SupabaseClient,
-  opts: { userId: string | null; sort: "latest" | "popular"; locale: Locale }
-): Promise<{ viewer: WalkViewer; pools: WalkPools }> {
+  opts: {
+    userId: string | null;
+    sort: "latest" | "popular";
+    locale: Locale;
+    cursor?: WalkCursor | null;
+    lane?: WalkLane;
+  }
+): Promise<{ viewer: WalkViewer; pools: WalkPools; timing: WalkLoadTiming }> {
+  const t0 = Date.now();
+  const waves: number[] = [];
+  const skipped: string[] = [];
+  const mark = () => waves.push(Date.now() - t0);
   const { userId, sort, locale } = opts;
-  const viewerProfile = userId ? await oneProfile(supabase, userId) : null;
-  const viewerWorks = userId ? await viewerArtworkRows(supabase, userId) : [];
-  const followingIds = userId ? await followingOf(supabase, userId) : [];
-  const savedArtworkIds = userId ? await savedArtworks(supabase, userId) : [];
-  const inquiredArtworkIds = userId ? await inquiredArtworks(supabase, userId) : [];
-  const likedArtworkIds = userId ? await likedArtworks(supabase, userId) : [];
-  const ownExhibitionIds = userId
-    ? await ownExhibitions(supabase, userId, viewerWorks.map((row) => row.id))
-    : [];
+  const lane: WalkLane = opts.lane ?? (userId ? "personalized" : "public");
+  const rich = Boolean(userId) && lane === "personalized";
+  const followLane = Boolean(userId) && lane === "following";
+  const usedWorks = tailUsed(opts.cursor?.used, "w");
+  const usedEx = tailUsed(opts.cursor?.used, "e");
+  const usedWorkSet = new Set(usedWorks);
 
-  const latest = await latestExhibitions(supabase);
-  const exhibitionIds = uniq([...latest.map((row) => row.id), ...ownExhibitionIds]);
-  const missing = ownExhibitionIds.filter((id) => !latest.some((row) => row.id === id));
-  const extraExhibitions = missing.length ? await exhibitionsByIds(supabase, missing) : [];
-  const exhibitionRows = dedupeExhibitions([...extraExhibitions, ...latest]).slice(0, EXH_CAP);
-  const exhibitionIdList = exhibitionRows.map((row) => row.id);
+  const viewerPack = userId && (rich || followLane)
+    ? (async () => {
+        const [profile, works, following, inquired, liked, saved] = await Promise.all([
+          oneProfile(supabase, userId),
+          rich ? viewerArtworkRows(supabase, userId) : Promise.resolve([] as WorkRow[]),
+          followingOf(supabase, userId),
+          rich ? inquiredArtworks(supabase, userId) : Promise.resolve([] as string[]),
+          rich ? likedArtworks(supabase, userId) : Promise.resolve([] as string[]),
+          rich ? savedArtworks(supabase, userId) : Promise.resolve([] as string[]),
+        ]);
+        const own = rich ? await ownExhibitions(supabase, userId, works.map((row) => row.id)) : [];
+        return { profile, works, following, inquired, liked, saved, own };
+      })()
+    : Promise.resolve({
+        profile: null as ProfileRow | null,
+        works: [] as WorkRow[],
+        following: [] as string[],
+        inquired: [] as string[],
+        liked: [] as string[],
+        saved: [] as string[],
+        own: [] as string[],
+      });
 
-  const [links, claims, mediumRows, followedWorks] = await Promise.all([
-    exhibitionWorks(supabase, exhibitionIdList),
-    exhibitionClaims(supabase, exhibitionIdList),
-    mediumMatches(supabase, viewerWorks, locale),
-    followingIds.length ? worksByArtists(supabase, followingIds) : Promise.resolve([] as WorkRow[]),
+  const catalog = followLane
+    ? Promise.resolve({ latest: [] as ExhRow[], recent: [] as WorkRow[] })
+    : Promise.all([
+        latestExhibitions(supabase, usedEx),
+        recentWorks(supabase, sort, usedWorks),
+      ]).then(([latest, recent]) => ({ latest, recent }));
+
+  const [pack, shelf] = await Promise.all([viewerPack, catalog]);
+  mark();
+  const viewerProfile = pack.profile;
+  const viewerWorks = pack.works;
+  const followingIds = pack.following;
+  const savedArtworkIds = pack.saved;
+  const inquiredArtworkIds = pack.inquired;
+  const likedArtworkIds = pack.liked;
+  const ownExhibitionIds = pack.own;
+  const school = firstSchool(viewerProfile?.education);
+  const optionalMs = opts.cursor ? OPTIONAL_MS : 380;
+
+  const exhibitionIds = uniq([...ownExhibitionIds, ...shelf.latest.map((row) => row.id)]);
+  const missing = ownExhibitionIds.filter((id) => !shelf.latest.some((row) => row.id === id));
+  const seededIds = uniq([
+    ...(userId ? [userId] : []),
+    ...followingIds,
+    ...viewerWorks.flatMap((row) => (row.artist_id ? [row.artist_id] : [])),
+    ...shelf.recent.flatMap((row) => (row.artist_id ? [row.artist_id] : [])),
+    ...shelf.latest.flatMap((row) => [row.host_profile_id, row.curator_id].filter((id): id is string => !!id)),
   ]);
 
+  const [extraExhibitions, links, claims, mediumRows, followedWorks, alumni, seededProfiles] = await Promise.all([
+    missing.length ? exhibitionsByIds(supabase, missing) : Promise.resolve([] as ExhRow[]),
+    exhibitionWorks(supabase, exhibitionIds.slice(0, EXH_CAP + 4)),
+    exhibitionClaims(supabase, exhibitionIds.slice(0, EXH_CAP + 4)),
+    rich
+      ? withTimeout("medium", mediumMatches(supabase, viewerWorks, locale), optionalMs, [] as WorkRow[], skipped)
+      : Promise.resolve([] as WorkRow[]),
+    (rich || followLane) && followingIds.length
+      ? withTimeout(
+          "followed-works",
+          worksByArtists(supabase, followingIds, usedWorks),
+          optionalMs,
+          [] as WorkRow[],
+          skipped
+        )
+      : Promise.resolve([] as WorkRow[]),
+    rich && school
+      ? withTimeout("alumni", alumniProfiles(supabase, school), optionalMs, [] as ProfileRow[], skipped)
+      : Promise.resolve([] as ProfileRow[]),
+    profilesByIds(supabase, seededIds),
+  ]);
+  mark();
+
+  const exhibitionRows = dedupeExhibitions([...extraExhibitions, ...shelf.latest]).slice(0, EXH_CAP + 4);
   const linkWorkIds = links.flatMap((row) => (row.work_id ? [row.work_id] : []));
   const priorityIds = uniq([
     ...viewerWorks.map((row) => row.id),
@@ -128,36 +217,63 @@ async function load(
     ...mediumRows.map((row) => row.id),
     ...followedWorks.map((row) => row.id),
     ...linkWorkIds,
-  ]);
-  const byId = await worksByIds(supabase, priorityIds);
-  const recent = await recentWorks(supabase, sort);
-  const workRows = mergeWorks(
-    [...viewerWorks, ...mediumRows, ...followedWorks, ...byId, ...recent],
-    sort
-  ).slice(0, WORK_CAP);
+  ]).filter((id) => !usedWorkSet.has(id));
+  const recentIds = new Set(shelf.recent.map((row) => row.id));
+  const missingWorkIds = priorityIds.filter((id) => !recentIds.has(id)).slice(0, WORK_CAP);
 
-  const artistIds = workRows.map((row) => row.artist_id).filter((id): id is string => !!id);
-  const claimIds = claims.map((row) => row.subject_profile_id).filter((id): id is string => !!id);
   const hostIds = exhibitionRows.map((row) => row.host_profile_id).filter((id): id is string => !!id);
   const curatorIds = exhibitionRows.map((row) => row.curator_id).filter((id): id is string => !!id);
-  const school = firstSchool(viewerProfile?.education);
-  const alumni = school ? await alumniProfiles(supabase, school) : [];
-  const peopleIds = uniq([
+  const claimIds = claims.map((row) => row.subject_profile_id).filter((id): id is string => !!id);
+  const earlyPeople = uniq([
     ...(userId ? [userId] : []),
     ...followingIds,
-    ...artistIds,
+    ...shelf.recent.map((row) => row.artist_id).filter((id): id is string => !!id),
     ...claimIds,
     ...hostIds,
     ...curatorIds,
     ...alumni.map((row) => row.id),
   ]);
 
-  const likeRows = await likesForWorks(
-    supabase,
-    workRows.map((row) => row.id)
-  );
-  const likerIds = likeRows.map((row) => row.user_id);
-  const profiles = await profilesByIds(supabase, uniq([...peopleIds, ...likerIds]));
+  const seededSet = new Set(seededProfiles.map((row) => row.id));
+  const profileGap = earlyPeople.filter((id) => !seededSet.has(id));
+  const [byId, gapProfiles, likeRows, follows] = await Promise.all([
+    worksByIds(supabase, missingWorkIds),
+    profilesByIds(supabase, profileGap),
+    rich
+      ? withTimeout(
+          "likes",
+          likesForWorks(supabase, uniq([...shelf.recent.map((row) => row.id), ...linkWorkIds]).slice(0, 36)),
+          optionalMs,
+          [] as { user_id: string; artwork_id: string }[],
+          skipped
+        )
+      : Promise.resolve([] as { user_id: string; artwork_id: string }[]),
+    rich
+      ? withTimeout(
+          "follows",
+          followEdges(supabase, earlyPeople.slice(0, 40), userId),
+          optionalMs,
+          { ok: false, rows: [] as WalkFollow[] },
+          skipped
+        )
+      : Promise.resolve({ ok: false, rows: [] as WalkFollow[] }),
+  ]);
+  mark();
+
+  const workRows = mergeWorks(
+    [...viewerWorks, ...mediumRows, ...followedWorks, ...byId, ...shelf.recent],
+    sort
+  ).slice(0, WORK_CAP);
+  const earlyProfiles = dedupeProfiles([...seededProfiles, ...gapProfiles]);
+  const embedded = embeddedArtists(workRows);
+  const knownProfileIds = new Set([...earlyProfiles, ...embedded].map((row) => row.id));
+  const likerIds = likeRows.map((row) => row.user_id).filter((id) => !knownProfileIds.has(id));
+  const lateIds = uniq(likerIds).slice(0, 24);
+  const lateProfiles = lateIds.length
+    ? await withTimeout("late-profiles", profilesByIds(supabase, lateIds), 350, [] as ProfileRow[], skipped)
+    : [];
+  if (lateIds.length) mark();
+  const profiles = dedupeProfiles([...alumni, ...earlyProfiles, ...embedded, ...lateProfiles]);
   const profileMap = new Map(profiles.map((row) => [row.id, row]));
 
   const allowed = new Set<string>();
@@ -166,7 +282,6 @@ async function load(
     if (row.id === userId || following.has(row.id) || row.is_public !== false) allowed.add(row.id);
   }
 
-  const follows = await followEdges(supabase, [...allowed].slice(0, 80), userId);
   const mutualKnown = follows.ok;
   const mutualByTarget = mutualNames(follows.rows, following, profileMap, userId, locale);
 
@@ -186,7 +301,8 @@ async function load(
       city: text(row.city),
       role: walkRole(row.main_role, row.roles),
       mediums: Array.isArray(row.mediums) ? row.mediums.filter((item) => typeof item === "string" && item.trim()) : [],
-      mutualNames: mutualKnown ? mutualByTarget.get(row.id) ?? [] : null,
+      mutualNames: mutualKnown ? mutualByTarget.get(row.id)?.names ?? [] : null,
+      mutualAvatars: mutualKnown ? mutualByTarget.get(row.id)?.avatars ?? [] : null,
       viewerFollows: following.has(row.id),
     });
   }
@@ -302,6 +418,7 @@ async function load(
   return {
     viewer,
     pools: { people, works, exhibitions, engagements, follows: followRows },
+    timing: { ms: Date.now() - t0, waves, skipped },
   };
 }
 
@@ -419,18 +536,80 @@ function mutualNames(
   profiles: Map<string, ProfileRow>,
   viewerId: string | null,
   locale: Locale
-): Map<string, string[]> {
-  const byTarget = new Map<string, string[]>();
+): Map<string, { names: string[]; avatars: (string | null)[] }> {
+  const byTarget = new Map<string, { names: string[]; avatars: (string | null)[] }>();
   for (const row of rows) {
     if (!following.has(row.followerId) || row.followerId === viewerId) continue;
     const profile = profiles.get(row.followerId);
     const name = profile ? pickLocalizedDisplayName(profile, locale).trim() : "";
     if (!name) continue;
-    const list = byTarget.get(row.followingId) ?? [];
-    if (!list.includes(name)) list.push(name);
-    byTarget.set(row.followingId, list.slice(0, 8));
+    const bundle = byTarget.get(row.followingId) ?? { names: [], avatars: [] };
+    if (!bundle.names.includes(name)) {
+      bundle.names.push(name);
+      bundle.avatars.push(profile?.avatar_url ?? null);
+    }
+    bundle.names = bundle.names.slice(0, 8);
+    bundle.avatars = bundle.avatars.slice(0, 8);
+    byTarget.set(row.followingId, bundle);
   }
   return byTarget;
+}
+
+function tailUsed(used: string[] | undefined, prefix: "w" | "e"): string[] {
+  if (!used?.length) return [];
+  const p = `${prefix}:`;
+  const ids: string[] = [];
+  for (let i = used.length - 1; i >= 0 && ids.length < 40; i--) {
+    const key = used[i];
+    if (!key?.startsWith(p)) continue;
+    const id = key.slice(p.length);
+    if (id) ids.push(id);
+  }
+  return ids;
+}
+
+function withTimeout<T>(label: string, promise: Promise<T>, ms: number, fallback: T, skipped: string[]): Promise<T> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      skipped.push(label);
+      resolve(fallback);
+    }, ms);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        skipped.push(label);
+        resolve(fallback);
+      }
+    );
+  });
+}
+
+function embeddedArtists(rows: WorkRow[]): ProfileRow[] {
+  const out: ProfileRow[] = [];
+  for (const row of rows) {
+    const artist = Array.isArray(row.artist) ? row.artist[0] : row.artist;
+    if (artist?.id) out.push(artist);
+  }
+  return out;
+}
+
+function dedupeProfiles(rows: ProfileRow[]): ProfileRow[] {
+  const map = new Map<string, ProfileRow>();
+  for (const row of rows) {
+    if (row?.id && !map.has(row.id)) map.set(row.id, row);
+  }
+  return [...map.values()];
 }
 
 async function oneProfile(supabase: SupabaseClient, id: string): Promise<ProfileRow | null> {
@@ -445,7 +624,7 @@ async function viewerArtworkRows(supabase: SupabaseClient, userId: string): Prom
     .eq("artist_id", userId)
     .eq("visibility", "public")
     .order("created_at", { ascending: false })
-    .limit(16);
+    .limit(8);
   return (data as WorkRow[] | null) ?? [];
 }
 
@@ -521,14 +700,22 @@ async function ownExhibitions(
   ]);
 }
 
-async function latestExhibitions(supabase: SupabaseClient): Promise<ExhRow[]> {
-  const { data } = await supabase
-    .from("projects")
-    .select(EXH_COLS)
-    .eq("project_type", "exhibition")
-    .order("created_at", { ascending: false })
-    .limit(EXH_CAP);
-  return (data as ExhRow[] | null) ?? [];
+async function latestExhibitions(supabase: SupabaseClient, exclude: string[]): Promise<ExhRow[]> {
+  const run = (skip: boolean) => {
+    let query = supabase
+      .from("projects")
+      .select(EXH_COLS)
+      .eq("project_type", "exhibition")
+      .order("created_at", { ascending: false })
+      .limit(EXH_CAP);
+    if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);
+    return query;
+  };
+  const first = await run(true);
+  if (!first.error) return (first.data as ExhRow[] | null) ?? [];
+  if (!exclude.length) return [];
+  const retry = await run(false);
+  return (retry.data as ExhRow[] | null) ?? [];
 }
 
 async function exhibitionsByIds(supabase: SupabaseClient, ids: string[]): Promise<ExhRow[]> {
@@ -545,8 +732,8 @@ async function exhibitionWorks(
   const { data } = await supabase
     .from("exhibition_works")
     .select("exhibition_id, work_id")
-    .in("exhibition_id", exhibitionIds.slice(0, EXH_CAP))
-    .limit(500);
+    .in("exhibition_id", exhibitionIds.slice(0, 14))
+    .limit(160);
   return (data as { exhibition_id: string | null; work_id: string | null }[] | null) ?? [];
 }
 
@@ -558,9 +745,9 @@ async function exhibitionClaims(
   const { data } = await supabase
     .from("claims")
     .select("subject_profile_id, project_id")
-    .in("project_id", exhibitionIds.slice(0, EXH_CAP))
+    .in("project_id", exhibitionIds.slice(0, 14))
     .eq("visibility", "public")
-    .limit(400);
+    .limit(120);
   return (data as { subject_profile_id: string | null; project_id: string | null }[] | null) ?? [];
 }
 
@@ -571,47 +758,69 @@ async function mediumMatches(
 ): Promise<WorkRow[]> {
   const needles = uniq(
     viewerWorks.flatMap((row) => [row.medium ?? "", row.medium_ko ?? "", row.medium_en ?? "", pickLocalizedMedium(row, locale)])
-  ).slice(0, 2);
+  ).slice(0, 1);
   if (needles.length === 0) return [];
-  const batches = await Promise.all(
-    needles.flatMap((needle) => [
-      supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium", needle).limit(12),
-      supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium_ko", needle).limit(12),
-      supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium_en", needle).limit(12),
-    ])
-  );
+  const needle = needles[0]!;
+  const batches = await Promise.all([
+    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium", needle).limit(12),
+    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium_ko", needle).limit(8),
+    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium_en", needle).limit(8),
+  ]);
   return batches.flatMap((batch) => (batch.data as WorkRow[] | null) ?? []);
 }
 
-async function worksByArtists(supabase: SupabaseClient, artistIds: string[]): Promise<WorkRow[]> {
-  const { data } = await supabase
-    .from("artworks")
-    .select(WORK_COLS)
-    .in("artist_id", artistIds.slice(0, 40))
-    .eq("visibility", "public")
-    .order("created_at", { ascending: false })
-    .limit(36);
-  return (data as WorkRow[] | null) ?? [];
+async function worksByArtists(
+  supabase: SupabaseClient,
+  artistIds: string[],
+  exclude: string[] = []
+): Promise<WorkRow[]> {
+  const run = (skip: boolean) => {
+    let query = supabase
+      .from("artworks")
+      .select(WORK_COLS)
+      .in("artist_id", artistIds.slice(0, 24))
+      .eq("visibility", "public")
+      .order("created_at", { ascending: false })
+      .limit(18);
+    if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);
+    return query;
+  };
+  const first = await run(true);
+  if (!first.error) return (first.data as WorkRow[] | null) ?? [];
+  if (!exclude.length) return [];
+  const retry = await run(false);
+  return (retry.data as WorkRow[] | null) ?? [];
 }
 
 async function worksByIds(supabase: SupabaseClient, ids: string[]): Promise<WorkRow[]> {
   if (ids.length === 0) return [];
   const { data } = await supabase
     .from("artworks")
-    .select(WORK_COLS)
+    .select(WORK_WITH_ARTIST)
     .in("id", ids.slice(0, WORK_CAP))
     .eq("visibility", "public");
   return (data as WorkRow[] | null) ?? [];
 }
 
-async function recentWorks(supabase: SupabaseClient, sort: "latest" | "popular"): Promise<WorkRow[]> {
-  let query = supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").limit(36);
-  query =
-    sort === "popular"
-      ? query.order("likes_count", { ascending: false }).order("created_at", { ascending: false })
-      : query.order("created_at", { ascending: false });
-  const { data } = await query;
-  return (data as WorkRow[] | null) ?? [];
+async function recentWorks(
+  supabase: SupabaseClient,
+  sort: "latest" | "popular",
+  exclude: string[] = []
+): Promise<WorkRow[]> {
+  const run = (skip: boolean) => {
+    let query = supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").limit(20);
+    if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);
+    query =
+      sort === "popular"
+        ? query.order("likes_count", { ascending: false }).order("created_at", { ascending: false })
+        : query.order("created_at", { ascending: false });
+    return query;
+  };
+  const first = await run(true);
+  if (!first.error) return (first.data as WorkRow[] | null) ?? [];
+  if (!exclude.length) return [];
+  const retry = await run(false);
+  return (retry.data as WorkRow[] | null) ?? [];
 }
 
 async function likesForWorks(
@@ -622,8 +831,8 @@ async function likesForWorks(
   const { data } = await supabase
     .from("artwork_likes")
     .select("user_id, artwork_id")
-    .in("artwork_id", artworkIds.slice(0, 80))
-    .limit(250);
+    .in("artwork_id", artworkIds.slice(0, 36))
+    .limit(80);
   return ((data as { user_id: string | null; artwork_id: string | null }[] | null) ?? []).flatMap((row) =>
     row.user_id && row.artwork_id ? [{ user_id: row.user_id, artwork_id: row.artwork_id }] : []
   );
@@ -631,7 +840,7 @@ async function likesForWorks(
 
 async function profilesByIds(supabase: SupabaseClient, ids: string[]): Promise<ProfileRow[]> {
   if (ids.length === 0) return [];
-  const { data } = await supabase.from("profiles").select(PROFILE_COLS).in("id", ids.slice(0, 150));
+  const { data } = await supabase.from("profiles").select(PROFILE_COLS).in("id", ids.slice(0, 80));
   return (data as ProfileRow[] | null) ?? [];
 }
 
@@ -640,7 +849,7 @@ async function alumniProfiles(supabase: SupabaseClient, school: string): Promise
     .from("profiles")
     .select(PROFILE_COLS)
     .contains("education", [{ school }])
-    .limit(24);
+    .limit(12);
   if (error) return [];
   return (data as ProfileRow[] | null) ?? [];
 }
@@ -651,13 +860,13 @@ async function followEdges(
   viewerId: string | null
 ): Promise<{ ok: boolean; rows: WalkFollow[] }> {
   if (peopleIds.length === 0 && !viewerId) return { ok: true, rows: [] };
-  const ids = peopleIds.slice(0, 80);
+  const ids = peopleIds.slice(0, 40);
   const [incoming, outgoing, mine] = await Promise.all([
     ids.length
-      ? supabase.from("follows").select("follower_id, following_id").eq("status", "accepted").in("following_id", ids).limit(200)
+      ? supabase.from("follows").select("follower_id, following_id").eq("status", "accepted").in("following_id", ids).limit(80)
       : Promise.resolve({ data: [], error: null }),
     ids.length
-      ? supabase.from("follows").select("follower_id, following_id").eq("status", "accepted").in("follower_id", ids).limit(200)
+      ? supabase.from("follows").select("follower_id, following_id").eq("status", "accepted").in("follower_id", ids).limit(80)
       : Promise.resolve({ data: [], error: null }),
     viewerId
       ? supabase.from("follows").select("follower_id, following_id").eq("status", "accepted").eq("follower_id", viewerId).limit(80)

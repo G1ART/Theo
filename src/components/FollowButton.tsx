@@ -65,6 +65,11 @@ type Props = {
     sort?: FeedSort;
     position: number;
   };
+  /** Feed artist card uses an outline, full-width control. Defaults keep every other surface solid. */
+  appearance?: "solid" | "outline";
+  block?: boolean;
+  /** Replaces the idle follow label. Pending and following labels stay the product copy. */
+  idleLabel?: string;
 };
 
 function getIsTouch(): boolean {
@@ -94,6 +99,9 @@ export function FollowButton({
   interceptFollow,
   surface,
   feedContext,
+  appearance = "solid",
+  block = false,
+  idleLabel,
 }: Props) {
   const { t } = useT();
   const [status, setStatus] = useState<FollowStatus>(() =>
@@ -210,7 +218,7 @@ export function FollowButton({
     status === "none"
       ? isPrivateTarget
         ? t("follow.cta.request")
-        : t("follow.cta.follow")
+        : idleLabel ?? t("follow.cta.follow")
       : status === "pending"
         ? t("follow.cta.requested")
         : isTouch
@@ -222,19 +230,25 @@ export function FollowButton({
   const isUnfollowWarning = status === "accepted" && !isTouch && hovered;
   const isPendingPill = status === "pending";
 
-  const sizeClasses = size === "sm" ? "px-2 py-1 text-xs" : "px-3 py-1.5 text-sm";
+  const sizeClasses = block
+    ? "w-full px-3 py-2 text-sm font-normal"
+    : size === "sm"
+      ? "px-2 py-1 text-xs"
+      : "px-3 py-1.5 text-sm";
 
   let toneClasses: string;
   if (isUnfollowWarning) {
     toneClasses =
       "border border-red-500 bg-transparent text-red-600 hover:bg-red-50";
-  } else if (isPendingPill) {
+  } else if (isPendingPill || appearance === "outline") {
     toneClasses =
-      "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50";
+      "border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50";
   } else {
     toneClasses =
       "border border-zinc-300 bg-zinc-900 text-white hover:bg-zinc-800";
   }
+
+  const radius = appearance === "outline" || block ? "rounded-sm" : "rounded";
 
   return (
     <button
@@ -242,7 +256,7 @@ export function FollowButton({
       onClick={handleClick}
       onMouseEnter={() => !isTouch && setHovered(true)}
       onMouseLeave={() => !isTouch && setHovered(false)}
-      className={`rounded font-medium ${sizeClasses} ${toneClasses}`}
+      className={`${radius} font-medium ${sizeClasses} ${toneClasses}`}
     >
       {label}
     </button>

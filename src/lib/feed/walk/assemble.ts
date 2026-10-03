@@ -2,6 +2,7 @@ import { encodeCursor } from "./cursor";
 import type {
   FeedModule,
   WalkCopy,
+  WalkCredit,
   WalkExhibition,
   WalkExhibitionView,
   WalkLane,
@@ -246,7 +247,19 @@ function toPerson(person: WalkPerson): WalkPersonView {
     city: person.city,
     role: person.role,
     mutualNames: person.mutualNames ? [...person.mutualNames] : person.mutualNames,
+    mutualAvatars: person.mutualAvatars ? [...person.mutualAvatars] : person.mutualAvatars ?? null,
     viewerFollows: person.viewerFollows,
+  };
+}
+
+function toCredit(person: WalkPerson | undefined, fallbackName: string | null): WalkCredit | null {
+  const name = person?.name?.trim() || fallbackName?.trim() || "";
+  if (!name) return null;
+  return {
+    id: person?.id ?? null,
+    name,
+    username: person?.username ?? null,
+    avatarUrl: person?.avatarUrl ?? null,
   };
 }
 
@@ -259,13 +272,14 @@ function galleryName(exhibition: WalkExhibition, idx: Indexes): string | null {
 
 function toExhibition(exhibition: WalkExhibition, idx: Indexes): WalkExhibitionView {
   const curator = idx.people.get(exhibition.curatorId);
+  const host = exhibition.hostProfileId ? idx.people.get(exhibition.hostProfileId) : undefined;
   return {
     id: exhibition.id,
     title: exhibition.title,
     startDate: exhibition.startDate,
     endDate: exhibition.endDate,
-    curatorName: curator?.name?.trim() || null,
-    galleryName: galleryName(exhibition, idx),
+    curator: toCredit(curator, null),
+    gallery: toCredit(host, galleryName(exhibition, idx)),
     coverPath: exhibition.coverPath,
     city: exhibition.city,
   };
@@ -277,7 +291,8 @@ function toWork(work: WalkWork, idx: Indexes): WalkWorkView {
     work.exhibitionIds
       .map((id) => idx.exhibitions.get(id))
       .find((row): row is WalkExhibition => !!row) ?? null;
-  const curator = exhibition ? idx.people.get(exhibition.curatorId) : null;
+  const curator = exhibition ? idx.people.get(exhibition.curatorId) : undefined;
+  const host = exhibition?.hostProfileId ? idx.people.get(exhibition.hostProfileId) : undefined;
   return {
     id: work.id,
     title: work.title,
@@ -286,9 +301,10 @@ function toWork(work: WalkWork, idx: Indexes): WalkWorkView {
     artistId: work.artistId,
     artistName: artist?.name ?? "",
     artistUsername: artist?.username ?? null,
+    artistAvatarUrl: artist?.avatarUrl ?? null,
     imagePath: work.imagePath,
-    curatorName: curator?.name?.trim() || null,
-    galleryName: exhibition ? galleryName(exhibition, idx) : null,
+    curator: toCredit(curator, null),
+    gallery: exhibition ? toCredit(host, galleryName(exhibition, idx)) : null,
   };
 }
 
@@ -838,8 +854,20 @@ function storyPublic(
   const outside = loose.filter((work) => !showIds.has(work.id));
   const gallery = gate.takeWorks(outside.length >= TRIO ? outside : loose, TRIO);
   const show = gate.takeExhibition(exhibition);
+  if (!gallery || !show) return null;
+
+  const curated = full ? gate.takeWorks(showWorks, TRIO) : null;
+  // Reserve the artist before the room claims every participant.
+  const artistCandidate = full
+    ? exhibition.participantIds
+        .map((id) => ctx.idx.people.get(id))
+        .find((person) => person && person.role === "artist")
+    : undefined;
+  const artistWorks = artistCandidate ? artistRail(ctx, gate, artistCandidate) : null;
+  const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
+
   const people = gate.takePeople(exhibition.participantIds, 1);
-  if (!gallery || !show || !people) return null;
+  if (!people) return null;
 
   const modules: FeedModule[] = [
     mod("artwork_gallery", "public", "works", copy("feed.walk.public.works.title"), copy("feed.walk.public.works.reason"), {
@@ -857,12 +885,6 @@ function storyPublic(
     return { touch: gate.touch, modules };
   }
 
-  const curated = gate.takeWorks(showWorks, TRIO);
-  const artistCandidate = exhibition.participantIds
-    .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist");
-  const artistWorks = artistCandidate ? artistRail(ctx, gate, artistCandidate) : null;
-  const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
   const more = gate.takeWorks(
     worksOfArtists(
       exhibition.participantIds.filter((id) => ctx.idx.people.get(id)?.role === "artist"),

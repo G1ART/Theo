@@ -47,7 +47,20 @@ export async function POST(request: Request) {
   const locale: Locale = body.locale === "ko" ? "ko" : "en";
   const cursor = typeof body.cursor === "string" ? decodeCursor(body.cursor) : null;
 
-  const { viewer, pools } = await loadWalkPools(supabase, { userId, sort, locale });
+  const started = Date.now();
+  const { viewer, pools, timing } = await loadWalkPools(supabase, { userId, sort, locale, cursor, lane });
+  const loadedAt = Date.now();
   const page = assembleWalk({ lane, viewer, pools, cursor });
-  return NextResponse.json(page, { headers: { "cache-control": "no-store" } });
+  const assembleMs = Date.now() - loadedAt;
+  const loadMs = loadedAt - started;
+  const totalMs = loadMs + assembleMs;
+  console.info(
+    `[feed.walk] lane=${lane} off=${cursor?.off ?? 0} loadMs=${loadMs} assembleMs=${assembleMs} totalMs=${totalMs} scenario=${page.scenario ?? "none"} modules=${page.modules.length} waves=${timing.waves.join("+") || "-"} skipped=${timing.skipped.join(",") || "-"}`
+  );
+  return NextResponse.json(page, {
+    headers: {
+      "cache-control": "no-store",
+      "server-timing": `load;dur=${loadMs}, assemble;dur=${assembleMs}, total;dur=${totalMs}`,
+    },
+  });
 }

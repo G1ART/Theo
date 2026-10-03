@@ -23,6 +23,8 @@ export type WalkPerson = {
    * `null` means the graph was not queried — the UI omits the line.
    */
   mutualNames: string[] | null;
+  /** Avatars aligned with `mutualNames`. Absent when the graph was not queried. */
+  mutualAvatars?: (string | null)[] | null;
   viewerFollows: boolean;
 };
 
@@ -99,6 +101,13 @@ export type WalkCopy = {
   params: Record<string, string>;
 };
 
+export type WalkCredit = {
+  id: string | null;
+  name: string;
+  username: string | null;
+  avatarUrl: string | null;
+};
+
 export type WalkPersonView = {
   id: string;
   name: string;
@@ -109,6 +118,7 @@ export type WalkPersonView = {
   city: string | null;
   role: WalkRole;
   mutualNames: string[] | null;
+  mutualAvatars: (string | null)[] | null;
   viewerFollows: boolean;
 };
 
@@ -120,9 +130,10 @@ export type WalkWorkView = {
   artistId: string;
   artistName: string;
   artistUsername: string | null;
+  artistAvatarUrl: string | null;
   imagePath: string | null;
-  curatorName: string | null;
-  galleryName: string | null;
+  curator: WalkCredit | null;
+  gallery: WalkCredit | null;
 };
 
 export type WalkExhibitionView = {
@@ -130,8 +141,8 @@ export type WalkExhibitionView = {
   title: string;
   startDate: string | null;
   endDate: string | null;
-  curatorName: string | null;
-  galleryName: string | null;
+  curator: WalkCredit | null;
+  gallery: WalkCredit | null;
   coverPath: string | null;
   city: string | null;
 };
