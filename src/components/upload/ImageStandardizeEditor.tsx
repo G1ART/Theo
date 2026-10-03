@@ -19,6 +19,7 @@ import {
   toFilterCss,
 } from "@/lib/image/displayAdjust";
 import { analyzeImageFile, type ImageAnalysis } from "@/lib/image/analyze";
+import { boxAroundEllipse, prefersRoundCutout } from "@/lib/image/shapeRoute";
 import { useT } from "@/lib/i18n/useT";
 import {
   type EnhancementMeta,
@@ -600,6 +601,7 @@ export function ImageStandardizeEditor({
   const [analysis, setAnalysis] = useState<ImageAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const shapeRoutedRef = useRef(false);
 
   // Local slider state — mirrors `value` but stays smooth during drag.
   const [b, setB] = useState<number>(value?.b ?? NEUTRAL.b);
@@ -2120,6 +2122,7 @@ export function ImageStandardizeEditor({
     colorSeedLockedRef.current = Boolean(sharedPreset);
     setVisionStatus("idle");
     setDetectingArtwork(false);
+    shapeRoutedRef.current = false;
     setPerspectiveCorners(null);
     setWizardPerspectiveDraft(null);
     setPerspectiveUserAdjusted(false);
@@ -2131,12 +2134,59 @@ export function ImageStandardizeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- file identity only
   }, [file]);
 
-  // Seed the crop picker from vision; never warp until the user confirms.
+  // Local shape check first (no network). A round subject skips the
+  // vision corner call and goes straight to background removal.
+  // Everything else still asks the model for rectangle corners, at
+  // low reasoning effort so the wait is shorter.
   useEffect(() => {
     if (pathChoice !== "ai") return;
     if (enhancement && !editingAfterSave) return;
     if (perspectiveCorners) return;
+    if (!analysis && !analyzeError) {
+      setDetectingArtwork(true);
+      setVisionStatus("loading");
+      return;
+    }
+    if (shapeRoutedRef.current) return;
+    shapeRoutedRef.current = true;
     let cancelled = false;
+    if (analysis && prefersRoundCutout(analysis)) {
+      const box = boxAroundEllipse(analysis.ellipse!);
+      setBoundaryMode("silhouette");
+      setSilhouetteBox(box);
+      setVisionStatus("ok");
+      setDetectingArtwork(false);
+      setSilhouetteError(null);
+      setSilhouetteRunning(true);
+      void cropFileToNormBox(file, box)
+        .then((cropped) => requestSilhouetteCutout(cropped))
+        .then((blob) => {
+          if (cancelled) return;
+          const next = new File([blob], "silhouette.webp", { type: "image/webp" });
+          silhouetteFileRef.current = next;
+          setSilhouetteUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return URL.createObjectURL(next);
+          });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          const reason = err instanceof Error ? err.message : "error";
+          setSilhouetteError(
+            reason === "no_key"
+              ? t("upload.imageEnhance.flow.boundaryShapeNoKey")
+              : reason === "provider_quota"
+                ? t("upload.imageEnhance.flow.boundaryShapeQuota")
+                : t("upload.imageEnhance.flow.boundaryShapeFailed"),
+          );
+        })
+        .finally(() => {
+          if (!cancelled) setSilhouetteRunning(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     setDetectingArtwork(true);
     setVisionStatus("loading");
     void detectArtworkQuad(file)
@@ -2147,10 +2197,7 @@ export function ImageStandardizeEditor({
         setVisionConfidence(seed?.confidence ?? 0);
         setVisionLook(seed?.look ?? null);
         setVisionStatus(corners ? "ok" : "miss");
-        if (
-          seed?.look &&
-          !colorSeedLockedRef.current
-        ) {
+        if (seed?.look && !colorSeedLockedRef.current) {
           setInputType(seed.look.colorMode);
           setIntensity(seed.look.intensity);
         }
@@ -2170,7 +2217,7 @@ export function ImageStandardizeEditor({
     return () => {
       cancelled = true;
     };
-  }, [pathChoice, file, enhancement, editingAfterSave, perspectiveCorners]);
+  }, [pathChoice, file, enhancement, editingAfterSave, perspectiveCorners, analysis, analyzeError, t]);
 
   const handleEnhanceApprove = useCallback(async () => {
     if (!onEnhance) return;
