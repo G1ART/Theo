@@ -585,6 +585,18 @@ export type ArtworkQualityGateResult = AiDegradation & {
  * degraded / no-key response is guaranteed to preserve the primary
  * image as-is.
  */
+/**
+ * Starting color preset for the deterministic enhancer. The model
+ * chooses this; the browser pipeline applies it. Pixels are never
+ * regenerated.
+ */
+export type ArtworkLookPreset = {
+  colorMode: "original" | "enhance";
+  intensity: "light" | "normal" | "strong";
+  noteKo: string;
+  noteEn: string;
+};
+
 export type ArtworkPaintingBboxResult = AiDegradation & {
   bbox: { x: number; y: number; width: number; height: number };
   confidence: number;
@@ -592,4 +604,6 @@ export type ArtworkPaintingBboxResult = AiDegradation & {
   hasVisibleFrame: boolean;
   /** TL, TR, BR, BL of the primary artwork, when the model supplied them. */
   corners?: [[number, number], [number, number], [number, number], [number, number]] | null;
+  /** Suggested first color preset. Null when the model omitted it. */
+  look?: ArtworkLookPreset | null;
 };

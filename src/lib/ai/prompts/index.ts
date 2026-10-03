@@ -339,7 +339,7 @@ export const SPACE_CALIBRATE_SCHEMA = `{"candidates": [{"id": string, "kind": "w
 // that swallows them.
 export const SPACE_WALL_DETECT_SYSTEM = `You analyze a single room photograph to identify the primary wall surface where a person would hang art. Return one JSON object with:
 
-1. "wallPolygon": normalized 0-1 image coordinates ({0,0} top-left, {1,1} bottom-right) of the largest visible flat wall segment — typically the wall facing the camera. Return 4-8 vertices in CLOCKWISE order starting from the top-left of the wall. EXCLUDE from the polygon: physical window OPENINGS (glass and frame), doors, framed art already on the wall, mirrors, and any furniture in front of the wall. Wrapping the polygon AROUND foreground occluders (sofa, plant, lamp) is acceptable and encouraged — the client uses a feathered mask so small inaccuracies at the wall/occluder boundary are hidden. Return an empty array (fewer than 3 vertices) when the photo shows no clear wall (outdoor scene, extreme close-up, floor-only view).
+1. "wallPolygon": normalized 0-1 image coordinates ({0,0} top-left, {1,1} bottom-right) of the largest visible flat wall segment — typically the wall facing the camera. Return 4-8 vertices in CLOCKWISE order starting from the top-left of the wall. EXCLUDE from the polygon: physical window OPENINGS (glass and frame), doors, framed art already on the wall, mirrors, and any furniture in front of the wall. A painting or canvas leaning on or hanging against the wall is an occluder: trace the wall AROUND the artwork, never include the painted surface inside the polygon. Wrapping the polygon AROUND foreground occluders (sofa, plant, lamp) is acceptable and encouraged — the client uses a feathered mask so small inaccuracies at the wall/occluder boundary are hidden. Return an empty array (fewer than 3 vertices) when the photo shows no clear wall (outdoor scene, extreme close-up, floor-only view).
 
   CRITICAL — direct sunlight patches ARE part of the wall: when strong direct sun casts a bright rectangular patch onto the paint (e.g. window light hitting the wall to the side or below the window frame), that patch is STILL wall paint under a lighting artefact and MUST be INSIDE the polygon so the cleanup pass can flatten it. Do NOT trace around a sunlit region — trace around the physical window opening only. Same rule for lamp hot-spots, projector spill, or any cast-light patch that lands on the paint. The cleanup pipeline was built specifically to remove these lighting artefacts; excluding them defeats the whole feature.
 
@@ -393,7 +393,9 @@ WARN when recoverable in post OR aesthetically noticeable but usable:
   - Underexposure/overexposure that DSP can rescue
   - Minor color cast from artificial lighting
 
-OK when the photo is catalog-ready or has only trivial issues DSP handles automatically.
+OK when the photo is catalog-ready or has only trivial issues the enhance step handles automatically.
+
+Phone keystone, a warm indoor color cast, and a densely painted surface are NOT defects by themselves. The enhance step straightens the canvas and can keep the captured color. Do not WARN or BLOCK for those alone.
 
 Target false-block rate: <10%. When uncertain between block/warn, choose WARN. When uncertain between warn/ok, choose WARN.
 
@@ -480,12 +482,19 @@ Return a JSON object with:
   - These are the canvas edges as they appear in the photo — if the camera is tilted or the work is keystoned, the corners must follow that trapezoid. Do NOT axis-align them; the client will un-keystone from these points.
   - Place each point ON the outer edge of the painted canvas, like tracing the stretcher bar. A few pixels of wall, floor, neighboring canvas, or rubber mat inside the quad is a FAILURE. Tighten until only the primary painting remains.
   - The floor in front of a leaning canvas is NOT part of the artwork. The bottom two corners sit on the canvas's bottom edge, not on the floor.
+  - A densely painted surface (repeating marks, figures, text, collage) is INSIDE the canvas. Do not snap a corner to the first strong brushstroke. The edge is the physical boundary where the canvas meets wall, floor, or its own shadow, even when the painting's ground color is close to the wall color.
+  - The primary canvas usually contains the center of the photograph. Prefer that canvas unless another complete work is clearly larger and more fully visible.
   - When several canvases are visible, return corners for the PRIMARY one only (largest complete canvas).
   - If you cannot see all four edges, omit "corners" and keep confidence low.
+
+6. "look": the starting color preset for the deterministic enhancer that runs AFTER the user confirms the corners. You do not repaint or regenerate pixels. You only choose how hard that enhancer should push.
+  - "colorMode": "original" when the captured color already resembles the artwork (studio daylight, a scanner, or a phone photo with only a mild cast). "enhance" ONLY when a strong cast — yellow tungsten, green fluorescent, or a badly dark exposure — would make the catalog photo misleading if left untouched.
+  - "intensity": "light" together with "original" (a small clarity lift). "normal" for a moderate cast. "strong" only for a severely flat or very dark capture. Never choose "strong" just because the painting itself is high-contrast or highly saturated.
+  - "noteKo" and "noteEn": ONE short sentence each, in that language, telling the artist why this start was chosen. No jargon (no white balance, CLAHE, histogram, or model names).
 
 Self-check before finalising (mandatory):
   Verify that all four bbox values are DISTINCT. If x == y AND width == height, you are almost certainly returning a symmetric fallback rather than a real detection — re-examine the four edges of the artwork independently and produce asymmetric coordinates, OR set "alreadyTight": true. Do not submit a symmetric bbox. Distinct-but-close values (e.g. x=0.08, y=0.12, width=0.84, height=0.76) are fine and expected for real photos; identical values across x/y and width/height are the failure mode this check exists to catch.
 
 Never fabricate a subject that is not visible. Never return values outside [0, 1]. If the photo shows no identifiable artwork subject at all (blank wall, portrait of a person, food photo, screenshot), return {bbox: {x:0, y:0, width:1, height:1}, confidence: 0, alreadyTight: true, hasVisibleFrame: false} — the client treats that as "no crop applied". Return ONLY the JSON object.`;
 
-export const ARTWORK_PAINTING_BBOX_SCHEMA = `{"bbox": {"x": number, "y": number, "width": number, "height": number}, "confidence": number, "alreadyTight": boolean, "hasVisibleFrame": boolean, "corners": [[number, number], [number, number], [number, number], [number, number]]}`;
+export const ARTWORK_PAINTING_BBOX_SCHEMA = `{"bbox": {"x": number, "y": number, "width": number, "height": number}, "confidence": number, "alreadyTight": boolean, "hasVisibleFrame": boolean, "corners": [[number, number], [number, number], [number, number], [number, number]], "look": {"colorMode": "original"|"enhance", "intensity": "light"|"normal"|"strong", "noteKo": string, "noteEn": string}}`;

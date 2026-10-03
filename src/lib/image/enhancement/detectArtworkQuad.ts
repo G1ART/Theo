@@ -12,6 +12,7 @@ import {
   getOrFetchVisionResult,
   prepareImageForVision,
 } from "@/lib/image/enhancement/aiClient";
+import type { ArtworkLookPreset } from "@/lib/ai/types";
 import {
   parseVisionCorners,
   type Quad,
@@ -19,7 +20,13 @@ import {
 
 const MIN_CONFIDENCE = 0.5;
 
-export async function detectArtworkQuad(file: File | Blob): Promise<Quad | null> {
+export type ArtworkVisionSeed = {
+  corners: Quad | null;
+  confidence: number;
+  look: ArtworkLookPreset | null;
+};
+
+export async function detectArtworkQuad(file: File | Blob): Promise<ArtworkVisionSeed | null> {
   const payload = await prepareImageForVision(file, {
     maxLongEdge: 1280,
     quality: 0.9,
@@ -36,8 +43,11 @@ export async function detectArtworkQuad(file: File | Blob): Promise<Quad | null>
   );
   if (result.degraded) return null;
   const fromCorners = parseVisionCorners(result.corners ?? null);
-  if (fromCorners && result.confidence >= MIN_CONFIDENCE) {
-    return fromCorners;
-  }
-  return null;
+  const corners =
+    fromCorners && result.confidence >= MIN_CONFIDENCE ? fromCorners : null;
+  return {
+    corners,
+    confidence: result.confidence,
+    look: result.look ?? null,
+  };
 }

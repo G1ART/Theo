@@ -68,7 +68,10 @@ import {
   toneSignature,
 } from "@/lib/image/enhancement/coherence";
 import { applyToneDeltaToFile, applyUserFineTuneToFile } from "@/lib/image/enhancement/applyToneDelta";
-import { detectArtworkQuad } from "@/lib/image/enhancement/detectArtworkQuad";
+import {
+  detectArtworkQuad,
+  type ArtworkVisionSeed,
+} from "@/lib/image/enhancement/detectArtworkQuad";
 import { aiApi } from "@/lib/ai/browser";
 import type { ArtworkQualityGateResult } from "@/lib/ai/types";
 import {
@@ -1090,6 +1093,12 @@ export function ImageStandardizeEditor({
   }, [pathChoice]);
   const [detectingArtwork, setDetectingArtwork] = useState(false);
   const [visionQuad, setVisionQuad] = useState<Quad | null>(null);
+  const [visionConfidence, setVisionConfidence] = useState(0);
+  const [visionLook, setVisionLook] = useState<ArtworkVisionSeed["look"]>(null);
+  // A carried bulk preset, or a tap on the color chips, locks the
+  // vision "look" out so a late model response cannot overwrite a
+  // choice the user already made.
+  const colorSeedLockedRef = useRef(Boolean(sharedPreset));
   const [visionStatus, setVisionStatus] = useState<
     "idle" | "loading" | "ok" | "miss"
   >("idle");
@@ -1378,15 +1387,15 @@ export function ImageStandardizeEditor({
 
   // Seed the Step-1 PerspectiveCornerPicker with (in order):
   //   1. user's committed corners,
-  //   2. vision 4-corner trapezoid (canvas edges, not AABB),
-  //   3. high-confidence edge detector (not suggestedCrop AABB),
+  //   2. vision 4-corner trapezoid (the model owns the first guess),
+  //   3. local matte / edge detectors, only when vision missed,
   //   4. defaultInsetQuad as a visual starting point only.
   const matteQuad = (analysis?.matteForegroundCorners ?? null) as Quad | null;
   const matteReady = Boolean(matteQuad && hasValidArea(matteQuad));
   const wizardPerspectiveSeed = useMemo<Quad>(() => {
     if (perspectiveCorners) return perspectiveCorners;
-    if (matteQuad && hasValidArea(matteQuad)) return matteQuad;
     if (visionQuad) return visionQuad;
+    if (matteQuad && hasValidArea(matteQuad)) return matteQuad;
     const edge = analysis?.suggestedRectangleCorners as Quad | null | undefined;
     const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
     if (edge && hasValidArea(edge) && edgeConf >= 0.55) return edge;
@@ -1403,10 +1412,12 @@ export function ImageStandardizeEditor({
     if (perspectiveCorners) return false;
     const rectConf = analysis?.rectangleConfidence ?? 0;
     const edgeConf = analysis?.suggestedRectangleConfidence ?? 0;
-    if (visionQuad) return rectConf < 0.55;
+    // A confident vision quad is a real preset, not a dashed guess.
+    // Below 0.7 the prompt itself says the client should not trust it.
+    if (visionQuad) return visionConfidence < 0.7;
     if (matteQuad && hasValidArea(matteQuad)) return true;
     return edgeConf < 0.55 || rectConf < 0.55;
-  }, [perspectiveCorners, matteQuad, visionQuad, analysis]);
+  }, [perspectiveCorners, matteQuad, visionQuad, visionConfidence, analysis]);
 
   const pickerImageWidth =
     analysis?.width || previewNaturalSize?.w || 1024;
@@ -2062,6 +2073,9 @@ export function ImageStandardizeEditor({
     lastPreviewRecipeKeyRef.current = "";
     perspectiveCornersRef.current = null;
     setVisionQuad(null);
+    setVisionConfidence(0);
+    setVisionLook(null);
+    colorSeedLockedRef.current = Boolean(sharedPreset);
     setVisionStatus("idle");
     setDetectingArtwork(false);
     setPerspectiveCorners(null);
@@ -2084,11 +2098,21 @@ export function ImageStandardizeEditor({
     setDetectingArtwork(true);
     setVisionStatus("loading");
     void detectArtworkQuad(file)
-      .then((quad) => {
+      .then((seed) => {
         if (cancelled) return;
-        setVisionQuad(quad);
-        setVisionStatus(quad ? "ok" : "miss");
-        if (quad && !perspectiveUserAdjustedRef.current) {
+        const corners = seed?.corners ?? null;
+        setVisionQuad(corners);
+        setVisionConfidence(seed?.confidence ?? 0);
+        setVisionLook(seed?.look ?? null);
+        setVisionStatus(corners ? "ok" : "miss");
+        if (
+          seed?.look &&
+          !colorSeedLockedRef.current
+        ) {
+          setInputType(seed.look.colorMode);
+          setIntensity(seed.look.intensity);
+        }
+        if (corners && !perspectiveUserAdjustedRef.current) {
           setWizardPerspectiveDraft(null);
           setPerspectiveResetToken((n) => n + 1);
         }
@@ -2904,7 +2928,10 @@ export function ImageStandardizeEditor({
                         <button
                           key={i}
                           type="button"
-                          onClick={() => setIntensity(i)}
+                          onClick={() => {
+                            colorSeedLockedRef.current = true;
+                            setIntensity(i);
+                          }}
                           className={`rounded-full border px-2.5 py-1 ${
                             intensity === i
                               ? "border-zinc-900 bg-zinc-900 text-white"
@@ -2932,7 +2959,10 @@ export function ImageStandardizeEditor({
                         <button
                           key={m}
                           type="button"
-                          onClick={() => setInputType(m)}
+                          onClick={() => {
+                            colorSeedLockedRef.current = true;
+                            setInputType(m);
+                          }}
                           className={`rounded-full border px-2.5 py-1 ${
                             inputType === m
                               ? "border-zinc-900 bg-zinc-900 text-white"
@@ -2946,6 +2976,11 @@ export function ImageStandardizeEditor({
                     <p className="text-[11px] leading-relaxed text-zinc-500">
                       {t("upload.imageEnhance.inputType.hint")}
                     </p>
+                    {visionLook && (locale === "en" ? visionLook.noteEn : visionLook.noteKo) ? (
+                      <p className="text-[11px] leading-relaxed text-zinc-600">
+                        {locale === "en" ? visionLook.noteEn : visionLook.noteKo}
+                      </p>
+                    ) : null}
                   </div>
 
                   {/* Post-engine fine-tune — always visible, does not re-run crop */}

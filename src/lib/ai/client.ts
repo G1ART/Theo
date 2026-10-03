@@ -12,7 +12,32 @@ import type { AiFeatureKey, AiDegradation } from "./types";
 import { SAFETY_FOOTER, assertSafePrompt } from "./safety";
 
 const CONFIGURED_MODEL = (process.env.OPENAI_MODEL ?? "").trim();
-export const DEFAULT_MODEL = CONFIGURED_MODEL || "gpt-4o-mini";
+
+/**
+ * Flagship as of 2026-10-02 (OpenAI models index: start here).
+ * Vision input + chat completions + JSON mode. Replaces the retired
+ * `gpt-4o` / `gpt-4o-mini` pair — `gpt-4o-2024-05-13` is scheduled to
+ * shut down 2026-10-23, and mini was missing edges on artwork photos.
+ */
+export const RECOMMENDED_MODEL = "gpt-6-astra";
+
+/** Env pins we refuse to keep. A stale Vercel `OPENAI_MODEL=gpt-4o-mini`
+ *  must not silently undo this upgrade. */
+const RETIRED_MODELS = new Set([
+  "gpt-4o",
+  "gpt-4o-2024-05-13",
+  "gpt-4o-2024-08-06",
+  "gpt-4o-2024-11-20",
+  "gpt-4o-mini",
+  "gpt-4o-mini-2024-07-18",
+  "gpt-4.1-mini",
+  "gpt-4.1-nano",
+]);
+
+export const DEFAULT_MODEL =
+  CONFIGURED_MODEL && !RETIRED_MODELS.has(CONFIGURED_MODEL)
+    ? CONFIGURED_MODEL
+    : RECOMMENDED_MODEL;
 /**
  * OpenAI chat completion budget (SDK client + AbortSignal in handleAiRoute).
  * 8s was too tight for JSON-mode portfolio hints in production; keep below
@@ -23,37 +48,32 @@ export const GENERATE_TIMEOUT_MS = 45_000;
 /**
  * Per-feature model overrides (2026-08-19).
  *
- * The default (`DEFAULT_MODEL`, typically `gpt-4o-mini`) is fine for
- * most text-only JSON copilots — but a handful of vision features
- * need the fuller `gpt-4o` for measurably tighter geometry. When a
- * key is present here, `generateJSON` picks THIS model instead of
- * the environment default; every other feature keeps riding
- * `DEFAULT_MODEL` so we don't 10x the token bill globally.
- *
- * Current overrides:
- *   • `artwork_painting_bbox` → `gpt-4o` — the Display Simulation
- *     "여백 자동 제거 (AI)" pipeline. `gpt-4o-mini` frequently
- *     returned a symmetric 10% fallback bbox
- *     ({x:0.1, y:0.1, w:0.8, h:0.8}) instead of tight edges for
- *     typical framed-photo uploads, which defeats the whole feature
- *     (the fallback keeps every pixel of matte / frame padding).
- *     `gpt-4o` measurably tightens those edges. See
- *     `ARTWORK_PAINTING_BBOX_SYSTEM` for the prompt-side companion
- *     changes (anti-fallback instructions).
+ * Every feature rides `DEFAULT_MODEL` (`gpt-6-astra` unless a
+ * non-retired `OPENAI_MODEL` is set). The old bbox-only `gpt-4o`
+ * override was removed on 2026-10-02: pinning one route to 4o would
+ * now be a downgrade. Add a key here only to diverge from the default.
  */
-export const FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>> = {
-  artwork_painting_bbox: "gpt-4o",
-};
+export const FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>> = {};
 
 /**
- * Pick the model for a given feature. Env override
- * (`OPENAI_MODEL=…`) is intentionally IGNORED for keys that appear
- * in `FEATURE_MODEL_OVERRIDE` — a feature-specific choice (e.g.
- * "we need gpt-4o for this bbox") shouldn't silently regress to
- * mini when someone force-pins mini via env for another workflow.
+ * Pick the model for a given feature. A key in `FEATURE_MODEL_OVERRIDE`
+ * wins over `DEFAULT_MODEL`. Retired env pins (`gpt-4o`, `gpt-4o-mini`)
+ * never become the default — see `RETIRED_MODELS`.
  */
 export function resolveModelForFeature(feature: AiFeatureKey): string {
   return FEATURE_MODEL_OVERRIDE[feature] ?? DEFAULT_MODEL;
+}
+
+const VISION_FEATURES = new Set<AiFeatureKey>([
+  "artwork_painting_bbox",
+  "artwork_quality_gate",
+  "space.calibrate",
+  "space.wall_detect",
+  "cv_import",
+]);
+
+function modelUsesReasoning(model: string): boolean {
+  return /^(gpt-5|gpt-6|o\d)/.test(model);
 }
 
 // Log the model in use on first module load so Vercel Function logs always
@@ -85,8 +105,7 @@ export function getOpenAiClient(): OpenAI | null {
  * message is built as a multimodal content array
  * (`[{type: "text"}, {type: "image_url"}, ...]`). Each image is passed
  * inline via a `data:` URL so callers don't have to upload to OpenAI's
- * file API. The model field stays the same — gpt-4o-mini already
- * supports vision and matches our default budget. Callers should
+ * file API. Callers should
  * pre-resize and JPEG-encode large originals before getting here; this
  * client does not transcode.
  */
@@ -162,11 +181,8 @@ export async function generateJSON<T extends object>(
   const started = Date.now();
   const ai = getOpenAiClient();
   const contextSize = opts.system.length + opts.user.length + opts.schemaHint.length;
-  // Per-feature model override (see FEATURE_MODEL_OVERRIDE). Every
-  // ai_events row now records the model that ACTUALLY ran, so the
-  // artwork_painting_bbox rows will read `gpt-4o` while the rest keep
-  // reading `gpt-4o-mini`.
   const model = resolveModelForFeature(opts.feature);
+  const reasoning = modelUsesReasoning(model);
 
   if (!ai) {
     return {
@@ -204,9 +220,18 @@ export async function generateJSON<T extends object>(
     return ai.chat.completions.create(
       {
         model,
-        temperature: 0.7,
-        /** Portfolio / profile JSON payloads need headroom beyond the default cap. */
-        max_completion_tokens: 2048,
+        // Reasoning models reject a non-default temperature and spend
+        // completion budget on hidden reasoning tokens. Keep drafts on
+        // low effort; vision geometry (corners, walls) gets medium so
+        // the model actually inspects edges. Classic models keep 0.7.
+        ...(reasoning
+          ? {
+              reasoning_effort: VISION_FEATURES.has(opts.feature)
+                ? ("medium" as const)
+                : ("low" as const),
+            }
+          : { temperature: 0.7 }),
+        max_completion_tokens: reasoning ? 8192 : 2048,
         response_format: { type: "json_object" },
         messages: [
           { role: "system" as const, content: systemMessage },

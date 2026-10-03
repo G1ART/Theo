@@ -36,7 +36,7 @@ export const maxDuration = 60;
 
 const ALLOWED_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
 /**
- * ~6 MiB decoded is safe for gpt-4o-mini vision at detail=low. The
+ * ~6 MiB decoded is safe for the shared vision model at detail=high. The
  * browser helper (`prepareImageForVision`) downscales to 768 px long
  * edge and re-encodes as JPEG at q=0.85 so we normally see ~50-150
  * KiB of base64 — the 8 MiB cap is a safety belt against callers
@@ -221,7 +221,7 @@ export async function POST(req: Request) {
             // "low" detail is the audit's cost assumption. The DSP
             // pipeline runs its own high-res analyze pass separately;
             // this gate only needs coarse binary categorization.
-            detail: "low" as const,
+            detail: "high" as const,
           },
         ],
       };

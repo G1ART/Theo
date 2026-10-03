@@ -336,6 +336,7 @@ export const aiApi = {
         alreadyTight: true,
         hasVisibleFrame: false,
         corners: null,
+        look: null,
       },
       opts,
     ),

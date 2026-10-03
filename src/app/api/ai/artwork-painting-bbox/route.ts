@@ -4,7 +4,7 @@ import {
   ARTWORK_PAINTING_BBOX_SCHEMA,
   ARTWORK_PAINTING_BBOX_SYSTEM,
 } from "@/lib/ai/prompts";
-import type { ArtworkPaintingBboxResult } from "@/lib/ai/types";
+import type { ArtworkLookPreset, ArtworkPaintingBboxResult } from "@/lib/ai/types";
 import { parseVisionCorners } from "@/lib/image/enhancement/cornerPickerGeometry";
 
 export const runtime = "nodejs";
@@ -33,20 +33,12 @@ export const maxDuration = 60;
  * primary image as-is (safe fallback), while a false negative crop
  * risks slicing into the actual artwork.
  *
- * Model choice (2026-08-19): this route ALONE is routed to `gpt-4o`
- * (see `FEATURE_MODEL_OVERRIDE` in `src/lib/ai/client.ts`) rather
- * than the shared `gpt-4o-mini` default. On production traffic the
- * mini model kept returning a symmetric 10% fallback bbox
- * ({x:0.1, y:0.1, width:0.8, height:0.8}) instead of tight edges
- * — that pattern is a lazy default (all four values coincidentally
- * distinct on symmetry axes) and defeats the whole feature. The
- * full `gpt-4o` inspects edges independently and produces
- * measurably tighter bboxes; the prompt (see
- * `ARTWORK_PAINTING_BBOX_SYSTEM`) also carries anti-fallback
- * instructions as a belt-and-suspenders guard. Cost note: this
- * feature runs at most once per artwork upload plus the on-demand
- * CTA — total volume in beta is expected to stay low, so the ~10x
- * per-token premium of gpt-4o is a small absolute cost.
+ * Model (2026-10-02): this route uses the shared default
+ * (`gpt-6-astra` via `resolveModelForFeature`), the same model as
+ * every other AI feature. The previous bbox-only `gpt-4o` pin was
+ * a downgrade once the default moved past 4o. The prompt still
+ * rejects the symmetric 10% fallback bbox that `gpt-4o-mini` used
+ * to emit.
  *
  * Entitlement + soft-cap gating reuses `handleAiRoute` (feature key
  * `artwork_painting_bbox` maps to entitlement `simulation.2d` —
@@ -56,8 +48,7 @@ export const maxDuration = 60;
  */
 
 const ALLOWED_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
-/** ~6 MiB decoded — well within gpt-4o vision limits (this route is
- *  routed to gpt-4o via FEATURE_MODEL_OVERRIDE, not the shared mini). */
+/** ~6 MiB decoded — within the shared vision model's request size. */
 const MAX_BASE64_BYTES = 8 * 1024 * 1024;
 /** Above this bbox area (fraction of image), we treat the source as
  *  already-cropped even if the model didn't self-report it. Belt +
@@ -127,12 +118,35 @@ function parseBody(
  *     `alreadyTight` — a crop that small is almost certainly a model
  *     hallucination and hard to render usefully.
  */
+function parseLook(raw: unknown): ArtworkLookPreset | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const colorMode =
+    row.colorMode === "original" || row.colorMode === "enhance"
+      ? row.colorMode
+      : null;
+  const intensity =
+    row.intensity === "light" || row.intensity === "normal" || row.intensity === "strong"
+      ? row.intensity
+      : null;
+  if (!colorMode || !intensity) return null;
+  const note = (value: unknown) =>
+    typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 180) : "";
+  return {
+    colorMode,
+    intensity,
+    noteKo: note(row.noteKo),
+    noteEn: note(row.noteEn),
+  };
+}
+
 function normalizeResult(raw: unknown): {
   bbox: { x: number; y: number; width: number; height: number };
   confidence: number;
   alreadyTight: boolean;
   hasVisibleFrame: boolean;
   corners: ArtworkPaintingBboxResult["corners"];
+  look: ArtworkLookPreset | null;
 } {
   const fullFrame = {
     bbox: { x: 0, y: 0, width: 1, height: 1 },
@@ -140,6 +154,7 @@ function normalizeResult(raw: unknown): {
     alreadyTight: true,
     hasVisibleFrame: false,
     corners: null as ArtworkPaintingBboxResult["corners"],
+    look: null as ArtworkLookPreset | null,
   };
   if (!raw || typeof raw !== "object") return fullFrame;
   const r = raw as Record<string, unknown>;
@@ -164,6 +179,7 @@ function normalizeResult(raw: unknown): {
     : 0;
   const hasVisibleFrame = r.hasVisibleFrame === true;
   const corners = parseVisionCorners(r.corners);
+  const look = parseLook(r.look);
 
   // Degenerate crop → treat as full frame; the renderer keeps the
   // original. Preserve the model's self-reported confidence so QA
@@ -175,6 +191,7 @@ function normalizeResult(raw: unknown): {
       alreadyTight: true,
       hasVisibleFrame,
       corners,
+      look,
     };
   }
 
@@ -188,6 +205,7 @@ function normalizeResult(raw: unknown): {
     alreadyTight,
     hasVisibleFrame,
     corners,
+    look,
   };
 }
 
@@ -198,7 +216,7 @@ export async function POST(req: Request) {
     async buildPromptInput({ body }) {
       return {
         system: ARTWORK_PAINTING_BBOX_SYSTEM,
-        user: `Analyze this artwork photograph. Identify the PRIMARY canvas (largest complete work if several are visible). Return its tight bbox AND the four keystoned corners (TL, TR, BR, BL) of that canvas, excluding wall, floor, and neighboring works. Photo dimensions: ${Math.round(
+        user: `Analyze this artwork photograph. Identify the PRIMARY canvas (largest complete work if several are visible; it usually contains the photo center). Return its tight bbox AND the four keystoned corners (TL, TR, BR, BL) on the physical canvas edge — not on an internal brushstroke — excluding wall, floor, and neighboring works. Also return "look", the starting color preset. Photo dimensions: ${Math.round(
           body.imagePxWidth,
         )}x${Math.round(body.imagePxHeight)} px.`,
         schemaHint: ARTWORK_PAINTING_BBOX_SCHEMA,
@@ -208,6 +226,7 @@ export async function POST(req: Request) {
           alreadyTight: true,
           hasVisibleFrame: false,
           corners: null,
+          look: null,
         }),
         imageInputs: [
           {
