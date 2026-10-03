@@ -1402,6 +1402,8 @@ export const messages = {
       "Shape tracing isn’t available. Use rectangle corners instead.",
     "upload.imageEnhance.flow.boundaryShapeFailed":
       "Couldn’t trace the edge. Try again, or use rectangle corners.",
+    "upload.imageEnhance.flow.boundaryShapeQuota":
+      "Shape tracing has used up its image allowance. Rectangle corners still work. Raise the Photoroom plan, then try again.",
     "upload.imageEnhance.flow.cropNeedCorners":
       "Couldn’t lock the edges. Tap the four corners of the artwork.",
     "upload.imageEnhance.flow.cropRecrop": "Adjust artwork area",
@@ -6055,6 +6057,8 @@ export const messages = {
       "모양 따기를 쓸 수 없습니다. 사각형 모서리로 잘라 주세요.",
     "upload.imageEnhance.flow.boundaryShapeFailed":
       "경계를 따지 못했습니다. 다시 시도하거나 사각형 모서리를 쓰세요.",
+    "upload.imageEnhance.flow.boundaryShapeQuota":
+      "모양 따기 사용량이 소진되었습니다. 사각형 모서리는 그대로 쓸 수 있습니다. Photoroom 플랜을 올린 뒤 다시 시도해 주세요.",
     "upload.imageEnhance.flow.cropNeedCorners":
       "경계를 확신할 수 없어요. 작품 네 모서리를 직접 찍어 주세요.",
     "upload.imageEnhance.flow.cropRecrop": "작품 영역 다시 잡기",

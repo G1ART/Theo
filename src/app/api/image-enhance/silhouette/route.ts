@@ -84,6 +84,7 @@ export async function POST(req: Request) {
       signal: controller.signal,
     });
     if (res.status === 401 || res.status === 403) return fail(502, "provider_unauthorized");
+    if (res.status === 402) return fail(402, "provider_quota");
     if (res.status === 429) return fail(429, "provider_rate_limited");
     if (!res.ok) return fail(502, "error");
     png = Buffer.from(await res.arrayBuffer());

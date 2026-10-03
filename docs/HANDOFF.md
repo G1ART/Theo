@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-02
 
+## 2026-10-02 (96) — 모양 따기 실패 시 원본 유지 + Photoroom 402 안내
+
+> **Supabase SQL 돌려야 할 것은 없음.**
+>
+> **환경 변수 추가 없음.** 기존 `PHOTOROOM_API_KEY` 의 이미지 쿼터가 소진됨 (실호출 HTTP 402). 플랜을 올려야 모양 따기가 동작한다. 사각형 모서리 경로는 이 키를 쓰지 않는다.
+
+"이 모양 그대로"에서 분리가 실패하면 미리보기가 통째로 비었다. 이제 성공 전에는 올리신 사진을 그대로 보여 준다. Photoroom 이 402 를 주면 "사용량 소진" 문구를 띄우고, 그 외 실패만 일반 오류로 남긴다.
+
+**Verified:** 로컬 키로 `https://sdk.photoroom.com/v1/segment` 호출 시 402 `exhausted the number of images in your plan`. `npx tsc --noEmit`.
+
 ## 2026-10-02 (95) — 비정형 작품 실루엣 따기 (사각형 모서리 경로는 유지)
 
 > **Supabase SQL 돌려야 할 것은 없음.**

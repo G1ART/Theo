@@ -2688,13 +2688,14 @@ export function ImageStandardizeEditor({
 
                   {boundaryMode === "silhouette" ? (
                     <div className="space-y-2">
-                      <p className="text-[11px] leading-relaxed text-zinc-500">
-                        {t("upload.imageEnhance.flow.boundaryShapeHint")}
-                      </p>
-                      {silhouetteUrl ? (
+                      {previewUrl || silhouetteUrl ? (
                         <div className="overflow-hidden rounded-lg bg-[#f3f3f3]">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={silhouetteUrl} alt="" className="mx-auto max-h-[420px] w-full object-contain" />
+                          <img
+                            src={silhouetteUrl ?? previewUrl ?? ""}
+                            alt=""
+                            className="mx-auto max-h-[420px] w-full object-contain"
+                          />
                         </div>
                       ) : null}
                       <button
@@ -2717,7 +2718,9 @@ export function ImageStandardizeEditor({
                               setSilhouetteError(
                                 reason === "no_key"
                                   ? t("upload.imageEnhance.flow.boundaryShapeNoKey")
-                                  : t("upload.imageEnhance.flow.boundaryShapeFailed"),
+                                  : reason === "provider_quota"
+                                    ? t("upload.imageEnhance.flow.boundaryShapeQuota")
+                                    : t("upload.imageEnhance.flow.boundaryShapeFailed"),
                               );
                             })
                             .finally(() => setSilhouetteRunning(false));
