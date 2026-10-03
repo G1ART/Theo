@@ -16,6 +16,7 @@ import {
   publishArtworks,
   publishArtworksWithProvenance,
   updateArtwork,
+  updateArtworkDimsIfMissing,
   updateArtworkImageViewType,
   validatePublish,
   type ArtworkImageViewType,
@@ -98,7 +99,15 @@ import {
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleMime } from "@/lib/image/compress";
-import { parseArtworkCsv, csvFilenameMatchesDraft, type ArtworkCsvRow } from "@/lib/csv/artworkCsv";
+import {
+  buildCaptionPatch,
+  isCaptionCsvFile,
+  pairImagesWithHeldRows,
+  parseArtworkCsv,
+  planBulkCaptions,
+  summarizeUnmatchedLabels,
+  type ArtworkCsvRow,
+} from "@/lib/csv/artworkCsv";
 import {
   fileLooksLikeImage,
   summarizeBulkResult,
@@ -274,9 +283,20 @@ export default function BulkUploadPage() {
   const [myExhibitions, setMyExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [linkExhibitionId, setLinkExhibitionId] = useState("");
   const [linkingExhibition, setLinkingExhibition] = useState(false);
-  const [csvText, setCsvText] = useState("");
   const [csvBusy, setCsvBusy] = useState(false);
-  const [csvOpen, setCsvOpen] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement | null>(null);
+  type BatchSlot = { pendingId: string; originalName: string; draftId: string | null };
+  const batchSlotsRef = useRef<BatchSlot[]>([]);
+  const pendingFilesRef = useRef<{ id: string; file: File }[]>([]);
+  const csvTextRef = useRef("");
+  const heldRowsRef = useRef<{ draftId: string; rowIndex: number }[] | null>(null);
+  const captionLockRef = useRef(false);
+  const captionRerunRef = useRef(false);
+  const captionScheduledRef = useRef(false);
+  const applyDepthRef = useRef(0);
+  const uploadingRef = useRef(false);
+  const draftsRef = useRef(drafts);
+  const scheduleCaptionRef = useRef<() => void>(() => {});
   const [stagedArtworkIds, setStagedArtworkIds] = useState<string[]>([]);
 
   // Persona / intent — from exhibition add: pre-fill CURATED + artist, skip intent/attribution steps
@@ -431,31 +451,34 @@ export default function BulkUploadPage() {
       }
       if (ok.length === 0) return;
 
-      const toastHint = { full: false, partialAdded: null as number | null };
-      setPendingFiles((prev) => {
-        const remaining = BULK_MAX_FILES_PER_BATCH - prev.length;
-        if (remaining <= 0) {
-          toastHint.full = true;
-          return prev;
-        }
-        const batch = ok.slice(0, remaining);
-        if (ok.length > remaining) {
-          toastHint.partialAdded = batch.length;
-        }
-        return [...prev, ...batch.map((file) => ({ id: crypto.randomUUID(), file }))];
-      });
-
-      if (toastHint.full) {
+      const prev = pendingFilesRef.current;
+      const remaining = BULK_MAX_FILES_PER_BATCH - prev.length;
+      if (remaining <= 0) {
         setToast(t("bulk.pendingQueueFull"));
         setTimeout(() => setToast(null), 4000);
-      } else if (toastHint.partialAdded != null) {
+        return;
+      }
+      const take = ok.slice(0, remaining);
+      if (ok.length > remaining) {
         setToast(
           t("bulk.batchCapPartialAdd")
-            .replace("{added}", String(toastHint.partialAdded))
+            .replace("{added}", String(take.length))
             .replace("{max}", String(BULK_MAX_FILES_PER_BATCH)),
         );
         setTimeout(() => setToast(null), 5000);
       }
+      const added = take.map((file) => ({ id: crypto.randomUUID(), file }));
+      const next = [...prev, ...added];
+      pendingFilesRef.current = next;
+      setPendingFiles(next);
+      for (const item of added) {
+        batchSlotsRef.current.push({
+          pendingId: item.id,
+          originalName: item.file.name,
+          draftId: null,
+        });
+      }
+      if (csvTextRef.current.trim()) scheduleCaptionRef.current();
     },
     [t],
   );
@@ -484,6 +507,10 @@ export default function BulkUploadPage() {
   useEffect(() => {
     fetchDrafts();
   }, [fetchDrafts]);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   /**
    * QA 2026-07-28 Phase B: PII-safe email-existence probe. Debounced
@@ -525,9 +552,33 @@ export default function BulkUploadPage() {
     }
   }, [fromExhibition, addToExhibitionId, preselectedArtistId, preselectedExternalName, enqueuePendingImageFiles]);
 
+  function addIncomingFiles(files: FileList | File[] | null) {
+    if (!files) return;
+    const all = Array.from(files);
+    if (all.length === 0) return;
+    const csvs = all.filter((file) => isCaptionCsvFile(file));
+    const images = all.filter((file) => !isCaptionCsvFile(file) && fileLooksLikeImage(file));
+    if (images.length) enqueuePendingImageFiles(images);
+    if (csvs.length) ingestCaptionFile(csvs[csvs.length - 1]!);
+    if (images.length === 0 && csvs.length === 0) {
+      setUploadError(t("bulk.pickImageTypes"));
+    }
+  }
+
+  function ingestCaptionFile(file: File) {
+    void file.text().then((text) => {
+      const prevHeld = heldRowsRef.current;
+      heldRowsRef.current = null;
+      if (prevHeld?.length) {
+        void deleteDraftArtworks(prevHeld.map((row) => row.draftId));
+      }
+      csvTextRef.current = text;
+      scheduleCaptionRef.current();
+    });
+  }
+
   function addPendingFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    enqueuePendingImageFiles(Array.from(files));
+    addIncomingFiles(files);
   }
 
   function removePendingFile(id: string) {
@@ -541,7 +592,9 @@ export default function BulkUploadPage() {
       } catch {}
       delete enhanceAbortRef.current[id];
     }
-    setPendingFiles((prev) => prev.filter((p) => p.id !== id));
+    pendingFilesRef.current = pendingFilesRef.current.filter((p) => p.id !== id);
+    batchSlotsRef.current = batchSlotsRef.current.filter((slot) => slot.pendingId !== id);
+    setPendingFiles(pendingFilesRef.current);
     setPendingSelected((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
@@ -577,6 +630,9 @@ export default function BulkUploadPage() {
         }
       }
     }
+    const pendingIds = new Set(pendingFilesRef.current.map((p) => p.id));
+    batchSlotsRef.current = batchSlotsRef.current.filter((slot) => !pendingIds.has(slot.pendingId));
+    pendingFilesRef.current = [];
     setPendingFiles([]);
     setPendingSelected(new Set());
     setPendingEnhance({});
@@ -1065,24 +1121,29 @@ export default function BulkUploadPage() {
     t,
   ]);
 
-  async function startUpload() {
-    if (pendingFiles.length === 0) return;
+  async function startUpload(opts?: {
+    attachToDraftId?: Record<string, string>;
+  }): Promise<{ pendingId: string; draftId: string; name: string }[]> {
+    const queue = [...pendingFilesRef.current];
+    if (queue.length === 0 || uploadingRef.current) return [];
     const { data: { session } } = await getSession();
     if (!session?.user?.id) {
       setUploadError(t("bulk.uploadNotAuthenticated"));
-      return;
+      return [];
     }
     const userId = session.user.id;
     setUploadError(null);
+    uploadingRef.current = true;
     setUploading(true);
-    setUploadTotal(pendingFiles.length);
+    setUploadTotal(queue.length);
     setUploadCurrent(0);
     setUploadSucceeded(0);
     setUploadFailures([]);
-    const queue = [...pendingFiles];
+    pendingFilesRef.current = [];
     setPendingFiles([]);
     const uploadedIds: string[] = [];
     const failures: { name: string; message: string }[] = [];
+    const results: ({ pendingId: string; draftId: string; name: string } | null)[] = new Array(queue.length).fill(null);
 
     // Bounded concurrency: 4 simultaneous uploads is a measured sweet spot
     // for our supabase storage tier — fast enough that 100 files takes
@@ -1101,6 +1162,7 @@ export default function BulkUploadPage() {
         enhanceStatus && enhanceStatus.kind === "approved" ? enhanceStatus : null;
       const title = deriveTitle(file.name);
       let artworkId: string | null = null;
+      let createdHere = false;
       let uploadResult: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
       // QA 2026-08-12 — payload sanity: file 이 실제로 존재하고 크기가
       // 있어야 upload 시도.  Windows 드래그-드롭에서 사용자가 폴더를
@@ -1117,14 +1179,20 @@ export default function BulkUploadPage() {
         return;
       }
       try {
-        const { data: id, error: createErr } = await createDraftArtwork(
-          { title },
-          { forProfileId: actingAsProfileId ?? undefined }
-        );
-        if (createErr || !id) {
-          throw createErr instanceof Error ? createErr : new Error("Failed to create draft");
+        const presetDraftId = opts?.attachToDraftId?.[slotId] ?? null;
+        if (presetDraftId) {
+          artworkId = presetDraftId;
+        } else {
+          const { data: id, error: createErr } = await createDraftArtwork(
+            { title },
+            { forProfileId: actingAsProfileId ?? undefined }
+          );
+          if (createErr || !id) {
+            throw createErr instanceof Error ? createErr : new Error("Failed to create draft");
+          }
+          createdHere = true;
+          artworkId = id;
         }
-        artworkId = id;
         // Route bulk uploads into the principal's storage folder when
         // acting-as, so lifecycle (delete/replace/cleanup) is rooted on
         // the principal even after the delegate is revoked. RLS allows
@@ -1164,6 +1232,9 @@ export default function BulkUploadPage() {
         );
         if (attachErr) throw attachErr;
         uploadedIds.push(artworkId);
+        const batchSlot = batchSlotsRef.current.find((s) => s.pendingId === slotId);
+        if (batchSlot) batchSlot.draftId = artworkId;
+        results[idx] = { pendingId: slotId, draftId: artworkId, name: file.name };
         setUploadSucceeded((n) => n + 1);
         // Display Simulation Phase 2 (2026-08-20) — Track 1 auto-fire.
         // Fire-and-forget: request an AI bounding-box crop for the
@@ -1235,7 +1306,7 @@ export default function BulkUploadPage() {
         if (uploadResult?.originalPath) {
           try { await removeStorageFile(uploadResult.originalPath); } catch {}
         }
-        if (artworkId) {
+        if (artworkId && createdHere) {
           try { await deleteArtwork(artworkId); } catch {}
         }
       } finally {
@@ -1254,6 +1325,12 @@ export default function BulkUploadPage() {
     const workerCount = Math.min(UPLOAD_CONCURRENCY, queue.length);
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
+    const attempted = new Set(queue.map((item) => item.id));
+    batchSlotsRef.current = batchSlotsRef.current.filter(
+      (slot) => slot.draftId || !attempted.has(slot.pendingId),
+    );
+
+    uploadingRef.current = false;
     setUploading(false);
     if (uploadedIds.length > 0) {
       setStagedArtworkIds((prev) => [...uploadedIds, ...prev].slice(0, BULK_WEBSITE_STAGED_IDS_MAX));
@@ -1282,6 +1359,10 @@ export default function BulkUploadPage() {
       setTimeout(() => setToast(null), 6000);
     }
     await fetchDrafts();
+    if (applyDepthRef.current === 0 && csvTextRef.current.trim()) {
+      scheduleCaptionRef.current();
+    }
+    return results.filter((row): row is { pendingId: string; draftId: string; name: string } => !!row);
   }
 
   function orderedImages(d: ArtworkWithLikes) {
@@ -1538,121 +1619,191 @@ export default function BulkUploadPage() {
     }
   }
 
-  function draftFileView(d: ArtworkWithLikes) {
-    return {
-      title: d.title,
-      storagePaths: (d.artwork_images ?? []).map((img) => img.storage_path),
-    };
+  async function writeCaption(id: string, row: ArtworkCsvRow): Promise<string[]> {
+    const lang = locale.startsWith("ko") ? "ko" : "en";
+    const { patch, dims, issues } = buildCaptionPatch(row, lang);
+    if (Object.keys(patch).length > 0) {
+      await updateArtwork(id, patch, {
+        actingSubjectProfileId: actingAsProfileId ?? null,
+        auditAction: "bulk.artwork.update",
+      });
+    }
+    if (dims) await updateArtworkDimsIfMissing(id, dims);
+    return issues;
   }
 
-  async function writeCsvOntoDraft(id: string, row: ArtworkCsvRow) {
-    const patch: UpdateArtworkPayload = {};
-    if (row.title && row.title !== "Untitled") {
-      patch.title = row.title;
-      if (locale === "ko") patch.title_ko = row.title;
-      else patch.title_en = row.title;
-    }
-    if (row.year) patch.year = row.year;
-    if (row.medium) {
-      patch.medium = row.medium;
-      if (locale === "ko") patch.medium_ko = row.medium;
-      else patch.medium_en = row.medium;
-    }
-    if (row.size) patch.size = row.size;
-    if (row.sizeUnit) patch.size_unit = row.sizeUnit;
-    if (row.price) {
-      patch.pricing_mode = "fixed";
-      patch.price_input_amount = row.price;
-      patch.price_input_currency = row.currency || (locale === "ko" ? "KRW" : "USD");
-    }
-    if (Object.keys(patch).length === 0) return;
-    await updateArtwork(id, patch, {
-      actingSubjectProfileId: actingAsProfileId ?? null,
-      auditAction: "bulk.artwork.update",
-    });
+  function showCaptionToast(photoFilled: number, unmatched: string[], waiting: number) {
+    const parts: string[] = [];
+    if (photoFilled > 0) parts.push(t("bulk.csvFilled").replace("{n}", String(photoFilled)));
+    else if (waiting > 0) parts.push(t("bulk.csvWaiting").replace("{n}", String(waiting)));
+    const names = summarizeUnmatchedLabels(unmatched);
+    if (names) parts.push(t("bulk.csvUnmatched").replace("{names}", names));
+    if (parts.length === 0) return;
+    setToast(parts.join(" "));
+    setTimeout(() => setToast(null), 4500);
   }
 
-  function csvOrderReady() {
-    const { rows, hasFilename } = parseArtworkCsv(csvText);
-    if (hasFilename || rows.length === 0) return false;
-    const n = selected.size > 0 ? selected.size : drafts.length;
-    return n > 0 && n === rows.length;
+  function clearCaptionText() {
+    csvTextRef.current = "";
   }
 
-  async function importCsvDrafts(mode: "auto" | "order") {
-    const { rows, hasFilename } = parseArtworkCsv(csvText);
-    if (rows.length === 0) {
+  async function applyCaptionsNow() {
+    if (captionLockRef.current) {
+      captionRerunRef.current = true;
+      return;
+    }
+    if (uploadingRef.current) return;
+    const text = csvTextRef.current.trim();
+    if (!text) return;
+    const parsed = parseArtworkCsv(text);
+    if (parsed.rows.length === 0) {
+      clearCaptionText();
       setToast(t("bulk.csvRequiredTitle"));
       setTimeout(() => setToast(null), 3000);
       return;
     }
-    const orderedDrafts =
-      selected.size > 0
-        ? drafts.filter((d) => selected.has(d.id))
-        : drafts;
+
+    const pendingSlots = batchSlotsRef.current.filter((slot) => !slot.draftId);
+    const uploadedSlots = batchSlotsRef.current.filter((slot) => slot.draftId);
+    const targetSlots = pendingSlots.length > 0 ? pendingSlots : uploadedSlots;
+
+    if (
+      !parsed.hasFilename &&
+      targetSlots.length > 0 &&
+      targetSlots.length !== parsed.rows.length
+    ) {
+      setToast(
+        t("bulk.csvCount")
+          .replace("{rows}", String(parsed.rows.length))
+          .replace("{images}", String(targetSlots.length)),
+      );
+      setTimeout(() => setToast(null), 4500);
+      return;
+    }
+
+    if (targetSlots.length === 0 && heldRowsRef.current?.length) return;
+
+    captionLockRef.current = true;
+    applyDepthRef.current += 1;
     setCsvBusy(true);
     try {
-      let matched = 0;
-      let created = 0;
-      if (mode === "order") {
-        if (orderedDrafts.length !== rows.length) {
-          setToast(t("bulk.csvOrderMismatch"));
-          setTimeout(() => setToast(null), 3500);
-          return;
+      const held = heldRowsRef.current;
+      if (pendingSlots.length > 0 && held && held.length > 0) {
+        const pairing = pairImagesWithHeldRows({
+          rows: parsed.rows,
+          hasFilename: parsed.hasFilename,
+          images: pendingSlots.map((slot) => ({ key: slot.pendingId, originalName: slot.originalName })),
+          held,
+        });
+        const attach: Record<string, string> = {};
+        for (const row of pairing.attachments) attach[row.imageKey] = row.draftId;
+        const uploaded = await startUpload({ attachToDraftId: attach });
+        const uploadedIds = new Set(uploaded.map((row) => row.draftId));
+        const attached = pairing.attachments.filter((row) => uploadedIds.has(row.draftId));
+        const issues: string[] = [];
+        for (const row of attached) {
+          const source = parsed.rows[row.rowIndex];
+          if (!source) continue;
+          issues.push(...(await writeCaption(row.draftId, source)));
         }
-        for (let i = 0; i < rows.length; i++) {
-          await writeCsvOntoDraft(orderedDrafts[i]!.id, rows[i]!);
-          matched += 1;
+        if (pairing.unmatched.length > 0) {
+          await deleteDraftArtworks(pairing.unmatched.map((row) => row.draftId));
         }
-      } else if (hasFilename) {
-        const used = new Set<string>();
-        for (const row of rows) {
-          const hit = row.filename
-            ? drafts.find(
-                (d) => !used.has(d.id) && csvFilenameMatchesDraft(row.filename!, draftFileView(d)),
-              )
-            : undefined;
-          if (hit) {
-            used.add(hit.id);
-            await writeCsvOntoDraft(hit.id, row);
-            matched += 1;
-            continue;
-          }
+        const failed = pairing.attachments.filter((row) => !uploadedIds.has(row.draftId));
+        heldRowsRef.current = failed.length
+          ? failed.map((row) => ({ draftId: row.draftId, rowIndex: row.rowIndex }))
+          : null;
+        showCaptionToast(
+          attached.length,
+          [...pairing.unmatched.map((row) => row.label), ...issues],
+          0,
+        );
+        if (!heldRowsRef.current?.length) clearCaptionText();
+        await fetchDrafts();
+        setBulkVersion((v) => v + 1);
+        return;
+      }
+
+      const targetIds = new Set(targetSlots.map((slot) => slot.pendingId));
+      if (pendingSlots.length > 0) {
+        await startUpload();
+      }
+
+      const images = batchSlotsRef.current
+        .filter((slot) => targetIds.has(slot.pendingId) && slot.draftId)
+        .map((slot) => ({
+          key: slot.pendingId,
+          originalName: slot.originalName,
+          draftId: slot.draftId,
+        }));
+
+      const plan = planBulkCaptions({
+        rows: parsed.rows,
+        hasFilename: parsed.hasFilename,
+        images,
+        drafts: draftsRef.current.map((draft) => ({
+          id: draft.id,
+          title: draft.title,
+          hasPhoto: (draft.artwork_images?.length ?? 0) > 0,
+          storagePaths: (draft.artwork_images ?? []).map((img) => img.storage_path),
+          originalName: batchSlotsRef.current.find((slot) => slot.draftId === draft.id)?.originalName ?? null,
+        })),
+      });
+
+      const issues: string[] = [];
+      let photoFilled = 0;
+      for (const fill of plan.fills) {
+        const row = parsed.rows[fill.rowIndex];
+        if (!row || !fill.draftId) continue;
+        issues.push(...(await writeCaption(fill.draftId, row)));
+        const onBatch = batchSlotsRef.current.some((slot) => slot.draftId === fill.draftId);
+        const draft = draftsRef.current.find((item) => item.id === fill.draftId);
+        if (onBatch || (draft?.artwork_images?.length ?? 0) > 0) photoFilled += 1;
+      }
+
+      const createdHeld: { draftId: string; rowIndex: number }[] = [];
+      if (images.length === 0) {
+        for (const rowIndex of plan.photoLess) {
+          const row = parsed.rows[rowIndex];
+          if (!row) continue;
+          const title = row.title && row.title !== "Untitled" ? row.title : row.filename || "Untitled";
           const { data: id, error } = await createDraftArtwork(
-            { title: row.title },
+            { title },
             { forProfileId: actingAsProfileId ?? undefined },
           );
-          if (!error && id) {
-            await writeCsvOntoDraft(id, row);
-            created += 1;
-          }
-        }
-      } else {
-        for (const row of rows) {
-          const { data: id, error } = await createDraftArtwork(
-            { title: row.title },
-            { forProfileId: actingAsProfileId ?? undefined },
-          );
-          if (!error && id) {
-            await writeCsvOntoDraft(id, row);
-            created += 1;
-          }
+          if (error || !id) continue;
+          issues.push(...(await writeCaption(id, row)));
+          createdHeld.push({ draftId: id, rowIndex });
         }
       }
-      setCsvText("");
+      heldRowsRef.current = createdHeld.length > 0 ? createdHeld : null;
+
+      const unmatchedLabels = [...plan.unmatched.map((row) => row.label), ...issues];
+      if (photoFilled === 0 && createdHeld.length > 0) showCaptionToast(0, unmatchedLabels, createdHeld.length);
+      else showCaptionToast(photoFilled, unmatchedLabels, 0);
+      if (!heldRowsRef.current?.length) clearCaptionText();
       await fetchDrafts();
-      setToast(
-        mode === "order"
-          ? t("bulk.csvOrderApplied").replace("{n}", String(matched))
-          : t("bulk.csvImported")
-              .replace("{matched}", String(matched))
-              .replace("{created}", String(created)),
-      );
-      setTimeout(() => setToast(null), 4000);
+      setBulkVersion((v) => v + 1);
     } finally {
+      applyDepthRef.current = Math.max(0, applyDepthRef.current - 1);
+      captionLockRef.current = false;
       setCsvBusy(false);
+      if (captionRerunRef.current) {
+        captionRerunRef.current = false;
+        scheduleCaptionApply();
+      }
     }
   }
+
+  function scheduleCaptionApply() {
+    if (captionScheduledRef.current) return;
+    captionScheduledRef.current = true;
+    queueMicrotask(() => {
+      captionScheduledRef.current = false;
+      void applyCaptionsNow();
+    });
+  }
+  scheduleCaptionRef.current = scheduleCaptionApply;
 
   async function handlePublish(idsOverride?: string[]) {
     const ids = idsOverride ?? Array.from(selected);
@@ -2545,11 +2696,14 @@ export default function BulkUploadPage() {
           <input
             id="bulk-file-input"
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp,image/gif,.csv,.tsv,text/csv,text/tab-separated-values"
             multiple
             className="hidden"
-            onChange={(e) => addPendingFiles(e.target.files)}
-            disabled={uploading}
+            onChange={(e) => {
+              addPendingFiles(e.target.files);
+              e.target.value = "";
+            }}
+            disabled={uploading || csvBusy}
           />
           <div className="mx-auto flex h-14 w-14 flex-col items-center justify-center rounded-lg border border-zinc-300 text-zinc-700">
             <UploadCloudMark className="h-6 w-6" />
@@ -2562,58 +2716,29 @@ export default function BulkUploadPage() {
             {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
           </p>
         </div>
-        <div className="mb-6 text-center">
-          <button
-            type="button"
-            onClick={() => setCsvOpen((open) => !open)}
-            aria-expanded={csvOpen}
-            className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
-          >
-            {t("bulk.csvOpen")}
-          </button>
-          {csvOpen && (
-            <div className="mx-auto mt-3 max-w-xl rounded-md border border-zinc-300 bg-white px-4 py-3 text-left">
-              <p className="mb-2 text-xs font-medium text-zinc-800">{t("bulk.csvTitle")}</p>
-              <p className="mb-2 text-xs leading-relaxed text-zinc-500">{t("bulk.csvHint")}</p>
-              <input
-                type="file"
-                accept=".csv,.tsv,text/csv,text/tab-separated-values"
-                className="mb-2 block text-xs text-zinc-600"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (!file) return;
-                  void file.text().then(setCsvText);
-                }}
-              />
-              <textarea
-                value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
-                placeholder={t("bulk.csvPlaceholder")}
-                rows={4}
-                className="mb-2 w-full rounded border border-zinc-300 px-2 py-1 font-mono text-xs"
-              />
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={csvBusy}
-                  onClick={() => void importCsvDrafts("auto")}
-                  className="rounded-full border border-zinc-800 px-4 py-1.5 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  {csvBusy ? "…" : t("bulk.csvImport")}
-                </button>
-                <button
-                  type="button"
-                  disabled={csvBusy || !csvOrderReady()}
-                  onClick={() => void importCsvDrafts("order")}
-                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 disabled:opacity-50"
-                >
-                  {t("bulk.csvApplyInOrder")}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <input
+          ref={csvInputRef}
+          type="file"
+          accept=".csv,.tsv,text/csv,text/tab-separated-values"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) ingestCaptionFile(file);
+          }}
+        />
+        {pendingFiles.length === 0 && (
+          <div className="mb-6 text-center">
+            <button
+              type="button"
+              disabled={csvBusy || uploading}
+              onClick={() => csvInputRef.current?.click()}
+              className="rounded-full border border-zinc-800 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {csvBusy ? "…" : drafts.length > 0 ? t("bulk.csvForThese") : t("bulk.csvOpen")}
+            </button>
+          </div>
+        )}
 
         {/* Pending files */}
         {pendingFiles.length > 0 && !uploading && (
@@ -2734,7 +2859,18 @@ export default function BulkUploadPage() {
                 );
               })}
             </div>
+            <div className="mb-3">
+              <p className="text-sm text-zinc-800">{t("bulk.csvTheseHint")}</p>
+            </div>
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={csvBusy || uploading}
+                onClick={() => csvInputRef.current?.click()}
+                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {csvBusy ? "…" : t("bulk.csvForThese")}
+              </button>
               <button
                 type="button"
                 onClick={() => void enhanceSelectedPending()}
@@ -2745,8 +2881,11 @@ export default function BulkUploadPage() {
               </button>
               <button
                 type="button"
-                onClick={startUpload}
-                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+                onClick={() => {
+                  if (csvTextRef.current.trim()) scheduleCaptionRef.current();
+                  else void startUpload();
+                }}
+                className="rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
               >
                 {t("bulk.startUpload")} ({pendingFiles.length})
               </button>

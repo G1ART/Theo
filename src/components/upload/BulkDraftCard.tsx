@@ -39,10 +39,14 @@ function splitMedium(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Existing `size` strings are width × height × depth. The card shows height × width × depth. */
+/** Width × height × depth when the string actually has two dimensions. "30호" stays a size label. */
 function readDims(size: string | null | undefined): { w: string; h: string; d: string } {
-  const nums = (size ?? "").match(/\d+(?:\.\d+)?/g) ?? [];
-  return { w: nums[0] ?? "", h: nums[1] ?? "", d: nums[2] ?? "" };
+  const raw = (size ?? "").trim();
+  const dim = raw.match(
+    /(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)(?:\s*[x×*]\s*(\d+(?:\.\d+)?))?/i,
+  );
+  if (!dim) return { w: "", h: "", d: "" };
+  return { w: dim[1] ?? "", h: dim[2] ?? "", d: dim[3] ?? "" };
 }
 
 function writeSize(w: string, h: string, d: string): string | null {
@@ -191,7 +195,12 @@ export function BulkDraftCard({
       onSave({ size: null, size_unit: null });
       return;
     }
-    onSave({ size: writeSize(w, h, d), size_unit: nextUnit });
+    const written = writeSize(w, h, d);
+    if (!written) {
+      const existing = (draft.size ?? "").trim();
+      if (existing && !readDims(existing).w) return;
+    }
+    onSave({ size: written, size_unit: nextUnit });
   }
 
   function commitMedium(next: string[]) {
@@ -437,6 +446,9 @@ export function BulkDraftCard({
                   className={`${field} w-[4.5rem] disabled:bg-zinc-50`}
                 />
               </div>
+              {draft.size && !readDims(draft.size).w && (
+                <p className="mt-1 text-[11px] text-zinc-500">{draft.size}</p>
+              )}
             </div>
           </div>
 

@@ -16,7 +16,8 @@ export type CsvField =
   | "pricing_mode"
   | "price"
   | "currency"
-  | "filename";
+  | "filename"
+  | "story";
 
 export const LIBRARY_IMPORT_FIELDS = [
   "title",
@@ -72,7 +73,15 @@ const ALIASES: Record<string, CsvField> = {
   image: "filename",
   파일: "filename",
   파일명: "filename",
+  파일이름: "filename",
   이미지: "filename",
+  story: "story",
+  description: "story",
+  desc: "story",
+  설명: "story",
+  스토리: "story",
+  작품설명: "story",
+  작품소개: "story",
 };
 
 export function fieldForHeader(raw: string): CsvField | null {
