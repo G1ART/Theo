@@ -73,6 +73,11 @@ import {
   type ArtworkVisionSeed,
 } from "@/lib/image/enhancement/detectArtworkQuad";
 import { requestSilhouetteCutout } from "@/lib/image/enhancement/silhouetteClient";
+import {
+  cropFileToNormBox,
+  SilhouetteRegionBox,
+  type NormBox,
+} from "@/components/upload/SilhouetteRegionBox";
 import { aiApi } from "@/lib/ai/browser";
 import type { ArtworkQualityGateResult } from "@/lib/ai/types";
 import {
@@ -1208,6 +1213,12 @@ export function ImageStandardizeEditor({
   const [silhouetteUrl, setSilhouetteUrl] = useState<string | null>(null);
   const [silhouetteRunning, setSilhouetteRunning] = useState(false);
   const [silhouetteError, setSilhouetteError] = useState<string | null>(null);
+  const [silhouetteBox, setSilhouetteBox] = useState<NormBox>({
+    x: 0.22,
+    y: 0.04,
+    w: 0.56,
+    h: 0.5,
+  });
   // Advanced-fold: 2026-10-02 output aspect selector. Replaces the
   // pre-2026-10 single `keepOriginalAspect` checkbox. `aspectMode =
   // "auto"` is the default and preserves the engine's historical
@@ -2688,15 +2699,16 @@ export function ImageStandardizeEditor({
 
                   {boundaryMode === "silhouette" ? (
                     <div className="space-y-2">
-                      {previewUrl || silhouetteUrl ? (
+                      <p className="text-[11px] leading-relaxed text-zinc-500">
+                        {t("upload.imageEnhance.flow.boundaryShapeBoxHint")}
+                      </p>
+                      {silhouetteUrl ? (
                         <div className="overflow-hidden rounded-lg bg-[#f3f3f3]">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={silhouetteUrl ?? previewUrl ?? ""}
-                            alt=""
-                            className="mx-auto max-h-[420px] w-full object-contain"
-                          />
+                          <img src={silhouetteUrl} alt="" className="mx-auto max-h-[420px] w-full object-contain" />
                         </div>
+                      ) : previewUrl ? (
+                        <SilhouetteRegionBox src={previewUrl} box={silhouetteBox} onChange={setSilhouetteBox} />
                       ) : null}
                       <button
                         type="button"
@@ -2704,7 +2716,8 @@ export function ImageStandardizeEditor({
                         onClick={() => {
                           setSilhouetteError(null);
                           setSilhouetteRunning(true);
-                          void requestSilhouetteCutout(file)
+                          void cropFileToNormBox(file, silhouetteBox)
+                            .then((cropped) => requestSilhouetteCutout(cropped))
                             .then((blob) => {
                               const next = new File([blob], "silhouette.webp", { type: "image/webp" });
                               silhouetteFileRef.current = next;
@@ -2731,6 +2744,21 @@ export function ImageStandardizeEditor({
                           ? t("upload.imageEnhance.flow.boundaryShapeRunning")
                           : t("upload.imageEnhance.flow.boundaryShapeRun")}
                       </button>
+                      {silhouetteUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            silhouetteFileRef.current = null;
+                            setSilhouetteUrl((prev) => {
+                              if (prev) URL.revokeObjectURL(prev);
+                              return null;
+                            });
+                          }}
+                          className="rounded-full border border-zinc-300 px-3 py-1 text-[11px] text-zinc-700 hover:bg-zinc-50"
+                        >
+                          {t("upload.imageEnhance.flow.boundaryShapeRetarget")}
+                        </button>
+                      ) : null}
                       {silhouetteError ? (
                         <p className="text-[11px] text-amber-800" role="alert">{silhouetteError}</p>
                       ) : null}

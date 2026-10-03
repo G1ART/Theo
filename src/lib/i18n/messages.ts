@@ -1396,7 +1396,10 @@ export const messages = {
     "upload.imageEnhance.flow.boundaryShape": "Keep this shape",
     "upload.imageEnhance.flow.boundaryShapeHint":
       "Lifts a circle, oval, or irregular work off the background. Rectangular canvases stay on corner crop.",
+    "upload.imageEnhance.flow.boundaryShapeBoxHint":
+      "Drag the box so only the round work sits inside it, with a little wall still visible. Then trace. The sofa and floor stay out.",
     "upload.imageEnhance.flow.boundaryShapeRun": "Trace this shape",
+    "upload.imageEnhance.flow.boundaryShapeRetarget": "Adjust the box",
     "upload.imageEnhance.flow.boundaryShapeRunning": "Tracing the shape…",
     "upload.imageEnhance.flow.boundaryShapeNoKey":
       "Shape tracing isn’t available. Use rectangle corners instead.",
@@ -6051,7 +6054,10 @@ export const messages = {
     "upload.imageEnhance.flow.boundaryShape": "이 모양 그대로",
     "upload.imageEnhance.flow.boundaryShapeHint":
       "원, 타원, 유기적 형태를 배경에서 분리합니다. 사각형 캔버스는 모서리 자르기를 그대로 쓰세요.",
+    "upload.imageEnhance.flow.boundaryShapeBoxHint":
+      "상자를 동그란 작품만 감싸게 옮기세요. 벽이 조금만 보이게 하고, 소파와 바닥은 상자 밖에 둔 뒤 모양 따기를 누르세요.",
     "upload.imageEnhance.flow.boundaryShapeRun": "모양 따기",
+    "upload.imageEnhance.flow.boundaryShapeRetarget": "상자 다시 맞추기",
     "upload.imageEnhance.flow.boundaryShapeRunning": "모양을 따는 중…",
     "upload.imageEnhance.flow.boundaryShapeNoKey":
       "모양 따기를 쓸 수 없습니다. 사각형 모서리로 잘라 주세요.",
