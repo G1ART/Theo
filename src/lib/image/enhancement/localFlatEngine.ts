@@ -943,6 +943,8 @@ export async function runFlatEnhancement(
   // drawn into that margin (not extra canvas below), otherwise the
   // bottom matte reads larger than the top.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
+  const shadowBlur = Math.max(8, Math.round(bezelPx * 0.4));
+  const shadowOffsetY = Math.max(4, Math.round(bezelPx * 0.18));
   const finalW = workW + bezelPx * 2;
   const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
@@ -951,8 +953,14 @@ export async function runFlatEnhancement(
     const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
     matCtx.fillStyle = "#f3f3f3";
     matCtx.fillRect(0, 0, finalW, finalH);
-    // Flat matte only. A drop shadow would change the wall.
+    // Studio shadow is part of the presentation, painted once after
+    // color. Later brightness/contrast passes skip this margin.
+    matCtx.shadowColor = "rgba(0,0,0,0.22)";
+    matCtx.shadowBlur = shadowBlur;
+    matCtx.shadowOffsetX = 0;
+    matCtx.shadowOffsetY = shadowOffsetY;
     matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
+    matCtx.shadowColor = "transparent";
     blob = await canvasToBlob(matCanvas, "image/webp", 0.9);
     stageTimings.encodeMs = Math.max(0, Math.round(performance.now() - t0));
   } catch {
