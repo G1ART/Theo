@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { applyUserFineTuneToImageData } from "../src/lib/image/enhancement/applyToneDelta";
 import {
   compositeStudioPresentation,
   prepareCutoutForColor,
+  resolveStudioPadPx,
   studioShadowParams,
+  STUDIO_BEZEL_FRACTION,
   STUDIO_WALL_RGB,
 } from "../src/lib/image/enhancement/studioPresentation";
 
@@ -150,6 +153,136 @@ assert.ok(isWall(at(wide.data, wide.width, 0, 0)));
 const wideShadow = at(wide.data, wide.width, 80 + 8, 80 + 16 + studioShadowParams(80).shadowOffsetY);
 assert.ok(wideShadow[0] < STUDIO_WALL_RGB, "downsampled shadow is still painted");
 
+// Tight crop: no pre-existing bezel. The wall and shadow are staged,
+// not copied from the photograph. A black bar along the source edge
+// (a photographed shadow) must stay inside the artwork.
+const tightW = 400;
+const tightH = 300;
+const tightRgb: [number, number, number] = [180, 40, 40];
+const tight = fill(tightW, tightH, tightRgb);
+for (let x = 0; x < tightW; x += 1) {
+  const i = ((tightH - 1) * tightW + x) * 4;
+  tight[i] = 5;
+  tight[i + 1] = 5;
+  tight[i + 2] = 5;
+}
+const tightPad = resolveStudioPadPx(tightW, tightH, 0);
+assert.equal(tightPad, Math.round(STUDIO_BEZEL_FRACTION * tightH));
+assert.ok(tightPad > 0, "tight crop still gets studio margin");
+const tightShadow = studioShadowParams(tightPad);
+const tightOut = compositeStudioPresentation(tight, tightW, tightH, 0);
+assert.equal(tightOut.width, tightW + tightPad * 2);
+assert.equal(tightOut.height, tightH + tightPad * 2);
+assert.ok(isWall(at(tightOut.data, tightOut.width, 0, 0)), "tight rectangle corner is the studio wall");
+assert.deepEqual(
+  at(tightOut.data, tightOut.width, tightPad + Math.floor(tightW / 2), tightPad + 8),
+  tightRgb,
+  "tight rectangle subject is not recolored",
+);
+assert.deepEqual(
+  at(tightOut.data, tightOut.width, tightPad + 4, tightPad + tightH - 1),
+  [5, 5, 5],
+  "photographed dark edge stays inside the crop",
+);
+const tightBelow = at(
+  tightOut.data,
+  tightOut.width,
+  tightPad + Math.floor(tightW / 2),
+  tightPad + tightH + tightShadow.shadowOffsetY,
+);
+assert.ok(tightBelow[0] < STUDIO_WALL_RGB, "tight rectangle shadow is darker than the wall");
+assert.ok(
+  Math.max(...tightBelow) - Math.min(...tightBelow) <= 2,
+  "tight rectangle shadow is neutral",
+);
+assert.notDeepEqual(tightBelow, [5, 5, 5], "staged shadow is not the source's dark pixels");
+assert.ok(tightBelow[0] > 40, "staged shadow is not a smear of the red paint");
+const tightAbove = at(
+  tightOut.data,
+  tightOut.width,
+  tightPad + Math.floor(tightW / 2),
+  Math.max(0, tightPad - tightShadow.shadowBlur),
+);
+assert.ok(tightBelow[0] <= tightAbove[0], "tight rectangle shadow falls downward");
+
+const shadowBefore = [...tightBelow];
+applyUserFineTuneToImageData(
+  tightOut.data,
+  { b: 1.2, c: 1.1, s: 1.15 },
+  { width: tightOut.width, height: tightOut.height, insetPx: tightPad },
+);
+assert.deepEqual(
+  at(
+    tightOut.data,
+    tightOut.width,
+    tightPad + Math.floor(tightW / 2),
+    tightPad + tightH + tightShadow.shadowOffsetY,
+  ),
+  shadowBefore,
+  "brightness does not move the staged shadow",
+);
+assert.notDeepEqual(
+  at(tightOut.data, tightOut.width, tightPad + Math.floor(tightW / 2), tightPad + 8),
+  tightRgb,
+  "brightness still reaches the artwork",
+);
+
+// Tight silhouette. Transparent corners stay wall. The shadow is staged
+// under the disc, not copied from a dark pixel in the cutout.
+const tightSilW = 240;
+const tightSilH = 240;
+const tightSil = fill(tightSilW, tightSilH, tightRgb, 0);
+const tsx = 120;
+const tsy = 120;
+const tsr = 48;
+for (let y = 0; y < tightSilH; y += 1) {
+  for (let x = 0; x < tightSilW; x += 1) {
+    const dx = x - tsx;
+    const dy = y - tsy;
+    const i = (y * tightSilW + x) * 4;
+    if (dx * dx + dy * dy <= tsr * tsr) {
+      tightSil[i] = tightRgb[0];
+      tightSil[i + 1] = tightRgb[1];
+      tightSil[i + 2] = tightRgb[2];
+      tightSil[i + 3] = 255;
+    } else if (y === tightSilH - 1) {
+      tightSil[i] = 8;
+      tightSil[i + 1] = 8;
+      tightSil[i + 2] = 8;
+      tightSil[i + 3] = 255;
+    }
+  }
+}
+const silPad = resolveStudioPadPx(tightSilW, tightSilH, 0);
+const silShadow = studioShadowParams(silPad);
+const tightSilOut = compositeStudioPresentation(tightSil, tightSilW, tightSilH, 0);
+assert.equal(tightSilOut.width, tightSilW + silPad * 2);
+assert.ok(
+  isWall(at(tightSilOut.data, tightSilOut.width, 0, 0)),
+  "tight silhouette corner is the studio wall",
+);
+assert.deepEqual(
+  at(tightSilOut.data, tightSilOut.width, silPad + tsx, silPad + tsy),
+  tightRgb,
+  "tight silhouette center stays the subject",
+);
+assert.ok(
+  isWall(at(tightSilOut.data, tightSilOut.width, silPad, silPad)),
+  "tight silhouette transparent corner is wall",
+);
+const tightSilBelow = at(
+  tightSilOut.data,
+  tightSilOut.width,
+  silPad + tsx,
+  silPad + tsy + tsr + silShadow.shadowOffsetY,
+);
+assert.ok(tightSilBelow[0] < STUDIO_WALL_RGB, "tight silhouette shadow is darker than the wall");
+assert.ok(
+  Math.max(...tightSilBelow) - Math.min(...tightSilBelow) <= 2,
+  "tight silhouette shadow is neutral",
+);
+assert.notDeepEqual(tightSilBelow, [8, 8, 8], "silhouette shadow is not copied from source pixels");
+
 const root = join(__dirname, "..");
 const editor = readFileSync(join(root, "src/components/upload/ImageStandardizeEditor.tsx"), "utf8");
 const engine = readFileSync(join(root, "src/lib/image/enhancement/localFlatEngine.ts"), "utf8");
@@ -159,6 +292,11 @@ assert.doesNotMatch(editor, /bezel:\s*useSilhouette\s*\?\s*0/);
 assert.match(editor, /sourceCorners:\s*useSilhouette\s*\?\s*null/);
 assert.match(editor, /presentCutoutOnStudioWall/);
 assert.match(engine, /compositeStudioPresentation\(subject\.data, workW, workH, bezelPx\)/);
+assert.match(
+  engine,
+  /input\.bezel > 0[\s\S]{0,120}STANDARD_STUDIO_BEZEL/,
+  "a tight crop still gets the studio margin",
+);
 assert.doesNotMatch(silhouette, /background:/);
 assert.match(objectRoute, /compositeStudioPresentation/);
 assert.doesNotMatch(objectRoute, /bg_color/);

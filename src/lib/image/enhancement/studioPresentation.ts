@@ -1,16 +1,22 @@
 /**
  * Studio wall shared by the rectangle crop and the Photoroom cutout.
  *
+ * The subject is already a tight crop (sol quad or Photoroom alpha).
+ * This pass does not look at the source photograph for a shadow. It
+ * places that cutout on #f3f3f3 and stages one soft drop shadow from
+ * the cutout's alpha, as if the piece were lit by a studio spotlight.
+ *
  * Painted after color so brightness, contrast, and saturation do not
  * move the wall or the drop shadow. The silhouette stays the alpha
  * of the subject — a rectangle is just an opaque subject.
  *
- * Shadow parameters match the restored matte:
+ * Shadow parameters:
  *   blur    = max(8, round(bezelPx * 0.4))
  *   offsetY = max(4, round(bezelPx * 0.18))
  *   color   = rgba(0,0,0,0.22)
  * The shadow is baked into the pixels (nothing is left "on" for a
- * later draw to inherit).
+ * later draw to inherit). A tight crop (bezel 0) still gets the
+ * standard margin, so the shadow has wall to fall on.
  */
 
 export const STUDIO_WALL_RGB = 243;
@@ -43,6 +49,23 @@ export function studioBezelPx(
   if (!Number.isFinite(shortEdge) || shortEdge <= 0) return 0;
   const fraction = Number.isFinite(bezel) ? Math.min(0.1, Math.max(0, bezel)) : STUDIO_BEZEL_FRACTION;
   return Math.round(fraction * shortEdge);
+}
+
+/**
+ * Wall around a tight crop. A positive `bezelPx` is that pad. Zero,
+ * missing, or a non-finite value is not "no wall" — the crop simply
+ * had no margin yet, so the standard studio fraction is used. The
+ * pad is not measured from the source photo.
+ */
+export function resolveStudioPadPx(
+  width: number,
+  height: number,
+  bezelPx?: number,
+): number {
+  if (typeof bezelPx === "number" && Number.isFinite(bezelPx) && bezelPx > 0) {
+    return Math.round(bezelPx);
+  }
+  return Math.max(1, studioBezelPx(width, height));
 }
 
 /**
@@ -202,9 +225,10 @@ function paintShadow(
 }
 
 /**
- * Center `subject` on #f3f3f3 and, when `bezelPx > 0`, paint the studio
- * drop shadow from its alpha. An opaque rectangle and a Photoroom
- * silhouette share this pass.
+ * Center `subject` on #f3f3f3 and paint one staged studio drop shadow
+ * from its alpha. `bezelPx <= 0` still adds the standard margin.
+ * An opaque rectangle and a Photoroom silhouette share this pass.
+ * Shadow RGB is a darkening of the wall, never a copy of source pixels.
  */
 export function compositeStudioPresentation(
   subject: Uint8ClampedArray,
@@ -214,7 +238,7 @@ export function compositeStudioPresentation(
 ): { data: Uint8ClampedArray; width: number; height: number } {
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
-  const pad = Number.isFinite(bezelPx) ? Math.max(0, Math.round(bezelPx)) : 0;
+  const pad = resolveStudioPadPx(w, h, bezelPx);
   const outW = w + pad * 2;
   const outH = h + pad * 2;
   const out = new Uint8ClampedArray(outW * outH * 4);

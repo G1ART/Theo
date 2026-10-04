@@ -79,7 +79,12 @@ export type RunFlatInput = {
   tone?: { b?: number; c?: number; s?: number } | null;
   /** Unsharp mask amount in [0,1]. */
   sharpen?: number;
-  /** Bezel width as a fraction of the shorter output edge. Default 0.02. */
+  /**
+   * Bezel width as a fraction of the shorter output edge. `0` or
+   * omitted is a tight crop: the engine still adds the standard
+   * studio margin (`STANDARD_STUDIO_BEZEL`) so the staged shadow
+   * has wall to fall on. The margin is not taken from the photo.
+   */
   bezel?: number;
   /** Maximum output long edge in px. Defaults to 4096 to align with
    *  the compression pipeline. */
@@ -214,9 +219,9 @@ export type RunFlatResult = {
 };
 
 const DEFAULT_MAX_LONG_EDGE = 4096;
-const DEFAULT_BEZEL = 0.02;
 /** Even studio margin around the artwork, as a fraction of the short edge.
- *  Keeps the artwork's own aspect — this is padding, not a canvas crop. */
+ *  Keeps the artwork's own aspect — this is padding, not a canvas crop.
+ *  A tight crop (bezel 0 / omitted) uses this same margin. */
 export const STANDARD_STUDIO_BEZEL = STUDIO_BEZEL_FRACTION;
 const DEFAULT_SHARPEN = 0.35;
 
@@ -553,10 +558,13 @@ export async function runFlatEnhancement(
 ): Promise<RunFlatResult> {
   const started = performance.now();
 
+  // A tight sol crop passes 0. That is not "no wall" — stage the
+  // same margin the install image uses, and persist it so later
+  // brightness does not repaint the shadow.
   const bezel =
-    typeof input.bezel === "number" && Number.isFinite(input.bezel)
-      ? Math.min(0.1, Math.max(0, input.bezel))
-      : DEFAULT_BEZEL;
+    typeof input.bezel === "number" && Number.isFinite(input.bezel) && input.bezel > 0
+      ? Math.min(0.1, input.bezel)
+      : STANDARD_STUDIO_BEZEL;
   const sharpen =
     typeof input.sharpen === "number" && Number.isFinite(input.sharpen)
       ? Math.min(1, Math.max(0, input.sharpen))
@@ -965,14 +973,14 @@ export async function runFlatEnhancement(
 
   if (isAborted()) return bail("aborted");
 
-  // Bezel — even studio margin (#f3f3f3) on all four sides so the
-  // artwork sits in the center of the gallery wall. Rectangle and
-  // Photoroom silhouette share this pass, after color, so brightness,
-  // contrast, and saturation do not move the wall or the shadow.
-  // Inward #f3f3f3 stays gated (real wall outside the quad, and
-  // paintBorderWall skips a thread fringe) so a fringe is not sliced
-  // into a hard cut. A normal bezel always gets the shadow; the
-  // cutout's alpha keeps the Photoroom silhouette.
+  // After color: place the tight crop on #f3f3f3 and stage one studio
+  // shadow from its alpha. Not sampled from the photograph. Rectangle
+  // and Photoroom share this pass, so brightness, contrast, and
+  // saturation do not move the wall or the shadow. Inward #f3f3f3
+  // stays gated (real wall outside the quad, and paintBorderWall
+  // skips a thread fringe) so a fringe is not sliced into a hard
+  // cut. That guard does not skip the staged shadow. A zero bezel
+  // was already raised to the standard margin above.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
   let blob: Blob | null;
   try {
