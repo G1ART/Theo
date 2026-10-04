@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { PHOTOROOM_SEGMENT_MAX_EDGE } from "@/lib/image/enhancement/photoroomSegment";
 
 export type NormBox = { x: number; y: number; w: number; h: number };
 
@@ -120,25 +121,48 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
 
-/** JPEG of the pixels inside `box`. The segmenter only sees this crop. */
+/**
+ * JPEG of the pixels inside `box`, plus a little wall around it.
+ * The segmenter only sees this crop. The margin keeps the canvas edge
+ * off the frame, where the matte otherwise sticks to the crop border.
+ * Long edge is capped at the same size the segment call keeps.
+ */
+const SEGMENT_CONTEXT = 0.04;
+
 export async function cropFileToNormBox(file: File, box: NormBox): Promise<File> {
   const bmp = await createImageBitmap(file);
-  const sx = Math.round(clamp(box.x, 0, 1) * bmp.width);
-  const sy = Math.round(clamp(box.y, 0, 1) * bmp.height);
-  const sw = Math.max(1, Math.round(clamp(box.w, MIN, 1) * bmp.width));
-  const sh = Math.max(1, Math.round(clamp(box.h, MIN, 1) * bmp.height));
+  const mx = box.w * SEGMENT_CONTEXT;
+  const my = box.h * SEGMENT_CONTEXT;
+  const x0 = clamp(box.x - mx, 0, 1);
+  const y0 = clamp(box.y - my, 0, 1);
+  const x1 = clamp(box.x + box.w + mx, 0, 1);
+  const y1 = clamp(box.y + box.h + my, 0, 1);
+  const sx = Math.round(x0 * bmp.width);
+  const sy = Math.round(y0 * bmp.height);
+  const sw = Math.max(1, Math.min(bmp.width - sx, Math.round(x1 * bmp.width) - sx));
+  const sh = Math.max(1, Math.min(bmp.height - sy, Math.round(y1 * bmp.height) - sy));
+  const long = Math.max(sw, sh);
+  const scale = long > PHOTOROOM_SEGMENT_MAX_EDGE ? PHOTOROOM_SEGMENT_MAX_EDGE / long : 1;
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.min(sw, bmp.width - sx);
-  canvas.height = Math.min(sh, bmp.height - sy);
+  canvas.width = dw;
+  canvas.height = dh;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     bmp.close();
     throw new Error("error");
   }
-  ctx.drawImage(bmp, sx, sy, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = scale < 1;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, dw, dh);
   bmp.close();
   const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((out) => (out ? resolve(out) : reject(new Error("error"))), "image/jpeg", 0.92);
+    canvas.toBlob(
+      (out) => (out ? resolve(out) : reject(new Error("error"))),
+      "image/jpeg",
+      0.97,
+    );
   });
   return new File([blob], "region.jpg", { type: "image/jpeg" });
 }

@@ -1578,10 +1578,11 @@ export function ImageStandardizeEditor({
         // engine's 4096 default; bulk was already at 2560. Never
         // upscales (see `scale = longestCropEdge > maxLongEdge`).
         maxLongEdge: 2560,
-        // Photoroom returns an alpha cutout. Color runs on the subject,
-        // then the same studio wall and shadow as the rectangle. A
-        // second matte is not baked in first. Corners stay off this
-        // path so sol does not warp the silhouette.
+        // Photoroom returns an alpha cutout. A rectangular matte is
+        // already a frontal rectangle from the silhouette route; a
+        // circle or organic shape still has alpha. Color runs on the
+        // subject, then the same studio wall and shadow as the
+        // rectangle. Corners stay off this path so sol does not warp it.
         bezel: STANDARD_STUDIO_BEZEL,
         // When corners exist, omit AABB crop so suggestedCrop cannot
         // become the warp rectangle. normalizeCropFromCorners already
