@@ -187,12 +187,27 @@ const engine = readFileSync(
   join(__dirname, "../src/lib/image/enhancement/localFlatEngine.ts"),
   "utf8",
 );
-assert.match(engine, /shadowBlur/, "studio drop shadow stays on the matte");
+const presentation = readFileSync(
+  join(__dirname, "../src/lib/image/enhancement/studioPresentation.ts"),
+  "utf8",
+);
+assert.match(engine, /compositeStudioPresentation\(/, "studio wall is painted after color");
 assert.match(engine, /if \(wallOutsideQuad\)/, "tight crop does not inward-fill");
+assert.match(
+  presentation,
+  /shadowBlur: Math\.max\(8, Math\.round\(bezelPx \* 0\.4\)\)/,
+  "studio shadow blur",
+);
+assert.match(
+  presentation,
+  /shadowOffsetY: Math\.max\(4, Math\.round\(bezelPx \* 0\.18\)\)/,
+  "studio shadow offset",
+);
+assert.match(presentation, /rgba\(0,0,0,0\.22\)/, "studio shadow color");
 const bezelSection = engine.slice(engine.indexOf("const bezelPx"));
 assert.match(
   bezelSection,
-  /if \(bezelPx > 0\) \{\s*matCtx\.shadowColor = "rgba\(0,0,0,0\.22\)";\s*matCtx\.shadowBlur = shadowBlur;\s*matCtx\.shadowOffsetX = 0;\s*matCtx\.shadowOffsetY = shadowOffsetY;/,
+  /compositeStudioPresentation\(subject\.data, workW, workH, bezelPx\)/,
   "a normal bezel still draws the studio shadow",
 );
 assert.doesNotMatch(

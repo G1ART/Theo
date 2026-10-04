@@ -38,6 +38,11 @@ import {
   paintBorderWall,
   restoreGalleryMatte,
 } from "./borderWall";
+import {
+  compositeStudioPresentation,
+  prepareCutoutForColor,
+  STUDIO_BEZEL_FRACTION,
+} from "./studioPresentation";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
   applyAwb,
@@ -212,7 +217,7 @@ const DEFAULT_MAX_LONG_EDGE = 4096;
 const DEFAULT_BEZEL = 0.02;
 /** Even studio margin around the artwork, as a fraction of the short edge.
  *  Keeps the artwork's own aspect — this is padding, not a canvas crop. */
-export const STANDARD_STUDIO_BEZEL = 0.08;
+export const STANDARD_STUDIO_BEZEL = STUDIO_BEZEL_FRACTION;
 const DEFAULT_SHARPEN = 0.35;
 
 /**
@@ -827,10 +832,19 @@ export async function runFlatEnhancement(
   if (isAborted()) return bail("aborted");
 
   let processed: ImageData;
+  // A Photoroom cutout still has alpha. Clear pixels are not black
+  // while tone runs, or the edge picks up a dark halo. The studio
+  // wall is painted after color from that alpha. Locking the matte
+  // here would flatten the silhouette.
+  const preColor = ctx.getImageData(0, 0, workW, workH);
+  const cutoutSubject = prepareCutoutForColor(preColor.data);
+  if (cutoutSubject) ctx.putImageData(preColor, 0, 0);
   // Captured before tone / Pro Look. Those passes shift the matte
   // off #f3f3f3, so the mask cannot be rebuilt afterwards.
   const lockedMatte =
-    bezel === 0 ? galleryMatteMask(ctx.getImageData(0, 0, workW, workH).data, workW, workH) : null;
+    !cutoutSubject && bezel === 0
+      ? galleryMatteMask(ctx.getImageData(0, 0, workW, workH).data, workW, workH)
+      : null;
   try {
     // AWB. Runs before tone so tone/sat operate on a neutral base.
     // Uses the current canvas ImageData directly — no downsample —
@@ -952,34 +966,23 @@ export async function runFlatEnhancement(
   if (isAborted()) return bail("aborted");
 
   // Bezel — even studio margin (#f3f3f3) on all four sides so the
-  // artwork sits in the center of the gallery wall. The drop shadow
-  // is studio lighting on that margin. It is painted after color so
-  // later brightness/contrast/saturation do not move the wall or the
-  // shadow. Inward #f3f3f3 stays gated (real wall outside the quad,
-  // and paintBorderWall skips a thread fringe) so a fringe is not
-  // sliced into a hard cut.
+  // artwork sits in the center of the gallery wall. Rectangle and
+  // Photoroom silhouette share this pass, after color, so brightness,
+  // contrast, and saturation do not move the wall or the shadow.
+  // Inward #f3f3f3 stays gated (real wall outside the quad, and
+  // paintBorderWall skips a thread fringe) so a fringe is not sliced
+  // into a hard cut. A normal bezel always gets the shadow; the
+  // cutout's alpha keeps the Photoroom silhouette.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
-  const shadowBlur = Math.max(8, Math.round(bezelPx * 0.4));
-  const shadowOffsetY = Math.max(4, Math.round(bezelPx * 0.18));
-  const finalW = workW + bezelPx * 2;
-  const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
   try {
     const t0 = performance.now();
-    const { canvas: matCanvas, ctx: matCtx } = makeCanvas(finalW, finalH);
-    matCtx.fillStyle = "#f3f3f3";
-    matCtx.fillRect(0, 0, finalW, finalH);
-    // Studio shadow sits in the matte margin, once, after color.
-    // A normal bezel (stretched canvas / painting on white) always
-    // gets it. Fringe only blocks the inward matte-eat above.
-    if (bezelPx > 0) {
-      matCtx.shadowColor = "rgba(0,0,0,0.22)";
-      matCtx.shadowBlur = shadowBlur;
-      matCtx.shadowOffsetX = 0;
-      matCtx.shadowOffsetY = shadowOffsetY;
-    }
-    matCtx.drawImage(canvas as CanvasImageSource, bezelPx, bezelPx);
-    matCtx.shadowColor = "transparent";
+    const subject = ctx.getImageData(0, 0, workW, workH);
+    const presented = compositeStudioPresentation(subject.data, workW, workH, bezelPx);
+    const { canvas: matCanvas, ctx: matCtx } = makeCanvas(presented.width, presented.height);
+    const presentedImage = new ImageData(presented.width, presented.height);
+    presentedImage.data.set(presented.data);
+    matCtx.putImageData(presentedImage, 0, 0);
     blob = await canvasToBlob(matCanvas, "image/webp", 0.9);
     stageTimings.encodeMs = Math.max(0, Math.round(performance.now() - t0));
   } catch {
@@ -1013,6 +1016,41 @@ export async function runFlatEnhancement(
  * upload pipeline expects. Preserves the original stem, swaps the
  * extension to `.webp`, marks the mime as `image/webp`.
  */
+/**
+ * Preview of a Photoroom alpha cutout on the same studio wall the
+ * rectangle uses. Color is applied later, in `runFlatEnhancement`,
+ * which paints this wall again after tone.
+ */
+export async function presentCutoutOnStudioWall(file: Blob): Promise<Blob | null> {
+  if (typeof createImageBitmap === "undefined") return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const w = bitmap.width;
+    const h = bitmap.height;
+    const { ctx } = makeCanvas(w, h);
+    ctx.drawImage(bitmap as CanvasImageSource, 0, 0);
+    try {
+      bitmap.close();
+    } catch {
+      /* older browsers */
+    }
+    const image = ctx.getImageData(0, 0, w, h);
+    const presented = compositeStudioPresentation(
+      image.data,
+      w,
+      h,
+      Math.round(STANDARD_STUDIO_BEZEL * Math.min(w, h)),
+    );
+    const out = makeCanvas(presented.width, presented.height);
+    const presentedImage = new ImageData(presented.width, presented.height);
+    presentedImage.data.set(presented.data);
+    out.ctx.putImageData(presentedImage, 0, 0);
+    return canvasToBlob(out.canvas, "image/webp", 0.9);
+  } catch {
+    return null;
+  }
+}
+
 export function flatBlobToFile(originalName: string, blob: Blob): File {
   const stem = originalName.replace(/\.[^./\\]+$/, "") || "enhanced";
   return new File([blob], `${stem}.enhanced.webp`, {

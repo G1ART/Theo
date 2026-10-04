@@ -3,8 +3,10 @@
  *
  * The rectangular corner crop does not call this route. A signed-in
  * client posts the original file; Photoroom returns an alpha PNG; we
- * trim to the subject and center it on the gallery matte (#f3f3f3).
- * The response is the WebP itself — nothing is written to Storage.
+ * trim to the subject and return a WebP that still has alpha.
+ * The studio wall (#f3f3f3) and drop shadow are painted later, after
+ * color, by the same pass the rectangle crop uses. Nothing is written
+ * to Storage.
  *
  * Env: existing `PHOTOROOM_API_KEY`. Missing key → 501 `no_key`.
  */
@@ -19,9 +21,6 @@ export const maxDuration = 60;
 const PHOTOROOM_ENDPOINT = "https://sdk.photoroom.com/v1/segment";
 const REQUEST_TIMEOUT_MS = 25_000;
 const MAX_BYTES = 20 * 1024 * 1024;
-const MATTE = { r: 243, g: 243, b: 243, alpha: 1 } as const;
-const PAD_FRACTION = 0.08;
-
 const ALLOWED = new Set([
   "image/jpeg",
   "image/pjpeg",
@@ -97,20 +96,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    const trimmed = await sharp(png).trim({ threshold: 1 }).png().toBuffer({ resolveWithObject: true });
-    const sw = trimmed.info.width ?? 1;
-    const sh = trimmed.info.height ?? 1;
-    const pad = Math.max(8, Math.round(Math.min(sw, sh) * PAD_FRACTION));
-    const out = await sharp({
-      create: {
-        width: sw + pad * 2,
-        height: sh + pad * 2,
-        channels: 4,
-        background: MATTE,
-      },
-    })
-      .composite([{ input: trimmed.data, left: pad, top: pad }])
-      .webp({ quality: 90 })
+    const out = await sharp(png)
+      .trim({ threshold: 1 })
+      .ensureAlpha()
+      .webp({ quality: 90, alphaQuality: 100 })
       .toBuffer();
     return new NextResponse(new Uint8Array(out), {
       status: 200,

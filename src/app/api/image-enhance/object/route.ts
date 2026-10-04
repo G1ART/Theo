@@ -10,8 +10,8 @@
  *      exhibition the caller can write to).
  *   3. Stream the staging object out of Supabase Storage, POST it to
  *      Photoroom's `/v1/segment` with `x-api-key`, compositing the
- *      returned RGBA onto a centered white background of longer-edge
- *      + 6% padding with `sharp`, encoded as WebP q88.
+ *      returned RGBA onto the studio wall (#f3f3f3) with the same
+ *      drop shadow as the rectangle crop, encoded as WebP q88.
  *   4. Upload the composite under `{owner}/enhanced/{uuid}-…webp`.
  *   5. Best-effort delete the staging input so the temp file doesn't
  *      linger in storage.
@@ -33,13 +33,17 @@ import type {
   ObjectRecipe,
 } from "@/lib/image/enhancement/types";
 import { ENHANCEMENT_META_SCHEMA_VERSION } from "@/lib/image/enhancement/types";
+import {
+  compositeStudioPresentation,
+  STUDIO_BEZEL_FRACTION,
+  studioBezelPx,
+} from "@/lib/image/enhancement/studioPresentation";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const PHOTOROOM_ENDPOINT = "https://sdk.photoroom.com/v1/segment";
 const REQUEST_TIMEOUT_MS = 25_000;
-const OBJECT_PADDING = 0.06;
 const OUTPUT_WEBP_QUALITY = 88;
 const STORAGE_BUCKET = "artworks";
 const SUPPORTED_MIMES = new Set([
@@ -174,7 +178,7 @@ async function callPhotoroom(input: Blob, filename: string, upstreamSignal?: Abo
   try {
     const form = new FormData();
     form.append("image_file", input, filename);
-    form.append("bg_color", "FFFFFF");
+    form.append("format", "png");
     const res = await fetch(PHOTOROOM_ENDPOINT, {
       method: "POST",
       headers: {
@@ -211,74 +215,43 @@ async function callPhotoroom(input: Blob, filename: string, upstreamSignal?: Abo
   }
 }
 
-async function compositeOnWhite(subjectBytes: Buffer): Promise<{
+async function compositeOnStudioWall(subjectBytes: Buffer): Promise<{
   buffer: Buffer;
   width: number;
   height: number;
 }> {
-  // First pass — inspect metadata + strip everything except an implicit
-  // sRGB colorspace. `failOn: "none"` keeps a slightly odd PNG (e.g. a
-  // Photoroom cut-out with an oversized IDAT) from rejecting the whole
-  // pipeline. We downscale in the second pipe rather than here so we
-  // only allocate the resized RGBA buffer, never the source-sized one.
-  const probe = sharp(subjectBytes, { failOn: "none" });
-  const metadata = await probe.metadata();
-  const srcW = metadata.width ?? 0;
-  const srcH = metadata.height ?? 0;
-  if (!srcW || !srcH) {
+  // `failOn: "none"` keeps a slightly odd PNG (e.g. a Photoroom cut-out
+  // with an oversized IDAT) from rejecting the whole pipeline. Trim,
+  // then cap the long edge so the RGBA buffer stays inside the Vercel
+  // function memory envelope (see OBJECT_MAX_SUBJECT_EDGE).
+  const raw = await sharp(subjectBytes, { failOn: "none" })
+    .trim({ threshold: 1 })
+    .resize({
+      width: OBJECT_MAX_SUBJECT_EDGE,
+      height: OBJECT_MAX_SUBJECT_EDGE,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const subjW = raw.info.width ?? 0;
+  const subjH = raw.info.height ?? 0;
+  if (!subjW || !subjH || raw.info.channels !== 4) {
     throw new HandlerError("unsupported_format", "invalid_subject_dimensions");
   }
-
-  // Clamp the subject so the composite canvas stays inside the Vercel
-  // function memory envelope with concurrency-2 (see OBJECT_MAX_SUBJECT_EDGE).
-  const scale =
-    Math.max(srcW, srcH) > OBJECT_MAX_SUBJECT_EDGE
-      ? OBJECT_MAX_SUBJECT_EDGE / Math.max(srcW, srcH)
-      : 1;
-  const subjW = Math.max(1, Math.round(srcW * scale));
-  const subjH = Math.max(1, Math.round(srcH * scale));
-  const clampedSubject =
-    scale === 1
-      ? subjectBytes
-      : await sharp(subjectBytes, { failOn: "none" })
-          // G5 (2026-08-10) — explicit `withoutEnlargement: true` so
-          // a small subject is never upscaled to the 2560 target.
-          // `subjW/subjH` already respect the cap via the `scale`
-          // math above; this is a defensive guard.
-          .resize({
-            width: subjW,
-            height: subjH,
-            fit: "inside",
-            withoutEnlargement: true,
-          })
-          .toBuffer();
-
-  const canvasEdge = Math.round(Math.max(subjW, subjH) * (1 + OBJECT_PADDING * 2));
-  const composite = await sharp({
-    create: {
-      width: canvasEdge,
-      height: canvasEdge,
-      channels: 4,
-      background: { r: 255, g: 255, b: 255, alpha: 1 },
-    },
+  const pixels = new Uint8ClampedArray(subjW * subjH * 4);
+  pixels.set(raw.data.subarray(0, pixels.length));
+  const presented = compositeStudioPresentation(pixels, subjW, subjH, studioBezelPx(subjW, subjH));
+  const encoded = await sharp(Buffer.from(presented.data), {
+    raw: { width: presented.width, height: presented.height, channels: 4 },
   })
-    .composite([
-      {
-        input: clampedSubject,
-        left: Math.round((canvasEdge - subjW) / 2),
-        top: Math.round((canvasEdge - subjH) / 2),
-      },
-    ])
-    // Explicitly drop EXIF / GPS / ICC. sharp defaults to *not* copying
-    // metadata forward, but we call the no-op `.withMetadata()` chain
-    // change here to signal intent — the encoded WebP carries no GPS
-    // regardless of what Photoroom (or the source phone) baked in.
     .webp({ quality: OUTPUT_WEBP_QUALITY })
     .toBuffer({ resolveWithObject: true });
   return {
-    buffer: composite.data,
-    width: composite.info.width,
-    height: composite.info.height,
+    buffer: encoded.data,
+    width: encoded.info.width ?? presented.width,
+    height: encoded.info.height ?? presented.height,
   };
 }
 
@@ -439,7 +412,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const compositeStartedAt = Date.now();
     let composite: { buffer: Buffer; width: number; height: number };
     try {
-      composite = await compositeOnWhite(subjectBuffer);
+      composite = await compositeOnStudioWall(subjectBuffer);
     } catch (err) {
       const reason = err instanceof HandlerError ? err.reason : "error";
       return degradedResponse(reason);
@@ -471,7 +444,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       .catch(() => undefined);
 
     const latencyMs = Date.now() - startedAt;
-    const recipe: ObjectRecipe = { padding: OBJECT_PADDING, bezel: 0 };
+    const recipe: ObjectRecipe = {
+      padding: STUDIO_BEZEL_FRACTION,
+      bezel: STUDIO_BEZEL_FRACTION,
+    };
     const provider: EnhancementProvider = "photoroom_hybrid";
     const meta: EnhancementMeta = {
       provider,

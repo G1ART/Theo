@@ -4,8 +4,9 @@ import { supabase } from "@/lib/supabase/client";
 
 /**
  * Ask the server to lift a non-rectangular artwork off its background.
- * Returns a WebP blob already sitting on the gallery matte. Throws an
- * Error whose message is the route `reason` (`no_key`, `not_authorized`, …).
+ * Returns a WebP blob of the cutout with alpha. The studio wall is
+ * painted later. Throws an Error whose message is the route `reason`
+ * (`no_key`, `not_authorized`, …).
  */
 export async function requestSilhouetteCutout(file: File, signal?: AbortSignal): Promise<Blob> {
   const { data: { session } } = await supabase.auth.getSession();

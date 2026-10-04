@@ -31,6 +31,7 @@ import {
 import {
   runFlatEnhancement,
   flatBlobToFile,
+  presentCutoutOnStudioWall,
   STANDARD_STUDIO_BEZEL,
 } from "@/lib/image/enhancement/localFlatEngine";
 import { resolveAdaptiveProLook } from "@/lib/image/enhancement/proLook.tunables";
@@ -1577,9 +1578,11 @@ export function ImageStandardizeEditor({
         // engine's 4096 default; bulk was already at 2560. Never
         // upscales (see `scale = longestCropEdge > maxLongEdge`).
         maxLongEdge: 2560,
-        // The silhouette route already matted the subject. A second
-        // bezel would frame the frame. Quad mode keeps the studio bezel.
-        bezel: useSilhouette ? 0 : STANDARD_STUDIO_BEZEL,
+        // Photoroom returns an alpha cutout. Color runs on the subject,
+        // then the same studio wall and shadow as the rectangle. A
+        // second matte is not baked in first. Corners stay off this
+        // path so sol does not warp the silhouette.
+        bezel: STANDARD_STUDIO_BEZEL,
         // When corners exist, omit AABB crop so suggestedCrop cannot
         // become the warp rectangle. normalizeCropFromCorners already
         // prefers the corner AABB. Silhouette has no corners to warp.
@@ -2555,12 +2558,20 @@ export function ImageStandardizeEditor({
                           setSilhouetteRunning(true);
                           void cropFileToNormBox(file, silhouetteBox)
                             .then((cropped) => requestSilhouetteCutout(cropped))
-                            .then((blob) => {
-                              const next = new File([blob], "silhouette.webp", { type: "image/webp" });
-                              silhouetteFileRef.current = next;
+                            .then(async (blob) => {
+                              // Enhance consumes the alpha cutout. The
+                              // preview is that cutout on the studio wall,
+                              // so the shape step already matches the
+                              // rectangle. Tone paints the wall again after.
+                              const alpha = new File([blob], "silhouette.webp", { type: "image/webp" });
+                              silhouetteFileRef.current = alpha;
+                              const presented = await presentCutoutOnStudioWall(alpha);
+                              const shown = presented
+                                ? new File([presented], "silhouette.webp", { type: "image/webp" })
+                                : alpha;
                               setSilhouetteUrl((prev) => {
                                 if (prev) URL.revokeObjectURL(prev);
-                                return URL.createObjectURL(next);
+                                return URL.createObjectURL(shown);
                               });
                             })
                             .catch((err: unknown) => {
