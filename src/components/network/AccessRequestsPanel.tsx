@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { setArtworkBack } from "@/lib/artworkBack";
+import { exhibitionIdFromPackField } from "@/lib/download/access";
 import { FloorPanel } from "@/components/ds/FloorPanel";
 import { LaneChips, type LaneOption } from "@/components/ds/LaneChips";
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -245,10 +246,18 @@ export function AccessRequestsPanel() {
         <ul className="flex flex-col gap-3">
           {visible.map((row) => {
             const isOpen = expandedId === row.id;
-            const subjectHref =
-              row.subject_type === "artwork" && row.subject_id
+            const packExhibitionId = exhibitionIdFromPackField(row.field_key);
+            const subjectHref = packExhibitionId
+              ? `/e/${packExhibitionId}`
+              : row.subject_type === "artwork" && row.subject_id
                 ? `/artwork/${row.subject_id}`
                 : null;
+            const typeLabel = packExhibitionId
+              ? t("download.requestInbox")
+              : t(`accessRequest.requestType.${row.request_type}` as MessageKey);
+            const fieldLabel = packExhibitionId
+              ? t("visibility.field.download_pack")
+              : t(`visibility.field.${row.field_key}` as MessageKey);
             return (
               <li key={row.id}>
                 <FloorPanel padding="sm">
@@ -264,14 +273,10 @@ export function AccessRequestsPanel() {
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-zinc-900">
-                        {t(
-                          `accessRequest.requestType.${row.request_type}` as MessageKey
-                        )}{" "}
+                        {typeLabel}{" "}
                         ·{" "}
                         <span className="font-normal text-zinc-600">
-                          {t(
-                            `visibility.field.${row.field_key}` as MessageKey
-                          )}
+                          {fieldLabel}
                         </span>
                       </p>
                       <p className="mt-0.5 text-[11px] text-zinc-500 break-keep">
@@ -317,7 +322,9 @@ export function AccessRequestsPanel() {
                         {subjectHref ? (
                           <Link
                             href={subjectHref}
-                            onClick={() => setArtworkBack()}
+                            onClick={() => {
+                              if (!packExhibitionId) setArtworkBack();
+                            }}
                             className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
                           >
                             {t("accessRequestInbox.viewSubject")}

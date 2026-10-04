@@ -31,6 +31,7 @@ import {
 } from "@/lib/profile/taxonomy";
 import { BuildStamp } from "@/components/BuildStamp";
 import { SizeUnitPreference } from "@/components/settings/SizeUnitPreference";
+import { DownloadFormatPreference } from "@/components/settings/DownloadFormatPreference";
 import { SimulationCalibrationPreference } from "@/components/settings/SimulationCalibrationPreference";
 import { EnhancementQualityGatePreference } from "@/components/settings/EnhancementQualityGatePreference";
 import { BioDraftAssist } from "@/components/ai/BioDraftAssist";
@@ -1215,6 +1216,8 @@ export default function SettingsPage() {
             </div>
 
             <SizeUnitPreference />
+
+            <DownloadFormatPreference />
 
             <SimulationCalibrationPreference />
 

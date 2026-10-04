@@ -71,6 +71,7 @@ import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
 import { markAiAccepted } from "@/lib/ai/accept";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ArtworkPassportHeader } from "@/components/artwork/ArtworkPassportHeader";
+import { ArtworkDownloadButton } from "@/components/download/ArtworkDownloadButton";
 import { ArtworkImageStage } from "@/components/artwork/ArtworkImageStage";
 import { GatedField } from "@/components/visibility/GatedField";
 import { InlineAuthGate } from "@/components/auth/InlineAuthGate";
@@ -1254,6 +1255,15 @@ function ArtworkDetailContent() {
                   {t("boards.save.cta")}
                 </button>
               )}
+              <ArtworkDownloadButton
+                artworkId={artwork.id}
+                artistId={artwork.artist_id}
+                published={artwork.visibility === "public"}
+                exhibitionPosterIds={exhibitionsForWork.flatMap((ex) =>
+                  [ex.curator_id, ex.host_profile_id].filter((id): id is string => !!id),
+                )}
+                userId={userId}
+              />
               {/*
                 2026-08-17 (14) Chunk C — "내 공간에서 보기" CTA.
                 Rendered inline with the like/save cluster so the

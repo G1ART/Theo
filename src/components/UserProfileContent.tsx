@@ -16,6 +16,15 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useT } from "@/lib/i18n/useT";
+import { useActingAs } from "@/context/ActingAsContext";
+import { ProfileDownloadSteps } from "@/components/download/ProfileDownloadSteps";
+import { DownloadRequestError } from "@/lib/download/errors";
+import {
+  presetToBulkChoice,
+  useDownloadPreset,
+  type BulkConfirmChoice,
+} from "@/lib/download/preset";
+import { useSizeUnitPref } from "@/lib/size/preference";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 import {
@@ -102,6 +111,9 @@ export function UserProfileContent({
   initialTabParam = null,
 }: Props) {
   const { t, locale } = useT();
+  const { actingAsProfileId } = useActingAs();
+  const downloadPreset = useDownloadPreset();
+  const sizePref = useSizeUnitPref();
   const router = useRouter();
   const pathname = usePathname();
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -125,6 +137,11 @@ export function UserProfileContent({
   const [tabAssignMode, setTabAssignMode] = useState(false);
   const [tabAssignIds, setTabAssignIds] = useState<Set<string>>(new Set());
   const [tabAssignSaving, setTabAssignSaving] = useState(false);
+  const [downloadMode, setDownloadMode] = useState<null | "select" | "order" | "confirm">(null);
+  const [downloadIds, setDownloadIds] = useState<string[]>([]);
+  const [downloadChoice, setDownloadChoice] = useState<BulkConfirmChoice>("png-zip");
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Exhibition manual order map (rebuilt only when the prop changes).
   const initialExhibitionOrderMap = useMemo(
@@ -482,6 +499,69 @@ export function UserProfileContent({
 
   const isExhibitionsView = active.kind === "persona" && active.tab === "exhibitions";
   const customTabs = portfolio.custom_tabs ?? [];
+  const actingAsThisProfile =
+    !!actingAsProfileId && actingAsProfileId === profile.id && actingAsProfileId !== viewerId;
+  const downloadableArtworks = useMemo(
+    () =>
+      displayedArtworks.filter(
+        (artwork) => artwork.artist_id === profile.id && artwork.visibility === "public",
+      ),
+    [displayedArtworks, profile.id],
+  );
+  const downloadOrdered = useMemo(() => {
+    const byId = new Map(downloadableArtworks.map((artwork) => [artwork.id, artwork]));
+    return downloadIds
+      .map((id) => byId.get(id))
+      .filter((artwork): artwork is ArtworkWithLikes => !!artwork);
+  }, [downloadIds, downloadableArtworks]);
+
+  function toggleDownloadId(id: string) {
+    setDownloadIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }
+
+  function moveDownload(index: number, direction: -1 | 1) {
+    setDownloadIds((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      const [item] = next.splice(index, 1);
+      if (!item) return prev;
+      next.splice(target, 0, item);
+      return next;
+    });
+  }
+
+  function cancelDownload() {
+    setDownloadMode(null);
+    setDownloadIds([]);
+    setDownloadError(null);
+    setDownloadBusy(false);
+  }
+
+  async function confirmDownload() {
+    const ids = downloadOrdered.map((artwork) => artwork.id);
+    if (ids.length === 0) return;
+    setDownloadBusy(true);
+    setDownloadError(null);
+    try {
+      const { downloadArtworkBundle } = await import("@/lib/download/runDownload");
+      await downloadArtworkBundle({
+        artworkIds: ids,
+        actingAsProfileId: actingAsThisProfile ? actingAsProfileId : null,
+        choice: downloadChoice,
+        locale,
+        t,
+        sizePref,
+      });
+      cancelDownload();
+    } catch (err) {
+      const denied = err instanceof DownloadRequestError && err.code === "denied";
+      setDownloadError(denied ? t("download.denied") : t("download.failed"));
+      setDownloadBusy(false);
+    }
+  }
 
   async function handleAssignToCustomTab(targetCustomId: string | null) {
     const ids = Array.from(tabAssignIds);
@@ -840,9 +920,13 @@ export function UserProfileContent({
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-zinc-900">{worksHeading}</h2>
-        {!isExhibitionsView && isOwner && !reorderMode && (
+        {!isExhibitionsView &&
+          !reorderMode &&
+          downloadMode !== "order" &&
+          downloadMode !== "confirm" &&
+          (isOwner || actingAsThisProfile) && (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {customTabs.length > 0 && displayedArtworks.length > 0 && (
+            {isOwner && customTabs.length > 0 && displayedArtworks.length > 0 && (
               tabAssignMode ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <select
@@ -888,7 +972,7 @@ export function UserProfileContent({
         {!isExhibitionsView && isOwner && reorderableArtworks.length > 0 && !reorderMode && (
           <button
             type="button"
-            onClick={() => { setReorderMode(true); setSaveError(null); setTabAssignMode(false); setTabAssignIds(new Set()); }}
+            onClick={() => { setReorderMode(true); setSaveError(null); setTabAssignMode(false); setTabAssignIds(new Set()); cancelDownload(); }}
             aria-label={t("profile.reorder")}
             data-tour="public-profile-reorder-button"
             className="inline-flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
@@ -909,6 +993,50 @@ export function UserProfileContent({
             {t("profile.reorder")}
           </button>
         )}
+            {downloadableArtworks.length > 0 && downloadMode == null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDownloadMode("select");
+                  setDownloadIds([]);
+                  setDownloadError(null);
+                  setTabAssignMode(false);
+                  setTabAssignIds(new Set());
+                }}
+                className="rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                {t("download.select")}
+              </button>
+            )}
+            {downloadMode === "select" && (
+              <>
+                <span className="text-xs text-zinc-500">
+                  {t("download.selected").replace("{n}", String(downloadIds.length))}
+                </span>
+                <button
+                  type="button"
+                  disabled={downloadIds.length === 0}
+                  onClick={() => {
+                    const selected = new Set(downloadIds);
+                    const ordered = downloadableArtworks
+                      .filter((artwork) => selected.has(artwork.id))
+                      .map((artwork) => artwork.id);
+                    setDownloadIds(ordered);
+                    setDownloadMode("order");
+                  }}
+                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {t("download.order")}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelDownload}
+                  className="text-xs text-zinc-500 hover:text-zinc-800"
+                >
+                  {t("common.cancel")}
+                </button>
+              </>
+            )}
           </div>
         )}
         {!isExhibitionsView && reorderMode && isOwner && reorderableArtworks.length > 0 && (
@@ -1091,6 +1219,23 @@ export function UserProfileContent({
             })}
           </ul>
         )
+      ) : !isExhibitionsView && (downloadMode === "order" || downloadMode === "confirm") ? (
+        <ProfileDownloadSteps
+          mode={downloadMode}
+          artworks={downloadOrdered}
+          choice={downloadChoice}
+          busy={downloadBusy}
+          error={downloadError}
+          onChoice={setDownloadChoice}
+          onMove={moveDownload}
+          onNext={() => {
+            setDownloadChoice(presetToBulkChoice(downloadPreset));
+            setDownloadMode("confirm");
+          }}
+          onBack={() => setDownloadMode(downloadMode === "confirm" ? "order" : "select")}
+          onConfirm={() => void confirmDownload()}
+          onCancel={cancelDownload}
+        />
       ) : reorderMode && isOwner && artworks.length > 0 ? (
         <>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -1169,12 +1314,27 @@ export function UserProfileContent({
                   />
                 </div>
               )}
+              {downloadMode === "select" &&
+                artwork.artist_id === profile.id &&
+                artwork.visibility === "public" && (
+                <div className="absolute left-2 top-2 z-10" onClick={(event) => event.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={downloadIds.includes(artwork.id)}
+                    onChange={() => toggleDownloadId(artwork.id)}
+                    className="h-5 w-5 rounded border-zinc-300"
+                    aria-label={t("download.select")}
+                  />
+                </div>
+              )}
               <ArtworkCard
                 artwork={artwork}
                 likesCount={artwork.likes_count ?? 0}
                 isLiked={likedIds.has(artwork.id)}
+                disableNavigation={tabAssignMode || downloadMode === "select"}
                 showEdit={
                   !tabAssignMode &&
+                  downloadMode == null &&
                   isOwner &&
                   !!profile?.id &&
                   canEditArtwork(artwork, profile.id)

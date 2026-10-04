@@ -35,6 +35,7 @@ import { UnonboardedArtistInterestPopover } from "@/components/artists/Unonboard
 import { getSession } from "@/lib/supabase/auth";
 import { listMyDelegations } from "@/lib/supabase/delegations";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
+import { ExhibitionPackActions } from "@/components/download/ExhibitionPackActions";
 
 const STATUS_LABELS: Record<string, string> = {
   planned: "exhibition.statusPlanned",
@@ -269,6 +270,12 @@ export default function PublicExhibitionPage() {
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
                 {pickLocalizedTitle(exhibition, locale) || exhibition.title}
               </h1>
+              <ExhibitionPackActions
+                exhibitionId={exhibition.id}
+                hostProfileId={exhibition.host_profile_id}
+                curatorId={exhibition.curator_id}
+                userId={userId}
+              />
               <dl className="mt-3 space-y-1 text-sm text-zinc-600">
                 <div className="flex gap-2">
                   <dt className="w-20 shrink-0 text-zinc-400">
