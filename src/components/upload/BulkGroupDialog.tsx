@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useT } from "@/lib/i18n/useT";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 export type GroupCard = {
   id: string;
@@ -47,8 +49,9 @@ export function BulkGroupDialog({
   const canSave = stacks.some((s) => s.length > 1);
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 px-3 py-6 sm:items-center"
+      className={`fixed inset-0 ${layer.scrim} flex items-end justify-center bg-black/40 px-3 py-6 sm:items-center`}
       onClick={onClose}
     >
       <div
@@ -124,5 +127,6 @@ export function BulkGroupDialog({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

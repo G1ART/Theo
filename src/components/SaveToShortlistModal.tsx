@@ -16,6 +16,8 @@ import {
   type ShortlistRow,
 } from "@/lib/supabase/shortlists";
 import { useActingAs } from "@/context/ActingAsContext";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 type Props = {
   artworkId?: string;
@@ -167,8 +169,9 @@ export function SaveToShortlistModal({ artworkId, exhibitionId, open, onClose }:
   if (!open) return null;
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/30`}
       onClick={onClose}
     >
       <div
@@ -290,5 +293,6 @@ export function SaveToShortlistModal({ artworkId, exhibitionId, open, onClose }:
         )}
       </div>
     </div>
+    </BodyPortal>
   );
 }

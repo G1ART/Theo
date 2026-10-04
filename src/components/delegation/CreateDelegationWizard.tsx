@@ -21,6 +21,8 @@ import { classifyDelegationInviteError } from "@/lib/delegation/inviteErrors";
 import { permissionLabel } from "@/lib/delegation/permissionLabel";
 import { getSession } from "@/lib/supabase/auth";
 import { getMyProfile } from "@/lib/supabase/me";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 type WizardScope = "account" | "project";
 
@@ -389,7 +391,8 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-3 pb-3 pt-12 sm:items-center sm:px-6 sm:py-12">
+    <BodyPortal>
+    <div className={`fixed inset-0 ${layer.scrim} flex items-end justify-center bg-black/40 px-3 pb-3 pt-12 sm:items-center sm:px-6 sm:py-12`}>
       <div
         role="dialog"
         aria-modal="true"
@@ -775,6 +778,7 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
         )}
       </div>
     </div>
+    </BodyPortal>
   );
 }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -2217,7 +2219,8 @@ export default function BulkUploadPage() {
         )}
 
         {pendingBulk && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <BodyPortal>
+          <div className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/40 px-4`}>
             <div className="max-w-md rounded-lg bg-white p-6 shadow-lg">
               <p className="mb-4 text-sm text-zinc-800">{pendingBulk.message}</p>
               <div className="flex justify-end gap-2">
@@ -2238,12 +2241,15 @@ export default function BulkUploadPage() {
               </div>
             </div>
           </div>
+          </BodyPortal>
         )}
 
         {toast && (
-          <div className="fixed bottom-4 right-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg">
+          <BodyPortal>
+          <div className={`fixed bottom-4 right-4 ${layer.toast} rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg`}>
             {toast}
           </div>
+          </BodyPortal>
         )}
 
         <div id="upload-drafts" className="space-y-4">

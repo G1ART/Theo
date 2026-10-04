@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
 import { EmptyState } from "@/components/ds/EmptyState";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import { useT } from "@/lib/i18n/useT";
 import {
   createShortlist,
@@ -205,12 +207,14 @@ function ShortlistsContent() {
       />
 
       {toast && (
+        <BodyPortal>
         <div
           role="status"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg"
+          className={`fixed bottom-6 left-1/2 ${layer.toast} -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg`}
         >
           {toast}
         </div>
+        </BodyPortal>
       )}
     </main>
   );

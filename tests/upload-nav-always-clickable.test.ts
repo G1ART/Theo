@@ -13,6 +13,7 @@ import {
   shouldHardLeaveUpload,
 } from "../src/lib/shell/leaveUploadNav";
 import { fileIdentityKey } from "../src/lib/image/enhancement/qualityGateBannerVisibility";
+import { layer } from "../src/lib/ui/layers";
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -75,7 +76,8 @@ function read(rel: string): string {
   );
 
   const shell = read("src/components/shell/AppShell.tsx");
-  assert.match(shell, /relative z-30/);
+  assert.equal(layer.chrome, "z-30");
+  assert.match(shell, /layer\.chrome/);
   assert.match(shell, /pointer-events-auto/);
   assert.match(shell, /overflow-x-clip/);
 

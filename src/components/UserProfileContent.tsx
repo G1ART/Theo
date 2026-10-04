@@ -16,6 +16,8 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useT } from "@/lib/i18n/useT";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import {
   pickLocalizedBio,
   pickLocalizedTitle,
@@ -1192,9 +1194,11 @@ export function UserProfileContent({
         </div>
       )}
       {savedToast && (
-        <div className="fixed bottom-4 right-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg">
+        <BodyPortal>
+        <div className={`fixed bottom-4 right-4 ${layer.toast} rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg`}>
           {savedToastMsg ?? t("common.saved")}
         </div>
+        </BodyPortal>
       )}
       </PageShell>
     </>

@@ -27,6 +27,7 @@ import {
   isNavItemActive,
 } from "@/lib/shell/navConfig";
 import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
+import { layer } from "@/lib/ui/layers";
 import {
   HamburgerContextPeek,
   useFollowInviteCount,
@@ -421,12 +422,13 @@ export function Header() {
     <>
     {/* QA 2026-06-26 (#1) — sticky top so the header stays in view from
         the very first paint, even on pages where the user lands with
-        scrollY > 0. Banner+header stick together. z-40 below modals;
-        z-50 while the hamburger is open so the sheet sits above the
-        body-level scrim. */}
+        scrollY > 0. Banner+header stick together. The resting bar is
+        the sticky-bar layer, under menus and under modal scrims.
+        While the hamburger is open the bar moves to the menu layer
+        so the sheet sits above the body-level mobile scrim. */}
     <div
       data-mobile-nav
-      className={`sticky top-0 bg-white ${mobileOpen ? "z-50" : "z-40"}`}
+      className={`sticky top-0 bg-white ${mobileOpen ? layer.menu : layer.stickyBar}`}
     >
       {staleCleared && !actingAsLabel && (
         <div
@@ -543,7 +545,7 @@ export function Header() {
                   )}
                 </span>
                 {unreadCount > 0 && (
-                  <span className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium leading-none text-white ring-2 ring-white">
+                  <span className={`pointer-events-none absolute -right-1 -top-1 ${layer.badge} flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium leading-none text-white ring-2 ring-white`}>
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
@@ -581,7 +583,7 @@ export function Header() {
                     )}
                   </span>
                   {unreadCount > 0 && (
-                    <span className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium leading-none text-white ring-2 ring-white">
+                    <span className={`pointer-events-none absolute -right-1 -top-1 ${layer.badge} flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium leading-none text-white ring-2 ring-white`}>
                       {unreadCount > 99 ? "99+" : unreadCount}
                     </span>
                   )}
@@ -590,7 +592,7 @@ export function Header() {
                   <div
                     data-tour="account-switcher"
                     role="menu"
-                    className="absolute right-0 top-full z-50 mt-1 min-w-[240px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
+                    className={`absolute right-0 top-full ${layer.menu} mt-1 min-w-[240px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg`}
                   >
                     {SECONDARY_NAV.map((item) => {
                       const badgeCount = resolveBadge(item);
@@ -701,7 +703,7 @@ export function Header() {
             role="dialog"
             aria-modal="true"
             aria-labelledby={mobilePanelHeadingId}
-            className="lg:hidden absolute top-full left-0 right-0 z-50 border-b border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-sm"
+            className={`lg:hidden absolute top-full left-0 right-0 ${layer.menu} border-b border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-sm`}
           >
             <h2 id={mobilePanelHeadingId} className="sr-only">
               {t("nav.menu")}
@@ -780,7 +782,7 @@ export function Header() {
           <div
             data-mobile-scrim
             aria-hidden
-            className={`lg:hidden fixed inset-0 z-[45] ${
+            className={`lg:hidden fixed inset-0 ${layer.mobileNavScrim} ${
               mobileOpen ? "bg-black/25" : "bg-transparent"
             }`}
             style={{ touchAction: "none" }}

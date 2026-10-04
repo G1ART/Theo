@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { AppSidebar } from "./AppSidebar";
 import { RightRail } from "./RightRail";
 import { NotificationsDrawer } from "@/components/notifications/NotificationsDrawer";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * Theo 3-column app shell (Aug-2026 redesign).
@@ -29,7 +30,13 @@ import { NotificationsDrawer } from "@/components/notifications/NotificationsDra
  * The sidebar owns a "Notifications" click handler that opens a
  * left-anchored drawer (portal-free); we hoist that state here so the
  * drawer renders outside the sticky sidebar clipping context and can
- * layer above the center column.
+ * layer above the center column. It stays on the menu layer, under
+ * any full-viewport scrim.
+ *
+ * Sidebar and right rail share `layer.chrome`, above the center
+ * column. A modal that must dim them portals to `document.body` on
+ * `layer.scrim` — a fixed child of the center column cannot, because
+ * this column clips overflow and owns a lower stacking context.
  */
 export function AppShell({
   children,
@@ -57,7 +64,7 @@ export function AppShell({
 
   return (
     <div className="relative mx-auto flex w-full max-w-[1440px]">
-      <aside className="relative z-30 hidden w-52 shrink-0 pl-6 pointer-events-auto lg:block">
+      <aside className={`relative ${layer.chrome} hidden w-52 shrink-0 pl-6 pointer-events-auto lg:block`}>
         <div className="sticky top-0 max-h-screen overflow-y-auto">
           <AppSidebar onOpenNotifications={() => setDrawerOpen(true)} />
         </div>
@@ -65,12 +72,12 @@ export function AppShell({
 
       {/* Center keeps each page's own <main>/container (padding, max-width,
           centering), so wrapping a page in <AppShell> needs no internal edits
-          and avoids nested <main> landmarks. z-0 + clip so a wide child
-          cannot paint over the left rail and steal nav clicks. */}
-      <div className="relative z-0 min-w-0 flex-1 overflow-x-clip">{children}</div>
+          and avoids nested <main> landmarks. content layer + clip so a wide
+          child cannot paint over the rails and steal nav clicks. */}
+      <div className={`relative ${layer.content} min-w-0 flex-1 overflow-x-clip`}>{children}</div>
 
       {showRail && (
-        <aside className="hidden w-[340px] shrink-0 pr-6 xl:block">
+        <aside className={`relative ${layer.chrome} hidden w-[340px] shrink-0 pr-6 xl:block`}>
           <div className="sticky top-0 max-h-screen overflow-y-auto">
             {railNode}
           </div>

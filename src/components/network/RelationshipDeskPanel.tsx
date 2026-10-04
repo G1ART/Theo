@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import { formatDisplayName } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
@@ -369,7 +371,8 @@ function CardDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <BodyPortal>
+    <div className={`fixed inset-0 ${layer.scrim} flex`}>
       <button
         type="button"
         aria-label={t("common.close")}
@@ -392,6 +395,7 @@ function CardDrawer({
         <div className="flex-1 px-4 py-4">{children}</div>
       </div>
     </div>
+    </BodyPortal>
   );
 }
 

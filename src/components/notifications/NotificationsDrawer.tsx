@@ -16,6 +16,7 @@ import {
   notificationLink,
 } from "./notificationLink";
 import { stampBackFromHref } from "@/lib/artworkBack";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * Sidebar-side notifications popover (Aug-2026 redesign).
@@ -114,7 +115,7 @@ export function NotificationsDrawer({
           gives us clean event ordering without a portal. */}
       <div
         aria-hidden
-        className="fixed inset-0 z-40 bg-transparent"
+        className={`fixed inset-0 ${layer.stickyBar} bg-transparent`}
         onMouseDown={onClose}
       />
       <aside
@@ -126,7 +127,7 @@ export function NotificationsDrawer({
         // hidden anyway; if the drawer ever opens there (mobile
         // avatar dropdown routes to the page instead so this is rare)
         // it falls back to left:4.
-        className="fixed left-4 top-4 z-50 flex h-[calc(100vh-2rem)] w-[340px] flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl lg:left-[228px]"
+        className={`fixed left-4 top-4 ${layer.menu} flex h-[calc(100vh-2rem)] w-[340px] flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl lg:left-[228px]`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">

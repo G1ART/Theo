@@ -8,6 +8,8 @@ import {
   signInWithPassword,
 } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * The confirmation link may be opened on another device. That click
@@ -109,8 +111,9 @@ export function EmailConfirmWait({
   const shownEmail = email.trim();
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-zinc-400/55 px-4"
+      className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-zinc-400/55 px-4`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="email-verify-title"
@@ -180,5 +183,6 @@ export function EmailConfirmWait({
         ) : null}
       </div>
     </div>
+    </BodyPortal>
   );
 }

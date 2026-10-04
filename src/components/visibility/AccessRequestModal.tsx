@@ -9,6 +9,8 @@ import type {
 import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 type Props = {
   open: boolean;
@@ -156,10 +158,11 @@ export function AccessRequestModal({
   };
 
   return (
+    <BodyPortal>
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/40 px-4`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -239,5 +242,6 @@ export function AccessRequestModal({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

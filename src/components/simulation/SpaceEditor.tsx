@@ -34,6 +34,8 @@
  */
 
 import Link from "next/link";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
@@ -4258,8 +4260,9 @@ function SpaceEditorContent({ id }: { id: string }) {
           ? formatCmForUnit(typicalMidpoint(activeCandidate), displayUnit)
           : "";
         return (
+          <BodyPortal>
           <div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+            className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/60 p-4`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="calibrate-overlay-title"
@@ -4468,6 +4471,7 @@ function SpaceEditorContent({ id }: { id: string }) {
               </div>
             </div>
           </div>
+          </BodyPortal>
         );
       })()}
 
@@ -4480,11 +4484,12 @@ function SpaceEditorContent({ id }: { id: string }) {
         state within the same URL.
       */}
       {removePhotoConfirmOpen && (
+        <BodyPortal>
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="remove-photo-title"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+          className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/60 p-4`}
           onClick={(e) => {
             if (e.target === e.currentTarget && !removePhotoBusy) {
               setRemovePhotoConfirmOpen(false);
@@ -4523,10 +4528,12 @@ function SpaceEditorContent({ id }: { id: string }) {
             </div>
           </div>
         </div>
+        </BodyPortal>
       )}
 
       {cornersOpen && photoUrl && primarySurface && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+        <BodyPortal>
+        <div className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/60 p-4`}>
           <div className="w-full max-w-2xl rounded-2xl bg-white p-4 shadow-xl">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-zinc-900">
@@ -4576,6 +4583,7 @@ function SpaceEditorContent({ id }: { id: string }) {
             />
           </div>
         </div>
+        </BodyPortal>
       )}
 
       <ArtworkPickerSheet
@@ -4586,11 +4594,12 @@ function SpaceEditorContent({ id }: { id: string }) {
       />
 
       {bulkCropOpen && (
+        <BodyPortal>
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="bulk-crop-title"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+          className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/50 p-4`}
           onClick={(e) => {
             if (e.target === e.currentTarget && !bulkCropRunning) {
               setBulkCropOpen(false);
@@ -4650,15 +4659,18 @@ function SpaceEditorContent({ id }: { id: string }) {
             </div>
           </div>
         </div>
+        </BodyPortal>
       )}
 
       {toast && (
+        <BodyPortal>
         <div
           role="status"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg"
+          className={`fixed bottom-6 left-1/2 ${layer.toast} -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg`}
         >
           {toast}
         </div>
+        </BodyPortal>
       )}
 
       {/*
@@ -4668,14 +4680,16 @@ function SpaceEditorContent({ id }: { id: string }) {
         manual CTA status.
       */}
       {autoCropToast && (
+        <BodyPortal>
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-6 left-6 rounded-full bg-emerald-600/95 px-3 py-1.5 text-[11px] font-medium text-white shadow-md"
+          className={`fixed bottom-6 left-6 ${layer.toast} rounded-full bg-emerald-600/95 px-3 py-1.5 text-[11px] font-medium text-white shadow-md`}
         >
           <span aria-hidden className="mr-1">✓</span>
           {autoCropToast}
         </div>
+        </BodyPortal>
       )}
 
       {/* Keep router / focusId referenced so unused-var lint stays quiet

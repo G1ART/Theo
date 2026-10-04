@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * Post-publish confirmation card for external-artist invites.
@@ -52,10 +54,11 @@ export function InviteResultCard(props: {
   const bodyText = t(bodyKey).replace("{name}", artistName);
 
   return (
+    <BodyPortal>
     <div
       role="status"
       aria-live="polite"
-      className={`fixed inset-x-2 bottom-2 z-40 mx-auto max-w-md rounded-2xl border ${
+      className={`fixed inset-x-2 bottom-2 ${layer.toast} mx-auto max-w-md rounded-2xl border ${
         kind === "sent"
           ? "border-zinc-200 bg-white"
           : "border-amber-200 bg-amber-50"
@@ -97,5 +100,6 @@ export function InviteResultCard(props: {
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

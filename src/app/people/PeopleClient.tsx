@@ -18,6 +18,8 @@ import {
   getTrendingPeople,
 } from "@/lib/supabase/peopleRecs";
 import { AuthGate } from "@/components/AuthGate";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import { formatDisplayName, hasPublicLinkableUsername } from "@/lib/identity/format";
 import { reasonTagToI18n } from "@/lib/people/reason";
 import { SectionFrame } from "@/components/ds/SectionFrame";
@@ -730,9 +732,9 @@ export function PeopleClient() {
 
 // ─── Toast UI ──────────────────────────────────────────────────────────
 // Tiny page-local stack — fixed bottom-center on mobile, bottom-right on
-// larger screens. We deliberately avoid pulling in a global toast
-// system because People is the only surface using these affordances
-// today; the contract is intentionally local.
+// larger screens. Portaled onto the toast layer so the shell rail does
+// not cover it. We deliberately avoid a global toast system because
+// People is the only surface using these affordances today.
 function ToastStack({
   toasts,
   onDismiss,
@@ -742,10 +744,11 @@ function ToastStack({
 }) {
   if (toasts.length === 0) return null;
   return (
+    <BodyPortal>
     <div
       role="region"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-6 z-30 flex flex-col items-center gap-2 px-4 sm:bottom-8 sm:right-8 sm:left-auto sm:items-end"
+      className={`pointer-events-none fixed inset-x-0 bottom-6 ${layer.toast} flex flex-col items-center gap-2 px-4 sm:bottom-8 sm:right-8 sm:left-auto sm:items-end`}
     >
       {toasts.map((tt) => (
         <div
@@ -768,6 +771,7 @@ function ToastStack({
         </div>
       ))}
     </div>
+    </BodyPortal>
   );
 }
 

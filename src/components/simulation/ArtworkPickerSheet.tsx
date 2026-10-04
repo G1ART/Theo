@@ -34,6 +34,8 @@ import {
 } from "@/lib/supabase/shortlists";
 import type { Locale } from "@/lib/i18n/locale";
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 const PICKER_SELECT = `
   id,
@@ -305,8 +307,9 @@ export function ArtworkPickerSheet({
 
   if (!open) return null;
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+      className={`fixed inset-0 ${layer.scrim} flex items-end justify-center bg-black/40 sm:items-center`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -466,6 +469,7 @@ export function ArtworkPickerSheet({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }
 

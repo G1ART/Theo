@@ -37,6 +37,8 @@ import { CreateSpaceDialog } from "./CreateSpaceDialog";
 import { SimulationPaywallCard } from "./SimulationPaywallCard";
 import { spacePhotoUrl } from "./spacePhotoUrl";
 import { onboardingUrlWithNext } from "@/lib/identity/routing";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 const FALLBACK_WALL_WIDTH_CM = 400;
 const FALLBACK_WALL_HEIGHT_CM = 260;
@@ -203,8 +205,9 @@ export function SeeInMySpaceCta({ artwork, userId, sessionChecked }: Props) {
       </button>
 
       {open && (
+        <BodyPortal>
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+          className={`fixed inset-0 ${layer.scrim} flex items-end justify-center bg-black/40 sm:items-center`}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget && !busy) setOpen(false);
           }}
@@ -307,6 +310,7 @@ export function SeeInMySpaceCta({ artwork, userId, sessionChecked }: Props) {
             )}
           </div>
         </div>
+        </BodyPortal>
       )}
 
       <CreateSpaceDialog
@@ -317,12 +321,14 @@ export function SeeInMySpaceCta({ artwork, userId, sessionChecked }: Props) {
       />
 
       {toast && (
+        <BodyPortal>
         <div
           role="status"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg"
+          className={`fixed bottom-6 left-1/2 ${layer.toast} -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg`}
         >
           {toast}
         </div>
+        </BodyPortal>
       )}
     </>
   );

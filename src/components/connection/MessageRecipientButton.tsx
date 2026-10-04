@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { layer } from "@/lib/ui/layers";
 import { useT } from "@/lib/i18n/useT";
 import { MessageComposer } from "./MessageComposer";
 
@@ -91,7 +92,7 @@ export function MessageRecipientButton({
             role="dialog"
             aria-modal="true"
             aria-label={t("connection.composer.sheetTitle")}
-            className="fixed inset-0 z-50 flex items-end justify-center md:items-center"
+            className={`fixed inset-0 ${layer.scrim} flex items-end justify-center md:items-center`}
           >
             <div
               className="absolute inset-0 bg-black/25 backdrop-blur-[2px]"

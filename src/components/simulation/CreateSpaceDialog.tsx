@@ -10,6 +10,8 @@ import {
   uploadSpacePhoto,
   SpacePhotoValidationError,
 } from "@/lib/simulation/storage";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * Shared "create a new space" dialog used by both the list page and
@@ -127,8 +129,9 @@ export function CreateSpaceDialog({
 
   if (!open) return null;
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/40 px-4`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose();
       }}
@@ -243,5 +246,6 @@ export function CreateSpaceDialog({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

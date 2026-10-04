@@ -22,6 +22,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import { useT } from "@/lib/i18n/useT";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import type { CvEntry } from "@/lib/supabase/profiles";
@@ -307,8 +309,9 @@ function SurfaceModal({ open, title, onClose, children }: SurfaceModalProps) {
   if (!open) return null;
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8 sm:items-center sm:py-12"
+      className={`fixed inset-0 ${layer.scrim} flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8 sm:items-center sm:py-12`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -338,6 +341,7 @@ function SurfaceModal({ open, title, onClose, children }: SurfaceModalProps) {
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }
 

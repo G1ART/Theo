@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { layer } from "@/lib/ui/layers";
 import { useT } from "@/lib/i18n/useT";
 import { formatDisplayName } from "@/lib/identity/format";
 import { aiApi } from "@/lib/ai/browser";
@@ -455,7 +456,7 @@ function IntroSheet({
   const sent = sendState.kind === "sent";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+    <div className={`fixed inset-0 ${layer.scrim} flex items-end justify-center md:items-center`}>
       <div
         className="absolute inset-0 bg-black/25 backdrop-blur-[2px] animate-sheet-backdrop"
         onClick={sending ? undefined : onClose}

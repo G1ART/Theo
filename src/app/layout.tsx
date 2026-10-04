@@ -111,8 +111,8 @@ export default async function RootLayout({
               {/* Global "back to top" FAB. Mounted once at the root so
                   every tall page (feed, artwork detail, artist portfolio,
                   exhibition detail, search) gets the affordance without
-                  per-page wiring. Threshold + z-40 chosen so it stays
-                  below drawers/dialogs (z-50). */}
+                  per-page wiring. It sits on the sticky-bar layer, under
+                  menus and modal scrims. */}
               <BackToTopFab />
             </TourProvider>
           </ActingAsProvider>

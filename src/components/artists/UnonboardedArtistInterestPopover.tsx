@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
 import { getSession } from "@/lib/supabase/auth";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 type Props = {
   open: boolean;
@@ -102,10 +104,11 @@ export function UnonboardedArtistInterestPopover({
   }
 
   return (
+    <BodyPortal>
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center"
+      className={`fixed inset-0 ${layer.scrim} flex items-end justify-center bg-black/30 p-4 sm:items-center`}
       onClick={handleClose}
     >
       <div
@@ -148,5 +151,6 @@ export function UnonboardedArtistInterestPopover({
         )}
       </div>
     </div>
+    </BodyPortal>
   );
 }

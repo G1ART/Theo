@@ -20,6 +20,8 @@ import { formatSupabaseError } from "@/lib/errors/supabase";
 import { permissionLabel } from "@/lib/delegation/permissionLabel";
 import { UpdatePermissionsModal } from "./UpdatePermissionsModal";
 import { RequestPermissionChangeModal } from "./RequestPermissionChangeModal";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 export type DelegationDetailDrawerProps = {
   delegationId: string | null;
@@ -268,8 +270,9 @@ export function DelegationDetailDrawer({
   const open = !!delegationId;
 
   return (
+    <BodyPortal>
     <div
-      className={`fixed inset-0 z-40 transition-opacity ${
+      className={`fixed inset-0 ${layer.scrim} transition-opacity ${
         open ? "opacity-100" : "pointer-events-none opacity-0"
       }`}
     >
@@ -375,6 +378,7 @@ export function DelegationDetailDrawer({
         />
       )}
     </div>
+    </BodyPortal>
   );
 }
 

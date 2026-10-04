@@ -18,6 +18,8 @@ import { useT } from "@/lib/i18n/useT";
 import { requestDelegationPermissionChange } from "@/lib/supabase/delegations";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { permissionLabel } from "@/lib/delegation/permissionLabel";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 // Canonical permission pool — kept in sync with the RLS-anchored
 // whitelist in supabase/migrations/20260518000000_delegation_perm_pool_realign.sql.
@@ -110,7 +112,8 @@ export function RequestPermissionChangeModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <BodyPortal>
+    <div className={`fixed inset-0 ${layer.scrim} flex items-end justify-center sm:items-center`}>
       <button
         type="button"
         aria-label="close"
@@ -208,5 +211,6 @@ export function RequestPermissionChangeModal({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

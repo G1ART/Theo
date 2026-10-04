@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * Design-system confirm dialog.
@@ -96,8 +98,9 @@ export function ConfirmActionDialog({
   if (!open) return null;
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/40 px-4`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onCancel();
       }}
@@ -142,5 +145,6 @@ export function ConfirmActionDialog({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { useT } from "@/lib/i18n/useT";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 type SortedImage = {
   storage_path: string;
@@ -164,21 +166,23 @@ export function ArtworkImageStage({
         </ul>
       )}
       {fullSizeOpen && current ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={altLabel}
-          onClick={onCloseFullSize}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={getArtworkImageUrl(current.storage_path, "original")}
-            alt={altLabel}
-            className="max-h-full max-w-full object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
+        <BodyPortal>
+          <div
+            className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/80 p-4`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={altLabel}
+            onClick={onCloseFullSize}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getArtworkImageUrl(current.storage_path, "original")}
+              alt={altLabel}
+              className="max-h-full max-w-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </BodyPortal>
       ) : null}
     </div>
   );

@@ -29,6 +29,8 @@ import { ExhibitionSortDropdown } from "@/components/exhibitions/ExhibitionSortD
 import { updateMyProfileDetails } from "@/lib/supabase/profileDetails";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { StudioPortfolioManageModal } from "@/components/studio/StudioPortfolioManageModal";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import {
   assignArtworksToCustomTab,
   buildSavePayload,
@@ -336,7 +338,8 @@ export function StudioPortfolioPanel({
       )}
 
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <BodyPortal>
+        <div className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/50 p-4`}>
           <div className="max-w-sm rounded-2xl bg-white p-6 shadow-lg">
             <p className="mb-4 text-zinc-800">
               {t("my.bulkSelect.confirmMessage").replace("{n}", String(selectedIds.size))}
@@ -360,6 +363,7 @@ export function StudioPortfolioPanel({
             </div>
           </div>
         </div>
+        </BodyPortal>
       )}
     </section>
   );

@@ -12,6 +12,8 @@ import {
   type StudioPortfolioV1,
   removeCustomTab,
 } from "@/lib/studio/studioPortfolioConfig";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 
 type Props = {
   open: boolean;
@@ -81,7 +83,8 @@ export function StudioPortfolioManageModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <BodyPortal>
+    <div className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/50 p-4`}>
       <div
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
         role="dialog"
@@ -214,5 +217,6 @@ export function StudioPortfolioManageModal({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

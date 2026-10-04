@@ -17,7 +17,7 @@
  * Placement
  *  - Mounted once in `src/app/layout.tsx` (right below the header /
  *    ambient banners). No per-page double-mount.
- *  - `z-40` keeps us below dialogs / drawers (`z-50`).
+ *  - The sticky-bar layer keeps us below menus and modal scrims.
  *  - Bottom-right is checked against the currently existing floating
  *    UI (see HANDOFF for the audit): feed debug panel at bottom-right
  *    is `z-50` and only appears with `?debug=feed`, so overlap is
@@ -26,6 +26,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
+import { layer } from "@/lib/ui/layers";
 
 const SCROLL_THRESHOLD_PX = 800;
 
@@ -88,7 +89,7 @@ export function BackToTopFab() {
       aria-hidden={!visible}
       tabIndex={visible ? 0 : -1}
       className={[
-        "fixed right-4 z-40 flex h-11 w-11 items-center justify-center",
+        `fixed right-4 ${layer.stickyBar} flex h-11 w-11 items-center justify-center`,
         "rounded-full bg-zinc-900/90 text-white shadow-lg backdrop-blur-sm",
         "transition-all duration-200 ease-out",
         "hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/40",

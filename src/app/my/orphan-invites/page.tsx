@@ -13,6 +13,8 @@ import {
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
+import { BodyPortal } from "@/components/ui/BodyPortal";
+import { layer } from "@/lib/ui/layers";
 import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 import { getMyProfile } from "@/lib/supabase/me";
 import { updateMyProfileBase } from "@/lib/supabase/profiles";
@@ -349,11 +351,12 @@ export default function MyOrphanInvitesPage() {
           keyboard / screen-reader users adopt with one Enter press.
         */}
         {inheritModal && (
+          <BodyPortal>
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="orphan-inherit-title"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            className={`fixed inset-0 ${layer.scrim} flex items-center justify-center bg-black/40 p-4`}
           >
             <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
               <h2
@@ -405,6 +408,7 @@ export default function MyOrphanInvitesPage() {
               </div>
             </div>
           </div>
+          </BodyPortal>
         )}
       </main>
     </AuthGate>
