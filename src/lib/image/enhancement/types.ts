@@ -13,6 +13,9 @@
  * the artist and to public callers reading `artwork_images.enhancement_meta`.
  */
 
+import type { GeometryRecipe } from "./geometryPlan";
+import { parseGeometryRecipe } from "./geometryPlan";
+
 /** User-facing mode. `auto` is the app default; the client resolves it
  *  into `flat` / `object` via the analyzer's rectangle-confidence. */
 export type EnhancementMode = "auto" | "flat" | "object";
@@ -98,6 +101,12 @@ export type FlatRecipe = {
   bezel: number;
   awb?: AwbRecipe;
   proLook?: ProLookRecipe;
+  /**
+   * Edge straightening plan. Absent on recipes saved before this
+   * field existed. Invalid plans are rejected by the normalizer
+   * instead of being rewritten into a success.
+   */
+  geometry?: GeometryRecipe;
   /**
    * Optional post-engine user nudge (2026-08-22). Brightness / contrast /
    * saturation multipliers baked onto the already cropped/warped/matted
@@ -344,6 +353,8 @@ export function normalizeEnhancementMeta(
       : undefined;
     const ftRaw = p.userFineTune as Record<string, unknown> | undefined;
     const userFineTune = normalizeUserFineTune(ftRaw);
+    const geometryParsed = parseGeometryRecipe(p.geometry);
+    if (geometryParsed === "invalid") return null;
     recipe = {
       kind: "flat",
       params: {
@@ -358,6 +369,7 @@ export function normalizeEnhancementMeta(
         ...(awb ? { awb } : {}),
         ...(proLook ? { proLook } : {}),
         ...(userFineTune ? { userFineTune } : {}),
+        ...(geometryParsed ? { geometry: geometryParsed } : {}),
       },
     };
   } else {

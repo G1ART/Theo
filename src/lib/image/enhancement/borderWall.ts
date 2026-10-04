@@ -1,32 +1,14 @@
 /**
- * After a perspective warp, a phone lens leaves a thin crescent of the
- * real wall inside an otherwise straight quad. Recolor only the pixels
- * near the frame edge that match the wall, and stop at the first
- * painted pixel so we never bleed into the artwork.
+ * Color walk that used to clean a wall crescent after a straight warp.
+ * The rectangle engine no longer calls this. Walking inward by color
+ * cuts a white ground into a comb wherever a dark stroke meets the
+ * edge at a different depth on each row. Fringe detection stays here
+ * so a thread edge is still recognized if a caller asks.
  *
- * 2026-10-01 bulk-claim-4: when `wallRef` is supplied (the engine
- * samples the actual wall color outside the user's quad before
- * warping, see `sampleWallRefOutsideQuad`), the match predicate is
- * "close to wallRef" (ΔR/ΔG/ΔB each ≤ 24 AND |max-min| ≤ 24, i.e.
- * approximately the same color AND still near-neutral) instead of the
- * old "near-white" check. This repaints beige / warm-grey / painted
- * walls that the pre-fix near-white gate ignored.
- *
- * When `wallRef` is absent (null/undefined) we fall back to the
- * legacy near-white check for backward compat with callers that have
- * not been updated.
- *
- * Paint target is always #f3f3f3 (243,243,243) — the gallery matte
- * white the rest of the pipeline anchors to.
- *
- * A white or off-white wall reference is the same bucket as an
- * unpainted canvas margin. Walking inward up to 6% of the short side
- * then turns that margin into #f3f3f3 and the painting looks zoomed.
- * If the matching run is not bounded by a different color inside the
- * search depth, this function leaves those pixels alone. A thin
- * crescent that stops at real paint is still recolored. The studio
- * drop shadow is painted later, around the matte, and is not this pass.
+ * 2026-10-01 bulk-claim-4: when `wallRef` is supplied, the match is
+ * "close to wallRef" instead of a near-white check.
  */
+
 function looksLikeWhiteCanvas(r: number, g: number, b: number): boolean {
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
   const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;

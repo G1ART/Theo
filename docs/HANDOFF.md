@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-03
 
+## 2026-10-03 — 확정 모서리 사이의 휜 변을 곧게 맞추고 벽색 빗살을 없앤다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**
+
+gpt-5.6-sol 네 모서리 검출은 그대로다. `reasoning_effort`도 medium 그대로다. Photoroom이나 다른 검출기로 바꾸지 않았다.
+
+- 모서리를 직선으로 이으면, 안으로 휜 변 바깥의 벽이 사각형 안에 들어온다. 이어서 `paintBorderWall`이 가장자리에서 벽과 비슷한 색을 행·열마다 안쪽으로 칠한다. 흰 바탕 위의 검은 붓질이 행마다 다른 깊이에서 그 칠하기를 멈추면 오른쪽 변이 빗살처럼 파인다. 합성 그림에서 그 함수는 빗살을 만들고, 새 사각형 경로는 `#f3f3f3`를 작품 안에 쓰지 않는다.
+- 확정 모서리는 끝점으로 고정한다. 그 사이의 경계를 추적하고, 사진 전체에 공통인 잔여 방사 모델이 변을 설명하면 그 모델로 편다. 모서리가 캔버스 밖에 있어 한 계수로 설명이 안 되고 네 변의 근거가 충분하면, 추적한 경계를 직사각형에 맞춘다 (`boundary_traced`). 최종 픽셀은 곡률과 원근을 한 번의 역매핑으로 이중선형 샘플한다.
+- 사각형 경로는 `paintBorderWall`을 호출하지 않는다. 실 프린지를 판별하는 함수는 남아 있다. 색 보정 뒤의 `#f3f3f3` 벽과 스튜디오 그림자는 그대로다. 비정형 Photoroom, 품질 게이트 미연결, 하루 30장 상한 없음도 그대로다.
+- 새 마법사 단계는 없다. 모서리를 확인하면 자동으로 곧게 맞춘다. 고급 안에 자동 / 끄기 / 미세 조정이 있다. 끄기는 원근만 유지한다.
+- 레시피 `geometry`의 엔진 이름은 `geometry-radial-v1`이다. `enhancement_meta`는 기존 JSON이라 스키마 버전은 2이고, 컬럼 마이그레이션은 없다. 곡률 계수와 윤곽은 작품마다 따로 두고, 세션에는 자동/끄기/미세 조정 선호만 넘긴다.
+- 제공된 원본 `IMG_7422.jpeg`는 이 작업 환경에 없었다. 그 사진의 픽셀 합격은 미실행이다. 측정은 `docs/IMAGE_GEOMETRY_QA.md`.
+
+**Verified:** `npx tsc --noEmit`. `npm run test:image-enhance-curvature`, `test:image-enhance-boundary-preservation`, `test:image-enhance-geometry-replay`, `test:image-enhance-geometry`, `test:image-enhance-keystone-regression`, `test:image-enhance-corner-picker`, `test:image-enhance-aspect-resolve`, `test:image-enhance-recipe`, `test:image-enhance-orientation`, `test:image-enhance-ellipse`, `test:image-enhance-prepare`, `test:enhance-preview-commits`, `test:bulk-upload-regression`. `npx tsx tests/wall-matte.test.ts`. `npx tsx tests/studio-presentation.test.ts`. 실제 `IMG_7422` 재처리와 브라우저에서 모서리 확인 클릭은 하지 못했다.
+
 ## 2026-10-03 — 초안을 모두 지우면 업로드 완료 대신 삭제 메시지를 보여 준다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**

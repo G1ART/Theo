@@ -138,6 +138,15 @@ export function resolveTargetAspect(
   return presetToRatio(mode);
 }
 
+export function aspectSourceForMode(
+  mode: AspectMode,
+  resolved: number | undefined,
+): "artwork_dimensions" | "user" | "estimated" {
+  if (resolved == null || mode === "auto") return "estimated";
+  if (mode === "artwork_cm") return "artwork_dimensions";
+  return "user";
+}
+
 /**
  * Format a numeric aspect as a short human string:
  *  - Known common ratios within 1 % → `"1:1"`, `"2:3"`, `"16:9"`, …

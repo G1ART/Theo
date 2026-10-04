@@ -54,6 +54,7 @@ import {
 } from "@/lib/image/enhancement/cornerPickerGeometry";
 import {
   resolveTargetAspect,
+  aspectSourceForMode,
   formatAspectLabel,
   type AspectMode,
 } from "@/lib/image/enhancement/aspectResolve";
@@ -1141,6 +1142,11 @@ export function ImageStandardizeEditor({
   const [customAspectHInput, setCustomAspectHInput] = useState<string>(() =>
     sharedPreset?.customAspect?.h ? String(sharedPreset.customAspect.h) : "",
   );
+  const [edgeCurvature, setEdgeCurvature] = useState<"auto" | "off" | "adjust">(
+    sharedPreset?.edgeCurvature ?? "auto",
+  );
+  const [edgeCurvatureK1, setEdgeCurvatureK1] = useState<number | null>(null);
+  const [edgeNudges, setEdgeNudges] = useState({ top: 0, right: 0, bottom: 0, left: 0 });
   // F4 (2026-08-10) — per-step advanced folds live in their own
   // state so the two steps don't share a collapse state. The
   // pre-F4 single `advancedOpen` was removed with the drastic
@@ -1590,6 +1596,12 @@ export function ImageStandardizeEditor({
         crop: useSilhouette || sourceCornersToSend ? null : seedCrop,
         sourceCorners: useSilhouette ? null : sourceCornersToSend,
         targetAspect: useSilhouette ? undefined : targetAspectOverride,
+        aspectSource: useSilhouette
+          ? undefined
+          : aspectSourceForMode(aspectMode, targetAspectOverride),
+        edgeCurvature: useSilhouette ? undefined : edgeCurvature,
+        edgeCurvatureK1: useSilhouette || edgeCurvature !== "adjust" ? null : edgeCurvatureK1,
+        edgeNudges: useSilhouette || edgeCurvature !== "adjust" ? null : edgeNudges,
         tone: {
           // The classic tone pass only runs when Pro Look is OFF (i.e.
           // "원본 색감"); the engine skips it under Pro Look. So the
@@ -1683,7 +1695,7 @@ export function ImageStandardizeEditor({
         latencyMs: result.latencyMs,
         versions: {
           schema: ENHANCEMENT_META_SCHEMA_VERSION,
-          engine: proLookEnabled ? "local_canvas_pro_v2" : "local_canvas_v1",
+          engine: result.engineVersion ?? (proLookEnabled ? "local_canvas_pro_v2" : "local_canvas_v1"),
         },
         capturedAtIso,
         captureDevice,
@@ -1834,6 +1846,9 @@ export function ImageStandardizeEditor({
     perspectiveSkipped,
     aspectMode,
     customAspect,
+    edgeCurvature,
+    edgeCurvatureK1,
+    edgeNudges,
     artworkWidthCm,
     artworkHeightCm,
     pathChoice,
@@ -1918,6 +1933,11 @@ export function ImageStandardizeEditor({
     corners: perspectiveCorners,
     boundary: boundaryMode,
     silhouette: silhouetteUrl ? "ready" : "",
+    aspectMode,
+    customAspect,
+    edgeCurvature,
+    edgeCurvatureK1,
+    edgeNudges,
   });
   const lastPreviewRecipeKeyRef = useRef<string>("");
 
@@ -1993,6 +2013,8 @@ export function ImageStandardizeEditor({
     setVisionStatus("idle");
     setDetectingArtwork(false);
     setPerspectiveCorners(null);
+    setEdgeCurvatureK1(null);
+    setEdgeNudges({ top: 0, right: 0, bottom: 0, left: 0 });
     setWizardPerspectiveDraft(null);
     setPerspectiveUserAdjusted(false);
     setWizardStep("perspective");
@@ -2076,6 +2098,7 @@ export function ImageStandardizeEditor({
       s: fineSRef.current,
       aspectMode,
       customAspect,
+      edgeCurvature,
     });
     setEditingAfterSave(false);
     setSaveStatus(t("upload.imageEnhance.applied.status"));
@@ -2101,7 +2124,7 @@ export function ImageStandardizeEditor({
           : {}),
       },
     });
-  }, [onEnhance, onSharedPreset, meteringSource, t, intensity, inputType, aspectMode, customAspect]);
+  }, [onEnhance, onSharedPreset, meteringSource, t, intensity, inputType, aspectMode, customAspect, edgeCurvature]);
 
   const handleEnhanceReject = useCallback(() => {
     if (!onEnhance) return;
@@ -2691,15 +2714,9 @@ export function ImageStandardizeEditor({
                       {t("imageEnhance.wizard.perspectiveHint")}
                     </p>
                   )}
-                  {/* 2026-10-02 — lens-curvature hint. Users on phones
-                      often shoot through a wide-angle lens that bows
-                      the artwork's edges outward. Guiding them to the
-                      apex of each curved edge keeps the warp honest
-                      and lets `paintBorderWall` do its wall-color
-                      cleanup on the thin leftover band. */}
                   {boundaryMode === "quad" && !perspectiveSkipped &&
                     (visionStatus === "miss" || matteReady || perspectiveUserAdjusted) && (
-                      <p className="text-[11px] leading-relaxed text-amber-700">
+                      <p className="text-[11px] leading-relaxed text-zinc-500">
                         {t("imageEnhance.wizard.perspectiveLensHint")}
                       </p>
                     )}
@@ -2782,6 +2799,65 @@ export function ImageStandardizeEditor({
                         />
                         <span>{t("imageEnhance.wizard.skipPerspective")}</span>
                       </label>
+                      {boundaryMode === "quad" ? (
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-medium text-zinc-700">
+                            {t("imageEnhance.wizard.edgeCurvatureTitle")}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {([
+                              ["auto", "imageEnhance.wizard.edgeCurvatureAuto"],
+                              ["off", "imageEnhance.wizard.edgeCurvatureOff"],
+                              ["adjust", "imageEnhance.wizard.edgeCurvatureAdjust"],
+                            ] as const).map(([mode, key]) => (
+                              <button
+                                key={mode}
+                                type="button"
+                                onClick={() => {
+                                  setEdgeCurvature(mode);
+                                  if (mode !== "adjust") {
+                                    setEdgeCurvatureK1(null);
+                                    setEdgeNudges({ top: 0, right: 0, bottom: 0, left: 0 });
+                                  }
+                                }}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                                  edgeCurvature === mode
+                                    ? "border-zinc-900 bg-zinc-900 text-white"
+                                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                                }`}
+                              >
+                                {t(key)}
+                              </button>
+                            ))}
+                          </div>
+                          {edgeCurvature === "adjust" ? (
+                            <label className="block text-[11px] text-zinc-600">
+                              {t("imageEnhance.wizard.edgeCurvatureSlider")}
+                              <input
+                                type="range"
+                                min={-40}
+                                max={40}
+                                value={Math.round((edgeCurvatureK1 ?? 0) * 100)}
+                                onChange={(e) => setEdgeCurvatureK1(Number(e.target.value) / 100)}
+                                className="mt-1 w-full"
+                              />
+                            </label>
+                          ) : null}
+                          {edgeCurvature !== "auto" || edgeCurvatureK1 != null ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEdgeCurvature("auto");
+                                setEdgeCurvatureK1(null);
+                                setEdgeNudges({ top: 0, right: 0, bottom: 0, left: 0 });
+                              }}
+                              className="rounded-full border border-zinc-300 px-2.5 py-1 text-[11px] text-zinc-700 hover:bg-zinc-50"
+                            >
+                              {t("imageEnhance.wizard.resetCurvature")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {/* 2026-10-02 — output aspect selector (replaces
                           the `keepOriginalAspect` checkbox). Preset row
                           + artwork-cm chip (hidden when the DB row has
@@ -3020,6 +3096,21 @@ export function ImageStandardizeEditor({
                   </div>
 
                   {/* Post-engine fine-tune — always visible, does not re-run crop */}
+                  {boundaryMode === "quad" &&
+                  enhancePreview?.meta.recipe.kind === "flat" &&
+                  enhancePreview.meta.recipe.params.geometry &&
+                  enhancePreview.meta.recipe.params.geometry.status !== "disabled" ? (
+                    <p className="text-[11px] leading-relaxed text-zinc-600" role="status">
+                      {enhancePreview.meta.recipe.params.geometry.status === "applied"
+                        ? t("imageEnhance.wizard.edgeStatusApplied")
+                        : enhancePreview.meta.recipe.params.geometry.status === "already_straight"
+                          ? t("imageEnhance.wizard.edgeStatusStraight")
+                          : enhancePreview.meta.recipe.params.geometry.status === "needs_review" ||
+                              enhancePreview.meta.recipe.params.geometry.status === "failed"
+                            ? t("imageEnhance.wizard.edgeStatusReview")
+                            : null}
+                    </p>
+                  ) : null}
                   <div className="space-y-2 rounded-lg border border-zinc-200 bg-white px-3 py-3">
                     <p className="text-[11px] font-medium text-zinc-700">
                       {t("upload.imageEnhance.flow.extraToggle")}

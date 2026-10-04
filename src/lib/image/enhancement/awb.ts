@@ -548,6 +548,20 @@ export function dampenAwbGain(mul: number, strength: number): number {
   return 1 + (mul - 1) * s;
 }
 
+export function gainsFromWallMedian(
+  median: { r: number; g: number; b: number },
+  target: number = MATTE_WHITE_POINT.g,
+): WallAnchoredGains {
+  const eps = 4;
+  return {
+    r: round3(clampMul(target / Math.max(eps, median.r), AWB_MUL_MIN, AWB_MUL_MAX)),
+    g: round3(clampMul(target / Math.max(eps, median.g), AWB_MUL_MIN, AWB_MUL_MAX)),
+    b: round3(clampMul(target / Math.max(eps, median.b), AWB_MUL_MIN, AWB_MUL_MAX)),
+    source: "wall-auto",
+    areaFraction: 0,
+  };
+}
+
 /**
  * Apply channel multipliers in-place on an RGBA buffer. Alpha is
  * preserved. Values are clamped into [0,255].

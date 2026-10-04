@@ -8,34 +8,20 @@
  * WebP `Blob` plus a JSON-serializable `FlatRecipe` the caller can
  * persist to `enhancement_meta`.
  *
- * OpenCV.js note
- * --------------
- * The plan file allows a `dynamic import("opencv.js")` for full
- * 4-corner homography. We do NOT ship opencv.js in `package.json` yet
- * (WASM bundle is ~9 MiB and adds significant TTFI risk on mobile).
- * Instead this engine implements a **canvas-only pipeline** that:
- *   - takes the user's rectangular crop selection (or the analyzer's
- *     suggested crop),
- *   - crops on-device,
- *   - applies the ±15%-clamped tone,
- *   - runs a small luminance unsharp-mask,
- *   - pads a white bezel around the result.
- *
- * When opencv.js later becomes available on the client (see TODO
- * below), the perspective-warp branch will be enabled behind the
- * `sourceCorners` param — the recipe schema already carries the four
- * points so an upgrade is drop-in and backwards-compatible.
- *
- * TODO(opencv): once opencv.js is dependency-declared, add a
- * try/catch dynamic import at the top of `runFlatEnhancement` and use
- * `cv.getPerspectiveTransform` + `cv.warpPerspective` when
- * `sourceCorners` describes a non-axis-aligned quadrilateral.
+ * Perspective and edge straightening are solved in this package
+ * (`homography.ts`, `rectifyArtwork.ts`). opencv.js is not loaded.
+ * Sol still supplies the four corners. This engine does not replace
+ * that detector. A straight quad is a homography. A bowed edge is a
+ * residual radial model, or a traced boundary when the corners sit
+ * outside the canvas and one shared k1 cannot explain the gap.
+ * The rectangle path does not repaint inward by wall color.
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
+import type { GeometryRecipe } from "./geometryPlan";
+import { GEOMETRY_ENGINE_VERSION } from "./geometryPlan";
 import {
   galleryMatteMask,
-  paintBorderWall,
   restoreGalleryMatte,
 } from "./borderWall";
 import {
@@ -49,6 +35,7 @@ import {
   computeWallAnchoredGains,
   dampenAwbGain,
   estimateAwb,
+  gainsFromWallMedian,
   resolveWallBrightnessTarget,
   type WallAnchoredGains,
   type WallBrightness,
@@ -58,6 +45,8 @@ import {
   homographyForCorners,
   warpPerspectiveNearest,
 } from "./homography";
+import { planArtworkRectification, type EdgeNudges } from "./rectifyArtwork";
+import { renderRectifiedYielding } from "./geometry.worker";
 import {
   resolveProLookConfig,
   runProLook,
@@ -97,6 +86,23 @@ export type RunFlatInput = {
    * circle restoration flow where the caller wants a 1:1 target.
    */
   targetAspect?: number;
+  /**
+   * Where `targetAspect` came from. Estimated when the engine derives
+   * it from the corner lengths.
+   */
+  aspectSource?: "artwork_dimensions" | "user" | "estimated";
+  /**
+   * Edge straightening. `auto` traces the canvas between the confirmed
+   * corners. `off` keeps the perspective warp and skips curvature.
+   * `adjust` applies an optional shared bow and per-edge nudges.
+   * Omitted means `auto` whenever corners are present. Silhouette
+   * callers leave corners null, so this never runs there.
+   */
+  edgeCurvature?: "auto" | "off" | "adjust";
+  /** Shared bow in the residual model. Used only when `edgeCurvature` is `adjust`. */
+  edgeCurvatureK1?: number | null;
+  /** Inward pixel nudges, one per edge. Fine-tune only. */
+  edgeNudges?: EdgeNudges | null;
   /**
    * Pro-look pipeline flags (2026-08-06). When present, the engine
    * runs the AWB + adaptive-exposure + saturation + micro-unsharp +
@@ -216,6 +222,9 @@ export type RunFlatResult = {
    * `FlatRecipe.awb` so the recipe can be replayed byte-identically.
    */
   awb?: AwbRecipe;
+  /** Geometry actually applied. Absent on the silhouette and legacy paths. */
+  geometryStatus?: GeometryRecipe["status"];
+  engineVersion?: string;
 };
 
 const DEFAULT_MAX_LONG_EDGE = 4096;
@@ -224,74 +233,6 @@ const DEFAULT_MAX_LONG_EDGE = 4096;
  *  A tight crop (bezel 0 / omitted) uses this same margin. */
 export const STANDARD_STUDIO_BEZEL = STUDIO_BEZEL_FRACTION;
 const DEFAULT_SHARPEN = 0.35;
-
-/**
- * Map corners from full-image normalized space into the crop's local
- * normalized space (0..1 relative to the crop rect). Returns null when
- * any corner falls outside the crop rect.
- */
-function mapCornersIntoCrop(
-  corners: [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint],
-  crop: { x: number; y: number; w: number; h: number },
-): [[number, number], [number, number], [number, number], [number, number]] | null {
-  const out: [number, number][] = [];
-  for (const [x, y] of corners) {
-    const lx = (x - crop.x) / crop.w;
-    const ly = (y - crop.y) / crop.h;
-    out.push([Math.min(1, Math.max(0, lx)), Math.min(1, Math.max(0, ly))]);
-  }
-  return out as [
-    [number, number],
-    [number, number],
-    [number, number],
-    [number, number],
-  ];
-}
-
-/**
- * Heuristic: does this quadrilateral warrant an actual perspective
- * warp? Skip when the corners are close to the axis-aligned rectangle
- * — the compressor's implicit letterbox already handles that case, and
- * running a full warp on a straight rect is wasteful.
- *
- * §Fix B (2026-08-10): the previous 2 px tolerance was too tight —
- * a near-axis-aligned edge-detector seed would slip past and rotate
- * the whole image on straight-on captures. Widened to 0.5 % of the
- * smaller output edge (~5 px on a 1024-wide preview, ~13 px at 2560),
- * matching the `AXIS_ALIGNED_TOLERANCE` used by the auto-seed gate.
- */
-function cornersLookQuadrilateral(
-  corners: [[number, number], [number, number], [number, number], [number, number]],
-  outW: number,
-  outH: number,
-): boolean {
-  // Compute the smallest enclosing axis-aligned rectangle in local
-  // [0,1] space and compare corner-by-corner. Using the bounding box
-  // (rather than [(0,0),(1,0),…]) means a quad occupying only part
-  // of the crop still gets a fair "is it rotated?" check.
-  const xs = corners.map((p) => p[0]);
-  const ys = corners.map((p) => p[1]);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
-  const yMin = Math.min(...ys);
-  const yMax = Math.max(...ys);
-  const targets: [[number, number], [number, number], [number, number], [number, number]] = [
-    [xMin, yMin],
-    [xMax, yMin],
-    [xMax, yMax],
-    [xMin, yMax],
-  ];
-  const tol = Math.max(0.005, 5 / Math.min(outW, outH));
-  for (let i = 0; i < 4; i += 1) {
-    if (
-      Math.abs(corners[i][0] - targets[i][0]) > tol ||
-      Math.abs(corners[i][1] - targets[i][1]) > tol
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -485,9 +426,9 @@ async function decodeOrientedRegion(
  * 2026-10-01 bulk-claim-4 helper.
  *
  * Sample the median RGB of pixels sitting OUTSIDE the user's four
- * corners (the "wall") but inside the crop rect. Returns `null` when
- * fewer than 64 wall pixels could be sampled — the caller then falls
- * back to the original near-white gate inside `paintBorderWall`.
+ * corners (the wall) but inside the working buffer. The rectangle
+ * path uses this as the white-balance reference after the wall has
+ * been left out of the artwork. It does not repaint those pixels.
  *
  * Uses a deterministic 2000-sample stride walk over the crop pixels so
  * the result is reproducible for a given input (useful for
@@ -522,6 +463,35 @@ function sampleWallRefOutsideQuad(
     return sorted.length & 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   };
   return { r: med(rs), g: med(gs), b: med(bs) };
+}
+
+function opaqueRatio(data: Uint8ClampedArray): number {
+  const pixels = data.length / 4;
+  if (pixels <= 0) return 0;
+  let n = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i] > 16) n += 1;
+  return n / pixels;
+}
+
+function fallbackWarp(
+  src: ImageData,
+  corners: [[number, number], [number, number], [number, number], [number, number]],
+  requestedAspect: number | null,
+  longEdge: number,
+): ImageData | null {
+  const targetAspect = requestedAspect ?? estimateRectifiedAspect(corners);
+  let warpOutW: number;
+  let warpOutH: number;
+  if (targetAspect >= 1) {
+    warpOutW = longEdge;
+    warpOutH = Math.max(1, Math.round(longEdge / targetAspect));
+  } else {
+    warpOutH = longEdge;
+    warpOutW = Math.max(1, Math.round(longEdge * targetAspect));
+  }
+  const H = homographyForCorners(corners, warpOutW, warpOutH);
+  if (!H) return null;
+  return warpPerspectiveNearest(src, H, warpOutW, warpOutH);
 }
 
 /** Winding-number point-in-polygon for a 4-vertex quad. */
@@ -574,13 +544,9 @@ export async function runFlatEnhancement(
     c: clampTone(input.tone?.c ?? 1, ENHANCEMENT_TONE_CAP),
     s: clampTone(input.tone?.s ?? 1, ENHANCEMENT_TONE_CAP),
   };
-  // 2026-10-01 bulk-claim-4 fix: drop the outward `outsetNormalizedQuad`
-  // bias. The pre-fix code pushed every corner ~0.8 % away from the
-  // center "so a bowed phone edge stays inside the warp", which in
-  // practice re-included a strip of wall right along the edge the
-  // user had just carefully placed. The post-warp `paintBorderWall`
-  // (now reference-color aware — see below) replaces that strip with
-  // the gallery matte, so there is no reason to expand the quad.
+  // Corners stay where sol or the artist put them. Curvature is
+  // measured between those corners. The rectangle path does not walk
+  // inward recoloring wall-like pixels.
   const warpCorners = input.sourceCorners ?? null;
   const cropNormalized = normalizeCropFromCorners(warpCorners, input.crop);
 
@@ -608,6 +574,9 @@ export async function runFlatEnhancement(
   const proLookConfig = resolveProLookConfig(proLookRecipeIn);
   const awbEnabled = input.awb?.enabled === true;
   let awbRecipe: AwbRecipe | undefined;
+  let geometryRecipe: GeometryRecipe | undefined;
+  let geometryExcludedWall = false;
+  let pinnedWall: { r: number; g: number; b: number } | null = null;
 
   const buildRecipe = (): FlatRecipe => ({
     sourceCorners: input.sourceCorners ?? null,
@@ -639,6 +608,7 @@ export async function runFlatEnhancement(
           },
         }
       : {}),
+    ...(geometryRecipe ? { geometry: geometryRecipe } : {}),
   });
 
   const stageTimings: RunFlatResult["stageTimings"] = {
@@ -658,6 +628,9 @@ export async function runFlatEnhancement(
     stageError,
     stageTimings,
     ...(awbRecipe ? { awb: awbRecipe } : {}),
+    ...(geometryRecipe
+      ? { geometryStatus: geometryRecipe.status, engineVersion: GEOMETRY_ENGINE_VERSION }
+      : {}),
   });
 
   const signal = input.signal;
@@ -695,10 +668,21 @@ export async function runFlatEnhancement(
   const cropPxY = Math.round(cropNormalized.y * srcH);
   const cropPxW = Math.max(1, Math.round(cropNormalized.w * srcW));
   const cropPxH = Math.max(1, Math.round(cropNormalized.h * srcH));
+  // Keep a band around the corner box so an outward bow is still in
+  // the buffer. The output long edge stays the corner box, not the band.
+  const searchMargin = warpCorners
+    ? Math.max(12, Math.round(Math.min(cropPxW, cropPxH) * 0.08))
+    : 0;
+  const readX = Math.max(0, cropPxX - searchMargin);
+  const readY = Math.max(0, cropPxY - searchMargin);
+  const readR = Math.min(srcW, cropPxX + cropPxW + searchMargin);
+  const readB = Math.min(srcH, cropPxY + cropPxH + searchMargin);
+  const readW = Math.max(1, readR - readX);
+  const readH = Math.max(1, readB - readY);
   const longestCropEdge = Math.max(cropPxW, cropPxH);
   const scale = longestCropEdge > maxLongEdge ? maxLongEdge / longestCropEdge : 1;
-  const outW = Math.max(1, Math.round(cropPxW * scale));
-  const outH = Math.max(1, Math.round(cropPxH * scale));
+  const outW = Math.max(1, Math.round(readW * scale));
+  const outH = Math.max(1, Math.round(readH * scale));
 
   if (isAborted()) return bail("aborted");
 
@@ -707,10 +691,10 @@ export async function runFlatEnhancement(
   try {
     const bitmap = await decodeOrientedRegion(
       input.file,
-      cropPxX,
-      cropPxY,
-      cropPxW,
-      cropPxH,
+      readX,
+      readY,
+      readW,
+      readH,
       outW,
       outH,
     );
@@ -725,115 +709,101 @@ export async function runFlatEnhancement(
     return bail("decode_failed");
   }
 
-  // Homography warp — only when the caller supplied 4 corners that
-  // describe a non-axis-aligned quadrilateral inside the crop rect.
-  // The crop above already trimmed the frame; corners are re-mapped
-  // into the crop's local pixel space so warping stays lossless.
-  // 2026-08-09: rectified target aspect is derived from the corner
-  // edge lengths (Zhang/Cao heuristic) rather than the crop bounding
-  // box, so keystoned photographs land at the artwork's true aspect
-  // instead of the framing rectangle's aspect.
-  const cornersInCrop: [[number, number], [number, number], [number, number], [number, number]] | null =
-    warpCorners
-      ? mapCornersIntoCrop(warpCorners, cropNormalized)
-      : null;
-  // 2026-10-02 (aspect-selector) — the baseline needsWarp fires only
-  // when the user's corners describe a visibly keystoned quadrilateral.
-  // That contract is unchanged. However, when the user explicitly asks
-  // for an output aspect that differs from the crop's native aspect
-  // (e.g. 4:3 phone photo but `targetAspect = 1.0` because the artwork
-  // is square), we now also warp through the same homography path so
-  // the dst rect's shape honors the user intent. The destination is
-  // still the AABB of the picker's corners — a straight-on painting
-  // with axis-aligned corners simply becomes a 1:1 crop of the inner
-  // rectangle, which is a strict improvement.
   const requestedAspect =
     typeof input.targetAspect === "number" &&
     Number.isFinite(input.targetAspect) &&
     input.targetAspect > 0
       ? input.targetAspect
       : null;
-  const nativeAspect = outW > 0 && outH > 0 ? outW / outH : null;
-  const aspectDivergent =
-    requestedAspect !== null && nativeAspect !== null
-      ? Math.abs(requestedAspect - nativeAspect) /
-          Math.max(requestedAspect, nativeAspect) >
-        0.01
-      : false;
-  const needsWarp = cornersInCrop
-    ? cornersLookQuadrilateral(cornersInCrop, outW, outH) || aspectDivergent
-    : false;
-  // Pixels outside the quad are a real wall. A tight quad means the
-  // crop edge is the artwork, so the inward matte must not eat it.
-  // The studio drop shadow is painted later, on the bezel, either way.
-  let wallOutsideQuad = false;
-  // Track the *post-warp* dimensions so downstream stages (tone,
-  // proLook, bezel, encode) all agree on the current canvas geometry.
   let workW = outW;
   let workH = outH;
-  if (needsWarp && cornersInCrop) {
+  if (warpCorners) {
     try {
       const twarp = performance.now();
       const srcData = ctx.getImageData(0, 0, outW, outH);
+      const scaleX = outW / readW;
+      const scaleY = outH / readH;
       const pxCorners: [
         [number, number],
         [number, number],
         [number, number],
         [number, number],
       ] = [
-        [cornersInCrop[0][0] * outW, cornersInCrop[0][1] * outH],
-        [cornersInCrop[1][0] * outW, cornersInCrop[1][1] * outH],
-        [cornersInCrop[2][0] * outW, cornersInCrop[2][1] * outH],
-        [cornersInCrop[3][0] * outW, cornersInCrop[3][1] * outH],
+        [(warpCorners[0][0] * srcW - readX) * scaleX, (warpCorners[0][1] * srcH - readY) * scaleY],
+        [(warpCorners[1][0] * srcW - readX) * scaleX, (warpCorners[1][1] * srcH - readY) * scaleY],
+        [(warpCorners[2][0] * srcW - readX) * scaleX, (warpCorners[2][1] * srcH - readY) * scaleY],
+        [(warpCorners[3][0] * srcW - readX) * scaleX, (warpCorners[3][1] * srcH - readY) * scaleY],
       ];
-      // 2026-10-01 bulk-claim-4 fix: sample the ACTUAL wall color
-      // outside the user's quad so `paintBorderWall` can target that
-      // color (instead of its fixed "near-white" heuristic). This
-      // works even when the wall is beige / warm grey / painted —
-      // the earlier near-white gate skipped repaint on anything but
-      // bright matte and left the pre-warp wall bleeding through.
-      const wallRef = sampleWallRefOutsideQuad(srcData, pxCorners);
-      wallOutsideQuad = wallRef != null;
-      const targetAspect =
-        typeof input.targetAspect === "number" &&
-        Number.isFinite(input.targetAspect) &&
-        input.targetAspect > 0
-          ? input.targetAspect
-          : estimateRectifiedAspect(pxCorners);
-      const longEdge = Math.max(outW, outH);
-      let warpOutW: number;
-      let warpOutH: number;
-      if (targetAspect >= 1) {
-        warpOutW = longEdge;
-        warpOutH = Math.max(1, Math.round(longEdge / targetAspect));
+      pinnedWall = sampleWallRefOutsideQuad(srcData, pxCorners);
+      const longEdge = Math.max(1, Math.round(longestCropEdge * scale));
+      const plan = planArtworkRectification({
+        raster: { data: srcData.data, width: outW, height: outH },
+        corners: pxCorners,
+        frame: {
+          width: srcW,
+          height: srcH,
+          originX: readX,
+          originY: readY,
+          scaleX,
+          scaleY,
+        },
+        mode: input.edgeCurvature ?? "auto",
+        manualK1: input.edgeCurvature === "adjust" ? input.edgeCurvatureK1 ?? null : null,
+        nudges: input.edgeCurvature === "adjust" ? input.edgeNudges ?? null : null,
+        targetAspect: requestedAspect,
+        aspectSource: input.aspectSource ?? (requestedAspect ? "user" : "estimated"),
+        longEdge,
+      });
+      const rendered = await renderRectifiedYielding({
+        raster: { data: srcData.data, width: outW, height: outH },
+        plan,
+        frame: {
+          width: srcW,
+          height: srcH,
+          originX: readX,
+          originY: readY,
+          scaleX,
+          scaleY,
+        },
+        signal,
+      });
+      if (rendered === "aborted") return bail("aborted");
+      const covered = opaqueRatio(rendered.data);
+      if (covered >= 0.9) {
+        geometryRecipe = plan.recipe;
+        geometryExcludedWall =
+          plan.recipe.status === "applied" &&
+          (plan.recipe.method === "radial" ||
+            plan.recipe.method === "boundary_traced" ||
+            plan.recipe.method === "boundary_manual");
+        const rectifiedSurface = makeCanvas(rendered.width, rendered.height);
+        canvas = rectifiedSurface.canvas;
+        ctx = rectifiedSurface.ctx;
+        const image = new ImageData(rendered.width, rendered.height);
+        image.data.set(rendered.data);
+        ctx.putImageData(image, 0, 0);
+        workW = rendered.width;
+        workH = rendered.height;
       } else {
-        warpOutH = longEdge;
-        warpOutW = Math.max(1, Math.round(longEdge * targetAspect));
-      }
-      const H = homographyForCorners(pxCorners, warpOutW, warpOutH);
-      if (H) {
-        const warped = warpPerspectiveNearest(srcData, H, warpOutW, warpOutH);
-        if (warped) {
-          // No surrounding wall: the rectified edge is the artwork.
-          // Inward #f3f3f3 would cut a fringe or a flat weave into a line.
-          if (wallOutsideQuad) {
-            paintBorderWall(warped.data, warpOutW, warpOutH, wallRef);
-          }
-          // Replace the source canvas with a fresh surface sized to
-          // the rectified aspect so subsequent stages (tone, proLook,
-          // bezel, encode) don't have to know a warp happened.
-          const rectifiedSurface = makeCanvas(warpOutW, warpOutH);
+        geometryRecipe = {
+          ...plan.recipe,
+          status: "needs_review",
+          diagnostics: { ...plan.recipe.diagnostics, reason: "uncovered" },
+        };
+        const fallback = fallbackWarp(srcData, pxCorners, requestedAspect, longEdge);
+        if (fallback) {
+          const rectifiedSurface = makeCanvas(fallback.width, fallback.height);
           canvas = rectifiedSurface.canvas;
           ctx = rectifiedSurface.ctx;
-          ctx.putImageData(warped, 0, 0);
-          workW = warpOutW;
-          workH = warpOutH;
+          ctx.putImageData(fallback, 0, 0);
+          workW = fallback.width;
+          workH = fallback.height;
         }
       }
       stageTimings.warpMs = Math.max(0, Math.round(performance.now() - twarp));
     } catch {
-      // Warp is best-effort — if the solve is singular fall back to
-      // the crop-only pipeline. Never fail the whole enhancement.
+      // Singular geometry falls back to the decoded crop. No inward
+      // wall repaint on that path either.
     }
   }
 
@@ -864,7 +834,26 @@ export async function runFlatEnhancement(
     // MATTE_WHITE_POINT = #f3f3f3 = 243), fall back to the classic
     // gray-world / wall-biased estimator when no wall region is
     // detected. See awb.ts for the anchoring rationale.
-    if (awbEnabled) {
+    if (awbEnabled && geometryExcludedWall) {
+      const tawb = performance.now();
+      if (pinnedWall) {
+        const sample = ctx.getImageData(0, 0, workW, workH);
+        const awbStrength = input.awb?.strength ?? 1;
+        const anchored = gainsFromWallMedian(
+          pinnedWall,
+          wallBrightnessSupplied ? wallBrightnessTarget : undefined,
+        );
+        awbRecipe = {
+          rMul: dampenAwbGain(anchored.r, awbStrength),
+          gMul: dampenAwbGain(anchored.g, awbStrength),
+          bMul: dampenAwbGain(anchored.b, awbStrength),
+          source: "wall-biased",
+        };
+        applyAwb(sample.data, awbRecipe);
+        ctx.putImageData(sample, 0, 0);
+      }
+      stageTimings.awbMs = Math.max(0, Math.round(performance.now() - tawb));
+    } else if (awbEnabled) {
       const tawb = performance.now();
       const sample = ctx.getImageData(0, 0, workW, workH);
       // 2026-10-02 — partial white-balance strength. Omitted / 1 keeps
@@ -976,11 +965,10 @@ export async function runFlatEnhancement(
   // After color: place the tight crop on #f3f3f3 and stage one studio
   // shadow from its alpha. Not sampled from the photograph. Rectangle
   // and Photoroom share this pass, so brightness, contrast, and
-  // saturation do not move the wall or the shadow. Inward #f3f3f3
-  // stays gated (real wall outside the quad, and paintBorderWall
-  // skips a thread fringe) so a fringe is not sliced into a hard
-  // cut. That guard does not skip the staged shadow. A zero bezel
-  // was already raised to the standard margin above.
+  // saturation do not move the wall or the shadow. The rectangle path
+  // does not paint #f3f3f3 inward, so a thread fringe is not sliced
+  // into a hard cut. A zero bezel was already raised to the standard
+  // margin above.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
   let blob: Blob | null;
   try {
@@ -1007,6 +995,9 @@ export async function runFlatEnhancement(
       stageError: "encode_failed",
       stageTimings,
       ...(awbRecipe ? { awb: awbRecipe } : {}),
+      ...(geometryRecipe
+        ? { geometryStatus: geometryRecipe.status, engineVersion: GEOMETRY_ENGINE_VERSION }
+        : {}),
     };
   }
   return {
@@ -1016,6 +1007,9 @@ export async function runFlatEnhancement(
     confidence: 1,
     stageTimings,
     ...(awbRecipe ? { awb: awbRecipe } : {}),
+    ...(geometryRecipe
+      ? { geometryStatus: geometryRecipe.status, engineVersion: GEOMETRY_ENGINE_VERSION }
+      : {}),
   };
 }
 

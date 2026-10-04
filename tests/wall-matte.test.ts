@@ -192,7 +192,7 @@ const presentation = readFileSync(
   "utf8",
 );
 assert.match(engine, /compositeStudioPresentation\(/, "studio wall is painted after color");
-assert.match(engine, /if \(wallOutsideQuad\)/, "tight crop does not inward-fill");
+assert.doesNotMatch(engine, /paintBorderWall\(/, "rectangle path does not repaint inward by wall color");
 assert.match(
   presentation,
   /shadowBlur: Math\.max\(8, Math\.round\(bezelPx \* 0\.4\)\)/,

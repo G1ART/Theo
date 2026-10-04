@@ -23,6 +23,11 @@ export type EnhanceSessionPreset = {
   aspectMode?: AspectMode;
   /** Custom W×H when `aspectMode === "custom"`. */
   customAspect?: { w: number; h: number } | null;
+  /**
+   * Edge-straightening preference only. Coefficients, corners, and
+   * contours stay on the photo that produced them.
+   */
+  edgeCurvature?: "auto" | "off" | "adjust";
 };
 
 const KEY = "theo.enhance.sharedRecipe";
@@ -86,6 +91,10 @@ export function parseEnhanceSessionPreset(raw: unknown): EnhanceSessionPreset | 
   if (intensity !== "light" && intensity !== "normal" && intensity !== "strong") return null;
   const aspectMode = parseAspectMode(row.aspectMode);
   const customAspect = parseCustomAspect(row.customAspect);
+  const edgeCurvature =
+    row.edgeCurvature === "auto" || row.edgeCurvature === "off" || row.edgeCurvature === "adjust"
+      ? row.edgeCurvature
+      : undefined;
   return {
     inputType,
     intensity,
@@ -94,6 +103,7 @@ export function parseEnhanceSessionPreset(raw: unknown): EnhanceSessionPreset | 
     s: tone(row.s),
     ...(aspectMode ? { aspectMode } : {}),
     ...(customAspect !== undefined ? { customAspect } : {}),
+    ...(edgeCurvature ? { edgeCurvature } : {}),
   };
 }
 
