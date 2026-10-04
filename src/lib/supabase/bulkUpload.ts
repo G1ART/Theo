@@ -237,3 +237,128 @@ export async function runBulkUploadLoop<T extends { id: string }>(
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
   return { succeeded, failed: failures };
 }
+
+/** Persistent line under the drop zone after a draft delete. */
+export type BulkListNote =
+  | { kind: "deleted"; count: number }
+  | { kind: "quiet" }
+  | null;
+
+export type BulkVisibleStatus =
+  | { kind: "upload-done"; text: string }
+  | { kind: "upload-partial"; text: string }
+  | { kind: "deleted"; text: string }
+  | { kind: "none" };
+
+export type BulkDeleteStatusPlan = {
+  /** Drop the upload counters so a later render cannot revive the success line. */
+  clearUploadStatus: boolean;
+  /**
+   * `deleted` — list is empty and at least one draft was removed.
+   * `quiet` — show neither upload-complete nor a delete line.
+   * `unchanged` — cards remain; keep the upload line.
+   */
+  line: "deleted" | "quiet" | "unchanged";
+  removed: number;
+};
+
+/**
+ * After 전체 삭제, or 선택 삭제 that leaves no cards, the upload-complete
+ * line must not stay. The replacement uses the count that was actually
+ * removed. A delete that removed nothing never falls back to that line.
+ */
+export function planBulkDeleteStatus(input: {
+  scope: "all" | "selected";
+  draftIdsBefore: readonly string[];
+  requestedIds: readonly string[];
+  removedCount: number;
+  draftIdsAfter: readonly string[];
+  placingCount: number;
+}): BulkDeleteStatusPlan {
+  const removed = Math.max(0, Math.trunc(Number(input.removedCount) || 0));
+  const before = input.draftIdsBefore;
+  const requested = new Set(input.requestedIds);
+  const coversEveryCard =
+    input.scope === "all" ||
+    (before.length > 0 && before.every((id) => requested.has(id)));
+  const listEmpty =
+    input.draftIdsAfter.length === 0 && Math.max(0, Number(input.placingCount) || 0) <= 0;
+
+  if (listEmpty && removed > 0) {
+    return { clearUploadStatus: true, line: "deleted", removed };
+  }
+  if ((coversEveryCard && removed === 0) || listEmpty) {
+    return { clearUploadStatus: true, line: "quiet", removed };
+  }
+  return { clearUploadStatus: false, line: "unchanged", removed };
+}
+
+/**
+ * Status sentence under the drop zone.
+ *
+ * Upload success is only for a list that still has cards. An empty list
+ * never keeps "N drafts uploaded". A delete-complete note replaces it.
+ * Failure summaries stay when the list is empty and nothing was deleted,
+ * so an all-failed batch can still explain itself.
+ */
+export function resolveBulkVisibleStatus(
+  input: {
+    uploading: boolean;
+    uploadTotal: number;
+    uploadSucceeded: number;
+    failureCount: number;
+    visibleCount: number;
+    note: BulkListNote;
+  },
+  labels: {
+    uploadDone: string;
+    uploadPartial: string;
+    deleted: string;
+  },
+): BulkVisibleStatus {
+  if (input.uploading) return { kind: "none" };
+
+  const visible = Math.max(0, Math.trunc(Number(input.visibleCount) || 0));
+  const note = input.note;
+  const total = Math.max(0, Math.trunc(Number(input.uploadTotal) || 0));
+  const failed = Math.max(0, Math.trunc(Number(input.failureCount) || 0));
+  const ok = Math.max(0, Math.trunc(Number(input.uploadSucceeded) || 0));
+
+  if (note?.kind === "deleted" && note.count > 0 && visible === 0) {
+    return {
+      kind: "deleted",
+      text: labels.deleted.replace(/\{n\}/g, String(note.count)),
+    };
+  }
+  if (note?.kind === "quiet") return { kind: "none" };
+
+  if (visible === 0) {
+    if (total > 0 && failed > 0) {
+      return {
+        kind: "upload-partial",
+        text: labels.uploadPartial
+          .replace(/\{ok\}/g, String(ok))
+          .replace(/\{total\}/g, String(total))
+          .replace(/\{failed\}/g, String(failed)),
+      };
+    }
+    return { kind: "none" };
+  }
+
+  if (total > 0 && failed > 0) {
+    return {
+      kind: "upload-partial",
+      text: labels.uploadPartial
+        .replace(/\{ok\}/g, String(ok))
+        .replace(/\{total\}/g, String(total))
+        .replace(/\{failed\}/g, String(failed)),
+    };
+  }
+  if (total > 0) {
+    return {
+      kind: "upload-done",
+      text: labels.uploadDone.replace(/\{total\}/g, String(total)),
+    };
+  }
+  return { kind: "none" };
+}

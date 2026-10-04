@@ -1940,14 +1940,16 @@ export async function deleteArtworksBatch(
 /** Delete multiple drafts with cascade. Owner-only, batches with concurrency limit. */
 export async function deleteDraftArtworks(
   ids: string[]
-): Promise<{ error: unknown }> {
-  if (ids.length === 0) return { error: null };
+): Promise<{ error: unknown; removed: number }> {
+  if (ids.length === 0) return { error: null, removed: 0 };
   const errors: unknown[] = [];
+  let removed = 0;
   await runWithLimit(ids, async (id) => {
     const res = await deleteArtworkCascade(id);
     if (res.error) errors.push(res.error);
+    else removed += 1;
   });
-  return { error: errors.length > 0 ? errors[0] : null };
+  return { error: errors.length > 0 ? errors[0] : null, removed };
 }
 
 export type DraftArtworkPayload = {

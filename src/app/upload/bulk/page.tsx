@@ -82,8 +82,11 @@ import {
 } from "@/lib/csv/artworkCsv";
 import {
   fileLooksLikeImage,
+  planBulkDeleteStatus,
+  resolveBulkVisibleStatus,
   summarizeBulkResult,
   type BulkFailure,
+  type BulkListNote,
 } from "@/lib/supabase/bulkUpload";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
@@ -152,6 +155,12 @@ export default function BulkUploadPage() {
   // batch where 3 files fail doesn't disappear into a single rolling toast.
   const [uploadFailures, setUploadFailures] = useState<{ name: string; message: string }[]>([]);
   const [uploadSucceeded, setUploadSucceeded] = useState(0);
+  /**
+   * Replaces the green "N drafts uploaded" line after a delete that
+   * empties the list. `quiet` means that line must stay gone (nothing
+   * was actually removed, or the list is already empty).
+   */
+  const [listNote, setListNote] = useState<BulkListNote>(null);
   const [publishing, setPublishing] = useState(false);
   const [tipsOpen, setTipsOpen] = useState(false);
   /** Local thumbs shown as cards while storage catches up. Not a filename queue. */
@@ -218,6 +227,7 @@ export default function BulkUploadPage() {
   const applyDepthRef = useRef(0);
   const uploadingRef = useRef(false);
   const draftsRef = useRef(drafts);
+  const placingRef = useRef(placing);
   const scheduleCaptionRef = useRef<() => void>(() => {});
   const [stagedArtworkIds, setStagedArtworkIds] = useState<string[]>([]);
 
@@ -429,8 +439,10 @@ export default function BulkUploadPage() {
         limit: BULK_MY_DRAFTS_QUERY_LIMIT,
         forProfileId: actingAsProfileId ?? undefined,
       });
-      setDrafts(data ?? []);
+      const rows = data ?? [];
+      setDrafts(rows);
       if (!silent) setLoading(false);
+      return rows;
     },
     [actingAsProfileId],
   );
@@ -441,7 +453,8 @@ export default function BulkUploadPage() {
 
   useEffect(() => {
     draftsRef.current = drafts;
-  }, [drafts]);
+    placingRef.current = placing;
+  }, [drafts, placing]);
 
   /**
    * QA 2026-07-28 Phase B: PII-safe email-existence probe. Debounced
@@ -528,6 +541,7 @@ export default function BulkUploadPage() {
     }
     const userId = session.user.id;
     setUploadError(null);
+    setListNote(null);
     setUploading(true);
     setUploadTotal(queue.length);
     setUploadCurrent(0);
@@ -811,28 +825,44 @@ export default function BulkUploadPage() {
     void fetchDrafts({ silent: true });
   }
 
-  async function handleDeleteSelected() {
-    const ids = Array.from(selected);
+  async function deleteDraftIds(ids: string[], scope: "all" | "selected") {
     if (ids.length === 0) return;
+    const beforeIds = drafts.map((d) => d.id);
     setDeleting(true);
-    await deleteDraftArtworks(ids);
+    const result = await deleteDraftArtworks(ids);
     setDeleting(false);
     setSelected(new Set());
-    await fetchDrafts();
-    setToast(t("bulk.deleted"));
-    setTimeout(() => setToast(null), 2000);
+    const next = await fetchDrafts();
+    const plan = planBulkDeleteStatus({
+      scope,
+      draftIdsBefore: beforeIds,
+      requestedIds: ids,
+      removedCount: result.removed,
+      draftIdsAfter: next.map((d) => d.id),
+      placingCount: placingRef.current.length,
+    });
+    if (plan.clearUploadStatus) {
+      setUploadTotal(0);
+      setUploadSucceeded(0);
+      setUploadCurrent(0);
+    }
+    if (plan.line === "deleted") {
+      setListNote({ kind: "deleted", count: plan.removed });
+    } else if (plan.line === "quiet") {
+      setListNote({ kind: "quiet" });
+    }
+    if (plan.removed > 0) {
+      setToast(t("bulk.deletedCount").replace("{n}", String(plan.removed)));
+      setTimeout(() => setToast(null), 2000);
+    }
+  }
+
+  async function handleDeleteSelected() {
+    await deleteDraftIds(Array.from(selected), "selected");
   }
 
   async function handleDeleteAll() {
-    const ids = drafts.map((d) => d.id);
-    if (ids.length === 0) return;
-    setDeleting(true);
-    await deleteDraftArtworks(ids);
-    setDeleting(false);
-    setSelected(new Set());
-    await fetchDrafts();
-    setToast(t("bulk.deleted"));
-    setTimeout(() => setToast(null), 2000);
+    await deleteDraftIds(drafts.map((d) => d.id), "all");
   }
 
   function toggleSelect(id: string) {
@@ -1599,6 +1629,22 @@ export default function BulkUploadPage() {
     })
     .slice(0, 6);
 
+  const listStatus = resolveBulkVisibleStatus(
+    {
+      uploading,
+      uploadTotal,
+      uploadSucceeded,
+      failureCount: uploadFailures.length,
+      visibleCount: drafts.length + placing.length,
+      note: listNote,
+    },
+    {
+      uploadDone: t("bulk.uploadDone"),
+      uploadPartial: t("bulk.uploadDoneWithFailures"),
+      deleted: t("bulk.deletedCount"),
+    },
+  );
+
   return (
       <div>
         {/*
@@ -2109,18 +2155,14 @@ export default function BulkUploadPage() {
             {t("bulk.uploadError").replace("{message}", uploadError)}
           </p>
         )}
-        {!uploading && uploadTotal > 0 && uploadFailures.length === 0 && (
-          <p className="mb-4 text-sm text-green-600">
-            {t("bulk.uploadDone").replace("{total}", String(uploadTotal))}
-          </p>
+        {listStatus.kind === "upload-done" && (
+          <p className="mb-4 text-sm text-green-600">{listStatus.text}</p>
         )}
-        {!uploading && uploadTotal > 0 && uploadFailures.length > 0 && (
-          <p className="mb-2 text-sm text-amber-700">
-            {t("bulk.uploadDoneWithFailures")
-              .replace("{ok}", String(uploadSucceeded))
-              .replace("{total}", String(uploadTotal))
-              .replace("{failed}", String(uploadFailures.length))}
-          </p>
+        {listStatus.kind === "upload-partial" && (
+          <p className="mb-2 text-sm text-amber-700">{listStatus.text}</p>
+        )}
+        {listStatus.kind === "deleted" && (
+          <p className="mb-4 text-sm text-green-600">{listStatus.text}</p>
         )}
         {uploadFailures.length > 0 && (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
@@ -2155,7 +2197,9 @@ export default function BulkUploadPage() {
                 actingAsProfileId={actingAsProfileId}
                 drafts={drafts}
                 stagedArtworkIds={stagedArtworkIds}
-                onApplied={() => fetchDrafts({ silent: true })}
+                onApplied={() => {
+                  void fetchDrafts({ silent: true });
+                }}
                 onApplyToast={(n) => {
                   setToast(t("bulk.wi.appliedToast").replace("{n}", String(n)));
                   setTimeout(() => setToast(null), 3200);

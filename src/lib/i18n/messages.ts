@@ -1816,6 +1816,7 @@ export const messages = {
     "bulk.enhance.rowDetail": "Detail",
     "bulk.startUpload": "Upload",
     "bulk.deleted": "Deleted",
+    "bulk.deletedCount": "Deleted {n} drafts",
     "bulk.wi.title": "Import metadata from your website",
     "bulk.wi.subtitle":
       "Optional: we scan your portfolio (same site only), match uploaded images to works without using filenames, and draft titles and details only when the match is confident. You review before anything is saved.",
@@ -6634,6 +6635,7 @@ export const messages = {
     "bulk.enhance.rowDetail": "부분 사진",
     "bulk.startUpload": "업로드",
     "bulk.deleted": "삭제됨",
+    "bulk.deletedCount": "{n}개 초안을 삭제했습니다",
     "bulk.wi.title": "홈페이지에서 작품 정보 가져오기",
     "bulk.wi.subtitle":
       "선택 사항입니다. 포트폴리오 사이트(같은 도메인만)를 스캔해, 파일 이름에 의존하지 않고 업로드한 이미지와 작품을 맞춥니다. 신뢰도가 높을 때만 제목·연도 등 초안을 채우며, 저장 전에 반드시 검토합니다.",
