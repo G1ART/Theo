@@ -34,11 +34,9 @@
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
 import {
-  borderIsLightFringe,
   galleryMatteMask,
   paintBorderWall,
   restoreGalleryMatte,
-  shouldPaintStudioShadow,
 } from "./borderWall";
 import { ENHANCEMENT_TONE_CAP, clampTone, round3 } from "./types";
 import {
@@ -753,7 +751,8 @@ export async function runFlatEnhancement(
     ? cornersLookQuadrilateral(cornersInCrop, outW, outH) || aspectDivergent
     : false;
   // Pixels outside the quad are a real wall. A tight quad means the
-  // crop edge is the artwork, so later stages must not matte or shadow it.
+  // crop edge is the artwork, so the inward matte must not eat it.
+  // The studio drop shadow is painted later, on the bezel, either way.
   let wallOutsideQuad = false;
   // Track the *post-warp* dimensions so downstream stages (tone,
   // proLook, bezel, encode) all agree on the current canvas geometry.
@@ -954,14 +953,14 @@ export async function runFlatEnhancement(
 
   // Bezel — even studio margin (#f3f3f3) on all four sides so the
   // artwork sits in the center of the gallery wall. The drop shadow
-  // is only for a real wall outside a stretched canvas. A tight crop
-  // or a textile fringe keeps the edge as it is.
+  // is studio lighting on that margin. It is painted after color so
+  // later brightness/contrast/saturation do not move the wall or the
+  // shadow. Inward #f3f3f3 stays gated (real wall outside the quad,
+  // and paintBorderWall skips a thread fringe) so a fringe is not
+  // sliced into a hard cut.
   const bezelPx = Math.round(bezel * Math.min(workW, workH));
   const shadowBlur = Math.max(8, Math.round(bezelPx * 0.4));
   const shadowOffsetY = Math.max(4, Math.round(bezelPx * 0.18));
-  const fringe = borderIsLightFringe(processed.data, workW, workH);
-  const paintStudioShadow =
-    bezelPx > 0 && shouldPaintStudioShadow({ wallOutsideQuad, fringe });
   const finalW = workW + bezelPx * 2;
   const finalH = workH + bezelPx * 2;
   let blob: Blob | null;
@@ -971,8 +970,9 @@ export async function runFlatEnhancement(
     matCtx.fillStyle = "#f3f3f3";
     matCtx.fillRect(0, 0, finalW, finalH);
     // Studio shadow sits in the matte margin, once, after color.
-    // Later brightness/contrast passes skip this margin.
-    if (paintStudioShadow) {
+    // A normal bezel (stretched canvas / painting on white) always
+    // gets it. Fringe only blocks the inward matte-eat above.
+    if (bezelPx > 0) {
       matCtx.shadowColor = "rgba(0,0,0,0.22)";
       matCtx.shadowBlur = shadowBlur;
       matCtx.shadowOffsetX = 0;

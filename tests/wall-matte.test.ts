@@ -7,7 +7,6 @@ import {
   galleryMatteMask,
   paintBorderWall,
   restoreGalleryMatte,
-  shouldPaintStudioShadow,
 } from "../src/lib/image/enhancement/borderWall";
 import { parseEnhanceSessionPreset } from "../src/lib/image/enhancement/sharedPreset";
 import { dampenAwbGain } from "../src/lib/image/enhancement/awb";
@@ -189,8 +188,18 @@ const engine = readFileSync(
   "utf8",
 );
 assert.match(engine, /shadowBlur/, "studio drop shadow stays on the matte");
-assert.match(engine, /shouldPaintStudioShadow/, "shadow is gated on a real wall");
 assert.match(engine, /if \(wallOutsideQuad\)/, "tight crop does not inward-fill");
+const bezelSection = engine.slice(engine.indexOf("const bezelPx"));
+assert.match(
+  bezelSection,
+  /if \(bezelPx > 0\) \{\s*matCtx\.shadowColor = "rgba\(0,0,0,0\.22\)";\s*matCtx\.shadowBlur = shadowBlur;\s*matCtx\.shadowOffsetX = 0;\s*matCtx\.shadowOffsetY = shadowOffsetY;/,
+  "a normal bezel still draws the studio shadow",
+);
+assert.doesNotMatch(
+  bezelSection,
+  /wallOutsideQuad|borderIsLightFringe|shouldPaintStudioShadow/,
+  "studio shadow is not gated off a normal canvas",
+);
 
 // Light fringe on white. Threads must stay; a straight #f3f3f3 cut is the bug.
 const fringeW = 80;
@@ -221,9 +230,5 @@ for (let y = 0; y < tightH; y += 1) {
 const before = at(tightTex, tightW, 0, 10);
 paintBorderWall(tightTex, tightW, tightH, { r: 230, g: 228, b: 220 });
 assert.equal(at(tightTex, tightW, 0, 10), before, "textured edge is not inward-filled");
-
-assert.equal(shouldPaintStudioShadow({ wallOutsideQuad: false, fringe: true }), false);
-assert.equal(shouldPaintStudioShadow({ wallOutsideQuad: true, fringe: true }), false);
-assert.equal(shouldPaintStudioShadow({ wallOutsideQuad: true, fringe: false }), true);
 
 console.log("wall-matte.test.ts: ok");

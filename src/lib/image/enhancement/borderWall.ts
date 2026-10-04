@@ -222,18 +222,6 @@ export function borderIsLightFringe(
   return edges.top || edges.right || edges.bottom || edges.left;
 }
 
-/**
- * The studio drop shadow belongs on a real wall matte outside a
- * stretched canvas. A tight crop (the edge is the artwork) or a
- * textile fringe does not get that shadow.
- */
-export function shouldPaintStudioShadow(input: {
-  wallOutsideQuad: boolean;
-  fringe: boolean;
-}): boolean {
-  return input.wallOutsideQuad && !input.fringe;
-}
-
 /** Gallery wall. Color passes must not move these pixels. */
 export const GALLERY_MATTE_RGB = 243;
 
