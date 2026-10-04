@@ -26,7 +26,8 @@ import {
 } from "@/lib/supabase/artworks";
 import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
-import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
+import { cleanupFailedAttach } from "@/lib/supabase/artworkStorageCleanup";
+import { removeStorageFile, removeStorageFiles, uploadArtworkImage } from "@/lib/supabase/storage";
 import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDialog";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
@@ -567,6 +568,7 @@ export default function BulkUploadPage() {
       let artworkId: string | null = null;
       let createdHere = false;
       let uploadResult: Awaited<ReturnType<typeof uploadArtworkImage>> | null = null;
+      let imageAttached = false;
       // QA 2026-08-12 — payload sanity: file 이 실제로 존재하고 크기가
       // 있어야 upload 시도.  Windows 드래그-드롭에서 사용자가 폴더를
       // 통째로 놓으면 File.size === 0 인 유령 슬롯이 생길 수 있다.
@@ -624,12 +626,33 @@ export default function BulkUploadPage() {
           },
         );
         if (attachErr) throw attachErr;
+        imageAttached = true;
         uploadedIds.push(artworkId);
         const batchSlot = batchSlotsRef.current.find((s) => s.pendingId === slotId);
         if (batchSlot) batchSlot.draftId = artworkId;
         results[idx] = { pendingId: slotId, draftId: artworkId, name: file.name };
         setUploadSucceeded((n) => n + 1);
       } catch (err) {
+        if (!imageAttached) {
+          const cleaned = await cleanupFailedAttach({
+            displayPath: uploadResult?.displayPath,
+            originalPath: uploadResult?.originalPath,
+            draftId: artworkId,
+            deleteEmptyDraft: Boolean(createdHere && artworkId),
+            removeFile: async (path) => {
+              const { error } = await removeStorageFiles([path]);
+              if (error) throw error;
+            },
+            deleteDraft: async (id) => {
+              const { error } = await deleteArtwork(id);
+              if (error) throw error;
+            },
+          });
+          if (cleaned.storageError) {
+            // eslint-disable-next-line no-console
+            console.warn("[bulk-upload] storage cleanup after failed attach", cleaned.storageError);
+          }
+        }
         const message = formatBulkFileUploadFailure(file.name, err, t);
         // Surface the latest failure prominently AND keep a per-file log
         // so the user can fix and retry exactly the failed entries.
@@ -650,15 +673,6 @@ export default function BulkUploadPage() {
         setUploadError(message);
         failures.push({ name: file.name, message });
         setUploadFailures([...failures]);
-        if (uploadResult?.displayPath) {
-          try { await removeStorageFile(uploadResult.displayPath); } catch {}
-        }
-        if (uploadResult?.originalPath) {
-          try { await removeStorageFile(uploadResult.originalPath); } catch {}
-        }
-        if (artworkId && createdHere) {
-          try { await deleteArtwork(artworkId); } catch {}
-        }
       } finally {
         completed += 1;
         setUploadCurrent(completed);

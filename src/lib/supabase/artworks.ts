@@ -1,5 +1,10 @@
 import { supabase } from "./client";
 import { removeStorageFile, removeStorageFiles, uploadArtworkImage, uploadReplacementDisplay } from "./storage";
+import {
+  cleanupFailedAttach,
+  isBulkDraftDeleteTarget,
+  removeCascadeStorage,
+} from "./artworkStorageCleanup";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { recordActingContextEvent } from "@/lib/delegation/actingContext";
@@ -1630,7 +1635,18 @@ export async function appendArtworkDetailImages(input: {
       originalBytes: uploaded.originalBytes,
       compressionMeta: uploaded.compressionMeta,
     });
-    if (error) return { error, added };
+    if (error) {
+      const cleaned = await cleanupFailedAttach({
+        displayPath: uploaded.displayPath,
+        originalPath: uploaded.originalPath,
+        deleteEmptyDraft: false,
+        removeFile: removeArtworkObject,
+      });
+      if (cleaned.storageError && typeof console !== "undefined") {
+        console.warn("[appendArtworkDetailImages] storage cleanup after failed attach", cleaned.storageError);
+      }
+      return { error, added };
+    }
     next += 1;
     added += 1;
   }
@@ -1726,11 +1742,42 @@ export async function updateArtworkImageViewType(
 
 /** Remove one extra shot. Callers should not pass the cover image. */
 export async function deleteArtworkImage(artworkId: string, storagePath: string) {
-  return supabase
+  const { data: row, error: readErr } = await supabase
+    .from("artwork_images")
+    .select("original_storage_path")
+    .eq("artwork_id", artworkId)
+    .eq("storage_path", storagePath)
+    .maybeSingle();
+  if (readErr && typeof console !== "undefined") {
+    console.warn("[deleteArtworkImage] could not read original backup path", readErr);
+  }
+
+  const { error } = await supabase
     .from("artwork_images")
     .delete()
     .eq("artwork_id", artworkId)
     .eq("storage_path", storagePath);
+  if (error) return { error };
+
+  const storage = await removeCascadeStorage(
+    [
+      {
+        storage_path: storagePath,
+        original_storage_path:
+          (row as { original_storage_path?: string | null } | null)?.original_storage_path ?? null,
+      },
+    ],
+    removeStorageFiles,
+  );
+  if (storage.error && typeof console !== "undefined") {
+    console.warn("[deleteArtworkImage] storage delete failed", storage.error);
+  }
+  return { error: null };
+}
+
+async function removeArtworkObject(path: string): Promise<void> {
+  const { error } = await removeStorageFiles([path]);
+  if (error) throw error;
 }
 
 /**
@@ -1856,26 +1903,23 @@ export async function deleteArtworkCascade(
 
   const { data: images } = await supabase
     .from("artwork_images")
-    .select("storage_path")
+    .select("storage_path, original_storage_path")
     .eq("artwork_id", artworkId);
 
-  const paths = (images ?? []).map((r) => (r as { storage_path: string }).storage_path);
-  if (paths.length > 0) {
-    const { error: storageErr } = await removeStorageFiles(paths);
-    if (storageErr) {
-      const isDev = process.env.NODE_ENV === "development";
-      const logPayload = {
-        event: "storage_delete_failed",
-        artworkId,
-        paths,
-        error: storageErr instanceof Error ? storageErr.message : String(storageErr),
-      };
-      if (typeof console !== "undefined") {
-        if (isDev) {
-          console.warn("[deleteArtworkCascade] Storage delete failed, continuing DB cleanup. Orphan paths:", logPayload);
-        } else {
-          console.error("[deleteArtworkCascade] storage_delete_failed", JSON.stringify(logPayload));
-        }
+  const storage = await removeCascadeStorage(images ?? [], removeStorageFiles);
+  if (storage.error) {
+    const isDev = process.env.NODE_ENV === "development";
+    const logPayload = {
+      event: "storage_delete_failed",
+      artworkId,
+      paths: [...storage.displayPaths, ...storage.originalPaths],
+      error: storage.error instanceof Error ? storage.error.message : String(storage.error),
+    };
+    if (typeof console !== "undefined") {
+      if (isDev) {
+        console.warn("[deleteArtworkCascade] Storage delete failed, continuing DB cleanup. Orphan paths:", logPayload);
+      } else {
+        console.error("[deleteArtworkCascade] storage_delete_failed", JSON.stringify(logPayload));
       }
     }
   }
@@ -1945,6 +1989,16 @@ export async function deleteDraftArtworks(
   const errors: unknown[] = [];
   let removed = 0;
   await runWithLimit(ids, async (id) => {
+    const { data: row, error: readErr } = await supabase
+      .from("artworks")
+      .select("visibility")
+      .eq("id", id)
+      .maybeSingle();
+    const visibility = (row as { visibility?: string | null } | null)?.visibility;
+    if (readErr || !isBulkDraftDeleteTarget(visibility)) {
+      errors.push(readErr ?? new Error("Only drafts can be deleted from the bulk list"));
+      return;
+    }
     const res = await deleteArtworkCascade(id);
     if (res.error) errors.push(res.error);
     else removed += 1;

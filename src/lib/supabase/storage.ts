@@ -107,6 +107,47 @@ export type ArtworkImageEnhancementOptions = {
   enhancementMeta?: EnhancementMeta | null;
 };
 
+/** Drop objects from an attempt that did not finish. One path failing does not skip the next. */
+async function discardUploadedObjects(paths: Array<string | null | undefined>): Promise<void> {
+  const seen = new Set<string>();
+  for (const path of paths) {
+    const trimmed = path?.trim() ?? "";
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    try {
+      const { error } = await supabase.storage.from(BUCKET).remove([trimmed]);
+      if (error) console.warn("[storage] discard uploaded object failed", trimmed, error);
+    } catch (err) {
+      console.warn("[storage] discard uploaded object threw", trimmed, err);
+    }
+  }
+}
+
+/**
+ * Back up the untouched original. A failed upload tries to remove that
+ * object so a partial backup does not stay in the bucket. The display
+ * file, when already stored, is left for the caller.
+ */
+async function uploadOriginalBackup(
+  path: string,
+  file: File,
+  logLabel: string,
+): Promise<string | null> {
+  try {
+    const backupFile = await stripPrivacyExifForBackup(file);
+    const { error } = await supabase.storage.from(BUCKET).upload(path, backupFile, {
+      upsert: false,
+      contentType: file.type || "application/octet-stream",
+    });
+    if (!error) return path;
+    console.warn(logLabel, error);
+  } catch (err) {
+    console.warn(logLabel, err);
+  }
+  await discardUploadedObjects([path]);
+  return null;
+}
+
 /**
  * 아트워크 이미지 업로드 (자동 압축 + 원본 백업).
  *
@@ -116,8 +157,8 @@ export type ArtworkImageEnhancementOptions = {
  *   2. 표시본을 `{userId}/{uuid}-<name>.webp` 로 upload.
  *   3. (압축이 skipped 되지 않은 경우) 원본을 `{userId}/original/{uuid}-<name>`
  *      로 upload. 원본 upload 가 실패해도 표시본은 이미 저장됐으므로
- *      artwork 자체는 정상 노출되며, `originalPath = null` 로 반환 →
- *      caller 가 감지 후 나중에 재시도할 수 있다 (지금은 로깅만).
+ *      artwork 자체는 정상 노출되며, `originalPath = null` 로 반환한다.
+ *      실패한 원본 경로는 지워서 반쪽 객체가 버킷에 남지 않게 한다.
  *
  * Storage RLS 정책 (`can_manage_artworks_storage_path`) 은 첫 세그먼트가
  * auth.uid() 인지 확인하므로 `{userId}/original/...` 도 자동으로 커버.
@@ -145,26 +186,23 @@ export async function uploadArtworkImage(
     const originalPath = `${userId}/original/${uuid}-${safeOriginalName}`;
     let savedOriginalPath: string | null = null;
     try {
-      const backupFile = await stripPrivacyExifForBackup(file);
-      const { error: originalErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(originalPath, backupFile, {
-          upsert: false,
-          contentType: file.type || "application/octet-stream",
-        });
-      if (!originalErr) savedOriginalPath = originalPath;
-      else console.warn("[storage] original backup upload failed (enhanced path)", originalErr);
-    } catch (originalCatch) {
-      console.warn("[storage] original backup upload threw (enhanced path)", originalCatch);
+      savedOriginalPath = await uploadOriginalBackup(
+        originalPath,
+        file,
+        "[storage] original backup upload failed (enhanced path)",
+      );
+      return {
+        displayPath: opts.preparedDisplayPath,
+        displayBytes: 0,
+        originalPath: savedOriginalPath,
+        originalBytes: file.size,
+        compressionMeta: null,
+        enhancementMeta: enhancement,
+      };
+    } catch (later) {
+      await discardUploadedObjects([savedOriginalPath]);
+      throw later;
     }
-    return {
-      displayPath: opts.preparedDisplayPath,
-      displayBytes: 0,
-      originalPath: savedOriginalPath,
-      originalBytes: file.size,
-      compressionMeta: null,
-      enhancementMeta: enhancement,
-    };
   }
 
   // Local-pipeline path: the caller preflighted an enhanced File and
@@ -189,27 +227,23 @@ export async function uploadArtworkImage(
 
     let savedOriginalPath: string | null = null;
     try {
-      const backupFile = await stripPrivacyExifForBackup(file);
-      const { error: originalErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(originalPath, backupFile, {
-          upsert: false,
-          contentType: file.type || "application/octet-stream",
-        });
-      if (!originalErr) savedOriginalPath = originalPath;
-      else console.warn("[storage] original backup upload failed (prepared display)", originalErr);
-    } catch (originalCatch) {
-      console.warn("[storage] original backup upload threw (prepared display)", originalCatch);
+      savedOriginalPath = await uploadOriginalBackup(
+        originalPath,
+        file,
+        "[storage] original backup upload failed (prepared display)",
+      );
+      return {
+        displayPath,
+        displayBytes: displayFile.size,
+        originalPath: savedOriginalPath,
+        originalBytes: file.size,
+        compressionMeta: null,
+        enhancementMeta: enhancement,
+      };
+    } catch (later) {
+      await discardUploadedObjects([displayPath, savedOriginalPath]);
+      throw later;
     }
-
-    return {
-      displayPath,
-      displayBytes: displayFile.size,
-      originalPath: savedOriginalPath,
-      originalBytes: file.size,
-      compressionMeta: null,
-      enhancementMeta: enhancement,
-    };
   }
 
   const compressed = await compressArtworkImage(file);
@@ -256,34 +290,27 @@ export async function uploadArtworkImage(
     });
   if (displayErr) throw displayErr;
 
-  // 원본 백업 — 실패해도 artwork 는 정상 노출되므로 log 만.
-  // (Caller 가 나중에 재시도 UI 를 붙일 수 있게 originalPath=null 반환.)
+  // 원본 백업이 실패해도 표시본은 남긴다. 표시본을 올린 뒤 그 다음
+  // 단계가 throw 하면 표시본과 원본 백업을 둘 다 지우고 에러를 올린다.
   let savedOriginalPath: string | null = null;
   try {
-    const backupFile = await stripPrivacyExifForBackup(file);
-    const { error: originalErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(originalPath, backupFile, {
-        upsert: false,
-        contentType: file.type || "application/octet-stream",
-      });
-    if (!originalErr) {
-      savedOriginalPath = originalPath;
-    } else {
-      console.warn("[storage] original backup upload failed", originalErr);
-    }
-  } catch (originalCatch) {
-    console.warn("[storage] original backup upload threw", originalCatch);
+    savedOriginalPath = await uploadOriginalBackup(
+      originalPath,
+      file,
+      "[storage] original backup upload failed",
+    );
+    return {
+      displayPath,
+      displayBytes: compressed.displayBytes,
+      originalPath: savedOriginalPath,
+      originalBytes: compressed.originalBytes,
+      compressionMeta: compressed.meta,
+      enhancementMeta: enhancement,
+    };
+  } catch (later) {
+    await discardUploadedObjects([displayPath, savedOriginalPath]);
+    throw later;
   }
-
-  return {
-    displayPath,
-    displayBytes: compressed.displayBytes,
-    originalPath: savedOriginalPath,
-    originalBytes: compressed.originalBytes,
-    compressionMeta: compressed.meta,
-    enhancementMeta: enhancement,
-  };
 }
 
 /**
