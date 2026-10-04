@@ -658,6 +658,163 @@ function testPlaceholderExhibitionOmitsShells() {
   }
 }
 
+function isWorkModule(mod: FeedModule): boolean {
+  return mod.type === "artwork_gallery" || mod.type === "related_artwork" || mod.type === "curators_view";
+}
+
+function isMixedPage(modules: FeedModule[]): boolean {
+  const nonArtwork = modules.some(
+    (mod) => mod.type === "artist_card" || mod.type === "exhibition_card" || mod.type === "related_network"
+  );
+  const works = modules.some(
+    (mod) => isWorkModule(mod) || (mod.type === "artist_card" && mod.works.length > 0)
+  );
+  return nonArtwork && works && modules.length > 0 && modules.length <= 6;
+}
+
+function thinCatalog(): WalkPools {
+  const people = [
+    person({ id: "A", name: "Ada" }),
+    person({ id: "B", name: "Bea" }),
+    person({ id: "C", name: "Cara" }),
+  ];
+  const works = [
+    work({ id: "W1", artistId: "A", title: "North Piece" }),
+    work({ id: "W2", artistId: "B", title: "South Piece" }),
+    work({ id: "W3", artistId: "C", title: "East Piece" }),
+    work({ id: "W4", artistId: "A", title: "West Piece" }),
+    work({ id: "W5", artistId: "B", title: "Later Piece" }),
+    work({ id: "W6", artistId: "C", title: "Last Piece" }),
+  ];
+  const exhibitions = [
+    exhibition({
+      id: "E1",
+      title: "North Hall",
+      curatorId: "A",
+      participantIds: [],
+      workIds: [],
+    }),
+    exhibition({
+      id: "E2",
+      title: "South Hall",
+      curatorId: "B",
+      participantIds: [],
+      workIds: [],
+    }),
+  ];
+  return { people, works, exhibitions, engagements: [], follows: [] };
+}
+
+function testNextPageStaysMixed() {
+  const { viewer: me, pools } = world();
+  const first = assembleWalk({ lane: "personalized", viewer: me, pools, cursor: null });
+  const second = assembleWalk({
+    lane: "personalized",
+    viewer: me,
+    pools,
+    cursor: decodeCursor(first.nextCursor),
+  });
+  assert.equal(isMixedPage(second.modules), true);
+  assert.equal(second.modules.every(isWorkModule), false);
+
+  const bare = viewer({
+    id: "V",
+    school: null,
+    city: null,
+    medium: null,
+    exhibitionIds: [],
+    followingIds: [],
+    savedArtworkIds: [],
+    inquiredArtworkIds: [],
+    likedArtworkIds: [],
+  });
+  const thin = thinCatalog();
+  const opened = assembleWalk({ lane: "personalized", viewer: bare, pools: thin, cursor: null });
+  assert.equal(opened.scenario, "public");
+  assert.equal(isMixedPage(opened.modules), true);
+  for (const mod of opened.modules) {
+    assert.equal(mod.reason.key.startsWith("feed.walk.public."), true, mod.reason.key);
+    assert.equal(mod.reason.params.school, undefined);
+  }
+  const continued = assembleWalk({
+    lane: "personalized",
+    viewer: bare,
+    pools: thin,
+    cursor: decodeCursor(opened.nextCursor),
+  });
+  assert.equal(isMixedPage(continued.modules), true);
+  assert.equal(continued.modules.every(isWorkModule), false);
+  const seen = new Set(idsOf(opened.modules).exhibitions);
+  assert.ok(seen.size > 0);
+  for (const id of idsOf(continued.modules).exhibitions) {
+    assert.equal(seen.has(id), false, id);
+  }
+  assertReal(opened.modules, thin);
+  assertReal(continued.modules, thin);
+}
+
+function testArtworkOnlyWhenNoExhibitionsLeft() {
+  const pools: WalkPools = {
+    people: [
+      person({ id: "A", name: "Ada" }),
+      person({ id: "B", name: "Bea" }),
+      person({ id: "C", name: "Cara" }),
+    ],
+    works: [
+      work({ id: "W1", artistId: "A" }),
+      work({ id: "W2", artistId: "B" }),
+      work({ id: "W3", artistId: "C" }),
+      work({ id: "W4", artistId: "A" }),
+      work({ id: "W5", artistId: "B" }),
+      work({ id: "W6", artistId: "C" }),
+    ],
+    exhibitions: [],
+    engagements: [],
+    follows: [],
+  };
+  const page = assembleWalk({ lane: "public", viewer: anonViewer(), pools, cursor: null });
+  assert.ok(page.modules.length > 0);
+  assert.equal(page.modules.every(isWorkModule), true);
+}
+
+function testNewPassWhenExhibitionsWereUsed() {
+  const people = [
+    person({ id: "A", name: "Ada" }),
+    person({ id: "B", name: "Bea" }),
+    person({ id: "C", name: "Cara" }),
+  ];
+  const works = [
+    work({ id: "W1", artistId: "A" }),
+    work({ id: "W2", artistId: "B" }),
+    work({ id: "W3", artistId: "C" }),
+    work({ id: "W4", artistId: "A" }),
+    work({ id: "W5", artistId: "B" }),
+    work({ id: "W6", artistId: "C" }),
+  ];
+  const exhibitions = [
+    exhibition({ id: "E1", title: "Old Hall", curatorId: "A", participantIds: ["A"], workIds: [] }),
+    exhibition({ id: "E2", title: "Mid Hall", curatorId: "B", participantIds: ["B"], workIds: [] }),
+    exhibition({ id: "E3", title: "New Hall", curatorId: "C", participantIds: ["C"], workIds: [] }),
+  ];
+  const pools: WalkPools = { people, works, exhibitions, engagements: [], follows: [] };
+  const cursor = decodeCursor(
+    encodeCursor({
+      v: 1,
+      si: 0,
+      off: 3,
+      used: ["e:E1", "e:E2", "e:E3", "p:A", "p:B", "p:C", "w:W1"],
+    })
+  );
+  const page = assembleWalk({ lane: "public", viewer: anonViewer(), pools, cursor });
+  assert.equal(isMixedPage(page.modules), true);
+  assert.equal(page.modules.every(isWorkModule), false);
+  const shown = idsOf(page.modules).exhibitions;
+  assert.ok(shown.includes("E1"));
+  assert.equal(shown.includes("E2"), false);
+  assert.equal(shown.includes("E3"), false);
+  assertReal(page.modules, pools);
+}
+
 testOrderAndCursor();
 testSkipWhenMissing();
 testEmptyWhenNothingReal();
@@ -666,5 +823,8 @@ testLoggedOutIsPublic();
 testFollowingGroupsRealFollows();
 testBadCursorRestarts();
 testPlaceholderExhibitionOmitsShells();
+testNextPageStaysMixed();
+testArtworkOnlyWhenNoExhibitionsLeft();
+testNewPassWhenExhibitionsWereUsed();
 
 console.log("feed-walk-assemble: ok");
