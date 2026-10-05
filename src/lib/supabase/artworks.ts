@@ -876,7 +876,7 @@ export async function listFollowingArtworks(
 }
 
 type MyArtworksOptions = {
-  limit?: number;
+  limit?: number | null;
   /**
    * `forProfileId` (acting-as): when an account-scope delegate operates
    * on behalf of a principal, set this to the principal's profile id so
@@ -889,7 +889,8 @@ type MyArtworksOptions = {
 export async function listMyArtworks(
   options: MyArtworksOptions & { publicOnly?: boolean } = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
-  const { limit = 50, publicOnly = false, forProfileId = null } = options;
+  const limit = options.limit === undefined ? 50 : options.limit;
+  const { publicOnly = false, forProfileId = null } = options;
 
   const {
     data: { session },
@@ -897,18 +898,32 @@ export async function listMyArtworks(
   if (!session?.user?.id) return { data: [], error: null };
 
   const artistId = forProfileId ?? session.user.id;
-  let query = supabase
-    .from("artworks")
-    .select(ARTWORK_SELECT)
-    .eq("artist_id", artistId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const build = () => {
+    let query = supabase
+      .from("artworks")
+      .select(ARTWORK_SELECT)
+      .eq("artist_id", artistId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    if (publicOnly) query = query.eq("visibility", "public");
+    return query;
+  };
 
-  if (publicOnly) {
-    query = query.eq("visibility", "public");
+  if (limit == null) {
+    const out: ArtworkWithLikes[] = [];
+    for (let from = 0; from < PROFILE_ARTWORK_MAX; from += PROFILE_ARTWORK_PAGE) {
+      const { data, error } = await build().range(from, from + PROFILE_ARTWORK_PAGE - 1);
+      if (error) return { data: [], error };
+      const page = data ?? [];
+      out.push(
+        ...page.map((r) => normalizeArtworkRow(r as Record<string, unknown>)) as ArtworkWithLikes[],
+      );
+      if (page.length < PROFILE_ARTWORK_PAGE) break;
+    }
+    return { data: out, error: null };
   }
 
-  const { data, error } = await query;
+  const { data, error } = await build().limit(limit);
 
   if (error) return { data: [], error };
   return {
@@ -1005,9 +1020,11 @@ export async function listMyArtworksForLibrary(
     if (scope.claimedChunk) {
       query = query.in("id", scope.claimedChunk).neq("artist_id", artistId);
     } else if (claimedIds.length > 0 && claimedIds.length <= CLAIM_ID_CHUNK) {
-      query = query.or(`artist_id.eq.${artistId},id.in.(${claimedIds.join(",")})`);
+      query = query.or(
+        `artist_id.eq.${artistId},created_by.eq.${artistId},id.in.(${claimedIds.join(",")})`,
+      );
     } else {
-      query = query.eq("artist_id", artistId);
+      query = query.or(`artist_id.eq.${artistId},created_by.eq.${artistId}`);
     }
 
     if (visibility === "public") query = query.eq("visibility", "public");
@@ -1099,6 +1116,14 @@ export async function countDraftArtworksForProfile(
     .eq("visibility", "draft");
   if (owned.error) return { data: 0, error: owned.error };
 
+  const uploaded = await supabase
+    .from("artworks")
+    .select("id", { count: "exact", head: true })
+    .eq("created_by", profileId)
+    .neq("artist_id", profileId)
+    .eq("visibility", "draft");
+  if (uploaded.error) return { data: 0, error: uploaded.error };
+
   const claimedIds = await listConfirmedClaimWorkIds(profileId);
   let extra = 0;
   for (let i = 0; i < claimedIds.length; i += CLAIM_ID_CHUNK) {
@@ -1107,37 +1132,83 @@ export async function countDraftArtworksForProfile(
       .select("id", { count: "exact", head: true })
       .in("id", claimedIds.slice(i, i + CLAIM_ID_CHUNK))
       .neq("artist_id", profileId)
+      .or(`created_by.is.null,created_by.neq.${profileId}`)
       .eq("visibility", "draft");
     if (res.error) break;
     extra += res.count ?? 0;
   }
-  return { data: (owned.count ?? 0) + extra, error: null };
+  return { data: (owned.count ?? 0) + (uploaded.count ?? 0) + extra, error: null };
 }
 
-type ByArtistOptions = { limit?: number };
+type ByArtistOptions = { limit?: number | null };
+
+const PROFILE_ARTWORK_PAGE = 100;
+const PROFILE_ARTWORK_MAX = 5000;
+
+function visiblePublicArtworks(rows: unknown[] | null): ArtworkWithLikes[] {
+  return (rows ?? [])
+    .map((r) => normalizeArtworkRow(r as Record<string, unknown>))
+    .filter(isPublicSurfaceVisible) as ArtworkWithLikes[];
+}
 
 export async function listPublicArtworksByArtistId(
   artistId: string,
   options: ByArtistOptions = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
-  const { limit = 50 } = options;
+  const limit = options.limit === undefined ? 50 : options.limit;
 
-  const { data, error } = await supabase
-    .from("artworks")
-    .select(ARTWORK_SELECT)
-    .eq("artist_id", artistId)
-    .eq("visibility", "public")
-    .order("artist_sort_order", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const build = () =>
+    supabase
+      .from("artworks")
+      .select(ARTWORK_SELECT)
+      .eq("artist_id", artistId)
+      .eq("visibility", "public")
+      .order("artist_sort_order", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+
+  if (limit == null) {
+    const out: ArtworkWithLikes[] = [];
+    for (let from = 0; from < PROFILE_ARTWORK_MAX; from += PROFILE_ARTWORK_PAGE) {
+      const { data, error } = await build().range(from, from + PROFILE_ARTWORK_PAGE - 1);
+      if (error) return { data: [], error };
+      const page = data ?? [];
+      out.push(...visiblePublicArtworks(page));
+      if (page.length < PROFILE_ARTWORK_PAGE) break;
+    }
+    return { data: out, error: null };
+  }
+
+  const { data, error } = await build().limit(limit);
 
   if (error) return { data: [], error };
   return {
-    data: (data ?? [])
-      .map((r) => normalizeArtworkRow(r as Record<string, unknown>))
-      .filter(isPublicSurfaceVisible) as ArtworkWithLikes[],
+    data: visiblePublicArtworks(data),
     error: null,
   };
+}
+
+async function listPublicListedWorkIds(profileId: string): Promise<string[]> {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (let from = 0; from < PROFILE_ARTWORK_MAX; from += 1000) {
+    const { data, error } = await supabase
+      .from("claims")
+      .select("work_id")
+      .eq("subject_profile_id", profileId)
+      .not("work_id", "is", null)
+      .eq("visibility", "public")
+      .range(from, from + 999);
+    if (error || !data) break;
+    for (const row of data as Array<{ work_id?: string | null }>) {
+      if (row.work_id && !seen.has(row.work_id)) {
+        seen.add(row.work_id);
+        ids.push(row.work_id);
+      }
+    }
+    if (data.length < 1000) break;
+  }
+  return ids;
 }
 
 /** Artworks listed by profile (collector/curator/gallerist: subject in claims). */
@@ -1145,17 +1216,27 @@ export async function listPublicArtworksListedByProfileId(
   profileId: string,
   options: ByArtistOptions = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
-  const { limit = 50 } = options;
-
-  const { data: claimRows } = await supabase
-    .from("claims")
-    .select("work_id")
-    .eq("subject_profile_id", profileId)
-    .not("work_id", "is", null)
-    .eq("visibility", "public");
-
-  const workIds = [...new Set((claimRows ?? []).map((r) => r.work_id).filter(Boolean))] as string[];
+  const limit = options.limit === undefined ? 50 : options.limit;
+  const workIds = await listPublicListedWorkIds(profileId);
   if (workIds.length === 0) return { data: [], error: null };
+
+  if (limit == null) {
+    const rows: ArtworkWithLikes[] = [];
+    for (let i = 0; i < workIds.length; i += CLAIM_ID_CHUNK) {
+      const { data, error } = await supabase
+        .from("artworks")
+        .select(ARTWORK_SELECT)
+        .in("id", workIds.slice(i, i + CLAIM_ID_CHUNK))
+        .eq("visibility", "public");
+      if (error) return { data: [], error };
+      rows.push(...visiblePublicArtworks(data));
+    }
+    rows.sort(
+      (a, b) =>
+        new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime(),
+    );
+    return { data: rows, error: null };
+  }
 
   const { data, error } = await supabase
     .from("artworks")
@@ -1167,9 +1248,7 @@ export async function listPublicArtworksListedByProfileId(
 
   if (error) return { data: [], error };
   return {
-    data: (data ?? [])
-      .map((r) => normalizeArtworkRow(r as Record<string, unknown>))
-      .filter(isPublicSurfaceVisible) as ArtworkWithLikes[],
+    data: visiblePublicArtworks(data),
     error: null,
   };
 }
@@ -1179,7 +1258,7 @@ export async function listPublicArtworksForProfile(
   profileId: string,
   options: ByArtistOptions = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
-  const { limit = 6 } = options;
+  const limit = options.limit ?? 6;
   const [asArtist, asLister] = await Promise.all([
     listPublicArtworksByArtistId(profileId, { limit }),
     listPublicArtworksListedByProfileId(profileId, { limit }),
@@ -2275,19 +2354,51 @@ export async function listMyDraftArtworks(
 
   const artistFilter = forProfileId && forProfileId !== session.user.id ? forProfileId : session.user.id;
 
-  const { data, error } = await supabase
-    .from("artworks")
-    .select(ARTWORK_SELECT)
-    .eq("artist_id", artistFilter)
-    .eq("visibility", "draft")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const mapRows = (rows: unknown[] | null) =>
+    (rows ?? []).map((r) => normalizeArtworkRow(r as Record<string, unknown>)) as ArtworkWithLikes[];
 
-  if (error) return { data: [], error };
-  return {
-    data: (data ?? []).map((r) => normalizeArtworkRow(r as Record<string, unknown>)) as ArtworkWithLikes[],
-    error: null,
-  };
+  const [owned, uploaded, claimedIds] = await Promise.all([
+    supabase
+      .from("artworks")
+      .select(ARTWORK_SELECT)
+      .eq("artist_id", artistFilter)
+      .eq("visibility", "draft")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit),
+    supabase
+      .from("artworks")
+      .select(ARTWORK_SELECT)
+      .eq("created_by", artistFilter)
+      .neq("artist_id", artistFilter)
+      .eq("visibility", "draft")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit),
+    listConfirmedClaimWorkIds(artistFilter),
+  ]);
+
+  if (owned.error) return { data: [], error: owned.error };
+  if (uploaded.error) return { data: [], error: uploaded.error };
+
+  const claimedDrafts: ArtworkWithLikes[] = [];
+  for (let i = 0; i < claimedIds.length; i += CLAIM_ID_CHUNK) {
+    const res = await supabase
+      .from("artworks")
+      .select(ARTWORK_SELECT)
+      .in("id", claimedIds.slice(i, i + CLAIM_ID_CHUNK))
+      .neq("artist_id", artistFilter)
+      .eq("visibility", "draft")
+      .limit(CLAIM_ID_CHUNK);
+    if (res.error) return { data: [], error: res.error };
+    claimedDrafts.push(...mapRows(res.data));
+  }
+
+  const merged = mergeLibraryRows(
+    [...mapRows(owned.data), ...mapRows(uploaded.data), ...claimedDrafts],
+    "created_at",
+  );
+  return { data: merged.slice(0, limit), error: null };
 }
 
 export function validatePublish(
@@ -2330,7 +2441,7 @@ export async function publishArtworks(
   const { error } = await supabase
     .from("artworks")
     .update({ visibility: "public" })
-    .eq("artist_id", artistFilter)
+    .or(`artist_id.eq.${artistFilter},created_by.eq.${artistFilter}`)
     .in("id", ids)
     .eq("visibility", "draft");
 

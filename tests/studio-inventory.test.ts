@@ -61,6 +61,28 @@ assert.equal(
   false,
 );
 
+assert.equal(
+  workBelongsInProfileLibrary({
+    profileId: gallery,
+    artistId: artist,
+    createdBy: gallery,
+    claims: [],
+  }),
+  true,
+  "the uploader keeps the work in their library after artist_id moves",
+);
+
+assert.equal(
+  workBelongsInProfileLibrary({
+    profileId: "stranger",
+    artistId: artist,
+    createdBy: gallery,
+    claims: [],
+  }),
+  false,
+  "someone who neither owns, uploaded, nor claims the work is outside the library",
+);
+
 const page = libraryPageCursor(
   [
     { id: "a", created_at: "2026-01-03" },

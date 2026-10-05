@@ -1,8 +1,9 @@
 /**
  * Library membership and page cursor rules shared by the library query
  * and its tests. A work stays in the profile library when that profile
- * is still the artist, or when it holds a confirmed claim on the work
- * after the artist id moved to an onboarded artist.
+ * is the artist, when that profile uploaded it (`created_by`), or when
+ * it holds a confirmed gallery/curator claim after the artist id moved
+ * to an onboarded artist. Uploading does not make the uploader the artist.
  */
 
 export type LibraryClaim = {
@@ -17,9 +18,11 @@ export function isConfirmedLibraryClaim(status: string | null | undefined): bool
 export function workBelongsInProfileLibrary(args: {
   profileId: string;
   artistId: string | null;
+  createdBy?: string | null;
   claims: LibraryClaim[];
 }): boolean {
   if (args.artistId != null && args.artistId === args.profileId) return true;
+  if (args.createdBy != null && args.createdBy === args.profileId) return true;
   return args.claims.some(
     (claim) =>
       claim.subjectProfileId === args.profileId &&

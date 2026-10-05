@@ -112,8 +112,8 @@ export function PrivateProfileShell({
           { data: artworksAsLister },
           { data: exhibitionsRaw },
         ] = await Promise.all([
-          listPublicArtworksByArtistId(me.id, { limit: 50 }),
-          listPublicArtworksListedByProfileId(me.id, { limit: 50 }),
+          listPublicArtworksByArtistId(me.id, { limit: null }),
+          listPublicArtworksListedByProfileId(me.id, { limit: null }),
           listExhibitionsForProfile(me.id),
         ]);
         if (cancelled) return;

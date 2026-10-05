@@ -601,7 +601,7 @@ export default function AddWorkToExhibitionPage() {
 
     if (participants.length > 0) {
       const results = await Promise.all(
-        participants.map((p) => listPublicArtworksByArtistId(p.id, { limit: 100 }))
+        participants.map((p) => listPublicArtworksByArtistId(p.id, { limit: null }))
       );
       const byId = new Map<string, ArtworkWithLikes>();
       for (const res of results) {
@@ -631,12 +631,12 @@ export default function AddWorkToExhibitionPage() {
       // not-yet-published drafts must be published first — otherwise abandoned
       // drafts leak into the exhibition add picker (QA 2026-07-01).
       listMyArtworks({
-        limit: 100,
+        limit: null,
         publicOnly: true,
         forProfileId: actingAsProfileId ?? null,
       }),
       profileId
-        ? listPublicArtworksListedByProfileId(profileId, { limit: 100 })
+        ? listPublicArtworksListedByProfileId(profileId, { limit: null })
         : { data: [] as ArtworkWithLikes[], error: null },
     ]);
     const myList = myRes.data ?? [];

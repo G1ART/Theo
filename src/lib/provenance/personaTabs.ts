@@ -1,11 +1,36 @@
 /**
  * Persona tab filtering for profile/My artworks.
- * CREATED = works where the profile has an explicit CREATED claim (artist persona).
+ * CREATED (내 작품) = works this profile owns as the artist (`artist_id`),
+ * even when a gallery or delegated account uploaded them.
+ * A CREATED claim counts only when the work has no different owner.
  * OWNS/INVENTORY/CURATED = works where the profile has that claim type (lister).
  */
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
 
 export type PersonaTab = "all" | "exhibitions" | "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
+
+type ArtistWorkRef = {
+  artist_id?: string | null;
+  claims?: Array<{
+    claim_type?: string | null;
+    subject_profile_id?: string | null;
+    artist_profile_id?: string | null;
+  }> | null;
+};
+
+/**
+ * 내 작품. The owner is the artist on the work, not the account that
+ * uploaded it. Uploader and curator claims stay on the wider list.
+ */
+export function isOwnArtistWork(artwork: ArtistWorkRef, profileId: string): boolean {
+  if (artwork.artist_id != null && artwork.artist_id === profileId) return true;
+  if (artwork.artist_id != null) return false;
+  return (artwork.claims ?? []).some(
+    (claim) =>
+      claim.claim_type === "CREATED" &&
+      (claim.subject_profile_id === profileId || claim.artist_profile_id === profileId),
+  );
+}
 
 export function filterArtworksByPersona(
   artworks: ArtworkWithLikes[],
@@ -13,6 +38,7 @@ export function filterArtworksByPersona(
   tab: PersonaTab
 ): ArtworkWithLikes[] {
   if (tab === "all" || tab === "exhibitions") return artworks;
+  if (tab === "CREATED") return artworks.filter((a) => isOwnArtistWork(a, profileId));
   return artworks.filter((a) => {
     const claims = a.claims ?? [];
     return claims.some(
@@ -23,11 +49,7 @@ export function filterArtworksByPersona(
 
 export function getPersonaCounts(artworks: ArtworkWithLikes[], profileId: string) {
   const all = artworks.length;
-  const created = artworks.filter((a) =>
-    (a.claims ?? []).some(
-      (c) => c.subject_profile_id === profileId && c.claim_type === "CREATED"
-    )
-  ).length;
+  const created = artworks.filter((a) => isOwnArtistWork(a, profileId)).length;
   const owns = artworks.filter((a) =>
     (a.claims ?? []).some(
       (c) => c.subject_profile_id === profileId && c.claim_type === "OWNS"
@@ -70,10 +92,13 @@ export function getArtworksByAllBuckets(
   const exhibited: ArtworkWithLikes[] = [];
   const owns: ArtworkWithLikes[] = [];
   for (const a of artworks) {
+    if (isOwnArtistWork(a, profileId)) {
+      created.push(a);
+      continue;
+    }
     const claims = a.claims ?? [];
     const types = new Set(claims.filter((c) => c.subject_profile_id === profileId).map((c) => c.claim_type));
-    if (types.has("CREATED")) created.push(a);
-    else if (types.has("CURATED")) curated.push(a);
+    if (types.has("CURATED")) curated.push(a);
     else if (types.has("INVENTORY") || types.has("EXHIBITED")) exhibited.push(a);
     else if (types.has("OWNS")) owns.push(a);
   }

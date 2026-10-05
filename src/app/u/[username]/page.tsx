@@ -71,8 +71,8 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     { data: artworksAsLister },
     { data: exhibitions },
   ] = await Promise.all([
-    listPublicArtworksByArtistId(p.id, { limit: 50 }),
-    listPublicArtworksListedByProfileId(p.id, { limit: 50 }),
+    listPublicArtworksByArtistId(p.id, { limit: null }),
+    listPublicArtworksListedByProfileId(p.id, { limit: null }),
     listExhibitionsForProfile(p.id),
   ]);
 
