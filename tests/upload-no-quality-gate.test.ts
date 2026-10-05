@@ -33,8 +33,12 @@ assert.match(editor, /setBoundaryMode\("quad"\)/);
 assert.match(editor, /silhouetteFileRef\.current = null/);
 assert.equal(bulk.includes("detectArtworkQuad"), false, "bulk ingest does not batch-enhance");
 assert.equal(bulk.includes("requestObjectEnhancement"), false);
-assert.match(single, /key=\{`\$\{img\.id\}-\$\{img\.file\.name\}/);
+assert.match(single, /BulkEnhanceDialog/);
+assert.match(single, /localFile=\{target\.file\}/);
+assert.equal(single.includes("<ImageStandardizeEditor"), false, "single upload enhance is the dialog, not an inline editor");
+assert.equal(single.includes("upload.imageEnhance.flow.chooseTitle"), false);
 assert.match(dialog, /file\.name\}-\$\{file\.size\}-\$\{file\.lastModified\}/);
+assert.match(dialog, /inEnhanceDialog/);
 
 const detect = editor.slice(
   editor.indexOf("Every file starts on rectangle corners"),

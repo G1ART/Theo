@@ -28,10 +28,8 @@ import { formatSupabaseError } from "@/lib/errors/supabase";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
-import {
-  ImageStandardizeEditor,
-  type EnhancementDraft,
-} from "@/components/upload/ImageStandardizeEditor";
+import { type EnhancementDraft } from "@/components/upload/ImageStandardizeEditor";
+import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import { uploadGapLabelKey, uploadGaps } from "@/lib/upload/readiness";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
@@ -93,6 +91,12 @@ type ArtistOption = {
   display_name_ko?: string | null;
   display_name_en?: string | null;
 };
+
+function dimToCm(raw: string, unit: SizeUnit): number | null {
+  const n = Number.parseFloat(raw.replace(",", "."));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return unit === "in" ? Math.round(n * 2.54 * 10) / 10 : n;
+}
 
 function UploadPageContent() {
   const router = useRouter();
@@ -253,6 +257,7 @@ function UploadPageContent() {
   const [dimW, setDimW] = useState("");
   const [dimD, setDimD] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [enhanceTargetId, setEnhanceTargetId] = useState<string | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
   const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
 
@@ -1255,11 +1260,7 @@ function UploadPageContent() {
                       <button
                         type="button"
                         onClick={() =>
-                          setImages((prev) =>
-                            prev.map((p) =>
-                              p.id === coverImage.id ? { ...p, standardizeOpen: !p.standardizeOpen } : p,
-                            ),
-                          )
+                          setEnhanceTargetId((cur) => (cur === coverImage.id ? null : coverImage.id))
                         }
                         className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] text-zinc-800 shadow-sm"
                       >
@@ -1683,11 +1684,7 @@ function UploadPageContent() {
                               <button
                                 type="button"
                                 onClick={() =>
-                                  setImages((prev) =>
-                                    prev.map((p) =>
-                                      p.id === img.id ? { ...p, standardizeOpen: !p.standardizeOpen } : p,
-                                    ),
-                                  )
+                                  setEnhanceTargetId((cur) => (cur === img.id ? null : img.id))
                                 }
                                 className="block h-16 w-16 overflow-hidden border border-zinc-200 bg-zinc-200"
                               >
@@ -1731,34 +1728,38 @@ function UploadPageContent() {
               )}
             </article>
 
-            {images.some((img) => img.standardizeOpen) && (
-              <div className="space-y-3">
-                {images.filter((img) => img.standardizeOpen).map((img) => (
-                  <ImageStandardizeEditor
-                    key={`${img.id}-${img.file.name}-${img.file.size}-${img.file.lastModified}`}
-                    file={img.file}
-                    value={img.displayAdjust}
-                    onChange={(next) => {
-                      setImages((prev) => prev.map((p) => (p.id === img.id ? { ...p, displayAdjust: next } : p)));
-                    }}
-                    enhancement={img.enhancement}
-                    onEnhance={(next) => {
-                      setImages((prev) =>
-                        prev.map((p) => {
-                          if (p.id !== img.id) return p;
-                          if (p.enhancement?.previewUrl && p.enhancement.previewUrl !== next?.previewUrl) {
-                            try { URL.revokeObjectURL(p.enhancement.previewUrl); } catch { /* gone */ }
-                          }
-                          return { ...p, enhancement: next };
-                        }),
-                      );
-                    }}
-                    meteringSource={fromExhibition ? "exhibition_single" : "single"}
-                    artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
-                  />
-                ))}
-              </div>
-            )}
+            {(() => {
+              const target = images.find((img) => img.id === enhanceTargetId);
+              if (!target) return null;
+              const widthCm = sizeNa ? null : dimToCm(dimW, sizeUnit);
+              const heightCm = sizeNa ? null : dimToCm(dimH, sizeUnit);
+              return (
+                <BulkEnhanceDialog
+                  key={`${target.id}-${target.file.name}-${target.file.size}-${target.file.lastModified}`}
+                  artworkId=""
+                  artistProfileId={selectedArtist?.id ?? actingAsProfileId ?? null}
+                  images={[]}
+                  storageOwnerId={null}
+                  localFile={target.file}
+                  meteringSource={fromExhibition ? "exhibition_single" : "single"}
+                  artworkWidthCm={widthCm}
+                  artworkHeightCm={heightCm}
+                  onCommit={(draft) => {
+                    setImages((prev) =>
+                      prev.map((p) => {
+                        if (p.id !== target.id) return p;
+                        if (p.enhancement?.previewUrl && p.enhancement.previewUrl !== draft.previewUrl) {
+                          try { URL.revokeObjectURL(p.enhancement.previewUrl); } catch { /* gone */ }
+                        }
+                        return { ...p, enhancement: draft };
+                      }),
+                    );
+                  }}
+                  onClose={() => setEnhanceTargetId(null)}
+                  onSaved={() => setEnhanceTargetId(null)}
+                />
+              );
+            })()}
 
             <div className="rounded-md border border-zinc-200">
               <button

@@ -40,6 +40,9 @@ export function BulkEnhanceDialog({
   onSaved,
   artworkWidthCm = null,
   artworkHeightCm = null,
+  localFile = null,
+  onCommit,
+  meteringSource = "bulk",
 }: {
   artworkId: string;
   artistProfileId: string | null;
@@ -61,12 +64,20 @@ export function BulkEnhanceDialog({
    */
   artworkWidthCm?: number | null;
   artworkHeightCm?: number | null;
+  /**
+   * Single upload has not stored the photo yet. When set, the dialog
+   * edits this file in memory and `onCommit` receives the draft on
+   * save. Storage is not replaced.
+   */
+  localFile?: File | null;
+  onCommit?: (draft: EnhancementDraft) => void;
+  meteringSource?: "single" | "bulk" | "exhibition_single" | "exhibition_bulk";
 }) {
   const { t } = useT();
   const titleId = useId();
   const [mounted, setMounted] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(localFile);
   /**
    * True while `file` holds only the small WebP display copy — the
    * original hi-res download is still in flight. See Todo 1 "open-fast"
@@ -150,6 +161,14 @@ export function BulkEnhanceDialog({
    *     the user is actually looking at.
    */
   useEffect(() => {
+    if (localFile) {
+      setFile(localFile);
+      setDisplayOnly(false);
+      setLoadError(false);
+      setEnhancement(null);
+      setReplaced(false);
+      return;
+    }
     if (!image) return;
     let cancelled = false;
     let originalApplied = false;
@@ -242,9 +261,29 @@ export function BulkEnhanceDialog({
     // We intentionally re-run when the selected slot's storage paths
     // change, including when `selectedIndex` moves between slots.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [image?.storage_path, image?.original_storage_path]);
+  }, [localFile, image?.storage_path, image?.original_storage_path]);
 
   async function save() {
+    if (onCommit) {
+      if (!enhancement || saving) return;
+      setSaving(true);
+      setSaveError(false);
+      onCommit(enhancement);
+      const { data: { session } } = await getSession();
+      void recordUsageEvent({
+        userId: session?.user?.id ?? undefined,
+        key: USAGE_KEYS.AI_IMAGE_ENHANCE_COMPLETED,
+        featureKey: "ai.image_enhance",
+        metadata: {
+          mode: enhancement.meta.mode,
+          provider: enhancement.meta.provider,
+          source: meteringSource,
+          latency_ms: enhancement.meta.latencyMs,
+        },
+      });
+      onSaved();
+      return;
+    }
     const displayFile = enhancement?.displayFile ?? (replaced ? file : null);
     if (!displayFile || saving || !image) return;
     setSaving(true);
@@ -359,14 +398,14 @@ export function BulkEnhanceDialog({
           {file && (
             <div className="min-h-0 flex-1">
               <ImageStandardizeEditor
-                key={`${image?.id ?? image?.storage_path ?? "slot"}-${file.name}-${file.size}-${file.lastModified}`}
+                key={`${image?.id ?? image?.storage_path ?? localFile?.name ?? "slot"}-${file.name}-${file.size}-${file.lastModified}`}
                 file={file}
                 value={null}
                 onChange={() => {}}
                 compact
                 inEnhanceDialog
                 onEnhance={setEnhancement}
-                meteringSource="bulk"
+                meteringSource={meteringSource}
                 artistProfileId={artistProfileId}
                 sharedPreset={preset}
                 onSharedPreset={(next) => {
