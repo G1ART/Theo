@@ -20,6 +20,7 @@ import { formatSupabaseError } from "@/lib/errors/supabase";
 import { permissionLabel } from "@/lib/delegation/permissionLabel";
 import { UpdatePermissionsModal } from "./UpdatePermissionsModal";
 import { RequestPermissionChangeModal } from "./RequestPermissionChangeModal";
+import { sendDelegationInviteEmail } from "@/lib/delegation/sendDelegationInviteEmail";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 
@@ -89,7 +90,7 @@ export function DelegationDetailDrawer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<
-    null | "cancel" | "revoke" | "resign" | "dismiss"
+    null | "cancel" | "revoke" | "resign" | "dismiss" | "resend"
   >(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
@@ -143,6 +144,23 @@ export function DelegationDetailDrawer({
   useEffect(() => {
     if (!delegationId) deepLinkConsumedRef.current = null;
   }, [delegationId]);
+
+  const handleResendInvite = useCallback(async () => {
+    if (!detail) return;
+    setBusy("resend");
+    setError(null);
+    const mail = await sendDelegationInviteEmail(detail.delegation.id, true);
+    setBusy(null);
+    if (mail.emailed) {
+      setToast(t("delegation.detail.resendDone"));
+      return;
+    }
+    setError(
+      mail.error === "email_unconfigured"
+        ? t("delegation.emailUnconfigured")
+        : t("delegation.error.email_send_failed"),
+    );
+  }, [detail, t]);
 
   const handleCancelInvite = useCallback(async () => {
     if (!detail) return;
@@ -320,6 +338,7 @@ export function DelegationDetailDrawer({
             toast={toast}
             pendingChangeRequest={pendingChangeRequest}
             onCancelInvite={handleCancelInvite}
+            onResendInvite={handleResendInvite}
             onRevoke={handleRevoke}
             onResign={handleResign}
             onUpdate={() => setUpdateOpen(true)}
@@ -404,6 +423,7 @@ function DetailFooter({
   toast,
   pendingChangeRequest,
   onCancelInvite,
+  onResendInvite,
   onRevoke,
   onResign,
   onUpdate,
@@ -413,12 +433,13 @@ function DetailFooter({
   t: (k: string) => string;
   detail: DelegationDetail;
   viewerIsOwner: boolean;
-  busy: null | "cancel" | "revoke" | "resign" | "dismiss";
+  busy: null | "cancel" | "revoke" | "resign" | "dismiss" | "resend";
   toast: string | null;
   pendingChangeRequest:
     | { message: string | null; proposed: string[]; createdAt: string }
     | null;
   onCancelInvite: () => void;
+  onResendInvite: () => void;
   onRevoke: () => void;
   onResign: () => void;
   onUpdate: () => void;
@@ -435,6 +456,16 @@ function DetailFooter({
             {toast}
           </p>
         )}
+        <button
+          type="button"
+          onClick={onResendInvite}
+          disabled={busy === "resend"}
+          className="mb-2 w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+        >
+          {busy === "resend"
+            ? t("delegation.detail.resendSending")
+            : t("delegation.detail.resendEmail")}
+        </button>
         <button
           type="button"
           onClick={onCancelInvite}

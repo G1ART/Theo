@@ -26,7 +26,7 @@ function PeopleInviteForm() {
   const [artistName, setArtistName] = useState(nameFromQuery.trim());
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
-  const [toast, setToast] = useState<"success" | "error" | null>(null);
+  const [toast, setToast] = useState<"success" | "already" | "error" | "unconfigured" | null>(null);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -39,16 +39,23 @@ function PeopleInviteForm() {
         toEmail: trimmedEmail,
         artistName: artistName.trim() || null,
         exhibitionTitle: null,
+        resend: toast === "already",
       });
       setSending(false);
-      if (result.ok) {
+      if (result.emailed) {
         setToast("success");
         setEmail("");
+      } else if (result.alreadySent) {
+        setToast("already");
+      } else if (result.skipped) {
+        setToast(null);
+      } else if (result.error === "email_unconfigured") {
+        setToast("unconfigured");
       } else {
         setToast("error");
       }
     },
-    [artistName, email]
+    [artistName, email, toast]
   );
 
   return (
@@ -101,7 +108,11 @@ function PeopleInviteForm() {
             >
               {toast === "success"
                 ? t("people.invitePage.success")
-                : t("people.invitePage.failed")}
+                : toast === "already"
+                  ? t("people.invitePage.alreadySent")
+                  : toast === "unconfigured"
+                    ? t("people.invitePage.unconfigured")
+                    : t("people.invitePage.failed")}
             </p>
           )}
           <div className="flex flex-wrap gap-3 pt-2">
@@ -110,7 +121,11 @@ function PeopleInviteForm() {
               disabled={sending || !email.trim()}
               className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
             >
-              {sending ? t("common.loading") : t("people.invitePage.send")}
+              {sending
+                ? t("common.loading")
+                : toast === "already"
+                  ? t("people.invitePage.resend")
+                  : t("people.invitePage.send")}
             </button>
             <Link
               href="/people"

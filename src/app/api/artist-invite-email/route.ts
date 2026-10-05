@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import { isIrDemo } from "@/lib/irDemo/config";
 import { appOrigin } from "@/lib/appOrigin";
 import { escapeHtml, renderTheoEmail, theoEmailButton } from "@/lib/email/theoEmail";
+import { sendTheoHtmlEmail } from "@/lib/email/sendgrid";
+import { shouldSendOnboardingEmail, type OnboardingEmailState } from "@/lib/invites/deliveryPolicy";
+import { getServiceClient } from "@/lib/supabase/serviceClient";
+import { requireUserFromRequest } from "@/lib/websiteImport/supabaseServer";
 
 type InvitePayload = {
-  toEmail: string;
+  toEmail?: string;
   artistName?: string | null;
   inviterName?: string | null;
   inviterRole?: "gallery" | "curator" | "both" | "other" | null;
   exhibitionTitle?: string | null;
+  externalArtistId?: string | null;
+  resend?: boolean;
 };
 
 function buildRoleLabel(role: InvitePayload["inviterRole"]) {
@@ -57,7 +63,7 @@ function buildEmailHtml(payload: InvitePayload) {
   const inviterIntroKo = `${inviterRoleKo} ${inviter} 님이 Theo에서 ${artist} 님의 작품을 전시 프로그램에 포함하며, 함께 플랫폼에 참여해 주시기를 정중히 초청드립니다.`;
 
   const onboardingUrl = `${appOrigin()}/onboarding?email=${encodeURIComponent(
-    payload.toEmail.trim(),
+    (payload.toEmail ?? "").trim(),
   )}`;
 
   return renderTheoEmail({
@@ -94,88 +100,122 @@ function buildEmailHtml(payload: InvitePayload) {
   });
 }
 
-function parseFromHeader(raw: string) {
-  // 지원: "Name <email@domain>" 또는 그냥 "email@domain"
-  const trimmed = raw.trim();
-  const match = trimmed.match(/^(.*)<(.+@.+)>$/);
-  if (match) {
-    const name = match[1].trim().replace(/^"|"$/g, "") || undefined;
-    const email = match[2].trim();
-    return { email, name };
+const ONBOARDING_STATES = new Set<OnboardingEmailState>(["none", "unsent", "sent", "claimed"]);
+
+function asOnboardingState(value: unknown): OnboardingEmailState {
+  const text = typeof value === "string" ? value : "";
+  return ONBOARDING_STATES.has(text as OnboardingEmailState) ? (text as OnboardingEmailState) : "none";
+}
+
+async function markOnboardingSent(toEmail: string, messageId: string | null) {
+  const admin = getServiceClient();
+  if (!admin) {
+    console.error("record_external_artist_invite_email: service role missing");
+    return;
   }
-  return { email: trimmed, name: undefined as string | undefined };
+  const { error } = await admin.rpc("record_external_artist_invite_email", {
+    p_email: toEmail,
+    p_message_id: messageId,
+  });
+  if (error) console.error("record_external_artist_invite_email", error.message);
 }
 
 export async function POST(req: Request) {
   try {
     if (isIrDemo()) {
-      return NextResponse.json({ ok: true, skipped: "ir_demo" });
-    }
-    const body = (await req.json()) as InvitePayload;
-
-    if (!body.toEmail || typeof body.toEmail !== "string") {
-      return NextResponse.json({ error: "toEmail is required" }, { status: 400 });
+      return NextResponse.json({ ok: true, emailed: false, skipped: "ir_demo" });
     }
 
-    const apiKey = process.env.SENDGRID_API_KEY;
-    const fromRaw = process.env.INVITE_FROM_EMAIL;
+    const auth = await requireUserFromRequest(req);
+    if (!auth.ok) return auth.response;
 
-    if (!apiKey || !fromRaw) {
-      console.error("Missing SENDGRID_API_KEY or INVITE_FROM_EMAIL");
-      return NextResponse.json({ error: "Email configuration missing" }, { status: 500 });
+    const body = (await req.json().catch(() => null)) as InvitePayload | null;
+    if (!body) {
+      return NextResponse.json({ ok: false, emailed: false, error: "invalid" }, { status: 400 });
+    }
+    const explicitResend = body.resend === true;
+    const externalArtistId = body.externalArtistId?.trim() || "";
+
+    let toEmail = "";
+    let artistName = body.artistName ?? null;
+    let state: OnboardingEmailState = "none";
+
+    if (externalArtistId) {
+      const { data, error } = await auth.supabase.rpc("prepare_external_artist_invite_email", {
+        p_external_artist_id: externalArtistId,
+        p_resend: explicitResend,
+      });
+      if (error) {
+        console.error("prepare_external_artist_invite_email", error.message);
+        return NextResponse.json({ ok: false, emailed: false, error: "send_failed" }, { status: 502 });
+      }
+      const prepared = (data ?? {}) as {
+        ok?: boolean;
+        code?: string;
+        dispatch?: boolean;
+        already_sent?: boolean;
+        to_email?: string;
+        artist_name?: string | null;
+      };
+      if (!prepared.ok) {
+        const code = prepared.code === "missing_email"
+          || prepared.code === "permission_denied"
+          || prepared.code === "not_found"
+          || prepared.code === "already_onboarded"
+          ? prepared.code
+          : "not_found";
+        const status = code === "permission_denied" ? 403 : code === "missing_email" ? 422 : 404;
+        if (code === "already_onboarded") {
+          return NextResponse.json({ ok: true, emailed: false, alreadySent: true });
+        }
+        return NextResponse.json({ ok: false, emailed: false, error: code }, { status });
+      }
+      if (!prepared.dispatch || prepared.already_sent) {
+        return NextResponse.json({ ok: true, emailed: false, alreadySent: true });
+      }
+      toEmail = prepared.to_email?.trim() ?? "";
+      artistName = artistName ?? prepared.artist_name ?? null;
+    } else {
+      toEmail = body.toEmail?.trim() ?? "";
+      if (!toEmail) {
+        return NextResponse.json({ ok: false, emailed: false, error: "toEmail is required" }, { status: 400 });
+      }
+      const { data: stateRaw } = await auth.supabase.rpc("external_artist_invite_email_state", {
+        p_email: toEmail,
+      });
+      state = asOnboardingState(stateRaw);
+      if (!shouldSendOnboardingEmail({ state, explicitResend })) {
+        return NextResponse.json({ ok: true, emailed: false, alreadySent: true });
+      }
+    }
+
+    if (!toEmail) {
+      return NextResponse.json({ ok: false, emailed: false, error: "missing_email" }, { status: 422 });
     }
 
     const inviter = body.inviterName?.trim() || "a gallery / curator";
-
-    const subjectEn = `Invitation from ${inviter} on Theo`;
-    const subjectKo = `Theo에서 ${inviter}님이 초대합니다`;
-
-    const html = buildEmailHtml(body);
-    const from = parseFromHeader(fromRaw);
-
-    const resp = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        personalizations: [
-          {
-            to: [{ email: body.toEmail }],
-            subject: `${subjectEn} / ${subjectKo}`,
-          },
-        ],
-        from: from.name ? { email: from.email, name: from.name } : { email: from.email },
-        content: [{ type: "text/html", value: html }],
-      }),
+    const subject = `Invitation from ${inviter} on Theo / Theo에서 ${inviter}님이 초대합니다`;
+    const html = buildEmailHtml({
+      toEmail,
+      artistName,
+      inviterName: body.inviterName,
+      inviterRole: body.inviterRole,
+      exhibitionTitle: body.exhibitionTitle,
     });
 
-    if (!resp.ok) {
-    const text = await resp.text();
-    console.error("SendGrid error", resp.status, text);
-    return NextResponse.json(
-      {
-        error: "Failed to send invite email",
-        sendgridStatus: resp.status,
-        sendgridBody: text,
-      },
-      { status: 500 }
-    );
+    const sent = await sendTheoHtmlEmail({ toEmail, subject, html });
+    if (!sent.ok && sent.unconfigured) {
+      return NextResponse.json({ ok: false, emailed: false, error: "email_unconfigured" }, { status: 503 });
+    }
+    if (!sent.ok) {
+      return NextResponse.json({ ok: false, emailed: false, error: "send_failed" }, { status: 502 });
     }
 
-    return NextResponse.json({ ok: true });
+    await markOnboardingSent(toEmail, sent.messageId);
+    return NextResponse.json({ ok: true, emailed: true, alreadySent: false });
   } catch (err) {
     console.error("artist-invite-email error", err);
-    const anyErr = err as any;
-    return NextResponse.json(
-      {
-        error: "Unexpected error",
-        message: anyErr?.message ? String(anyErr.message) : String(anyErr),
-        stack: anyErr?.stack ?? null,
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, emailed: false, error: "unexpected" }, { status: 500 });
   }
 }
 

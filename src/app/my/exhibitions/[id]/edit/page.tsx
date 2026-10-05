@@ -29,6 +29,7 @@ import { CreateDelegationWizard } from "@/components/delegation/CreateDelegation
 import { ExhibitionDraftBanner } from "@/components/exhibitions/ExhibitionDraftBanner";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { createExternalArtist } from "@/lib/provenance/rpc";
+import { sendArtistInviteEmailWithResult } from "@/lib/email/artistInvite";
 import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
 
 const STATUS_OPTIONS = [
@@ -111,7 +112,7 @@ export default function EditExhibitionPage() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [shareWizardOpen, setShareWizardOpen] = useState(false);
-  const [shareToast, setShareToast] = useState<"sent" | null>(null);
+  const [shareToast, setShareToast] = useState<"sent" | "not_emailed" | null>(null);
   const [exhibitionWorks, setExhibitionWorks] = useState<
     Array<{ id: string; title?: string | null; year?: string | number | null; medium?: string | null }>
   >([]);
@@ -344,12 +345,25 @@ export default function EditExhibitionPage() {
       },
       { actingSubjectProfileId: actingAsProfileId ?? null }
     );
-    setSubmitting(false);
     if (err) {
+      setSubmitting(false);
       logSupabaseError("updateExhibition", err);
       setError(formatSupabaseError(err, t, "common.errorUpdate"));
       return;
     }
+    if (inviteExternalCurator && externalCuratorId && externalCuratorEmail.trim()) {
+      const invite = await sendArtistInviteEmailWithResult({
+        externalArtistId: externalCuratorId,
+        artistName: externalCuratorName.trim(),
+        toEmail: externalCuratorEmail.trim(),
+      });
+      if (!invite.emailed && !invite.alreadySent && !invite.skipped) {
+        setSubmitting(false);
+        setError(t("exhibition.inviteEmailFailed"));
+        return;
+      }
+    }
+    setSubmitting(false);
     router.push(`/my/exhibitions/${id}`);
   }
 
@@ -793,6 +807,11 @@ export default function EditExhibitionPage() {
                   {t("delegation.inviteSentToUser")}
                 </p>
               )}
+              {shareToast === "not_emailed" && (
+                <p className="mt-3 text-xs text-amber-800" role="status">
+                  {t("delegation.inviteSavedNotEmailed")}
+                </p>
+              )}
             </div>
 
             <div className="mt-8 rounded-lg border border-red-200 bg-red-50 p-4">
@@ -843,9 +862,9 @@ export default function EditExhibitionPage() {
         <CreateDelegationWizard
           open={shareWizardOpen}
           onClose={() => setShareWizardOpen(false)}
-          onCreated={() => {
+          onCreated={(result) => {
             setShareWizardOpen(false);
-            setShareToast("sent");
+            setShareToast(result.emailed ? "sent" : "not_emailed");
           }}
           initialScope="project"
           initialProjectId={id}

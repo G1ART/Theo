@@ -35,7 +35,7 @@ import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
 import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDialog";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
-import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
+import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
 import { createExternalArtist } from "@/lib/provenance/rpc";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
@@ -47,7 +47,7 @@ import {
   pickLocalizedDisplayName,
   pickLocalizedTitle,
 } from "@/lib/i18n/pickLocalized";
-import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
+import { inviteCardKind, sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import {
   addWorkToExhibition,
   listMyExhibitions,
@@ -178,7 +178,7 @@ export default function BulkUploadPage() {
    * `null` = no card, `sent`/`failed` = show that variant.
    */
   const [inviteCard, setInviteCard] = useState<
-    { kind: "sent" | "failed"; artistName: string } | null
+    { kind: "sent" | "already" | "failed"; artistName: string } | null
   >(null);
   // Bumped after a *bulk* apply so the draft table rows remount and reflect
   // the newly saved values. Per-row onBlur edits deliberately do NOT bump
@@ -478,8 +478,8 @@ export default function BulkUploadPage() {
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const { data } = await externalArtistEmailExists(raw);
-      if (!cancelled) setPendingInviteForEmail(!!data);
+      const { data } = await externalArtistInviteEmailState(raw);
+      if (!cancelled) setPendingInviteForEmail(data === "sent" || data === "claimed");
     }, 350);
     return () => {
       cancelled = true;
@@ -1419,7 +1419,8 @@ export default function BulkUploadPage() {
           artistName: externalArtistName.trim() || null,
           exhibitionTitle: exhibitionTitleParam,
         });
-        setInviteCard({ kind: invite.ok ? "sent" : "failed", artistName });
+        const kind = inviteCardKind(invite);
+        if (kind) setInviteCard({ kind, artistName });
       }
 
       // Navigate / refetch ONLY when at least one work landed publicly.

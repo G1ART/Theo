@@ -19,6 +19,7 @@ import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { pickLocalizedDisplayName } from "@/lib/i18n/pickLocalized";
+import { inviteCardKind, sendArtistInviteEmailWithResult } from "@/lib/email/artistInvite";
 
 export default function MyArtistsPage() {
   const { t, locale } = useT();
@@ -35,6 +36,7 @@ export default function MyArtistsPage() {
   const [searching, setSearching] = useState(false);
   const [pending, setPending] = useState<{ artist: MyExternalArtist; target: PublicProfile } | null>(null);
   const [linking, setLinking] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const searchSeq = useRef(0);
 
   const fetchList = useCallback(async () => {
@@ -76,6 +78,23 @@ export default function MyArtistsPage() {
     setQuery("");
     setResults([]);
     setNotice(null);
+  }
+
+  async function handleResend(artist: MyExternalArtist) {
+    if (!artist.has_email) return;
+    setResendingId(artist.id);
+    setError(null);
+    setNotice(null);
+    const result = await sendArtistInviteEmailWithResult({
+      externalArtistId: artist.id,
+      artistName: artist.display_name,
+      resend: true,
+    });
+    setResendingId(null);
+    const kind = inviteCardKind(result);
+    if (kind === "sent") setNotice(t("myArtists.resendDone"));
+    else if (kind === "already") setNotice(t("myArtists.resendAlready"));
+    else if (kind === "failed") setError(t("myArtists.resendFailed"));
   }
 
   async function handleConfirmLink() {
@@ -141,13 +160,25 @@ export default function MyArtistsPage() {
                       )}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openLink(a.id)}
-                    className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:border-zinc-500"
-                  >
-                    {t("myArtists.linkCta")}
-                  </button>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {a.has_email && (
+                      <button
+                        type="button"
+                        onClick={() => void handleResend(a)}
+                        disabled={resendingId === a.id}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:border-zinc-500 disabled:opacity-50"
+                      >
+                        {resendingId === a.id ? t("myArtists.resendSending") : t("myArtists.resendEmail")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openLink(a.id)}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:border-zinc-500"
+                    >
+                      {t("myArtists.linkCta")}
+                    </button>
+                  </div>
                 </div>
 
                 {openRowId === a.id && (

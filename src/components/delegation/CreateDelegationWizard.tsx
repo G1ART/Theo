@@ -18,9 +18,9 @@ import type { ExhibitionWithCredits } from "@/lib/exhibitionCredits";
 import { searchPeople, type PublicProfile } from "@/lib/supabase/artists";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { classifyDelegationInviteError } from "@/lib/delegation/inviteErrors";
+import { sendDelegationInviteEmail } from "@/lib/delegation/sendDelegationInviteEmail";
 import { permissionLabel } from "@/lib/delegation/permissionLabel";
 import { getSession } from "@/lib/supabase/auth";
-import { getMyProfile } from "@/lib/supabase/me";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 
@@ -29,7 +29,12 @@ type WizardScope = "account" | "project";
 export type CreateDelegationWizardProps = {
   open: boolean;
   onClose: () => void;
-  onCreated?: (result: { id: string; invite_token: string; scope: DelegationScopeType }) => void;
+  onCreated?: (result: {
+    id: string;
+    invite_token: string;
+    scope: DelegationScopeType;
+    emailed: boolean;
+  }) => void;
   /** Pre-fill scope (e.g. from in-context CTA on exhibition pages). */
   initialScope?: WizardScope;
   /** Pre-fill project for project scope. */
@@ -102,15 +107,19 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
-  const [myDisplayName, setMyDisplayName] = useState<string | null>(null);
   /**
-   * When the SMTP send fails (or throws), we pause inside the wizard
-   * with this token captured so the user can copy the invite URL and
-   * share it manually. The delegation row already exists by then.
-   * Cleared when the user dismisses the fallback panel.
+   * The invite row exists, but this attempt did not deliver a new email.
+   * `already` means a previous send succeeded — offer another send.
+   * `failed` / `unconfigured` means nothing went out, so a retry is safe.
    */
   const [emailFailedResult, setEmailFailedResult] = useState<
-    | { id: string; invite_token: string; scope: DelegationScopeType; recipientEmail: string }
+    | {
+        id: string;
+        invite_token: string;
+        scope: DelegationScopeType;
+        recipientLabel: string;
+        mode: "failed" | "unconfigured" | "already";
+      }
     | null
   >(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -132,20 +141,14 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
     setNote("");
     setError(null);
     setSubmitting(false);
+    setEmailFailedResult(null);
+    setLinkCopied(false);
   }, [open, initialScope, initialProjectId, initialProjectTitle, initialPreset]);
 
   useEffect(() => {
     if (!open) return;
     getSession().then(({ data: { session } }) => setMyId(session?.user?.id ?? null));
-    getMyProfile().then(({ data }) => {
-      if (!data) {
-        setMyDisplayName(null);
-        return;
-      }
-      const name = formatDisplayName(data, t, locale) || data.username || null;
-      setMyDisplayName(name);
-    });
-  }, [open, t, locale]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -240,6 +243,14 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
       const usePreset = customPermissions === null ? preset : null;
       const usePerms = customPermissions ?? null;
 
+      const recipientLabel =
+        person?.kind === "user"
+          ? formatDisplayName(person.profile, t, locale) || person.profile.username || "—"
+          : person?.kind === "email"
+            ? person.email
+            : "";
+
+      let created: { id: string; invite_token: string } | null = null;
       if (person?.kind === "user") {
         const { data, error: rpcErr } = await createDelegationInviteForProfile({
           delegateProfileId: person.profile.id,
@@ -255,7 +266,7 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
           setSubmitting(false);
           return;
         }
-        onCreated?.({ id: data.id, invite_token: data.invite_token, scope: scope as DelegationScopeType });
+        created = data;
       } else if (person?.kind === "email") {
         const { data, error: rpcErr } = await createDelegationInvite({
           delegateEmail: person.email,
@@ -271,54 +282,52 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
           setSubmitting(false);
           return;
         }
-        // Fire SMTP email so external/non-onboarded recipients actually get the
-        // invite. RPC creates the row + token, this hop carries it to inbox.
-        // We surface a non-blocking warning if email fails — the invite row
-        // still exists and is reachable from the hub.
-        try {
-          const resp = await fetch("/api/delegation-invite-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              toEmail: person.email,
-              inviterName: myDisplayName,
-              scopeType: scope,
-              projectTitle: scope === "project" ? projectTitle : null,
-              inviteToken: data.invite_token,
-            }),
-          });
-          if (!resp.ok) {
-            console.warn("delegation-invite-email failed", resp.status);
-            // Keep the wizard open with a fallback panel: the row is
-            // already created server-side, but the email never reached
-            // the recipient. Surface the invite link so the inviter can
-            // share it through their own channel (DM, work chat, etc.).
-            setEmailFailedResult({
-              id: data.id,
-              invite_token: data.invite_token,
-              scope: scope as DelegationScopeType,
-              recipientEmail: person.email,
-            });
-            setSubmitting(false);
-            return;
-          }
-        } catch (emailErr) {
-          console.warn("delegation-invite-email threw", emailErr);
-          setEmailFailedResult({
-            id: data.id,
-            invite_token: data.invite_token,
-            scope: scope as DelegationScopeType,
-            recipientEmail: person.email,
-          });
-          setSubmitting(false);
-          return;
-        }
-        onCreated?.({ id: data.id, invite_token: data.invite_token, scope: scope as DelegationScopeType });
+        created = data;
       } else {
         setError(t("delegation.error.unknown"));
         setSubmitting(false);
         return;
       }
+
+      const mail = await sendDelegationInviteEmail(created.id, false);
+      if (mail.skipped) {
+        onCreated?.({
+          id: created.id,
+          invite_token: created.invite_token,
+          scope: scope as DelegationScopeType,
+          emailed: false,
+        });
+        onClose();
+        return;
+      }
+      if (mail.alreadySent) {
+        setEmailFailedResult({
+          id: created.id,
+          invite_token: created.invite_token,
+          scope: scope as DelegationScopeType,
+          recipientLabel,
+          mode: "already",
+        });
+        setSubmitting(false);
+        return;
+      }
+      if (!mail.emailed) {
+        setEmailFailedResult({
+          id: created.id,
+          invite_token: created.invite_token,
+          scope: scope as DelegationScopeType,
+          recipientLabel,
+          mode: mail.error === "email_unconfigured" ? "unconfigured" : "failed",
+        });
+        setSubmitting(false);
+        return;
+      }
+      onCreated?.({
+        id: created.id,
+        invite_token: created.invite_token,
+        scope: scope as DelegationScopeType,
+        emailed: true,
+      });
       onClose();
     } catch (e) {
       const cls = classifyDelegationInviteError(e);
@@ -326,7 +335,7 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [note, customPermissions, preset, person, scope, projectId, projectTitle, myDisplayName, onCreated, onClose, t]);
+  }, [note, customPermissions, preset, person, scope, projectId, onCreated, onClose, t, locale]);
 
   if (!open) return null;
 
@@ -383,11 +392,35 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
         id: emailFailedResult.id,
         invite_token: emailFailedResult.invite_token,
         scope: emailFailedResult.scope,
+        emailed: false,
       });
     }
     setEmailFailedResult(null);
     setLinkCopied(false);
     onClose();
+  };
+
+  const handleResendHeld = async () => {
+    if (!emailFailedResult) return;
+    setSubmitting(true);
+    const mail = await sendDelegationInviteEmail(emailFailedResult.id, true);
+    setSubmitting(false);
+    if (mail.emailed) {
+      onCreated?.({
+        id: emailFailedResult.id,
+        invite_token: emailFailedResult.invite_token,
+        scope: emailFailedResult.scope,
+        emailed: true,
+      });
+      setEmailFailedResult(null);
+      setLinkCopied(false);
+      onClose();
+      return;
+    }
+    setEmailFailedResult({
+      ...emailFailedResult,
+      mode: mail.error === "email_unconfigured" ? "unconfigured" : "failed",
+    });
   };
 
   return (
@@ -433,13 +466,18 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
         {emailFailedResult && (
           <div className="flex-1 overflow-y-auto px-5 py-6">
             <p className="text-base font-semibold text-zinc-900">
-              {t("delegation.fallback.title")}
+              {emailFailedResult.mode === "already"
+                ? t("delegation.alreadyEmailed.title")
+                : emailFailedResult.mode === "unconfigured"
+                  ? t("delegation.emailUnconfigured")
+                  : t("delegation.fallback.title")}
             </p>
             <p className="mt-1 text-sm text-zinc-600">
-              {t("delegation.fallback.body").replace(
-                "{email}",
-                emailFailedResult.recipientEmail
-              )}
+              {emailFailedResult.mode === "already"
+                ? t("delegation.alreadyEmailed.body").replace("{who}", emailFailedResult.recipientLabel)
+                : emailFailedResult.mode === "unconfigured"
+                  ? t("delegation.inviteSavedNotEmailed")
+                  : t("delegation.fallback.body").replace("{email}", emailFailedResult.recipientLabel)}
             </p>
             <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
               <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
@@ -452,8 +490,18 @@ export function CreateDelegationWizard(props: CreateDelegationWizardProps) {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={handleResendHeld}
+                disabled={submitting}
+                className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {submitting
+                  ? t("delegation.detail.resendSending")
+                  : t("delegation.alreadyEmailed.resend")}
+              </button>
+              <button
+                type="button"
                 onClick={() => handleCopyLink(emailFailedResult.invite_token)}
-                className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+                className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
               >
                 {linkCopied
                   ? t("delegation.fallback.copied")

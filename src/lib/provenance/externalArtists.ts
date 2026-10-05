@@ -70,6 +70,26 @@ export type LinkExternalArtistResult = {
  * telling the operator that their upload will be attached to an EXISTING
  * external artist account (rather than spawning a new invite).
  */
+export type ExternalArtistInviteEmailState = "none" | "unsent" | "sent" | "claimed";
+
+/**
+ * Whether an onboarding mail for this address is still owed.
+ * `sent` means a provider accept was recorded. `unsent` means a row
+ * exists but no mail went out. No name or address is returned.
+ */
+export async function externalArtistInviteEmailState(
+  email: string
+): Promise<{ data: ExternalArtistInviteEmailState; error: unknown }> {
+  const trimmed = email.trim();
+  if (!trimmed) return { data: "none", error: null };
+  const { data, error } = await supabase.rpc("external_artist_invite_email_state", {
+    p_email: trimmed,
+  });
+  if (error) return { data: "none", error };
+  const value = data === "unsent" || data === "sent" || data === "claimed" ? data : "none";
+  return { data: value, error: null };
+}
+
 export async function externalArtistEmailExists(
   email: string
 ): Promise<{ data: boolean; error: unknown }> {

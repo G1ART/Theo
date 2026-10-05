@@ -20,7 +20,7 @@ import { layer } from "@/lib/ui/layers";
  * bottom) and stays until dismissed OR 10s auto-dismiss.
  */
 export function InviteResultCard(props: {
-  kind: "sent" | "failed";
+  kind: "sent" | "already" | "failed";
   artistName: string;
   onDismiss: () => void;
   /** Auto-dismiss delay in ms. `null` disables auto-dismiss. Default 10s. */
@@ -44,11 +44,15 @@ export function InviteResultCard(props: {
   const titleKey =
     kind === "sent"
       ? "upload.inviteSentCard.title"
-      : "upload.inviteFailedCard.title";
+      : kind === "already"
+        ? "upload.inviteAlreadySentCard.title"
+        : "upload.inviteFailedCard.title";
   const bodyKey =
     kind === "sent"
       ? "upload.inviteSentCard.body"
-      : "upload.inviteFailedCard.body";
+      : kind === "already"
+        ? "upload.inviteAlreadySentCard.body"
+        : "upload.inviteFailedCard.body";
 
   const titleText = t(titleKey).replace("{name}", artistName);
   const bodyText = t(bodyKey).replace("{name}", artistName);
@@ -59,9 +63,9 @@ export function InviteResultCard(props: {
       role="status"
       aria-live="polite"
       className={`fixed inset-x-2 bottom-2 ${layer.toast} mx-auto max-w-md rounded-2xl border ${
-        kind === "sent"
-          ? "border-zinc-200 bg-white"
-          : "border-amber-200 bg-amber-50"
+        kind === "failed"
+          ? "border-amber-200 bg-amber-50"
+          : "border-zinc-200 bg-white"
       } shadow-xl transition-all duration-300 ease-out sm:inset-x-auto sm:right-4 sm:bottom-4 ${
         entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
       }`}
@@ -71,14 +75,14 @@ export function InviteResultCard(props: {
         <span
           aria-hidden
           className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${
-            kind === "sent" ? "bg-emerald-500" : "bg-amber-500"
+            kind === "failed" ? "bg-amber-500" : "bg-emerald-500"
           }`}
         />
         <div className="min-w-0 flex-1">
-          <p className={`text-sm font-semibold ${kind === "sent" ? "text-zinc-900" : "text-amber-900"}`}>
+          <p className={`text-sm font-semibold ${kind === "failed" ? "text-amber-900" : "text-zinc-900"}`}>
             {titleText}
           </p>
-          <p className={`mt-1 text-xs leading-relaxed ${kind === "sent" ? "text-zinc-600" : "text-amber-900/80"}`}>
+          <p className={`mt-1 text-xs leading-relaxed ${kind === "failed" ? "text-amber-900/80" : "text-zinc-600"}`}>
             {bodyText}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">

@@ -21,7 +21,7 @@ import {
   createExternalArtistAndClaim,
   searchWorksForDedup,
 } from "@/lib/provenance/rpc";
-import { externalArtistEmailExists } from "@/lib/provenance/externalArtists";
+import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { addWorkToExhibition, listMyExhibitions, type ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
@@ -44,7 +44,7 @@ import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { RomanizationHintChip } from "@/components/i18n/RomanizationHintChip";
 import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { pickLegacyForSave, pickLocalizedDisplayName, pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
-import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
+import { inviteCardKind, sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
 import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
@@ -269,7 +269,7 @@ function UploadPageContent() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inviteToast, setInviteToast] = useState<"sent" | "failed" | null>(null);
+  const [inviteToast, setInviteToast] = useState<"sent" | "already" | "failed" | null>(null);
 
   useEffect(() => {
     getSession().then(({ data: { session } }) => {
@@ -366,8 +366,8 @@ function UploadPageContent() {
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const { data } = await externalArtistEmailExists(raw);
-      if (!cancelled) setPendingInviteForEmail(!!data);
+      const { data } = await externalArtistInviteEmailState(raw);
+      if (!cancelled) setPendingInviteForEmail(data === "sent" || data === "claimed");
     }, 350);
     return () => {
       cancelled = true;
@@ -497,8 +497,7 @@ function UploadPageContent() {
 
     setIsSubmitting(true);
 
-    let inviteSent = false;
-    let inviteSendFailed = false;
+    let inviteKind: "sent" | "already" | "failed" | null = null;
     try {
       const { data: artworkId, error: createErr } = await createArtwork(payload);
       if (createErr) {
@@ -559,8 +558,7 @@ function UploadPageContent() {
             artistName: externalArtistName.trim() || null,
             exhibitionTitle: searchParams.get("exhibitionTitle"),
           });
-          inviteSent = invite.ok;
-          if (!invite.ok) inviteSendFailed = true;
+          inviteKind = inviteCardKind(invite);
         }
       } else {
         // CREATED intent ≡ "I made this work". When acting-as a principal,
@@ -724,8 +722,8 @@ function UploadPageContent() {
           // sessionStorage disabled (Safari private mode etc.) — silent.
         }
       }
-      if (inviteSent || inviteSendFailed) {
-        setInviteToast(inviteSent ? "sent" : "failed");
+      if (inviteKind) {
+        setInviteToast(inviteKind);
         setTimeout(() => {
           if (exhibitionReturnUrl) {
             router.push(exhibitionReturnUrl);
@@ -855,7 +853,7 @@ function UploadPageContent() {
         */}
         {inviteToast && (
           <InviteResultCard
-            kind={inviteToast === "sent" ? "sent" : "failed"}
+            kind={inviteToast}
             artistName={
               (useExternalArtist ? externalArtistName : "").trim() ||
               t("upload.externalArtistNamePlaceholder")

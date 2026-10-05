@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-05
 
+## 2026-10-05 — 메일이 나가지 않은 초대는 다시 보낼 수 있다
+
+> **Supabase SQL:** `supabase/migrations/20261005190000_invite_email_resend.sql` 을 프로덕션 `sgufonscldvdwfgzltfw` 에 반영함. 다시 붙이지 않아도 된다. 다른 환경이면 SQL Editor에서 섹션 단위로 실행. **환경 변수 이름·의미 변경 없음.** 초대 메일은 기존 `SENDGRID_API_KEY`, `INVITE_FROM_EMAIL` 이 있어야 나간다. 이번 건은 그 키가 비어서가 아니다.
+
+@heimyunghyun 이 @sol_kang 에게 계정 위임(operations)을 2026-09-10에 만들었다. 초대에 적힌 이메일과 솔강 계정의 이메일은 같았다. 활동 기록은 `invite_created` / `profile` 뿐이고 메일 제공자 메시지 id는 없다. 가입한 사용자를 고르는 경로는 행과 앱 알림만 만들고 SendGrid를 호출하지 않았다. 다시 누르면 대기 행 때문에 `duplicate_pending_invite` 로 막혔다. 조사 중 2026-10-05 22:50 UTC에 그 초대가 취소되었다(`invite_canceled`, 상태 revoked). 취소된 링크는 수락되지 않으므로 메일은 보내지 않았다. 배포 후 같은 사람에게 다시 초대하면 메일이 나간다.
+
+- 대기 중이고 메일이 한 번도 나가지 않았으면 같은 행으로 보낸다. 위임 행을 하나 더 만들지 않는다.
+- 대기 중이고 메일이 이미 나갔으면 그 사실을 말하고, 다시 보내기를 누르기 전에는 또 보내지 않는다.
+- 활성 위임은 그대로 막는다. 본인 초대도 막는다. 취소·거절·만료는 새 초대를 막지 않는다.
+- 메일 키가 없으면 503이고, 보냈다고 말하지 않는다. 키를 넣은 뒤 다시 보낼 수 있다.
+- 작가 온보딩, 전시 참여자, 전시 큐레이터 초대도 같다. 초대한 작가에서 다시 보낼 수 있다. 워크스페이스 초대 테이블은 메일을 보내는 경로가 없어 그대로 두었다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/invite-delivery.test.ts` (미발송은 다시 보낼 수 있고, 이미 보낸 대기는 명시적으로 다시 보내기 전에는 또 보내지 않음. 활성은 막음). `npx tsx tests/ir-demo.test.ts`.
+
 ## 2026-10-05 — 다른 작가로 올린 작품의 주인은 그 작가
 
 > **Supabase SQL은 MCP로 이미 적용함.** 기록 파일은 `supabase/migrations/20261005160000_uploader_can_assign_artist.sql`. 다시 붙이지 않아도 된다. 섹션 3은 DO 블록 하나다. **환경 변수 추가·변경 없음.**

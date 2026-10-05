@@ -27,6 +27,7 @@ import {
   createClaimForExistingArtist,
   createExternalArtistAndClaim,
 } from "@/lib/provenance/rpc";
+import { inviteCardKind, sendArtistInviteEmailWithResult } from "@/lib/email/artistInvite";
 import { getExhibitionById } from "@/lib/supabase/exhibitions";
 import { getSession } from "@/lib/supabase/auth";
 import { setPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload";
@@ -84,6 +85,7 @@ type ExternalRow = {
   showOther: boolean;
   saveStatus: "idle" | "saving" | "saved" | "duplicate" | "error";
   saveError: string | null;
+  inviteMail?: "sent" | "already" | "failed" | null;
   removeBlockedCount: number | null;
   worksCount: number;
   savedSnapshot: { name_ko: string; name_en: string; email: string } | null;
@@ -164,7 +166,7 @@ export default function AddWorkToExhibitionPage() {
 
   // 전시 권한 공유 위자드
   const [shareWizardOpen, setShareWizardOpen] = useState(false);
-  const [shareToast, setShareToast] = useState<"sent" | null>(null);
+  const [shareToast, setShareToast] = useState<"sent" | "not_emailed" | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   const [exhibitionTitle, setExhibitionTitle] = useState<string | null>(null);
   const [exhibitionStatus, setExhibitionStatus] = useState<string | null>(null);
@@ -388,6 +390,16 @@ export default function AddWorkToExhibitionPage() {
       const returnedExtId = extData?.external_artist?.id as string | undefined;
       const returnedClaimId = extData?.claim?.id as string | undefined;
 
+      let inviteMail: "sent" | "already" | "failed" | null = null;
+      if (emailTrimmed && returnedExtId) {
+        const invite = await sendArtistInviteEmailWithResult({
+          externalArtistId: returnedExtId,
+          artistName: nameForLegacy,
+          toEmail: emailTrimmed,
+        });
+        inviteMail = inviteCardKind(invite);
+      }
+
       // Detect "duplicate absorbed": if the returned claim id already
       // lives on a *different* row (typically a hydrated sibling), mark
       // this row as duplicate rather than saved. The UI hides the chip
@@ -404,6 +416,7 @@ export default function AddWorkToExhibitionPage() {
             externalArtistId: returnedExtId ?? r.externalArtistId,
             saveStatus: siblingWithSameClaim ? "duplicate" : "saved",
             saveError: null,
+            inviteMail,
             savedSnapshot: {
               name_ko: ko,
               name_en: en,
@@ -951,6 +964,11 @@ export default function AddWorkToExhibitionPage() {
               {t("delegation.inviteSentToUser")}
             </p>
           )}
+          {shareToast === "not_emailed" && (
+            <p className="mt-3 text-xs text-amber-800" role="status">
+              {t("delegation.inviteSavedNotEmailed")}
+            </p>
+          )}
         </div>
 
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
@@ -1255,6 +1273,49 @@ export default function AddWorkToExhibitionPage() {
                             <span className="text-zinc-400">
                               {t("exhibition.participants.savedInline")}
                             </span>
+                          )}
+                          {row.inviteMail === "sent" && (
+                            <span className="ml-2 text-emerald-700">
+                              {t("exhibition.participants.inviteMailSent")}
+                            </span>
+                          )}
+                          {row.inviteMail === "already" && (
+                            <span className="ml-2 text-zinc-500">
+                              {t("exhibition.participants.inviteMailAlready")}
+                            </span>
+                          )}
+                          {row.inviteMail === "failed" && (
+                            <span className="ml-2 text-amber-800">
+                              {t("exhibition.inviteEmailFailed")}
+                            </span>
+                          )}
+                          {row.externalArtistId && row.email.trim() && row.saveStatus === "saved" && (
+                            <button
+                              type="button"
+                              className="ml-2 text-zinc-700 underline"
+                              onClick={() => {
+                                const artistId = row.externalArtistId;
+                                const artistName = row.name_ko.trim() || row.name_en.trim();
+                                if (!artistId) return;
+                                void sendArtistInviteEmailWithResult({
+                                  externalArtistId: artistId,
+                                  artistName,
+                                  toEmail: row.email.trim(),
+                                  resend: true,
+                                }).then((invite) => {
+                                  const kind = inviteCardKind(invite);
+                                  setExternalRows((prev) =>
+                                    prev.map((r) =>
+                                      r.clientId === row.clientId
+                                        ? { ...r, inviteMail: kind }
+                                        : r,
+                                    ),
+                                  );
+                                });
+                              }}
+                            >
+                              {t("exhibition.participants.resendInvite")}
+                            </button>
                           )}
                           {row.removeBlockedCount != null && (
                             <span className="ml-2 text-amber-700">
@@ -1657,9 +1718,9 @@ export default function AddWorkToExhibitionPage() {
         <CreateDelegationWizard
           open={shareWizardOpen}
           onClose={() => setShareWizardOpen(false)}
-          onCreated={() => {
+          onCreated={(result) => {
             setShareWizardOpen(false);
-            setShareToast("sent");
+            setShareToast(result.emailed ? "sent" : "not_emailed");
           }}
           initialScope="project"
           initialProjectId={id}

@@ -25,7 +25,7 @@ import { AuthGate } from "@/components/AuthGate";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 import { useT } from "@/lib/i18n/useT";
-import { sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
+import { inviteCardKind, sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
 import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
@@ -91,7 +91,7 @@ function EditArtworkContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [inviteToast, setInviteToast] = useState<"sent" | "failed" | null>(null);
+  const [inviteToast, setInviteToast] = useState<"sent" | "already" | "failed" | null>(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
 
   // Base form
@@ -319,8 +319,7 @@ function EditArtworkContent() {
 
     setSaving(true);
 
-    let inviteSent = false;
-    let inviteSendFailed = false;
+    let inviteKind: "sent" | "already" | "failed" | null = null;
     const sizeTrimmed = size.trim();
     const legacyTitle =
       pickLegacyForSave(titleKo || null, titleEn || null) ?? title.trim() ?? "";
@@ -444,8 +443,7 @@ function EditArtworkContent() {
             artistName: externalArtistName.trim() || null,
             exhibitionTitle: null,
           });
-          inviteSent = invite.ok;
-          if (!invite.ok) inviteSendFailed = true;
+          inviteKind = inviteCardKind(invite);
         }
       } else {
         const { error: claimErr } = await createExternalArtistAndClaim({
@@ -468,8 +466,7 @@ function EditArtworkContent() {
             artistName: externalArtistName.trim() || null,
             exhibitionTitle: null,
           });
-          inviteSent = invite.ok;
-          if (!invite.ok) inviteSendFailed = true;
+          inviteKind = inviteCardKind(invite);
         }
       }
     } else {
@@ -501,8 +498,8 @@ function EditArtworkContent() {
       }
     }
 
-    if (inviteSent || inviteSendFailed) {
-      setInviteToast(inviteSent ? "sent" : "failed");
+    if (inviteKind) {
+      setInviteToast(inviteKind);
       setTimeout(() => router.push(`/artwork/${id}`), 2000);
     } else {
       router.push(`/artwork/${id}`);
@@ -541,7 +538,11 @@ function EditArtworkContent() {
             inviteToast === "sent" ? "bg-zinc-900" : "bg-amber-600"
           }`}
         >
-          {inviteToast === "sent" ? t("upload.inviteSent") : t("upload.inviteSentFailed")}
+          {inviteToast === "sent"
+            ? t("upload.inviteSent")
+            : inviteToast === "already"
+              ? t("upload.inviteAlreadySent")
+              : t("upload.inviteSentFailed")}
         </div>
         </BodyPortal>
       )}

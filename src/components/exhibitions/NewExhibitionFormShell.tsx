@@ -21,6 +21,7 @@ import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { createExternalArtist } from "@/lib/provenance/rpc";
+import { sendArtistInviteEmailWithResult } from "@/lib/email/artistInvite";
 
 const STATUS_OPTIONS = [
   { value: "planned", labelKey: "exhibition.statusPlanned" },
@@ -226,6 +227,22 @@ export function NewExhibitionFormShell({
         return;
       }
       externalCuratorId = extId;
+      if (externalCuratorEmail.trim()) {
+        const invite = await sendArtistInviteEmailWithResult({
+          externalArtistId: extId,
+          artistName: externalCuratorName.trim(),
+          toEmail: externalCuratorEmail.trim(),
+        });
+        if (!invite.emailed && !invite.alreadySent && !invite.skipped) {
+          setSubmitting(false);
+          setError(
+            invite.error === "email_unconfigured"
+              ? t("people.invitePage.unconfigured")
+              : t("people.invitePage.failed"),
+          );
+          return;
+        }
+      }
     }
     const curatorId = curatorMe || inviteExternalCurator
       ? effectiveProfileId!
