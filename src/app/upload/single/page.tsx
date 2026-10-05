@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSession } from "@/lib/supabase/auth";
 import {
+  assignArtworkArtist,
   attachArtworkImage,
   createArtwork,
   deleteArtwork,
@@ -12,6 +13,7 @@ import {
   type ArtworkImageViewType,
   type CreateArtworkPayload,
 } from "@/lib/supabase/artworks";
+import { resolveUploadedArtworkArtist } from "@/lib/upload/artworkOwner";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import {
@@ -479,10 +481,19 @@ function UploadPageContent() {
       is_price_public: pricingMode === "fixed" ? isPricePublic : false,
       price_input_amount: pricingMode === "fixed" && priceAmount ? parseFloat(priceAmount) : undefined,
       price_input_currency: pricingMode === "fixed" ? priceCurrency : undefined,
-      artist_id:
-        actingAsProfileId ??
-        (needsAttribution(intent) && selectedArtist && !isExternal ? selectedArtist.id : undefined),
     };
+    const selectedOnboardedId =
+      needsAttribution(intent) && selectedArtist && !isExternal ? selectedArtist.id : null;
+    const owner = resolveUploadedArtworkArtist({
+      sessionUserId: userId,
+      actingAsProfileId,
+      selectedArtistId: selectedOnboardedId,
+    });
+    // Insert under the account that can attach images (self, or the
+    // principal a delegate is acting for). The chosen artist becomes
+    // artist_id after the claim and files exist.
+    const holderId = actingAsProfileId ?? userId;
+    payload.artist_id = holderId;
 
     setIsSubmitting(true);
 
@@ -656,6 +667,17 @@ function UploadPageContent() {
               portfolio_coherence_applied: !!meta.portfolioCoherence,
             },
           });
+        }
+      }
+
+      if (owner.artistId !== holderId) {
+        const { error: ownerErr } = await assignArtworkArtist(artworkId, owner.artistId);
+        if (ownerErr) {
+          await rollback();
+          logSupabaseError("assignArtworkArtist", ownerErr);
+          setError(formatSupabaseError(ownerErr, t, "errors.failedCreateArtwork"));
+          setIsSubmitting(false);
+          return;
         }
       }
 

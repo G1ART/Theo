@@ -157,6 +157,20 @@ export type ArtworkClaim = {
     display_name_ko?: string | null;
     display_name_en?: string | null;
   } | null;
+  /**
+   * Onboarded artist named by this claim. Present when the reader
+   * embedded `profiles!artist_profile_id`. The title line prefers this
+   * over the uploader when `artist_id` was left on the uploading account.
+   */
+  artist_profile?: {
+    id?: string;
+    username?: string | null;
+    display_name?: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+    main_role?: string | null;
+    roles?: string[] | null;
+  } | null;
   // QA 2026-06-27: invite_email is intentionally NOT embedded in public
   // artwork payloads (PII). Read it via getExternalArtistInviteEmail (owner only).
   external_artists?: {
@@ -2128,6 +2142,83 @@ export async function updateArtwork(
 }
 
 /**
+ * Move `artist_id` onto the chosen artist and confirm a row changed.
+ * A silent 0-row update (RLS) must not be treated as success.
+ */
+export async function assignArtworkArtist(
+  artworkId: string,
+  artistProfileId: string,
+): Promise<{ error: unknown }> {
+  if (!artworkId || !artistProfileId) {
+    return { error: new Error("artist is required") };
+  }
+  const { data, error } = await supabase
+    .from("artworks")
+    .update({ artist_id: artistProfileId })
+    .eq("id", artworkId)
+    .select("id");
+  if (error) return { error };
+  if (!data || data.length === 0) {
+    return { error: new Error("artwork owner was not updated") };
+  }
+  return { error: null };
+}
+
+/**
+ * Remember, on the draft, which onboarded artist this upload is for.
+ * `artist_id` stays with the uploading account until publish so image
+ * attach and caption edits still pass RLS. The claim is what publish
+ * and a reopened bulk screen read.
+ */
+export async function rememberDraftArtistAttribution(
+  artworkIds: string[],
+  opts: {
+    artistProfileId: string;
+    claimType: "OWNS" | "INVENTORY" | "CURATED";
+    period_status?: "past" | "current" | "future" | null;
+    subjectProfileId?: string | null;
+  },
+): Promise<{ error: unknown }> {
+  if (artworkIds.length === 0) return { error: null };
+  const { createClaimForExistingArtist } = await import("@/lib/provenance/rpc");
+  for (const id of artworkIds) {
+    const { data: existing, error: readErr } = await supabase
+      .from("claims")
+      .select("id")
+      .eq("work_id", id)
+      .eq("artist_profile_id", opts.artistProfileId)
+      .eq("claim_type", opts.claimType)
+      .limit(1);
+    if (readErr) return { error: readErr };
+    if (existing && existing.length > 0) continue;
+    const { error } = await createClaimForExistingArtist({
+      artistProfileId: opts.artistProfileId,
+      claimType: opts.claimType,
+      workId: id,
+      visibility: "public",
+      period_status: opts.period_status ?? null,
+      subjectProfileId: opts.subjectProfileId ?? undefined,
+    });
+    if (error) return { error };
+  }
+  return { error: null };
+}
+
+/** Drop the attribution claim when the operator cancels "another artist". */
+export async function forgetDraftArtistAttribution(
+  artworkIds: string[],
+  artistProfileId: string,
+): Promise<{ error: unknown }> {
+  if (artworkIds.length === 0 || !artistProfileId) return { error: null };
+  const { error } = await supabase
+    .from("claims")
+    .delete()
+    .in("work_id", artworkIds)
+    .eq("artist_profile_id", artistProfileId);
+  return { error };
+}
+
+/**
  * P1 (2026-08-19) — Best-effort propagation of parser-recovered
  * dimensions back onto the `artworks` row so the next placement (and
  * every other consumer) reads the structured values directly.
@@ -2393,21 +2484,31 @@ export async function publishArtworksWithProvenance(
       });
       claimErr = error;
     } else if (opts.artistProfileId) {
-      const { error } = await createClaimForExistingArtist({
-        artistProfileId: opts.artistProfileId,
-        claimType: opts.intent,
-        workId: id,
-        // QA 2026-06-26 (#8) — see note above.
-        visibility: "public",
-        ...claimPayload,
-        subjectProfileId: subjectOverride ?? undefined,
-      });
-      claimErr = error;
+      const { data: existingClaim, error: existingErr } = await supabase
+        .from("claims")
+        .select("id")
+        .eq("work_id", id)
+        .eq("artist_profile_id", opts.artistProfileId)
+        .eq("claim_type", opts.intent)
+        .limit(1);
+      if (existingErr) {
+        claimErr = existingErr;
+      } else if (!existingClaim || existingClaim.length === 0) {
+        const { error } = await createClaimForExistingArtist({
+          artistProfileId: opts.artistProfileId,
+          claimType: opts.intent,
+          workId: id,
+          // QA 2026-06-26 (#8) — see note above.
+          visibility: "public",
+          ...claimPayload,
+          subjectProfileId: subjectOverride ?? undefined,
+        });
+        claimErr = error;
+      }
       if (!claimErr) {
-        const { error: upErr } = await supabase
-          .from("artworks")
-          .update({ artist_id: opts.artistProfileId })
-          .eq("id", id);
+        // The chosen artist is the owner. The uploading account stays
+        // on created_by and on the claim subject.
+        const { error: upErr } = await assignArtworkArtist(id, opts.artistProfileId);
         if (upErr) claimErr = upErr;
       }
     }

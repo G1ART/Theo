@@ -1,6 +1,19 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
+
+## 2026-10-05 — 다른 작가로 올린 작품의 주인은 그 작가
+
+> **Supabase SQL은 MCP로 이미 적용함.** 기록 파일은 `supabase/migrations/20261005160000_uploader_can_assign_artist.sql`. 다시 붙이지 않아도 된다. 섹션 3은 DO 블록 하나다. **환경 변수 추가·변경 없음.**
+
+작품 상세 제목 아래 줄은 `artworks.artist_id`에 묶인 프로필이다. The GREEN(@thegreen_oc)이 2026-10-03 16:55–17:08 태평양시에 만든 뒤 2026-10-05에 공개한 85점은 `artist_id`가 업로더로 남아 갤러리스트·큐레이터 칩이 붙었다. 2026-10-05 태평양시 `created_at` 행은 없었다. Cheerry Blossom 0910·0911이 들어 있는 그 배치 85점을 현혜명(@heimyunghyun)으로 옮겼다. `created_by`는 The GREEN이다. 같은 주체로 CURATED 클레임을 넣어 갤러리 관계는 남겼다. 7월에 이미 현혜명으로 들어가 있던 작품은 건드리지 않았다.
+
+- 한 점·여러 점·위임 모두, 고른 온보딩 작가가 `artist_id`다. 올리는 계정은 `created_by`다. 위임 중인 계정은 파일을 붙인 뒤에 주인을 옮긴다.
+- 여러 점은 작가를 고르는 순간 초안에 클레임을 남긴다. 화면을 다시 열어도 그 작가로 공개된다. 0행 업데이트는 실패로 본다.
+- 제목 아래 사람은 저장된 작가다. 클레임이 업로더가 아닌 작가를 가리키면 그 프로필을 쓴다. 갤러리·큐레이터 칩은 그 자리에 붙지 않는다.
+- 업로더(`created_by`)는 주인이 바뀐 뒤에도 작품과 이미지를 고칠 수 있다. 상세 패스포트가 클레임의 작가 프로필을 포함한다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-owner-is-selected-artist.test.ts` (갤러리·위임이 다른 작가를 고르면 artist는 그 작가, created_by는 올린 계정. 제목 아래는 현혜명이고 The GREEN이 아니다). 패스포트로 Cheerry Blossom 0910을 읽으면 이름 현혜명, 핸들 heimyunghyun.
 
 ## 2026-10-04 — 한 점 보정은 창에서 바로 영역 따기로 연다
 

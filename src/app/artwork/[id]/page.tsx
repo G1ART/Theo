@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useParams } from "next/navigation";
 import { getArtworkBack } from "@/lib/artworkBack";
 import { getArtworkArtistLabel, getArtworkPriceDisplay, isExternalArtistArtwork } from "@/lib/supabase/artworks";
+import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
 import { compareArtworkImageOrder } from "@/lib/artworks/primaryImage";
 import { ArtworkArtistName } from "@/components/artwork/ArtworkArtistName";
 import { getSession } from "@/lib/supabase/auth";
@@ -754,9 +755,16 @@ function ArtworkDetailContent() {
 
   const images = artwork.artwork_images ?? [];
   const sortedImages = [...images].sort(compareArtworkImageOrder);
-  const artist = artwork.profiles;
+  const storedArtist = artwork.profiles;
+  const headerArtist = personUnderArtworkTitle({
+    storedArtist,
+    uploaderId: artwork.created_by ?? null,
+    claimedArtist: claimedOnboardedArtist(artwork.claims, artwork.created_by ?? null),
+  });
+  const artist = headerArtist ?? storedArtist;
   const { label: artistLabel, profileUsername } = getArtworkArtistLabel(artwork);
-  const username = profileUsername ?? "";
+  const username = artist?.username || profileUsername || "";
+  const headerProfileId = artist?.id ?? artwork.artist_id;
   const isExternalArtist = isExternalArtistArtwork(artwork);
 
   const { path: backPath, labelKey: backLabelKey } = back;
@@ -863,9 +871,9 @@ function ArtworkDetailContent() {
                       {chip.label}
                     </span>
                   ))}
-                  {userId && userId !== artwork.artist_id && username && (
+                  {userId && userId !== headerProfileId && username && (
                     <FollowButton
-                      targetProfileId={artwork.artist_id}
+                      targetProfileId={headerProfileId}
                       initialFollowing={following}
                       size="sm"
                     />

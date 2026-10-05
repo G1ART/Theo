@@ -12,7 +12,9 @@ import {
   deleteArtwork,
   deleteArtworkImage,
   deleteDraftArtworks,
+  forgetDraftArtistAttribution,
   listMyDraftArtworks,
+  rememberDraftArtistAttribution,
   mergeDraftImagesInto,
   publishArtworks,
   publishArtworksWithProvenance,
@@ -24,6 +26,7 @@ import {
   type ArtworkWithLikes,
   type UpdateArtworkPayload,
 } from "@/lib/supabase/artworks";
+import { rememberedArtistId } from "@/lib/upload/artworkOwner";
 import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
 import { cleanupFailedAttach } from "@/lib/supabase/artworkStorageCleanup";
@@ -522,6 +525,34 @@ export default function BulkUploadPage() {
     });
   }
 
+  const selectedArtistRef = useRef(selectedArtist);
+  const intentRef = useRef(intent);
+  const useExternalArtistRef = useRef(useExternalArtist);
+  const periodStatusRef = useRef(periodStatus);
+  const actingAsRef = useRef(actingAsProfileId);
+  selectedArtistRef.current = selectedArtist;
+  intentRef.current = intent;
+  useExternalArtistRef.current = useExternalArtist;
+  periodStatusRef.current = periodStatus;
+  actingAsRef.current = actingAsProfileId;
+
+  function attributionClaimType(value: IntentType | null): "OWNS" | "INVENTORY" | "CURATED" {
+    if (value === "OWNS" || value === "INVENTORY") return value;
+    return "CURATED";
+  }
+
+  async function persistArtistOnDrafts(ids: string[], artistId: string, claimIntent: IntentType | null) {
+    if (ids.length === 0 || !artistId) return;
+    const claimType = attributionClaimType(claimIntent);
+    const { error } = await rememberDraftArtistAttribution(ids, {
+      artistProfileId: artistId,
+      claimType,
+      period_status: claimType === "OWNS" ? null : periodStatusRef.current,
+      subjectProfileId: actingAsRef.current,
+    });
+    if (error) logSupabaseError("rememberDraftArtistAttribution", error);
+  }
+
   function addPendingFiles(files: FileList | null) {
     addIncomingFiles(files);
   }
@@ -721,6 +752,17 @@ export default function BulkUploadPage() {
       );
       setToast(message);
       setTimeout(() => setToast(null), 6000);
+    }
+    const artistNow = selectedArtistRef.current;
+    const intentNow = intentRef.current;
+    if (
+      artistNow &&
+      intentNow &&
+      intentNow !== "CREATED" &&
+      !useExternalArtistRef.current &&
+      uploadedIds.length > 0
+    ) {
+      await persistArtistOnDrafts(uploadedIds, artistNow.id, intentNow);
     }
     await fetchDrafts();
     const done = new Set(queue.map((item) => item.id));
@@ -1234,6 +1276,14 @@ export default function BulkUploadPage() {
     }
     setPublishing(true);
     try {
+      const { data: { session } } = await getSession();
+      const uploaderIds = [session?.user?.id, actingAsProfileId].filter(
+        (id): id is string => !!id,
+      );
+      const remembered = useExternalArtist
+        ? null
+        : rememberedArtistId(toPublish, uploaderIds);
+      const artistForPublish = selectedArtist?.id ?? remembered;
       // Per-work successes that should be linked to the exhibition + counted
       // toward "today's salon" refresh. Failures stay as drafts so the user
       // can fix and retry exactly the failed entries.
@@ -1241,7 +1291,7 @@ export default function BulkUploadPage() {
       let failedCount = 0;
       let firstFailureReason: string | null = null;
 
-      if (intent && needsAttribution) {
+      if ((intent && needsAttribution) || (artistForPublish && !uploaderIds.includes(artistForPublish) && !useExternalArtist)) {
         let resolvedExternalArtistId = useExternalArtist
           ? preselectedExternalArtistId
           : null;
@@ -1260,9 +1310,11 @@ export default function BulkUploadPage() {
           }
           resolvedExternalArtistId = extId;
         }
+        const publishIntent: IntentType =
+          intent && intent !== "CREATED" ? intent : attributionClaimType(intent);
         const opts: Parameters<typeof publishArtworksWithProvenance>[1] = {
-          intent,
-          artistProfileId: selectedArtist?.id ?? null,
+          intent: publishIntent,
+          artistProfileId: useExternalArtist ? null : artistForPublish,
           externalArtistDisplayName: useExternalArtist ? externalArtistName.trim() : null,
           // QA 2026-07-28 (240005) — forward KO/EN slots so the RPC persists
           // the bilingual pair on the external_artists row and the signup
@@ -1284,7 +1336,7 @@ export default function BulkUploadPage() {
           // consistent. RLS / RPC verify delegation rights server-side.
           onBehalfOfProfileId: actingAsProfileId ?? null,
         };
-        if (intent === "INVENTORY" || intent === "CURATED") {
+        if (publishIntent === "INVENTORY" || publishIntent === "CURATED") {
           opts.period_status = periodStatus;
         }
         // QA 2026-06-26 (#8) — DO NOT forward addToExhibitionId as a
@@ -1697,6 +1749,13 @@ export default function BulkUploadPage() {
                   const next = e.target.value as IntentType;
                   setIntent(next);
                   if (next === "CREATED") {
+                    const previousArtistId = selectedArtist?.id;
+                    if (previousArtistId) {
+                      void forgetDraftArtistAttribution(
+                        draftsRef.current.map((d) => d.id),
+                        previousArtistId,
+                      );
+                    }
                     setAttributionOpen(false);
                     setAttributionStepDone(false);
                     setSelectedArtist(null);
@@ -1906,6 +1965,11 @@ export default function BulkUploadPage() {
                               // (QA 2026-08-09). External artist path
                               // stays manual because it still needs email.
                               setAttributionStepDone(true);
+                              void persistArtistOnDrafts(
+                                draftsRef.current.map((d) => d.id),
+                                a.id,
+                                intentRef.current,
+                              );
                             }}
                             className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
                           >
@@ -2009,6 +2073,13 @@ export default function BulkUploadPage() {
               <button
                 type="button"
                 onClick={() => {
+                  const previousArtistId = selectedArtist?.id;
+                  if (previousArtistId) {
+                    void forgetDraftArtistAttribution(
+                      draftsRef.current.map((d) => d.id),
+                      previousArtistId,
+                    );
+                  }
                   setIntent("CREATED");
                   setAttributionOpen(false);
                   setAttributionStepDone(false);
