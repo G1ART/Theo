@@ -1,9 +1,15 @@
 /**
- * One inverse map from the frontal rectangle back to the photo:
- *   unit point → residual displacement → homography⁻¹ → radial D → S
+ * One inverse map from the frontal rectangle back to the photo.
  *
- * The rectangle crop does not repaint inward by wall color. Coverage
- * comes from the traced contour, not from RGB.
+ * A straight quad is a homography. A bowed edge is a residual radial
+ * model when one coefficient explains it. Otherwise the segments
+ * between the confirmed corners are the traced curves: a homography of
+ * the corner quad would pull wall into the middle of an inward bow, or
+ * leave the destination corners empty where the curve does not cover
+ * the rectangle. Empty pixels are what the studio wall paints as white
+ * triangles. Samples step inside the detected edge when the outside
+ * pixel matches the wall. The rectangle path does not repaint inward
+ * by wall color.
  */
 
 import {
@@ -37,6 +43,12 @@ import {
   type FitPoint,
   type RadialModel,
 } from "./radialDistortion";
+import {
+  buildInteriorCurves,
+  coonsFromCurves,
+  curvesAreUsable,
+  polygonFromCurves,
+} from "./interiorEdge";
 import { traceArtworkEdges, tracedPolygon, type ArtworkTrace, type TracedEdge } from "./traceArtworkEdges";
 
 export type FrameWindow = {
@@ -71,6 +83,14 @@ export type RectifyPlan = {
   unitToUndistorted: Homography | null;
   knots: [ResidualKnot[], ResidualKnot[], ResidualKnot[], ResidualKnot[]] | null;
   mask: Uint8Array | null;
+  /**
+   * Buffer-space curves. When set, each destination pixel is this
+   * patch instead of the corner homography.
+   */
+  sampleCurves: [Point[], Point[], Point[], Point[]] | null;
+  /** Detected canvas, before the sample inset. Wall taps are rejected. */
+  contentMask: Uint8Array | null;
+  pullToward: Point | null;
 };
 
 const ZERO_NUDGE: EdgeNudges = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -95,8 +115,15 @@ export function planArtworkRectification(req: RectifyRequest): RectifyPlan {
 
   const trace = traceArtworkEdges(raster.data, raster.width, raster.height, corners);
   applyNudges(trace, req.mode === "adjust" ? req.nudges ?? ZERO_NUDGE : ZERO_NUDGE);
+  const interior = buildInteriorCurves(trace, raster.data, raster.width, raster.height);
+  const curvesOk =
+    curvesAreUsable(interior.sample, raster.width, raster.height) &&
+    curvesAreUsable(interior.content, raster.width, raster.height);
   const fringe = trace.edges.some((e) => e.fringe);
-  if (fringe) {
+  // A light jumpy band with no sustained edge is thread fringe. A bowed
+  // or outside-corner edge still has to be followed, or the straight
+  // chord takes the wall.
+  if (fringe && !(interior.follows && curvesOk)) {
     return perspectivePlan(req, sourceCorners, aspect, size, "needs_review", "fringe", trace);
   }
 
@@ -148,7 +175,7 @@ export function planArtworkRectification(req: RectifyRequest): RectifyPlan {
   }
 
   const errors = edgeErrors(trace, frame, model, Hinv, useBoundary ? knots : null);
-  const method = manual
+  let method: GeometryRecipe["method"] = manual
     ? "boundary_manual"
     : useBoundary
       ? "boundary_traced"
@@ -158,27 +185,47 @@ export function planArtworkRectification(req: RectifyRequest): RectifyPlan {
           ? "identity"
           : "perspective";
 
-  if (method === "identity") {
+  // A shared k1 that already puts the edge on the canvas keeps the
+  // radial map. Anything else with a real bow, or a handle on the wall,
+  // samples the traced curve. A straight chord is still an identity copy.
+  // One shared k1 that lands the corners on the canvas keeps the radial
+  // map. A handle on the wall, or a bow the coefficient does not explain,
+  // follows the traced curve instead.
+  const radialExplains = radialAccepted && !interior.cornerOutside;
+  const useFollow = curvesOk && interior.follows && !radialExplains;
+
+  if (method === "identity" && !useFollow) {
     return copyPlan(req, sourceCorners, aspect, size, "already_straight", "already_straight", errors, coverage);
   }
+  if (useFollow) method = manual ? "boundary_manual" : "boundary_traced";
 
-  const status = method === "perspective" && !straightEdges && bowed ? "needs_review" : "applied";
+  const status = !useFollow && method === "perspective" && !straightEdges && bowed ? "needs_review" : "applied";
   const reason =
     method === "boundary_manual"
       ? "manual"
       : method === "boundary_traced"
-        ? radialAccepted
-          ? "radial+boundary"
-          : "boundary_traced"
+        ? interior.cornerOutside
+          ? "corner_outside"
+          : radialAccepted
+            ? "radial+boundary"
+            : "boundary_traced"
         : method === "radial"
           ? "radial"
           : status === "needs_review"
             ? "low_confidence"
             : "perspective";
 
-  const maskPoly = method === "radial" || method === "boundary_traced" || method === "boundary_manual"
-    ? tracedPolygon(trace)
-    : null;
+  const contentPoly = curvesOk && interior.follows ? polygonFromCurves(interior.content) : null;
+  const contentMask = contentPoly ? rasterizePolygon(contentPoly, raster.width, raster.height) : null;
+  const tightMask = maskUsable(contentMask) ? contentMask : null;
+  const loosePoly =
+    !tightMask && (method === "radial" || method === "boundary_traced" || method === "boundary_manual")
+      ? tracedPolygon(trace)
+      : null;
+  const pullToward: Point = [
+    (corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) / 4,
+    (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4,
+  ];
 
   return {
     recipe: recipeOf({
@@ -199,8 +246,11 @@ export function planArtworkRectification(req: RectifyRequest): RectifyPlan {
     kind: "map",
     radial: method === "perspective" ? null : model.k1 === 0 && model.k2 === 0 ? null : model,
     unitToUndistorted: H,
-    knots: method === "boundary_traced" || method === "boundary_manual" ? knots : null,
-    mask: maskPoly ? rasterizePolygon(maskPoly, raster.width, raster.height) : null,
+    knots: useFollow ? null : method === "boundary_traced" || method === "boundary_manual" ? knots : null,
+    mask: tightMask ?? (loosePoly ? rasterizePolygon(loosePoly, raster.width, raster.height) : null),
+    sampleCurves: useFollow ? interior.sample : null,
+    contentMask: tightMask,
+    pullToward: tightMask || useFollow ? pullToward : null,
   };
 }
 
@@ -246,6 +296,9 @@ function perspectivePlan(
     unitToUndistorted: unitH,
     knots: null,
     mask: null,
+    sampleCurves: null,
+    contentMask: null,
+    pullToward: null,
   };
 }
 
@@ -295,7 +348,17 @@ function copyPlan(
     unitToUndistorted: null,
     knots: null,
     mask: null,
+    sampleCurves: null,
+    contentMask: null,
+    pullToward: null,
   };
+}
+
+function maskUsable(mask: Uint8Array | null): boolean {
+  if (!mask || mask.length === 0) return false;
+  let n = 0;
+  for (let i = 0; i < mask.length; i += 1) n += mask[i];
+  return n > mask.length * 0.15;
 }
 
 function recipeOf(args: {
@@ -744,6 +807,143 @@ function radialIdentity(plan: RectifyPlan): RadialModel {
   return radialModel(plan.recipe.source.width, plan.recipe.source.height, 0, 0);
 }
 
+function gateOf(plan: RectifyPlan): Uint8Array | null {
+  return plan.contentMask ?? plan.mask ?? null;
+}
+
+function maskHit(mask: Uint8Array, width: number, height: number, x: number, y: number): boolean {
+  const ix = Math.round(x);
+  const iy = Math.round(y);
+  if (ix < 0 || iy < 0 || ix >= width || iy >= height) return false;
+  return mask[iy * width + ix] === 1;
+}
+
+/** Far enough inside the canvas that a bilinear tap does not read the wall. */
+function clearOfWall(mask: Uint8Array, width: number, height: number, x: number, y: number): boolean {
+  return (
+    maskHit(mask, width, height, x, y) &&
+    maskHit(mask, width, height, x - 0.75, y) &&
+    maskHit(mask, width, height, x + 0.75, y) &&
+    maskHit(mask, width, height, x, y - 0.75) &&
+    maskHit(mask, width, height, x, y + 0.75)
+  );
+}
+
+function pullInsideCanvas(
+  x: number,
+  y: number,
+  mask: Uint8Array | null,
+  width: number,
+  height: number,
+  toward: Point | null,
+): Point {
+  if (!mask || !toward) return [x, y];
+  if (clearOfWall(mask, width, height, x, y)) return [x, y];
+  const dx = toward[0] - x;
+  const dy = toward[1] - y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-3) return [x, y];
+  const ux = dx / len;
+  const uy = dy / len;
+  const limit = Math.min(len, Math.max(width, height));
+  for (let d = 0.6; d <= limit; d += 0.8) {
+    const px = x + ux * d;
+    const py = y + uy * d;
+    if (clearOfWall(mask, width, height, px, py)) return [px, py];
+  }
+  for (let d = 0.6; d <= limit; d += 0.8) {
+    const px = x + ux * d;
+    const py = y + uy * d;
+    if (maskHit(mask, width, height, px, py)) return [px + ux * 1.1, py + uy * 1.1];
+  }
+  return [x, y];
+}
+
+function bufferForUnit(plan: RectifyPlan, frame: FrameWindow, xi: number, eta: number): Point | null {
+  if (plan.sampleCurves) return coonsFromCurves(xi, eta, plan.sampleCurves);
+  const source = mapUnitToSource(plan, xi, eta);
+  if (!source) return null;
+  return sourceToBuffer(source, frame);
+}
+
+/**
+ * Fill destination rows from inside the canvas. A sample that lands on
+ * the wall, or on no coverage at all, is pulled to the detected edge
+ * instead of being left transparent. Transparent pixels are what the
+ * studio wall later paints as white triangles.
+ */
+export function paintMappedRows(
+  raster: Raster,
+  plan: RectifyPlan,
+  frame: FrameWindow,
+  dest: Uint8ClampedArray,
+  row0: number,
+  row1: number,
+): void {
+  const outW = plan.recipe.target.width;
+  const outH = plan.recipe.target.height;
+  const gate = gateOf(plan);
+  const inside = gate
+    ? (ix: number, iy: number) => ix >= 0 && iy >= 0 && ix < raster.width && iy < raster.height && gate[iy * raster.width + ix] === 1
+    : undefined;
+  const toward = plan.pullToward;
+  for (let row = row0; row < row1 && row < outH; row += 1) {
+    const eta = (row + 0.5) / outH;
+    for (let col = 0; col < outW; col += 1) {
+      let buf = bufferForUnit(plan, frame, (col + 0.5) / outW, eta);
+      if (!buf) continue;
+      buf = pullInsideCanvas(buf[0], buf[1], gate, raster.width, raster.height, toward);
+      let sample = sampleBilinear(raster, buf[0], buf[1], inside);
+      if ((!sample || sample.a < 16) && gate && toward) {
+        const dx = toward[0] - buf[0];
+        const dy = toward[1] - buf[1];
+        const len = Math.hypot(dx, dy) || 1;
+        sample = sampleBilinear(raster, buf[0] + (dx / len) * 1.6, buf[1] + (dy / len) * 1.6, inside);
+      }
+      if (!sample || sample.a < 16) continue;
+      const di = (row * outW + col) * 4;
+      dest[di] = clampByte(sample.r);
+      dest[di + 1] = clampByte(sample.g);
+      dest[di + 2] = clampByte(sample.b);
+      dest[di + 3] = sample.a >= 200 ? 255 : clampByte(sample.a);
+    }
+  }
+}
+
+/** Copy the nearest interior pixel into a destination hole. Does not invent wall white. */
+export function sealUncoveredArtwork(data: Uint8ClampedArray, width: number, height: number): void {
+  const cx = (width - 1) / 2;
+  const cy = (height - 1) / 2;
+  const holes: number[] = [];
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 16) holes.push((i - 3) >> 2);
+  }
+  if (holes.length === 0) return;
+  for (const idx of holes) {
+    const x = idx % width;
+    const y = (idx / width) | 0;
+    const dx = cx - x;
+    const dy = cy - y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.5) continue;
+    const ux = dx / len;
+    const uy = dy / len;
+    for (let d = 1; d <= len; d += 1) {
+      const sx = Math.round(x + ux * d);
+      const sy = Math.round(y + uy * d);
+      if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+      const si = (sy * width + sx) * 4;
+      if (data[si + 3] < 16) continue;
+      const di = idx * 4;
+      data[di] = data[si];
+      data[di + 1] = data[si + 1];
+      data[di + 2] = data[si + 2];
+      data[di + 3] = 255;
+      break;
+    }
+  }
+}
+
 export function renderRectified(raster: Raster, plan: RectifyPlan, frame: FrameWindow): Raster {
   if (plan.kind === "copy" && plan.copyRect) {
     const { x, y, w, h } = plan.copyRect;
@@ -765,25 +965,8 @@ export function renderRectified(raster: Raster, plan: RectifyPlan, frame: FrameW
   const outW = plan.recipe.target.width;
   const outH = plan.recipe.target.height;
   const data = new Uint8ClampedArray(outW * outH * 4);
-  const inside = plan.mask
-    ? (ix: number, iy: number) => plan.mask![iy * raster.width + ix] === 1
-    : undefined;
-  for (let row = 0; row < outH; row += 1) {
-    for (let col = 0; col < outW; col += 1) {
-      const xi = (col + 0.5) / outW;
-      const eta = (row + 0.5) / outH;
-      const source = mapUnitToSource(plan, xi, eta);
-      if (!source) continue;
-      const buf = sourceToBuffer(source, frame);
-      const sample = sampleBilinear(raster, buf[0], buf[1], inside);
-      if (!sample) continue;
-      const di = (row * outW + col) * 4;
-      data[di] = clampByte(sample.r);
-      data[di + 1] = clampByte(sample.g);
-      data[di + 2] = clampByte(sample.b);
-      data[di + 3] = clampByte(sample.a);
-    }
-  }
+  paintMappedRows(raster, plan, frame, data, 0, outH);
+  sealUncoveredArtwork(data, outW, outH);
   return { data, width: outW, height: outH };
 }
 

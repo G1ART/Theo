@@ -12,9 +12,9 @@
  * (`homography.ts`, `rectifyArtwork.ts`). opencv.js is not loaded.
  * Sol still supplies the four corners. This engine does not replace
  * that detector. A straight quad is a homography. A bowed edge is a
- * residual radial model, or a traced boundary when the corners sit
- * outside the canvas and one shared k1 cannot explain the gap.
- * The rectangle path does not repaint inward by wall color.
+ * residual radial model when one coefficient explains it, otherwise
+ * the curve traced between those corners. Samples come from inside
+ * the canvas. The rectangle path does not repaint inward by wall color.
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";

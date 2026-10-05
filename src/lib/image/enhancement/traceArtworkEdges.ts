@@ -15,6 +15,11 @@ export type TracedPoint = {
   x: number;
   y: number;
   offsetPx: number;
+  /**
+   * Gradient peak before the endpoint pin. Null at the confirmed
+   * corners and on stations skipped as thread fringe.
+   */
+  rawOffset: number | null;
   weight: number;
   observed: boolean;
   heldOut: boolean;
@@ -75,8 +80,11 @@ export function traceArtworkEdges(
   corners: [Point, Point, Point, Point],
 ): ArtworkTrace {
   const short = Math.min(width, height);
-  const band = clamp(Math.round(short * 0.08), 10, 72);
-  const outward = Math.max(4, Math.round(band * 0.35));
+  // Deep enough for a bowed edge whose middle sits well inside the
+  // corner chord. The outermost gradient still wins, so a longer
+  // search does not lock onto an interior stroke.
+  const band = clamp(Math.round(short * 0.14), 14, 120);
+  const outward = Math.max(12, Math.round(band * 0.4));
   const centroid: Point = [
     (corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) / 4,
     (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4,
@@ -246,11 +254,13 @@ function traceEdge(
       observed += 1;
       offsetsUsed.push(o);
     }
+    const measured = i > 0 && i < STATIONS - 1 ? outerAt[i] : null;
     points.push({
       t,
       x: a[0] + dx * t + nx * o,
       y: a[1] + dy * t + ny * o,
       offsetPx: o,
+      rawOffset: measured,
       weight: seen && inBand ? 1 : 0,
       observed: seen,
       heldOut: i % 4 === 3 && i !== STATIONS - 1,

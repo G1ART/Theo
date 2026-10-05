@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-05
 
+## 2026-10-05 — 휜 변 사이의 벽색이 작품 가장자리에 남지 않게 한다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**
+
+gpt-5.6-sol 네 모서리 검출은 그대로다. `reasoning_effort`도 medium 그대로다.
+
+- `geometry-radial-v1` 이후 벽이 들어오는 횟수는 줄었다. 대신 한 계수로 설명이 안 되면 손상이 더 커졌다. 모서리를 직선으로 잇는 호모그래피는 안으로 휜 변의 한가운데에 벽을 넣는다. 핸들이 흰 벽 위에 있으면 목적지 모서리가 캔버스를 덮지 못하고, 그 칸은 알파가 빈다. 빈 칸은 뒤의 스튜디오 벽 `#f3f3f3`가 채워서 흰 삼각형이 된다.
+- 줄무늬·먹 그림의 아래 변이 그 심한 경우다. 아래 변이 더 깊게 휘고, 왼쪽 아래와 오른쪽 아래에 흰 이빨과 모서리 삼각형이 남았다. 작품 끝이 직선으로 잘리지 않았다.
+- 확정 모서리는 끝점으로 둔다. 그 사이는 검출된 곡선이다. 한 방사 계수가 변을 설명하면 그 모델을 유지한다. 그렇지 않거나 핸들이 벽 위에 있으면, 출력 사각형의 각 픽셀은 그 곡선 안쪽에서 온다. 바깥 픽셀이 벽색이면 샘플을 변 안쪽으로 일정하게 넣는다. 데클의 이빨 사이 벽은 곡선 밖에 둔다. 행마다 벽색을 안으로 칠하던 `paintBorderWall`은 쓰지 않는다. 덮이지 않은 칸은 투명으로 두지 않는다.
+- 색 보정 뒤의 `#f3f3f3` 여백과 스튜디오 그림자는 작품 밖에 그대로다. 비정형 Photoroom은 실루엣이다. 원형은 직사각형이 되지 않는다. 새 마법사 단계는 없다. 모서리를 확인하면 이 결과다.
+- 엔진 이름은 `geometry-radial-v1` 그대로다. `enhancement_meta` 스키마는 그대로고 컬럼 마이그레이션은 없다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx src/lib/image/enhancement/__tests__/bowedEdge.test.ts` (안으로 휜 변, 아래 변이 더 깊고 모서리 핸들이 벽 위. 출력에 벽색 없음, 네 모서리 흰 삼각형 없음, 곧은 변의 표시 줄은 흔들리지 않음). `curvature.test.ts`, `boundaryPreservation.test.ts`, `geometry.test.ts`, `geometryReplay.test.ts`, `keystoneRegression.test.ts`. `npx tsx tests/wall-matte.test.ts`, `tests/studio-presentation.test.ts`, `tests/photoroom-matte-rectify.test.ts`. 로그인된 보정 창에서 줄무늬 원본을 다시 확인하는 클릭은 하지 못했다.
+
 ## 2026-10-05 — 메일이 나가지 않은 초대는 다시 보낼 수 있다
 
 > **Supabase SQL:** `supabase/migrations/20261005190000_invite_email_resend.sql` 을 프로덕션 `sgufonscldvdwfgzltfw` 에 반영함. 다시 붙이지 않아도 된다. 다른 환경이면 SQL Editor에서 섹션 단위로 실행. **환경 변수 이름·의미 변경 없음.** 초대 메일은 기존 `SENDGRID_API_KEY`, `INVITE_FROM_EMAIL` 이 있어야 나간다. 이번 건은 그 키가 비어서가 아니다.
