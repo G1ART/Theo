@@ -161,7 +161,7 @@ function ArtistCard({
 
 function WorkTrio({ works, mode }: { works: WalkWorkView[]; mode: "gallery" | "credits" }) {
   return (
-    <div className="grid grid-cols-3 gap-3 sm:gap-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-4">
       {works.slice(0, 3).map((work) =>
         mode === "gallery" ? <GalleryTile key={work.id} work={work} /> : <CreditTile key={work.id} work={work} />
       )}

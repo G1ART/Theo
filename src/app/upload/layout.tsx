@@ -115,7 +115,7 @@ export default function UploadLayout({
                 ?
               </button>
               {bulkHelp && (
-                <div className="absolute left-[58%] top-7 z-20 w-64 rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs leading-relaxed text-zinc-600 shadow-sm">
+                <div className="absolute right-0 top-7 z-20 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs leading-relaxed text-zinc-600 shadow-sm">
                   <p>{t("bulk.dropLine1")}</p>
                   <p className="mt-1">
                     {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}

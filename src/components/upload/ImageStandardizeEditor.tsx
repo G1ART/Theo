@@ -2505,12 +2505,12 @@ export function ImageStandardizeEditor({
                 <div
                   className={
                     inEnhanceDialog
-                      ? "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(220px,300px)] grid-rows-[auto_auto_auto_auto_minmax(0,1fr)] gap-x-4 gap-y-2 overflow-hidden"
+                      ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto md:grid md:grid-cols-[minmax(0,1fr)_minmax(220px,300px)] md:grid-rows-[auto_auto_auto_auto_minmax(0,1fr)] md:gap-x-4 md:gap-y-2 md:overflow-hidden"
                       : "space-y-3"
                   }
                 >
                   {/* Chip strip — auto-seed provenance */}
-                  <div className={`flex flex-wrap items-center gap-2 text-[11px] ${inEnhanceDialog ? "col-start-2 row-start-1" : ""}`}>
+                  <div className={`flex flex-wrap items-center gap-2 text-[11px] ${inEnhanceDialog ? "shrink-0 md:col-start-2 md:row-start-1" : ""}`}>
                     <span
                       className={`rounded-full border px-2.5 py-1 ${
                         visionStatus === "ok"
@@ -2528,7 +2528,7 @@ export function ImageStandardizeEditor({
                     </span>
                   </div>
 
-                  <div className={`flex flex-wrap gap-1.5 ${inEnhanceDialog ? "col-start-2 row-start-2" : ""}`}>
+                  <div className={`flex flex-wrap gap-1.5 ${inEnhanceDialog ? "shrink-0 md:col-start-2 md:row-start-2" : ""}`}>
                     <button
                       type="button"
                       onClick={() => setBoundaryMode("quad")}
@@ -2556,7 +2556,7 @@ export function ImageStandardizeEditor({
                   <div
                     className={
                       inEnhanceDialog
-                        ? "relative col-start-1 row-start-1 row-span-5 min-h-0 min-w-0"
+                        ? "relative order-first min-h-64 w-full min-w-0 flex-1 md:order-none md:col-start-1 md:row-start-1 md:row-span-5 md:min-h-0"
                         : ""
                     }
                   >
@@ -2697,7 +2697,7 @@ export function ImageStandardizeEditor({
                   </div>
                   </div>
 
-                  <div className={inEnhanceDialog ? "col-start-2 row-start-3 space-y-2" : "space-y-3"}>
+                  <div className={inEnhanceDialog ? "shrink-0 space-y-2 md:col-start-2 md:row-start-3" : "space-y-3"}>
                   {/* Hint */}
                   {boundaryMode === "quad" && detectingArtwork && (
                     <p className="text-[11px] leading-relaxed text-zinc-500" aria-live="polite">
@@ -2723,7 +2723,7 @@ export function ImageStandardizeEditor({
                   </div>
 
                   {/* Actions */}
-                  <div className={`flex flex-wrap items-center justify-between gap-2 text-xs ${inEnhanceDialog ? "col-start-2 row-start-4" : ""}`}>
+                  <div className={`flex flex-wrap items-center justify-between gap-2 text-xs ${inEnhanceDialog ? "shrink-0 md:col-start-2 md:row-start-4" : ""}`}>
                     <div className="flex items-center gap-2">
                       {perspectiveUserAdjusted && !perspectiveSkipped && (
                         <button
@@ -2784,7 +2784,7 @@ export function ImageStandardizeEditor({
                     onToggle={(e) =>
                       setPerspectiveAdvancedOpen((e.target as HTMLDetailsElement).open)
                     }
-                    className={`rounded-lg border border-zinc-200 bg-white ${inEnhanceDialog ? "col-start-2 row-start-5 max-h-full min-h-0 self-start overflow-y-auto" : ""}`}
+                    className={`rounded-lg border border-zinc-200 bg-white ${inEnhanceDialog ? "max-h-52 shrink-0 overflow-y-auto md:col-start-2 md:row-start-5 md:max-h-full md:min-h-0 md:self-start" : ""}`}
                   >
                     <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50">
                       {t("imageEnhance.wizard.advancedPerspectiveTitle")}
@@ -2980,11 +2980,11 @@ export function ImageStandardizeEditor({
                 <div
                   className={
                     inEnhanceDialog
-                      ? "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(240px,320px)] gap-4 overflow-hidden"
+                      ? "flex min-h-0 flex-1 flex-col gap-2 overflow-hidden md:grid md:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] md:gap-4"
                       : "space-y-3"
                   }
                 >
-                  <div className={inEnhanceDialog ? "relative min-h-0 min-w-0" : ""}>
+                  <div className={inEnhanceDialog ? "relative min-h-64 min-w-0 flex-1 md:min-h-0" : ""}>
                   {/* Never fall back to the original studio photo once
                       corners are confirmed. */}
                   {enhancePreview ? (
@@ -3022,7 +3022,7 @@ export function ImageStandardizeEditor({
                   )}
                   </div>
 
-                  <div className={inEnhanceDialog ? "flex min-h-0 flex-col gap-2 overflow-y-auto" : "space-y-3"}>
+                  <div className={inEnhanceDialog ? "flex max-h-[42%] min-h-0 shrink-0 flex-col gap-2 overflow-y-auto md:max-h-none md:shrink" : "space-y-3"}>
                   {/* Auto-detect status chips */}
                   {enhancePreview && autoWarpFired && (
                     <p className="text-[11px] text-zinc-500">

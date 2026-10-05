@@ -244,7 +244,8 @@ export function BulkDraftCard({
         selected ? "border-zinc-400" : "border-zinc-300"
       }`}
     >
-      <div className="flex gap-3">
+      <div className="flex flex-col gap-3 md:flex-row">
+        <div className="flex shrink-0 gap-3">
         <button
           type="button"
           role="checkbox"
@@ -335,6 +336,7 @@ export function BulkDraftCard({
             </span>
           </button>
         </div>
+        </div>
 
         <div className="min-w-0 flex-1">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.15fr)_5.25rem_minmax(0,1.35fr)]">
@@ -415,7 +417,7 @@ export function BulkDraftCard({
                   {t("bulk.sizeNotApplicable")}
                 </button>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex min-w-0 items-center gap-1">
                 <input
                   value={height}
                   disabled={sizeNa}
@@ -424,7 +426,7 @@ export function BulkDraftCard({
                   aria-label={t("bulk.dimHeight")}
                   onChange={(e) => setHeight(e.target.value)}
                   onBlur={() => commitSize({ h: height })}
-                  className={`${field} w-[4.5rem] disabled:bg-zinc-50`}
+                  className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50 md:w-[4.5rem] md:flex-none"
                 />
                 <span className="text-xs text-zinc-400">×</span>
                 <input
@@ -435,7 +437,7 @@ export function BulkDraftCard({
                   aria-label={t("bulk.dimWidth")}
                   onChange={(e) => setWidth(e.target.value)}
                   onBlur={() => commitSize({ w: width })}
-                  className={`${field} w-[4.5rem] disabled:bg-zinc-50`}
+                  className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50 md:w-[4.5rem] md:flex-none"
                 />
                 <span className="text-xs text-zinc-400">×</span>
                 <input
@@ -446,7 +448,7 @@ export function BulkDraftCard({
                   aria-label={t("bulk.dimDepth")}
                   onChange={(e) => setDepth(e.target.value)}
                   onBlur={() => commitSize({ d: depth })}
-                  className={`${field} w-[4.5rem] disabled:bg-zinc-50`}
+                  className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50 md:w-[4.5rem] md:flex-none"
                 />
               </div>
               {draft.size && !readDims(draft.size).w && (
@@ -519,7 +521,7 @@ export function BulkDraftCard({
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <label className={label}>
                 {t("upload.tabExhibitionShort")}
                 <select
