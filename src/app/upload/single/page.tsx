@@ -13,7 +13,12 @@ import {
   type ArtworkImageViewType,
   type CreateArtworkPayload,
 } from "@/lib/supabase/artworks";
-import { resolveUploadedArtworkArtist } from "@/lib/upload/artworkOwner";
+import { planOnboardedArtistPublish, resolveUploadedArtworkArtist } from "@/lib/upload/artworkOwner";
+import {
+  artistProfilePath,
+  resolveArtistPublishNotice,
+  writeArtistPublishNotice,
+} from "@/lib/upload/artistPublishNotice";
 import { removeStorageFile, uploadArtworkImage } from "@/lib/supabase/storage";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import {
@@ -489,6 +494,14 @@ function UploadPageContent() {
       actingAsProfileId,
       selectedArtistId: selectedOnboardedId,
     });
+    const artistPlan = selectedOnboardedId
+      ? planOnboardedArtistPublish({
+          sessionUserId: userId,
+          actingAsProfileId,
+          selectedArtistId: selectedOnboardedId,
+          intent,
+        })
+      : null;
     // Insert under the account that can attach images (self, or the
     // principal a delegate is acting for). The chosen artist becomes
     // artist_id after the claim and files exist.
@@ -567,10 +580,14 @@ function UploadPageContent() {
         // above) and the claim's artist_profile_id must point to them.
         // Without this, the claim's artist link pointed at the operator and
         // the artwork de-facto belonged to the wrong profile.
-        const artistProfileId =
-          intent === "CREATED"
+        const artistProfileId = artistPlan
+          ? artistPlan.listerClaim.artistProfileId
+          : intent === "CREATED"
             ? actingAsProfileId ?? userId
             : selectedArtist!.id;
+        const filedClaimType: ClaimType = artistPlan
+          ? artistPlan.listerClaim.claimType
+          : claimType;
         // QA 2026-06-26 (#8) — file the claim work-scoped only.
         // Passing both workId and projectId hits the DB invariant
         // `exactly one of work_id, project_id required` and the entire
@@ -579,11 +596,13 @@ function UploadPageContent() {
         // external-artist branch above.
         const { error: claimErr } = await createClaimForExistingArtist({
           artistProfileId,
-          claimType,
+          claimType: filedClaimType,
           workId: artworkId,
           visibility: "public",
           ...claimPayload,
-          subjectProfileId: actingAsProfileId ?? undefined,
+          subjectProfileId: artistPlan
+            ? artistPlan.listerClaim.subjectProfileId
+            : actingAsProfileId ?? undefined,
         });
         if (claimErr) {
           await deleteArtwork(artworkId);
@@ -668,8 +687,9 @@ function UploadPageContent() {
         }
       }
 
-      if (owner.artistId !== holderId) {
-        const { error: ownerErr } = await assignArtworkArtist(artworkId, owner.artistId);
+      const ownerId = artistPlan?.artistId ?? owner.artistId;
+      if (ownerId !== holderId) {
+        const { error: ownerErr } = await assignArtworkArtist(artworkId, ownerId);
         if (ownerErr) {
           await rollback();
           logSupabaseError("assignArtworkArtist", ownerErr);
@@ -691,9 +711,20 @@ function UploadPageContent() {
         }
       }
 
-      // Redirect target. When acting-as, route to the principal's public
-      // profile so the operator visually confirms the new work surfaces on
-      // the right account; otherwise route to the operator's own profile.
+      // Another artist's work opens on that artist's 내 작품 tab.
+      // Own-work uploads still open the uploader's profile.
+      const artistNotice = artistPlan
+        ? await resolveArtistPublishNotice({
+            artistId: artistPlan.artistId,
+            artistName: selectedArtist
+              ? formatDisplayName(selectedArtist, t, locale)
+              : null,
+            artistUsername: selectedArtist?.username ?? null,
+          })
+        : null;
+      if (artistNotice) writeArtistPublishNotice(artistNotice);
+      const artistPath = artistProfilePath(artistNotice?.artistUsername);
+
       const { getMyProfile, getProfileById } = await import("@/lib/supabase/profiles");
       const { data: profile } = actingAsProfileId
         ? await getProfileById(actingAsProfileId)
@@ -712,7 +743,7 @@ function UploadPageContent() {
             return `/my/exhibitions/${addToExhibitionId.trim()}/add${suffix}`;
           })()
         : null;
-      if (exhibitionReturnUrl && typeof window !== "undefined") {
+      if (exhibitionReturnUrl && !artistNotice && typeof window !== "undefined") {
         try {
           window.sessionStorage.setItem(
             "exhibitionAddReturnToast",
@@ -722,27 +753,27 @@ function UploadPageContent() {
           // sessionStorage disabled (Safari private mode etc.) — silent.
         }
       }
-      if (inviteKind) {
-        setInviteToast(inviteKind);
-        setTimeout(() => {
-          if (exhibitionReturnUrl) {
-            router.push(exhibitionReturnUrl);
-          } else if (username) {
-            router.push(`/u/${username}`);
-          } else {
-            setArtworkBack("/upload");
-            router.push(`/artwork/${artworkId}`);
-          }
-        }, 2000);
-      } else {
+      const go = () => {
         if (exhibitionReturnUrl) {
           router.push(exhibitionReturnUrl);
-        } else if (username) {
-          router.push(`/u/${username}`);
-        } else {
-          setArtworkBack("/upload");
-          router.push(`/artwork/${artworkId}`);
+          return;
         }
+        if (artistPath) {
+          router.push(artistPath);
+          return;
+        }
+        if (username) {
+          router.push(`/u/${username}`);
+          return;
+        }
+        setArtworkBack("/upload");
+        router.push(`/artwork/${artworkId}`);
+      };
+      if (inviteKind) {
+        setInviteToast(inviteKind);
+        setTimeout(go, 2000);
+      } else {
+        go();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("common.unknownError"));

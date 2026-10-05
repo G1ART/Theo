@@ -19,6 +19,12 @@ import {
   getArtworkImageUrl,
   type ArtworkWithLikes,
 } from "@/lib/supabase/artworks";
+import { PUBLIC_PROFILE_ARTWORK_LIMIT } from "@/lib/artworks/publicProfileQuery";
+import {
+  peekArtistPublishNotice,
+  dismissArtistPublishNotice,
+  type ArtistPublishNotice,
+} from "@/lib/upload/artistPublishNotice";
 import { getMyProfile } from "@/lib/supabase/me";
 import { searchPeople } from "@/lib/supabase/artists";
 import { logSupabaseError } from "@/lib/supabase/errors";
@@ -159,6 +165,7 @@ export default function AddWorkToExhibitionPage() {
   const [participantsError, setParticipantsError] = useState<string | null>(null);
   const [participantRemoveToast, setParticipantRemoveToast] = useState<string | null>(null);
   const [landingToast, setLandingToast] = useState<string | null>(null);
+  const [artistNotice, setArtistNotice] = useState<ArtistPublishNotice | null>(null);
   const externalPrimaryLang: "ko" | "en" = locale === "ko" ? "ko" : "en";
 
   // 작품 검색 (제목/설명/매체/키워드 기반 텍스트 검색; 자연어 검색의 1차 버전)
@@ -288,6 +295,10 @@ export default function AddWorkToExhibitionPage() {
     if (key === "bulk.doneReturnToExhibition") {
       setLandingToast(t("exhibition.participants.bulkDoneReturnToast"));
     }
+    const notice = peekArtistPublishNotice();
+    if (notice) setArtistNotice(notice);
+    const clearNotice = window.setTimeout(() => dismissArtistPublishNotice(), 0);
+    return () => window.clearTimeout(clearNotice);
   }, [t]);
 
   useEffect(() => {
@@ -601,7 +612,7 @@ export default function AddWorkToExhibitionPage() {
 
     if (participants.length > 0) {
       const results = await Promise.all(
-        participants.map((p) => listPublicArtworksByArtistId(p.id, { limit: null }))
+        participants.map((p) => listPublicArtworksByArtistId(p.id, { limit: PUBLIC_PROFILE_ARTWORK_LIMIT }))
       );
       const byId = new Map<string, ArtworkWithLikes>();
       for (const res of results) {
@@ -636,7 +647,7 @@ export default function AddWorkToExhibitionPage() {
         forProfileId: actingAsProfileId ?? null,
       }),
       profileId
-        ? listPublicArtworksListedByProfileId(profileId, { limit: null })
+        ? listPublicArtworksListedByProfileId(profileId, { limit: PUBLIC_PROFILE_ARTWORK_LIMIT })
         : { data: [] as ArtworkWithLikes[], error: null },
     ]);
     const myList = myRes.data ?? [];
@@ -972,6 +983,31 @@ export default function AddWorkToExhibitionPage() {
         </div>
 
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+        {artistNotice && (
+          <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded bg-zinc-900 px-3 py-2 text-xs text-white">
+            <p>
+              {t("upload.publishedForArtist").replace("{name}", artistNotice.artistName)}
+              {artistNotice.artistUsername ? (
+                <>
+                  {" "}
+                  <Link href={`/u/${artistNotice.artistUsername}?tab=CREATED`} className="underline">
+                    @{artistNotice.artistUsername}
+                  </Link>
+                </>
+              ) : null}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                dismissArtistPublishNotice();
+                setArtistNotice(null);
+              }}
+              className="shrink-0 underline"
+            >
+              {t("common.close")}
+            </button>
+          </div>
+        )}
         {landingToast && (
           <div role="status" className="mb-4 rounded bg-zinc-900 px-3 py-1.5 text-xs text-white">
             {landingToast}

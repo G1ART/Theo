@@ -9,6 +9,7 @@ import {
   getProfileArtworkOrders,
   applyProfileOrdering,
 } from "@/lib/supabase/artworks";
+import { PUBLIC_PROFILE_ARTWORK_LIMIT } from "@/lib/artworks/publicProfileQuery";
 import {
   listExhibitionsForProfile,
   getProfileExhibitionOrders,
@@ -71,8 +72,8 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     { data: artworksAsLister },
     { data: exhibitions },
   ] = await Promise.all([
-    listPublicArtworksByArtistId(p.id, { limit: null }),
-    listPublicArtworksListedByProfileId(p.id, { limit: null }),
+    listPublicArtworksByArtistId(p.id, { limit: PUBLIC_PROFILE_ARTWORK_LIMIT }),
+    listPublicArtworksListedByProfileId(p.id, { limit: PUBLIC_PROFILE_ARTWORK_LIMIT }),
     listExhibitionsForProfile(p.id),
   ]);
 

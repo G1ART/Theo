@@ -36,6 +36,10 @@ import { getMyProfile } from "@/lib/supabase/profiles";
 import type { ProfilePublic } from "@/lib/supabase/profiles";
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
 import { canEditArtwork, getArtworkImageUrl, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import {
+  dismissArtistPublishNotice,
+  peekArtistPublishNotice,
+} from "@/lib/upload/artistPublishNotice";
 import { getExhibitionHostCuratorLabel, type ExhibitionWithCredits } from "@/lib/exhibitionCredits";
 import {
   updateMyProfileExhibitionOrder,
@@ -118,6 +122,7 @@ export function UserProfileContent({
   const pathname = usePathname();
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [showUpdatedBanner, setShowUpdatedBanner] = useState(false);
+  const [artistPublishLine, setArtistPublishLine] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
   // "Session resolved" latch so the anonymous Statement/CV gate never
@@ -622,6 +627,19 @@ export function UserProfileContent({
     }
   }, [roleTab, showRoleTabs, active]);
 
+  useEffect(() => {
+    const notice = peekArtistPublishNotice();
+    if (!notice || notice.artistId !== profile.id) return;
+    setArtistPublishLine(
+      t("upload.publishedForArtist").replace("{name}", notice.artistName),
+    );
+    const clearNotice = window.setTimeout(
+      () => dismissArtistPublishNotice(profile.id),
+      0,
+    );
+    return () => window.clearTimeout(clearNotice);
+  }, [profile.id, t]);
+
   const worksHeading = useMemo(() => {
     if (isExhibitionsView) return t("exhibition.myExhibitions");
     if (active.kind === "custom") {
@@ -635,6 +653,21 @@ export function UserProfileContent({
     <>
       <ProfileViewTracker profileId={profile.id} />
       <PageShell variant="default">
+        {artistPublishLine && (
+          <div
+            role="status"
+            className="mb-4 flex items-start justify-between gap-3 rounded bg-zinc-900 px-4 py-2 text-sm text-white"
+          >
+            <p>{artistPublishLine}</p>
+            <button
+              type="button"
+              onClick={() => setArtistPublishLine(null)}
+              className="shrink-0 text-xs underline"
+            >
+              {t("common.close")}
+            </button>
+          </div>
+        )}
         {showUpdatedBanner && (
         <div
           role="status"

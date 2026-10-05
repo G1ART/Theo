@@ -51,6 +51,7 @@ import {
   getProfileArtworkOrders,
   applyProfileOrdering,
 } from "@/lib/supabase/artworks";
+import { PUBLIC_PROFILE_ARTWORK_LIMIT } from "@/lib/artworks/publicProfileQuery";
 import {
   listExhibitionsForProfile,
   getProfileExhibitionOrders,
@@ -112,8 +113,8 @@ export function PrivateProfileShell({
           { data: artworksAsLister },
           { data: exhibitionsRaw },
         ] = await Promise.all([
-          listPublicArtworksByArtistId(me.id, { limit: null }),
-          listPublicArtworksListedByProfileId(me.id, { limit: null }),
+          listPublicArtworksByArtistId(me.id, { limit: PUBLIC_PROFILE_ARTWORK_LIMIT }),
+          listPublicArtworksListedByProfileId(me.id, { limit: PUBLIC_PROFILE_ARTWORK_LIMIT }),
           listExhibitionsForProfile(me.id),
         ]);
         if (cancelled) return;

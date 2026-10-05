@@ -25,6 +25,52 @@ export function resolveUploadedArtworkArtist(input: {
   return { artistId: acting || createdBy, createdBy };
 }
 
+export type ListerClaimType = "OWNS" | "INVENTORY" | "CURATED";
+
+/**
+ * Rows written when a gallery publishes an onboarded artist's work.
+ *
+ * `artist_id` is the artist. That is what 내 작품 reads. `created_by` stays
+ * the uploading session. The lister claim (curator / gallery / owns) is the
+ * uploader's relationship, not a CREATED claim that means "I clicked upload".
+ * Returns null when the chosen person is the account the upload is for.
+ */
+export type OnboardedArtistPublishPlan = {
+  artistId: string;
+  createdBy: string;
+  listerClaim: {
+    claimType: ListerClaimType;
+    subjectProfileId: string;
+    artistProfileId: string;
+  };
+};
+
+export function planOnboardedArtistPublish(input: {
+  sessionUserId: string;
+  actingAsProfileId?: string | null;
+  selectedArtistId: string;
+  intent: "CREATED" | ListerClaimType | null;
+}): OnboardedArtistPublishPlan | null {
+  const selected = input.selectedArtistId.trim();
+  const createdBy = input.sessionUserId.trim();
+  if (!selected || !createdBy) return null;
+  const subject = input.actingAsProfileId?.trim() || createdBy;
+  if (selected === subject) return null;
+  const claimType: ListerClaimType =
+    input.intent === "OWNS" || input.intent === "INVENTORY" || input.intent === "CURATED"
+      ? input.intent
+      : "CURATED";
+  return {
+    artistId: selected,
+    createdBy,
+    listerClaim: {
+      claimType,
+      subjectProfileId: subject,
+      artistProfileId: selected,
+    },
+  };
+}
+
 type HeaderPerson = { id?: string | null };
 
 /**

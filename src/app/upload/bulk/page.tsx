@@ -26,7 +26,12 @@ import {
   type ArtworkWithLikes,
   type UpdateArtworkPayload,
 } from "@/lib/supabase/artworks";
-import { rememberedArtistId } from "@/lib/upload/artworkOwner";
+import { planOnboardedArtistPublish, rememberedArtistId } from "@/lib/upload/artworkOwner";
+import {
+  artistProfilePath,
+  resolveArtistPublishNotice,
+  writeArtistPublishNotice,
+} from "@/lib/upload/artistPublishNotice";
 import { logBetaEvent } from "@/lib/beta/logEvent";
 import { getSession } from "@/lib/supabase/auth";
 import { cleanupFailedAttach } from "@/lib/supabase/artworkStorageCleanup";
@@ -542,7 +547,7 @@ export default function BulkUploadPage() {
   }
 
   async function persistArtistOnDrafts(ids: string[], artistId: string, claimIntent: IntentType | null) {
-    if (ids.length === 0 || !artistId) return;
+    if (ids.length === 0 || !artistId) return false;
     const claimType = attributionClaimType(claimIntent);
     const { error } = await rememberDraftArtistAttribution(ids, {
       artistProfileId: artistId,
@@ -550,8 +555,29 @@ export default function BulkUploadPage() {
       period_status: claimType === "OWNS" ? null : periodStatusRef.current,
       subjectProfileId: actingAsRef.current,
     });
-    if (error) logSupabaseError("rememberDraftArtistAttribution", error);
+    if (error) {
+      logSupabaseError("rememberDraftArtistAttribution", error);
+      return false;
+    }
+    return true;
   }
+
+  const attributionPersistKey = useRef("");
+  useEffect(() => {
+    const artist = selectedArtist;
+    if (!artist || useExternalArtist || !intent || intent === "CREATED") {
+      attributionPersistKey.current = "";
+      return;
+    }
+    const ids = drafts.map((d) => d.id);
+    if (ids.length === 0) return;
+    const key = `${artist.id}:${intent}:${ids.join(",")}`;
+    if (attributionPersistKey.current === key) return;
+    attributionPersistKey.current = key;
+    void persistArtistOnDrafts(ids, artist.id, intent).then((ok) => {
+      if (!ok) attributionPersistKey.current = "";
+    });
+  }, [drafts, selectedArtist, intent, useExternalArtist]);
 
   function addPendingFiles(files: FileList | null) {
     addIncomingFiles(files);
@@ -1284,6 +1310,15 @@ export default function BulkUploadPage() {
         ? null
         : rememberedArtistId(toPublish, uploaderIds);
       const artistForPublish = selectedArtist?.id ?? remembered;
+      const plan =
+        !useExternalArtist && artistForPublish
+          ? planOnboardedArtistPublish({
+              sessionUserId: session?.user?.id ?? "",
+              actingAsProfileId,
+              selectedArtistId: artistForPublish,
+              intent,
+            })
+          : null;
       // Per-work successes that should be linked to the exhibition + counted
       // toward "today's salon" refresh. Failures stay as drafts so the user
       // can fix and retry exactly the failed entries.
@@ -1291,7 +1326,7 @@ export default function BulkUploadPage() {
       let failedCount = 0;
       let firstFailureReason: string | null = null;
 
-      if ((intent && needsAttribution) || (artistForPublish && !uploaderIds.includes(artistForPublish) && !useExternalArtist)) {
+      if ((intent && needsAttribution) || plan) {
         let resolvedExternalArtistId = useExternalArtist
           ? preselectedExternalArtistId
           : null;
@@ -1310,11 +1345,14 @@ export default function BulkUploadPage() {
           }
           resolvedExternalArtistId = extId;
         }
-        const publishIntent: IntentType =
-          intent && intent !== "CREATED" ? intent : attributionClaimType(intent);
+        const publishIntent: IntentType = plan
+          ? plan.listerClaim.claimType
+          : intent && intent !== "CREATED"
+            ? intent
+            : attributionClaimType(intent);
         const opts: Parameters<typeof publishArtworksWithProvenance>[1] = {
           intent: publishIntent,
-          artistProfileId: useExternalArtist ? null : artistForPublish,
+          artistProfileId: useExternalArtist ? null : (plan?.artistId ?? artistForPublish),
           externalArtistDisplayName: useExternalArtist ? externalArtistName.trim() : null,
           // QA 2026-07-28 (240005) — forward KO/EN slots so the RPC persists
           // the bilingual pair on the external_artists row and the signup
@@ -1435,15 +1473,26 @@ export default function BulkUploadPage() {
           await fetchDrafts({ silent: true });
           return;
         }
-        // All published — mirror single-upload navigation instead of
-        // stranding the user on the draft table / add page (QA 2026-07-01).
-        //
+        // All published. A work for another artist lands on that artist's
+        // profile (내 작품), not in the uploader's draft list.
+        const notice = plan
+          ? await resolveArtistPublishNotice({
+              artistId: plan.artistId,
+              artistName:
+                selectedArtist?.id === plan.artistId
+                  ? formatDisplayName(selectedArtist, t, locale)
+                  : null,
+              artistUsername:
+                selectedArtist?.id === plan.artistId ? selectedArtist.username : null,
+            })
+          : null;
+        if (notice) writeArtistPublishNotice(notice);
+
         // QA 2026-07-28: exhibition-context bulk upload now returns to
         // the /add page (not the detail page) so the curator can keep
         // adding participants/works without hunting for the "관리" link.
-        // A sessionStorage flag lets /add surface a quiet toast.
         if (addToExhibitionId) {
-          if (typeof window !== "undefined") {
+          if (!notice && typeof window !== "undefined") {
             try {
               window.sessionStorage.setItem(
                 "exhibitionAddReturnToast",
@@ -1457,6 +1506,18 @@ export default function BulkUploadPage() {
           if (preservedFromBoard) qs.set("fromBoard", preservedFromBoard);
           const suffix = qs.toString() ? `?${qs.toString()}` : "";
           router.push(`/my/exhibitions/${addToExhibitionId}/add${suffix}`);
+          return;
+        }
+        const artistPath = artistProfilePath(notice?.artistUsername);
+        if (artistPath) {
+          router.push(artistPath);
+          return;
+        }
+        if (notice) {
+          setToast(t("upload.publishedForArtist").replace("{name}", notice.artistName));
+          setTimeout(() => setToast(null), 8000);
+          setSelected(new Set());
+          await fetchDrafts({ silent: true });
           return;
         }
         const { getMyProfile, getProfileById } = await import("@/lib/supabase/profiles");

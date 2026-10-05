@@ -1228,6 +1228,7 @@ export const messages = {
     "upload.externalArtist.noEmailWarning":
       "Without an email, this invite can't be reused by other curators and won't auto-link when the artist onboards. Adding an email is strongly recommended.",
     "upload.contextBanner.uploadingFor": "Uploading for {name}",
+    "upload.publishedForArtist": "This work is by {name} and is on their profile.",
     "upload.contextBanner.change": "Change",
     "upload.contextBanner.pendingInviteChip": "Invite will send at publish",
     "upload.contextBanner.hasPendingInvite":
@@ -6117,6 +6118,7 @@ export const messages = {
     "upload.externalArtist.noEmailWarning":
       "이메일 없이 초대하면 다른 큐레이터가 나중에 같은 작가를 찾을 때 재사용되지 않고, 온보딩 시 자동 연결도 되지 않아요. 가능하면 이메일도 입력해 주세요.",
     "upload.contextBanner.uploadingFor": "{name} 작가를 위해 업로드 중",
+    "upload.publishedForArtist": "이 작품의 작가는 {name}이고, 작가 프로필에 올라갑니다",
     "upload.contextBanner.change": "변경",
     "upload.contextBanner.pendingInviteChip": "게시 시 초대장 발송 예정",
     "upload.contextBanner.hasPendingInvite":

@@ -16,6 +16,7 @@ import {
   libraryPageCursor,
   mergeLibraryRows,
 } from "@/lib/artworks/libraryInventory";
+import { resolvePublicProfileLimit } from "@/lib/artworks/publicProfileQuery";
 import { uploadGaps } from "@/lib/upload/readiness";
 
 const BUCKET = "artworks";
@@ -1155,7 +1156,7 @@ export async function listPublicArtworksByArtistId(
   artistId: string,
   options: ByArtistOptions = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
-  const limit = options.limit === undefined ? 50 : options.limit;
+  const limit = resolvePublicProfileLimit(options.limit);
 
   const build = () =>
     supabase
@@ -1216,7 +1217,7 @@ export async function listPublicArtworksListedByProfileId(
   profileId: string,
   options: ByArtistOptions = {}
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
-  const limit = options.limit === undefined ? 50 : options.limit;
+  const limit = resolvePublicProfileLimit(options.limit);
   const workIds = await listPublicListedWorkIds(profileId);
   if (workIds.length === 0) return { data: [], error: null };
 
@@ -2617,8 +2618,10 @@ export async function publishArtworksWithProvenance(
         claimErr = error;
       }
       if (!claimErr) {
-        // The chosen artist is the owner. The uploading account stays
-        // on created_by and on the claim subject.
+        // The chosen artist is the owner (`artist_id`). 내 작품 reads that
+        // id. The uploading account stays on created_by and on the lister
+        // claim. Do not file CREATED here — that claim means the subject
+        // uploaded the work, and the gallery is not the artist.
         const { error: upErr } = await assignArtworkArtist(id, opts.artistProfileId);
         if (upErr) claimErr = upErr;
       }
