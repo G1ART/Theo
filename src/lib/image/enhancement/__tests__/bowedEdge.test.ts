@@ -1,10 +1,17 @@
-// A bowed canvas with wall outside the curve must not leak that wall
-// into the frontal rectangle, and the corners must not be left empty
-// (the studio wall paints empty pixels as white triangles). A straight
-// edge stays a straight copy.
+// A slight lens bow is eased onto the straight side of the rectangle.
+// The edge sample is the canvas side of that curve: not the wall, and
+// not a thick inset that deletes a crescent. A straight edge stays a
+// straight copy. Handles that sit on the wall still must not leave
+// white triangles.
 
 import assert from "node:assert/strict";
-import { fullFrame, planArtworkRectification, renderRectified } from "../rectifyArtwork";
+import { coonsFromCurves } from "../interiorEdge";
+import {
+  fullFrame,
+  mapUnitToSource,
+  planArtworkRectification,
+  renderRectified,
+} from "../rectifyArtwork";
 
 type RGB = [number, number, number];
 
@@ -47,6 +54,152 @@ function bowY(t: number, amp: number): number {
   const u = Math.min(1, Math.max(0, t));
   return Math.sin(Math.PI * u) * amp;
 }
+
+function plannedSource(
+  plan: ReturnType<typeof planArtworkRectification>,
+  u: number,
+  v: number,
+): [number, number] | null {
+  if (plan.sampleCurves) return coonsFromCurves(u, v, plan.sampleCurves);
+  return mapUnitToSource(plan, u, v);
+}
+
+// Slight lens bow. Corners are the sol points. The warp that straightens
+// the bow is about as large as the bow, and the border is the paint just
+// inside the curve.
+function assertGentleBow(direction: 1 | -1, amp: number) {
+  const w = 220;
+  const h = 180;
+  const x0 = 40;
+  const y0 = 32;
+  const x1 = 184;
+  const y1 = 148;
+  const studio: RGB = [243, 243, 243];
+  const rim: RGB = [168, 54, 36];
+  const field: RGB = [24, 86, 150];
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const tx = (x - x0) / (x1 - x0);
+      const ty = (y - y0) / (y1 - y0);
+      const left = x0 + direction * bowY(ty, amp);
+      const right = x1 - direction * bowY(ty, amp);
+      const top = y0 + direction * bowY(tx, amp);
+      const bottom = y1 - direction * bowY(tx, amp);
+      const inside = x >= left && x < right && y >= top && y < bottom;
+      let color = studio;
+      if (inside) {
+        const depth = Math.min(x - left, right - x, y - top, bottom - y);
+        color = depth < 5 ? rim : field;
+      }
+      put(data, w, x, y, color);
+    }
+  }
+  const corners: [[number, number], [number, number], [number, number], [number, number]] = [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+  ];
+  const raster = { data, width: w, height: h };
+  const frame = fullFrame(w, h);
+  const plan = planArtworkRectification({
+    raster,
+    corners,
+    frame,
+    mode: "auto",
+    aspectSource: "estimated",
+    longEdge: x1 - x0,
+  });
+  assert.notEqual(plan.recipe.method, "identity", "a few pixels of bow is not left as a box");
+  assert.equal(plan.recipe.status, "applied");
+  const out = renderRectified(raster, plan, frame);
+  let wallPixels = 0;
+  let holes = 0;
+  let studioWhite = 0;
+  for (let y = 0; y < out.height; y += 1) {
+    for (let x = 0; x < out.width; x += 1) {
+      const px = rgbAt(out.data, out.width, x, y);
+      if (px[3] < 16) holes += 1;
+      if (dist([px[0], px[1], px[2]], studio) < 28) wallPixels += 1;
+      if (px[0] === 243 && px[1] === 243 && px[2] === 243) studioWhite += 1;
+    }
+  }
+  assert.equal(holes, 0, "straightened rectangle has no empty pixels");
+  assert.equal(wallPixels, 0, `wall inside the rectangle: ${wallPixels}`);
+  assert.equal(studioWhite, 0, "#f3f3f3 inside the artwork");
+
+  const stations = [0.22, 0.5, 0.78];
+  const edges: Array<{
+    name: string;
+    u: (t: number) => number;
+    v: (t: number) => number;
+    fromChord: (p: [number, number]) => number;
+    pixel: (t: number) => [number, number];
+  }> = [
+    {
+      name: "top",
+      u: (t) => t,
+      v: () => 0,
+      fromChord: (p) => p[1] - y0,
+      pixel: (t) => [Math.min(out.width - 1, Math.round(t * out.width - 0.5)), 0],
+    },
+    {
+      name: "bottom",
+      u: (t) => t,
+      v: () => 1,
+      fromChord: (p) => y1 - p[1],
+      pixel: (t) => [Math.min(out.width - 1, Math.round(t * out.width - 0.5)), out.height - 1],
+    },
+    {
+      name: "left",
+      u: () => 0,
+      v: (t) => t,
+      fromChord: (p) => p[0] - x0,
+      pixel: (t) => [0, Math.min(out.height - 1, Math.round(t * out.height - 0.5))],
+    },
+    {
+      name: "right",
+      u: () => 1,
+      v: (t) => t,
+      fromChord: (p) => x1 - p[0],
+      pixel: (t) => [out.width - 1, Math.min(out.height - 1, Math.round(t * out.height - 0.5))],
+    },
+  ];
+  for (const edge of edges) {
+    for (const t of stations) {
+      const src = plannedSource(plan, edge.u(t), edge.v(t));
+      assert.ok(src, `${edge.name} sample`);
+      const expect = direction * bowY(t, amp);
+      const moved = edge.fromChord(src as [number, number]);
+      assert.ok(
+        Math.abs(moved - expect) < 2,
+        `${direction > 0 ? "inward" : "outward"} ${edge.name} t=${t} moved ${moved.toFixed(2)}px, bow ${expect.toFixed(2)}px`,
+      );
+      const [px, py] = edge.pixel(t);
+      const rgb = rgbAt(out.data, out.width, px, py);
+      const here: RGB = [rgb[0], rgb[1], rgb[2]];
+      assert.ok(dist(here, studio) > 40, `${edge.name} border is wall`);
+      assert.ok(
+        dist(here, rim) + 12 < dist(here, field),
+        `${edge.name} t=${t} lost the canvas edge (${here.join(",")})`,
+      );
+    }
+  }
+  const center = plannedSource(plan, 0.5, 0.5);
+  assert.ok(center, "center sample");
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  assert.ok(
+    Math.hypot(center[0] - cx, center[1] - cy) < amp + 1.5,
+    `center moved ${Math.hypot(center[0] - cx, center[1] - cy).toFixed(2)}px`,
+  );
+  const mid = rgbAt(out.data, out.width, Math.floor(out.width / 2), Math.floor(out.height / 2));
+  assert.ok(dist([mid[0], mid[1], mid[2]], field) < 20, "interior stays the painting");
+}
+
+assertGentleBow(1, 4);
+assertGentleBow(-1, 4);
 
 {
   const w = 240;

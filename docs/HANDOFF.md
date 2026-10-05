@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-05
 
+## 2026-10-05 — 렌즈가 살짝 휘게 한 사각형 변을 직선으로 곱게 편다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**
+
+gpt-5.6-sol 네 모서리 검출은 그대로다. `reasoning_effort`도 medium 그대로다.
+
+렌즈가 직사각형·정사각형의 변을 아주 살짝 안으로, 또는 밖으로 휘게 하면 그 휨만 직선으로 편다. 모서리는 솔이 잡은 네 점이다. 휨이 몇 픽셀이면 그림도 그 정도만 움직이고, 같은 그림으로 남는다. 원근을 세게 눌러 납작하게 만들지 않는다.
+
+- 한 방사 계수가 그 휨을 설명하면 그 모델을 쓴다. 그렇지 않으면 모서리 사이에서 잰 캔버스 경계를 출력 사각형의 직선 변 위에 올린다. 안으로 휜 한가운데를 벽에서 가져오지 않고, 그림 가장자리를 초승달처럼 도려내지도 않는다.
+- 펴진 사각형의 가장자리는 그림이다. `#f3f3f3`도 아니고 빈 칸이 벽으로 비친 흰 삼각형도 아니다. 벽색을 행마다 안으로 칠하던 `paintBorderWall`은 쓰지 않는다.
+- 곧은 변은 그대로 둔다. 스튜디오 여백과 `#f3f3f3`, 그림자는 펴진 작품 밖에 있다. 비정형 Photoroom은 실루엣이다. 새 마법사 단계는 없다.
+- 엔진 이름은 `geometry-radial-v1` 그대로다. `enhancement_meta` 스키마도 그대로다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx src/lib/image/enhancement/__tests__/bowedEdge.test.ts` (4px 안쪽 휨과 4px 바깥 휨은 직선 변이 되고, 가장자리는 곡선 바로 안쪽 그림색이다. 벽색과 `#f3f3f3`는 사각형 안에 없다. 곧은 변의 표시 줄은 흔들리지 않는다. 모서리 핸들이 벽 위에 있어도 흰 삼각형이 없다). `curvature.test.ts`, `boundaryPreservation.test.ts`, `geometry.test.ts`, `geometryReplay.test.ts`, `keystoneRegression.test.ts`. `npx tsx tests/wall-matte.test.ts`, `tests/studio-presentation.test.ts`, `tests/photoroom-matte-rectify.test.ts`.
+
 ## 2026-10-05 — 갤러리가 올린 작품도 작가의 내 작품으로 연결된다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.** 85점의 `artist_id`는 그대로 현혜명이다. The GREEN으로 되돌리지 않았다.

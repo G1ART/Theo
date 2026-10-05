@@ -1,28 +1,21 @@
 /**
- * Sampling curves between the confirmed corners.
+ * Measured curves between the confirmed corners.
  *
- * The corners stay the endpoints of the search. A single homography of
- * that quad pulls wall into the middle of an inward bow, and it leaves
- * the destination corners empty when the handles sit on the wall. Those
- * empty pixels are what the studio wall paints as white triangles.
- *
- * Each station between the corners follows the detected boundary. When
- * a handle sits on the wall, the ramp the smoother pinned to that handle
- * is replaced by the detected edge. A constant inset then steps inside
- * when the outside pixel matches the wall. The inset is the same along
- * the edge — it does not walk inward row by row.
+ * The corners stay the endpoints. A straight chord through an inward
+ * bow samples the wall, and a chord through an outward bow cuts the
+ * bulge off. The curve detected between those corners is what the
+ * frontal rectangle's straight edge samples, so a few pixels of lens
+ * bow become a few pixels of warp. The painting is not inset, and a
+ * smooth bow is not pushed to the inner side of its own peak.
  */
 
 import type { Point } from "./geometryPlan";
 import type { ArtworkTrace, TracedEdge } from "./traceArtworkEdges";
 
-/** One pixel of bilinear support, plus a hair so the outside tap is dropped. */
-export const WALL_SAMPLE_INSET_PX = 1.35;
-
 export type InteriorCurves = {
-  /** Detected canvas boundary, buffer pixels. Ends meet. */
+  /** Canvas side of the boundary, used as the sample mask. */
   content: [Point[], Point[], Point[], Point[]];
-  /** Same curves, stepped inside when the outside pixel is wall. */
+  /** Measured boundary. The frontal edge samples this curve. */
   sample: [Point[], Point[], Point[], Point[]];
   /** The corner chord and the canvas disagree enough to follow the curve. */
   follows: boolean;
@@ -37,35 +30,6 @@ function clamp01(n: number): number {
   if (n <= 0) return 0;
   if (n >= 1) return 1;
   return n;
-}
-
-function dist3(a: [number, number, number], b: [number, number, number]): number {
-  const dr = a[0] - b[0];
-  const dg = a[1] - b[1];
-  const db = a[2] - b[2];
-  return Math.sqrt(dr * dr + dg * dg + db * db);
-}
-
-function rgbAt(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  x: number,
-  y: number,
-): [number, number, number] | null {
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  const ix = Math.round(x);
-  const iy = Math.round(y);
-  if (ix < 0 || iy < 0 || ix >= width || iy >= height) return null;
-  const i = (iy * width + ix) * 4;
-  return [data[i], data[i + 1], data[i + 2]];
-}
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = values.slice().sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length & 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function edgeEnds(trace: ArtworkTrace, index: number): [Point, Point] {
@@ -117,19 +81,6 @@ function smoothOffsets(values: number[], restoreEnds: boolean): number[] {
   return next;
 }
 
-/** Most inward detection in a short window, so a wall bite stays outside the curve. */
-function innerEnvelope(values: number[], radius: number): number[] {
-  const out = values.slice();
-  for (let i = 0; i < values.length; i += 1) {
-    let inward = values[i];
-    const lo = Math.max(0, i - radius);
-    const hi = Math.min(values.length - 1, i + radius);
-    for (let j = lo; j <= hi; j += 1) if (values[j] > inward) inward = values[j];
-    out[i] = inward;
-  }
-  return out;
-}
-
 function interpolateRaw(raw: Array<number | null>, fallback: number[]): number[] {
   const n = raw.length;
   const known: number[] = [];
@@ -167,17 +118,31 @@ function seatOnDetection(pinned: number[], raw: Array<number | null>): number[] 
   return next;
 }
 
+/**
+ * A one-station jump toward the wall. A lens bow, inward or outward,
+ * moves a fraction of a pixel per station, so its peak is left alone.
+ */
+function closeWallSpikes(values: number[]): number[] {
+  const out = values.slice();
+  for (let i = 1; i < values.length - 1; i += 1) {
+    const lip = Math.min(values[i - 1], values[i + 1]);
+    if (values[i] < lip - 2.5) out[i] = lip;
+  }
+  return out;
+}
+
 function offsetsForEdge(edge: TracedEdge): { offsets: number[]; held: boolean } {
   const n = edge.points.length;
   const pinned = edge.points.map((point) => point.offsetPx);
   const raw = edge.points.map((point) => point.rawOffset);
   const sustained = raw.filter((value): value is number => value != null && Math.abs(value) >= HOLD_MIN_PX);
   const fringeLocked = edge.fringe && pinned.every((value) => Math.abs(value) < 0.5);
-  // Thread fringe stays on the chord. A real edge sits on the detected
-  // stations, then on the inner side of a bite so the wall between
-  // teeth is not sampled. The destination edge is still the rectangle.
-  let base = fringeLocked ? pinned : innerEnvelope(seatOnDetection(pinned, raw), 5);
-  if (fringeLocked && sustained.length >= 8) base = innerEnvelope(interpolateRaw(raw, pinned), 5);
+  // Thread fringe stays on the chord. A real edge is the measured
+  // boundary. That curve is the straight side of the output, not a
+  // cut inside it.
+  let base = fringeLocked ? pinned : seatOnDetection(pinned, raw);
+  if (fringeLocked && sustained.length >= 8) base = interpolateRaw(raw, pinned);
+  base = closeWallSpikes(base);
 
   const startHold = holdAtEnd(raw, true);
   const endHold = holdAtEnd(raw, false);
@@ -216,64 +181,6 @@ function pointOnEdge(edge: TracedEdge, ends: [Point, Point], t: number, offset: 
     a[0] + (b[0] - a[0]) * t + edge.normal[0] * offset,
     a[1] + (b[1] - a[1]) * t + edge.normal[1] * offset,
   ];
-}
-
-function wallReference(
-  trace: ArtworkTrace,
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-): [number, number, number] | null {
-  const samples: Array<[number, number, number]> = [];
-  trace.edges.forEach((edge, index) => {
-    const ends = edgeEnds(trace, index);
-    const mid = edge.points[edge.points.length >> 1];
-    const probe = pointOnEdge(edge, ends, mid.t, Math.min(0, mid.offsetPx) - 8);
-    const color = rgbAt(data, width, height, probe[0], probe[1]);
-    if (color) samples.push(color);
-  });
-  if (samples.length < 2) return null;
-  return [
-    median(samples.map((color) => color[0])),
-    median(samples.map((color) => color[1])),
-    median(samples.map((color) => color[2])),
-  ];
-}
-
-function outsideIsWall(
-  edge: TracedEdge,
-  ends: [Point, Point],
-  offsets: number[],
-  wall: [number, number, number] | null,
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-): boolean {
-  if (!wall) return false;
-  let votes = 0;
-  let matched = 0;
-  for (const t of [0.22, 0.5, 0.78]) {
-    const index = Math.round(t * (offsets.length - 1));
-    const at = pointOnEdge(edge, ends, t, offsets[index]);
-    const outside = rgbAt(
-      data,
-      width,
-      height,
-      at[0] - edge.normal[0] * 2.4,
-      at[1] - edge.normal[1] * 2.4,
-    );
-    const inside = rgbAt(
-      data,
-      width,
-      height,
-      at[0] + edge.normal[0] * 3.2,
-      at[1] + edge.normal[1] * 3.2,
-    );
-    if (!outside || !inside) continue;
-    votes += 1;
-    if (dist3(outside, wall) <= 28 && dist3(outside, inside) >= 22) matched += 1;
-  }
-  return votes > 0 && matched * 2 >= votes;
 }
 
 function curveFromOffsets(edge: TracedEdge, ends: [Point, Point], offsets: number[]): Point[] {
@@ -315,8 +222,8 @@ function shareCorners(curves: [Point[], Point[], Point[], Point[]], corners: [Po
     bottom[bottom.length - 2],
   );
   const bl = snapCorner(left[left.length - 1], left[left.length - 2], bottom[0], bottom[1]);
-  // Keep a corner that the inset did not move. A wild intersection
-  // must not drag a straight corner into the wall.
+  // A corner that already sits on the sol point stays there. A wild
+  // intersection must not drag a straight corner into the wall.
   const keep = (hit: Point, sol: Point, current: Point): Point => {
     const moved = Math.hypot(current[0] - sol[0], current[1] - sol[1]);
     if (moved < 0.75) return sol;
@@ -395,24 +302,27 @@ function cloneCurves(
 
 export function buildInteriorCurves(
   trace: ArtworkTrace,
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
+  _data: Uint8ClampedArray,
+  _width: number,
+  _height: number,
 ): InteriorCurves {
-  const wall = wallReference(trace, data, width, height);
   const built = trace.edges.map((edge, index) => {
     const ends = edgeEnds(trace, index);
     const { offsets, held } = offsetsForEdge(edge);
     let maxAbs = 0;
     for (const offset of offsets) maxAbs = Math.max(maxAbs, Math.abs(offset));
-    const content = offsets.slice();
-    const sample = offsets.slice();
-    if (maxAbs >= 1.25 && outsideIsWall(edge, ends, offsets, wall, data, width, height)) {
-      for (let i = 0; i < sample.length; i += 1) sample[i] += WALL_SAMPLE_INSET_PX;
-    }
+    // The mask is about a pixel on the canvas side along the whole
+    // edge, and meets the sol corner. A wall pixel sitting on the
+    // measured boundary is not part of the mask. The sample curve
+    // itself is not moved.
+    const gate = offsets.map((offset, index) => {
+      const t = offsets.length <= 1 ? 0 : index / (offsets.length - 1);
+      const ramp = Math.min(1, Math.min(t, 1 - t) / 0.05);
+      return offset + ramp * 1.15;
+    });
     return {
-      content: curveFromOffsets(edge, ends, content),
-      sample: curveFromOffsets(edge, ends, sample),
+      content: curveFromOffsets(edge, ends, gate),
+      sample: curveFromOffsets(edge, ends, offsets),
       held,
       maxAbs,
     };

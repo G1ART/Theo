@@ -1,15 +1,13 @@
 /**
  * One inverse map from the frontal rectangle back to the photo.
  *
- * A straight quad is a homography. A bowed edge is a residual radial
- * model when one coefficient explains it. Otherwise the segments
- * between the confirmed corners are the traced curves: a homography of
- * the corner quad would pull wall into the middle of an inward bow, or
- * leave the destination corners empty where the curve does not cover
- * the rectangle. Empty pixels are what the studio wall paints as white
- * triangles. Samples step inside the detected edge when the outside
- * pixel matches the wall. The rectangle path does not repaint inward
- * by wall color.
+ * A straight quad is a homography. A slight lens bow is a residual
+ * radial model when one coefficient explains it. Otherwise the curve
+ * measured between the confirmed corners is laid on the straight side
+ * of the frontal rectangle. The corners stay the endpoints. A bow of a
+ * few pixels moves the sample by a few pixels — inward or outward —
+ * and does not cut a crescent out of the painting. The rectangle path
+ * does not repaint inward by wall color.
  */
 
 import {
@@ -185,12 +183,9 @@ export function planArtworkRectification(req: RectifyRequest): RectifyPlan {
           ? "identity"
           : "perspective";
 
-  // A shared k1 that already puts the edge on the canvas keeps the
-  // radial map. Anything else with a real bow, or a handle on the wall,
-  // samples the traced curve. A straight chord is still an identity copy.
-  // One shared k1 that lands the corners on the canvas keeps the radial
-  // map. A handle on the wall, or a bow the coefficient does not explain,
-  // follows the traced curve instead.
+  // One shared k1 that lands the bow on a straight edge keeps the
+  // radial map. Anything else follows the measured curve, so the bow
+  // itself — not a cut inside it — becomes the side of the rectangle.
   const radialExplains = radialAccepted && !interior.cornerOutside;
   const useFollow = curvesOk && interior.follows && !radialExplains;
 
@@ -818,18 +813,10 @@ function maskHit(mask: Uint8Array, width: number, height: number, x: number, y: 
   return mask[iy * width + ix] === 1;
 }
 
-/** Far enough inside the canvas that a bilinear tap does not read the wall. */
-function clearOfWall(mask: Uint8Array, width: number, height: number, x: number, y: number): boolean {
-  return (
-    maskHit(mask, width, height, x, y) &&
-    maskHit(mask, width, height, x - 0.75, y) &&
-    maskHit(mask, width, height, x + 0.75, y) &&
-    maskHit(mask, width, height, x, y - 0.75) &&
-    maskHit(mask, width, height, x, y + 0.75)
-  );
-}
+/** How far a wall tap may step onto the canvas. Not a cut into the painting. */
+const CANVAS_SIDE_PX = 2;
 
-function pullInsideCanvas(
+function nudgeOntoCanvas(
   x: number,
   y: number,
   mask: Uint8Array | null,
@@ -838,23 +825,18 @@ function pullInsideCanvas(
   toward: Point | null,
 ): Point {
   if (!mask || !toward) return [x, y];
-  if (clearOfWall(mask, width, height, x, y)) return [x, y];
+  if (maskHit(mask, width, height, x, y)) return [x, y];
   const dx = toward[0] - x;
   const dy = toward[1] - y;
   const len = Math.hypot(dx, dy);
   if (len < 1e-3) return [x, y];
   const ux = dx / len;
   const uy = dy / len;
-  const limit = Math.min(len, Math.max(width, height));
-  for (let d = 0.6; d <= limit; d += 0.8) {
+  const limit = Math.min(len, CANVAS_SIDE_PX);
+  for (let d = 0.35; d <= limit + 1e-6; d += 0.35) {
     const px = x + ux * d;
     const py = y + uy * d;
-    if (clearOfWall(mask, width, height, px, py)) return [px, py];
-  }
-  for (let d = 0.6; d <= limit; d += 0.8) {
-    const px = x + ux * d;
-    const py = y + uy * d;
-    if (maskHit(mask, width, height, px, py)) return [px + ux * 1.1, py + uy * 1.1];
+    if (maskHit(mask, width, height, px, py)) return [px, py];
   }
   return [x, y];
 }
@@ -867,10 +849,12 @@ function bufferForUnit(plan: RectifyPlan, frame: FrameWindow, xi: number, eta: n
 }
 
 /**
- * Fill destination rows from inside the canvas. A sample that lands on
- * the wall, or on no coverage at all, is pulled to the detected edge
- * instead of being left transparent. Transparent pixels are what the
- * studio wall later paints as white triangles.
+ * Fill the frontal rectangle from the measured curve. The border
+ * samples that curve, so a slight bow becomes a straight edge. A tap
+ * that still reads the wall moves at most one bilinear pixel onto the
+ * canvas. It does not walk inward, and the row is not repainted by
+ * wall color. Transparent pixels would become white triangles on the
+ * studio wall, so those holes are sealed by the caller.
  */
 export function paintMappedRows(
   raster: Raster,
@@ -890,15 +874,12 @@ export function paintMappedRows(
   for (let row = row0; row < row1 && row < outH; row += 1) {
     const eta = (row + 0.5) / outH;
     for (let col = 0; col < outW; col += 1) {
-      let buf = bufferForUnit(plan, frame, (col + 0.5) / outW, eta);
+      const buf = bufferForUnit(plan, frame, (col + 0.5) / outW, eta);
       if (!buf) continue;
-      buf = pullInsideCanvas(buf[0], buf[1], gate, raster.width, raster.height, toward);
       let sample = sampleBilinear(raster, buf[0], buf[1], inside);
       if ((!sample || sample.a < 16) && gate && toward) {
-        const dx = toward[0] - buf[0];
-        const dy = toward[1] - buf[1];
-        const len = Math.hypot(dx, dy) || 1;
-        sample = sampleBilinear(raster, buf[0] + (dx / len) * 1.6, buf[1] + (dy / len) * 1.6, inside);
+        const nudged = nudgeOntoCanvas(buf[0], buf[1], gate, raster.width, raster.height, toward);
+        sample = sampleBilinear(raster, nudged[0], nudged[1], inside);
       }
       if (!sample || sample.a < 16) continue;
       const di = (row * outW + col) * 4;

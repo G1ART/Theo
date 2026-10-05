@@ -11,10 +11,11 @@
  * Perspective and edge straightening are solved in this package
  * (`homography.ts`, `rectifyArtwork.ts`). opencv.js is not loaded.
  * Sol still supplies the four corners. This engine does not replace
- * that detector. A straight quad is a homography. A bowed edge is a
- * residual radial model when one coefficient explains it, otherwise
- * the curve traced between those corners. Samples come from inside
- * the canvas. The rectangle path does not repaint inward by wall color.
+ * that detector. A straight quad is a homography. A slight bow between
+ * those corners is a residual radial model when one coefficient
+ * explains it, otherwise that measured curve is laid on the straight
+ * side. A few pixels of bow is a few pixels of warp. The rectangle
+ * path does not repaint inward by wall color.
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
@@ -544,9 +545,9 @@ export async function runFlatEnhancement(
     c: clampTone(input.tone?.c ?? 1, ENHANCEMENT_TONE_CAP),
     s: clampTone(input.tone?.s ?? 1, ENHANCEMENT_TONE_CAP),
   };
-  // Corners stay where sol or the artist put them. Curvature is
-  // measured between those corners. The rectangle path does not walk
-  // inward recoloring wall-like pixels.
+  // Corners stay where sol or the artist put them. A slight bow
+  // between those corners is eased onto a straight edge. The rectangle
+  // path does not walk inward recoloring wall-like pixels.
   const warpCorners = input.sourceCorners ?? null;
   const cropNormalized = normalizeCropFromCorners(warpCorners, input.crop);
 
