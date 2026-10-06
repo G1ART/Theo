@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-05
 
+## 2026-10-05 — 다른 작가로 올린 묶음은 그 작가의 작품으로 피드에 나온다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.** 85점의 `artist_id`는 그대로 현혜명이다. TBD 초안 2점은 그대로다.
+
+갤러리가 「다른 작가의 작품으로 올리기」로 작가를 먼저 고르고 파일을 넣는다. 그 선택은 화면 메모리에만 있었다. 새로고침하면 사라지고, 다음 카드는 `artist_id`가 올린 계정이나 위임 중인 갤러리로 저장됐다. 그 카드에는 작가 클레임도 없었다. 피드·프로필·전시의 이름줄은 `artist_id`라 The GREEN이 작가로 보였다.
+
+- 작가를 고르는 순간 그 묶음의 클레임을 세션에 남긴다. 첫 사진 전에도, 새로고침 뒤에도, 그 클레임이 켜져 있는 동안 생기는 카드는 그 작가다. 초안에 같은 작가 클레임이 있으면 세션이 비어도 그 작가로 이어 받는다.
+- `artist_id`는 고른 작가, `created_by`는 올린 계정이다. 클레임은 올린 쪽의 큐레이션·보유·소장이다. 내 작품은 그 `artist_id`다.
+- 위임과 다른 작가가 같이 켜져 있어도 작가는 고른 작가다. 대리인도 갤러리도 작가 줄이 되지 않는다.
+- 메인 피드, 탐색, 상세, 전시 묶음, 프로필 카드의 이름줄은 작가다. 올린 곳이 작가가 아니면 그 아래에 curated by(또는 보유)로 붙는다.
+- 다른 작가를 취소하면 세션을 지우고, 그 초안은 올린 계정으로 되돌린다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/bulk-other-artist-session.test.ts` (갤러리가 작가 A를 고르고 새로고침된 뒤 카드 두 장을 만들면 둘 다 A이고 A의 내 작품이다. 이름줄은 A이고, 갤러리는 curated by 다. 위임이 갤러리로 Acting 중이어도 작가는 A다). `tests/artwork-owner-is-selected-artist.test.ts`, `tests/gallery-publish-lands-on-artist.test.ts`, `tests/own-artist-works.test.ts`, `tests/external-artist-name-everywhere.test.ts`.
+
 ## 2026-10-05 — 렌즈가 살짝 휘게 한 사각형 변을 직선으로 곱게 편다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**

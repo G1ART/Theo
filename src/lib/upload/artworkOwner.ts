@@ -144,3 +144,47 @@ export function rememberedArtistId(
   if (found.size !== 1) return null;
   return [...found][0];
 }
+
+/**
+ * Artist id written on the artwork row.
+ * A chosen artist wins over the uploading account and over whoever
+ * the operator is acting as. Own-work uploads keep the acting principal,
+ * or the session user when nobody else was chosen.
+ */
+export function draftArtistIdForInsert(input: {
+  sessionUserId: string;
+  /** Account-delegate principal. Used only when no other artist was chosen. */
+  forProfileId?: string | null;
+  /** Onboarded artist for this card. */
+  artistProfileId?: string | null;
+}): string {
+  const explicit = input.artistProfileId?.trim() || "";
+  if (explicit) return explicit;
+  const acting = input.forProfileId?.trim() || "";
+  return acting || input.sessionUserId;
+}
+
+/**
+ * Id of the person who should be credited as the artist.
+ * Prefer `artist_id` when it is already someone other than the uploader.
+ * Otherwise use a confirmed claim that names an onboarded artist.
+ */
+export function creditedArtistId(input: {
+  artistId?: string | null;
+  uploaderId?: string | null;
+  claims?: Array<{
+    artist_profile_id?: string | null;
+    status?: string | null;
+  }> | null;
+}): string | null {
+  const stored = input.artistId?.trim() || "";
+  const uploader = input.uploaderId?.trim() || "";
+  if (stored && (!uploader || stored !== uploader)) return stored;
+  for (const claim of input.claims ?? []) {
+    if (claim.status && claim.status !== "confirmed") continue;
+    const id = claim.artist_profile_id?.trim() || "";
+    if (!id || (uploader && id === uploader)) continue;
+    return id;
+  }
+  return stored || null;
+}

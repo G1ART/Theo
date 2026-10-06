@@ -9,6 +9,9 @@ import {
   getPrimaryClaim,
   canEditArtwork,
 } from "@/lib/supabase/artworks";
+import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
+import { claimTypeToByPhrase } from "@/lib/provenance/rpc";
+import type { ClaimType } from "@/lib/provenance/types";
 import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
@@ -26,6 +29,7 @@ import {
   formatDisplayName,
   formatIdentityPair,
   formatRoleChips,
+  formatUsername,
   hasPublicLinkableUsername,
 } from "@/lib/identity/format";
 import {
@@ -176,7 +180,13 @@ export function FeedArtworkCard({
     ? getArtworkImageUrl(first.storage_path, imageVariant)
     : null;
 
-  const artistProfile = (artwork as { profiles?: ArtistProfileLite | null }).profiles ?? null;
+  const storedArtist = (artwork as { profiles?: ArtistProfileLite | null }).profiles ?? null;
+  const creditedArtist =
+    personUnderArtworkTitle({
+      storedArtist,
+      uploaderId: artwork.created_by ?? null,
+      claimedArtist: claimedOnboardedArtist(artwork.claims, artwork.created_by ?? null),
+    }) ?? storedArtist;
   const primaryClaim = getPrimaryClaim(artwork);
   /**
    * QA 2026-07-28 — external artist 도 KO/EN 슬롯을 함께 읽어서
@@ -229,16 +239,30 @@ export function FeedArtworkCard({
         display_name_en: externalRow.display_name_en ?? null,
         username: null,
       }
-    : artistProfile;
+    : creditedArtist;
   const { primary: artistName } = formatIdentityPair(
     artistIdentityInput,
     t,
     locale,
   );
   const artistRoleChips = formatRoleChips(artistIdentityInput, t, { max: 1 });
-  const artistUsername = hasPublicLinkableUsername(artistProfile)
-    ? artistProfile?.username ?? ""
+  const artistUsername = hasPublicLinkableUsername(creditedArtist)
+    ? creditedArtist?.username ?? ""
     : "";
+  const listerProf = primaryClaim?.profiles ?? null;
+  const listerLabel = listerProf
+    ? formatDisplayName(listerProf, t, locale) || formatUsername(listerProf)
+    : "";
+  const byPhrase = primaryClaim
+    ? claimTypeToByPhrase(primaryClaim.claim_type as ClaimType)
+    : null;
+  const creditedId = creditedArtist?.id ?? null;
+  const displayedIsLister =
+    !externalName &&
+    !!primaryClaim?.subject_profile_id &&
+    !!creditedId &&
+    primaryClaim.subject_profile_id === creditedId;
+  const showProvenance = !!byPhrase && !!listerLabel && !displayedIsLister;
   const claimCount = artwork.claims?.length ?? 0;
 
   const isAnchor = variant === "feedAnchor";
@@ -360,7 +384,7 @@ export function FeedArtworkCard({
                 name={externalName ? artistName : (artistName || formatDisplayName(artistIdentityInput, t, locale))}
                 isExternal={!!externalName}
                 artistUsername={externalName ? null : artistUsername}
-                uploader={artistProfile}
+                uploader={storedArtist}
                 stopPropagation
                 className="hover:underline"
               />
@@ -375,6 +399,11 @@ export function FeedArtworkCard({
               </Chip>
             )}
           </div>
+          {showProvenance && (
+            <p className="truncate text-[11px] tracking-tight text-zinc-500">
+              {byPhrase} {listerLabel}
+            </p>
+          )}
 
           <h3 className="truncate text-sm font-normal tracking-tight text-zinc-700">
             {pickLocalizedArtworkTitle(artwork, locale)}

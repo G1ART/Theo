@@ -28,6 +28,14 @@ import {
 } from "@/lib/supabase/artworks";
 import { planOnboardedArtistPublish, rememberedArtistId } from "@/lib/upload/artworkOwner";
 import {
+  bulkDraftInsertArtistId,
+  bulkSessionFromArtist,
+  clearBulkSessionArtist,
+  readBulkSessionArtist,
+  resolveBulkCardArtist,
+  writeBulkSessionArtist,
+} from "@/lib/upload/bulkSessionArtist";
+import {
   artistProfilePath,
   resolveArtistPublishNotice,
   writeArtistPublishNotice,
@@ -535,11 +543,139 @@ export default function BulkUploadPage() {
   const useExternalArtistRef = useRef(useExternalArtist);
   const periodStatusRef = useRef(periodStatus);
   const actingAsRef = useRef(actingAsProfileId);
+  /**
+   * True while "another artist" is the active claim. Set synchronously
+   * on pick and on cancel so a card created before the next render
+   * still follows the choice, including after a refresh that only
+   * has the session record.
+   */
+  const otherArtistActiveRef = useRef(false);
   selectedArtistRef.current = selectedArtist;
   intentRef.current = intent;
   useExternalArtistRef.current = useExternalArtist;
   periodStatusRef.current = periodStatus;
   actingAsRef.current = actingAsProfileId;
+  otherArtistActiveRef.current =
+    !useExternalArtist &&
+    ((intent !== null && intent !== "CREATED" && !!selectedArtist) ||
+      readBulkSessionArtist() !== null);
+
+  function listerIntent(value: IntentType | null): "OWNS" | "INVENTORY" | "CURATED" {
+    if (value === "OWNS" || value === "INVENTORY" || value === "CURATED") return value;
+    return "CURATED";
+  }
+
+  function cardOwner(sessionUserId: string) {
+    if (!otherArtistActiveRef.current || useExternalArtistRef.current) {
+      return resolveBulkCardArtist({
+        sessionUserId,
+        actingAsProfileId: actingAsRef.current,
+        memoryArtistId: null,
+        sessionArtistId: null,
+        intent: "CREATED",
+      });
+    }
+    const saved = readBulkSessionArtist();
+    const memoryIntent = intentRef.current;
+    const intentForCard =
+      memoryIntent && memoryIntent !== "CREATED" ? memoryIntent : (saved?.intent ?? memoryIntent);
+    return resolveBulkCardArtist({
+      sessionUserId,
+      actingAsProfileId: actingAsRef.current,
+      memoryArtistId: selectedArtistRef.current?.id ?? null,
+      sessionArtistId: saved?.artistId ?? null,
+      intent: intentForCard,
+    });
+  }
+
+  function storeSessionArtist(artist: ArtistOption, claimIntent: IntentType | null) {
+    const session = bulkSessionFromArtist(artist, listerIntent(claimIntent));
+    if (session) writeBulkSessionArtist(session);
+  }
+
+  const sessionRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!sessionRestoredRef.current) {
+      sessionRestoredRef.current = true;
+      if (!selectedArtist && !useExternalArtist) {
+        const saved = readBulkSessionArtist();
+        if (saved) {
+          setSelectedArtist({
+            id: saved.artistId,
+            username: saved.username,
+            display_name: saved.displayName,
+            display_name_ko: saved.displayNameKo,
+            display_name_en: saved.displayNameEn,
+          });
+          setIntent(saved.intent);
+          setAttributionStepDone(true);
+          setAttributionOpen(false);
+          return;
+        }
+      }
+    }
+    if (useExternalArtist || !selectedArtist || !intent || intent === "CREATED") return;
+    storeSessionArtist(selectedArtist, intent);
+  }, [selectedArtist, intent, useExternalArtist]);
+
+  useEffect(() => {
+    if (selectedArtist || useExternalArtist || drafts.length === 0) return;
+    if (readBulkSessionArtist()) return;
+    let cancelled = false;
+    void (async () => {
+      const { data: { session } } = await getSession();
+      const userId = session?.user?.id;
+      if (cancelled || !userId || selectedArtistRef.current) return;
+      const artistId = rememberedArtistId(draftsRef.current, [
+        userId,
+        actingAsRef.current ?? "",
+      ]);
+      if (!artistId || cancelled || selectedArtistRef.current) return;
+      let restored: ArtistOption = {
+        id: artistId,
+        username: null,
+        display_name: null,
+      };
+      for (const draft of draftsRef.current) {
+        const claim = (draft.claims ?? []).find(
+          (row) => row.artist_profile_id === artistId && row.artist_profile,
+        );
+        const profile = claim?.artist_profile;
+        if (!profile) continue;
+        restored = {
+          id: artistId,
+          username: profile.username ?? null,
+          display_name: profile.display_name ?? null,
+          display_name_ko: profile.display_name_ko ?? null,
+          display_name_en: profile.display_name_en ?? null,
+        };
+        break;
+      }
+      const sessionArtist = bulkSessionFromArtist(restored, "CURATED");
+      if (sessionArtist) writeBulkSessionArtist(sessionArtist);
+      if (cancelled || selectedArtistRef.current) return;
+      setSelectedArtist(restored);
+      setIntent((current) => (current && current !== "CREATED" ? current : "CURATED"));
+      setAttributionStepDone(true);
+      setAttributionOpen(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [drafts, selectedArtist, useExternalArtist]);
+
+  async function releaseOtherArtist(previousArtistId: string | null) {
+    clearBulkSessionArtist();
+    if (!previousArtistId || otherArtistActiveRef.current) return;
+    const { data: { session } } = await getSession();
+    if (otherArtistActiveRef.current) return;
+    const restore = actingAsRef.current ?? session?.user?.id ?? null;
+    await forgetDraftArtistAttribution(
+      draftsRef.current.map((d) => d.id),
+      previousArtistId,
+      restore ? { restoreArtistId: restore } : undefined,
+    );
+  }
 
   function attributionClaimType(value: IntentType | null): "OWNS" | "INVENTORY" | "CURATED" {
     if (value === "OWNS" || value === "INVENTORY") return value;
@@ -642,12 +778,28 @@ export default function BulkUploadPage() {
       }
       try {
         const presetDraftId = opts?.attachToDraftId?.[slotId] ?? null;
+        const owner = cardOwner(userId);
+        const insertedArtistId = bulkDraftInsertArtistId({
+          sessionUserId: userId,
+          actingAsProfileId: actingAsRef.current,
+          card: owner,
+        });
         if (presetDraftId) {
           artworkId = presetDraftId;
+          if (owner.plan) {
+            await persistArtistOnDrafts(
+              [presetDraftId],
+              owner.artistId,
+              owner.plan.listerClaim.claimType,
+            );
+          }
         } else {
           const { data: id, error: createErr } = await createDraftArtwork(
             { title },
-            { forProfileId: actingAsProfileId ?? undefined }
+            {
+              forProfileId: actingAsProfileId ?? undefined,
+              artistProfileId: owner.plan ? insertedArtistId : undefined,
+            },
           );
           if (createErr || !id) {
             throw createErr instanceof Error ? createErr : new Error("Failed to create draft");
@@ -685,6 +837,13 @@ export default function BulkUploadPage() {
         if (attachErr) throw attachErr;
         imageAttached = true;
         uploadedIds.push(artworkId);
+        if (owner.plan && createdHere) {
+          await persistArtistOnDrafts(
+            [artworkId],
+            owner.artistId,
+            owner.plan.listerClaim.claimType,
+          );
+        }
         const batchSlot = batchSlotsRef.current.find((s) => s.pendingId === slotId);
         if (batchSlot) batchSlot.draftId = artworkId;
         results[idx] = { pendingId: slotId, draftId: artworkId, name: file.name };
@@ -779,16 +938,13 @@ export default function BulkUploadPage() {
       setToast(message);
       setTimeout(() => setToast(null), 6000);
     }
-    const artistNow = selectedArtistRef.current;
-    const intentNow = intentRef.current;
-    if (
-      artistNow &&
-      intentNow &&
-      intentNow !== "CREATED" &&
-      !useExternalArtistRef.current &&
-      uploadedIds.length > 0
-    ) {
-      await persistArtistOnDrafts(uploadedIds, artistNow.id, intentNow);
+    const ownerNow = cardOwner(userId);
+    if (ownerNow.plan && !useExternalArtistRef.current && uploadedIds.length > 0) {
+      await persistArtistOnDrafts(
+        uploadedIds,
+        ownerNow.artistId,
+        ownerNow.plan.listerClaim.claimType,
+      );
     }
     await fetchDrafts();
     const done = new Set(queue.map((item) => item.id));
@@ -1232,15 +1388,31 @@ export default function BulkUploadPage() {
 
       const createdHeld: { draftId: string; rowIndex: number }[] = [];
       if (images.length === 0) {
+        const { data: { session: captionSession } } = await getSession();
+        const captionUserId = captionSession?.user?.id ?? "";
         for (const rowIndex of plan.photoLess) {
           const row = parsed.rows[rowIndex];
           if (!row) continue;
           const title = row.title && row.title !== "Untitled" ? row.title : row.filename || "Untitled";
+          const owner = captionUserId ? cardOwner(captionUserId) : null;
+          const insertedArtistId = owner
+            ? bulkDraftInsertArtistId({
+                sessionUserId: captionUserId,
+                actingAsProfileId: actingAsRef.current,
+                card: owner,
+              })
+            : undefined;
           const { data: id, error } = await createDraftArtwork(
             { title },
-            { forProfileId: actingAsProfileId ?? undefined },
+            {
+              forProfileId: actingAsProfileId ?? undefined,
+              artistProfileId: owner?.plan ? insertedArtistId : undefined,
+            },
           );
           if (error || !id) continue;
+          if (owner?.plan) {
+            await persistArtistOnDrafts([id], owner.artistId, owner.plan.listerClaim.claimType);
+          }
           issues.push(...(await writeCaption(id, row)));
           createdHeld.push({ draftId: id, rowIndex });
         }
@@ -1280,7 +1452,19 @@ export default function BulkUploadPage() {
     const toPublish = drafts.filter((d) => ids.includes(d.id));
     const invalid = toPublish.filter((d) => !draftReady(d).ok);
     if (invalid.length > 0) return;
-    if (needsAttribution) {
+    const savedForPublish = useExternalArtist ? null : readBulkSessionArtist();
+    const selectedForPublish: ArtistOption | null =
+      selectedArtist ??
+      (savedForPublish
+        ? {
+            id: savedForPublish.artistId,
+            username: savedForPublish.username,
+            display_name: savedForPublish.displayName,
+            display_name_ko: savedForPublish.displayNameKo,
+            display_name_en: savedForPublish.displayNameEn,
+          }
+        : null);
+    if (needsAttribution || savedForPublish) {
       if (useExternalArtist) {
         const name = externalArtistName.trim();
         if (!name || name.length < 2) {
@@ -1294,7 +1478,7 @@ export default function BulkUploadPage() {
           setTimeout(() => setToast(null), 3500);
           return;
         }
-      } else if (!selectedArtist) {
+      } else if (!selectedForPublish && needsAttribution) {
         setToast(t("upload.linkArtist") || "Please select an artist");
         setTimeout(() => setToast(null), 2000);
         return;
@@ -1309,14 +1493,16 @@ export default function BulkUploadPage() {
       const remembered = useExternalArtist
         ? null
         : rememberedArtistId(toPublish, uploaderIds);
-      const artistForPublish = selectedArtist?.id ?? remembered;
+      const artistForPublish = selectedForPublish?.id ?? remembered;
+      const publishIntentForPlan =
+        intent && intent !== "CREATED" ? intent : (savedForPublish?.intent ?? intent);
       const plan =
         !useExternalArtist && artistForPublish
           ? planOnboardedArtistPublish({
               sessionUserId: session?.user?.id ?? "",
               actingAsProfileId,
               selectedArtistId: artistForPublish,
-              intent,
+              intent: publishIntentForPlan,
             })
           : null;
       // Per-work successes that should be linked to the exhibition + counted
@@ -1479,11 +1665,11 @@ export default function BulkUploadPage() {
           ? await resolveArtistPublishNotice({
               artistId: plan.artistId,
               artistName:
-                selectedArtist?.id === plan.artistId
-                  ? formatDisplayName(selectedArtist, t, locale)
+                selectedForPublish?.id === plan.artistId
+                  ? formatDisplayName(selectedForPublish, t, locale)
                   : null,
               artistUsername:
-                selectedArtist?.id === plan.artistId ? selectedArtist.username : null,
+                selectedForPublish?.id === plan.artistId ? selectedForPublish.username : null,
             })
           : null;
         if (notice) writeArtistPublishNotice(notice);
@@ -1809,19 +1995,25 @@ export default function BulkUploadPage() {
                 value={intent ?? "CURATED"}
                 onChange={(e) => {
                   const next = e.target.value as IntentType;
-                  setIntent(next);
                   if (next === "CREATED") {
-                    const previousArtistId = selectedArtist?.id;
-                    if (previousArtistId) {
-                      void forgetDraftArtistAttribution(
-                        draftsRef.current.map((d) => d.id),
-                        previousArtistId,
-                      );
-                    }
+                    const previousArtistId =
+                      selectedArtistRef.current?.id ?? readBulkSessionArtist()?.artistId ?? null;
+                    clearBulkSessionArtist();
+                    otherArtistActiveRef.current = false;
+                    selectedArtistRef.current = null;
+                    intentRef.current = "CREATED";
+                    void releaseOtherArtist(previousArtistId);
+                    setIntent("CREATED");
                     setAttributionOpen(false);
                     setAttributionStepDone(false);
                     setSelectedArtist(null);
                     setUseExternalArtist(false);
+                    return;
+                  }
+                  setIntent(next);
+                  if (selectedArtistRef.current) {
+                    otherArtistActiveRef.current = true;
+                    storeSessionArtist(selectedArtistRef.current, next);
                   }
                 }}
                 className="mt-1 w-full max-w-md rounded border border-zinc-300 bg-white px-3 py-2 text-sm"
@@ -1839,8 +2031,15 @@ export default function BulkUploadPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setUseExternalArtist(!useExternalArtist);
-                  if (!useExternalArtist) {
+                  const turningOnExternal = !useExternalArtist;
+                  setUseExternalArtist(turningOnExternal);
+                  if (turningOnExternal) {
+                    const previousArtistId =
+                      selectedArtistRef.current?.id ?? readBulkSessionArtist()?.artistId ?? null;
+                    clearBulkSessionArtist();
+                    otherArtistActiveRef.current = false;
+                    selectedArtistRef.current = null;
+                    void releaseOtherArtist(previousArtistId);
                     setSelectedArtist(null);
                     setArtistSearch("");
                     setArtistResults([]);
@@ -2013,13 +2212,21 @@ export default function BulkUploadPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              setSelectedArtist({
+                              const previousArtistId = selectedArtistRef.current?.id ?? null;
+                              const nextArtist: ArtistOption = {
                                 id: a.id,
                                 username: a.username,
                                 display_name: a.display_name,
                                 display_name_ko: a.display_name_ko ?? null,
                                 display_name_en: a.display_name_en ?? null,
-                              });
+                              };
+                              const claimIntent = listerIntent(intentRef.current);
+                              otherArtistActiveRef.current = true;
+                              selectedArtistRef.current = nextArtist;
+                              intentRef.current = claimIntent;
+                              storeSessionArtist(nextArtist, claimIntent);
+                              setSelectedArtist(nextArtist);
+                              setIntent(claimIntent);
                               setArtistResults([]);
                               setArtistSearch("");
                               // Auto-advance past the attribution step for
@@ -2027,11 +2234,20 @@ export default function BulkUploadPage() {
                               // (QA 2026-08-09). External artist path
                               // stays manual because it still needs email.
                               setAttributionStepDone(true);
-                              void persistArtistOnDrafts(
-                                draftsRef.current.map((d) => d.id),
-                                a.id,
-                                intentRef.current,
-                              );
+                              setAttributionOpen(false);
+                              void (async () => {
+                                if (previousArtistId && previousArtistId !== a.id) {
+                                  await forgetDraftArtistAttribution(
+                                    draftsRef.current.map((d) => d.id),
+                                    previousArtistId,
+                                  );
+                                }
+                                await persistArtistOnDrafts(
+                                  draftsRef.current.map((d) => d.id),
+                                  a.id,
+                                  claimIntent,
+                                );
+                              })();
                             }}
                             className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50"
                           >
@@ -2062,6 +2278,12 @@ export default function BulkUploadPage() {
                           <button
                             type="button"
                             onClick={() => {
+                              const previousArtistId =
+                                selectedArtistRef.current?.id ?? readBulkSessionArtist()?.artistId ?? null;
+                              clearBulkSessionArtist();
+                              otherArtistActiveRef.current = false;
+                              selectedArtistRef.current = null;
+                              void releaseOtherArtist(previousArtistId);
                               setUseExternalArtist(true);
                               setSelectedArtist(null);
                               setExternalArtistName(a.display_name?.trim() ?? "");
@@ -2135,13 +2357,13 @@ export default function BulkUploadPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const previousArtistId = selectedArtist?.id;
-                  if (previousArtistId) {
-                    void forgetDraftArtistAttribution(
-                      draftsRef.current.map((d) => d.id),
-                      previousArtistId,
-                    );
-                  }
+                  const previousArtistId =
+                    selectedArtistRef.current?.id ?? readBulkSessionArtist()?.artistId ?? null;
+                  clearBulkSessionArtist();
+                  otherArtistActiveRef.current = false;
+                  selectedArtistRef.current = null;
+                  intentRef.current = "CREATED";
+                  void releaseOtherArtist(previousArtistId);
                   setIntent("CREATED");
                   setAttributionOpen(false);
                   setAttributionStepDone(false);
@@ -2165,6 +2387,13 @@ export default function BulkUploadPage() {
                   if (!attributionValid) return;
                   if (useExternalArtist && externalArtistName.trim().length < 2) return;
                   if (useExternalArtist && !externalEmailValid) return;
+                  if (!useExternalArtist && selectedArtist) {
+                    const claimIntent = listerIntent(intent);
+                    otherArtistActiveRef.current = true;
+                    intentRef.current = claimIntent;
+                    storeSessionArtist(selectedArtist, claimIntent);
+                    setIntent(claimIntent);
+                  }
                   setAttributionStepDone(true);
                   setAttributionOpen(false);
                 }}

@@ -18,6 +18,12 @@ import {
 } from "@/lib/artworks/libraryInventory";
 import { resolvePublicProfileLimit } from "@/lib/artworks/publicProfileQuery";
 import { uploadGaps } from "@/lib/upload/readiness";
+import {
+  claimedOnboardedArtist,
+  creditedArtistId,
+  draftArtistIdForInsert,
+  personUnderArtworkTitle,
+} from "@/lib/upload/artworkOwner";
 
 const BUCKET = "artworks";
 
@@ -371,7 +377,12 @@ export function getArtworkArtistLabel(
     }
   }
 
-  const artist = artwork.profiles;
+  const artist =
+    personUnderArtworkTitle({
+      storedArtist: artwork.profiles,
+      uploaderId: artwork.created_by ?? null,
+      claimedArtist: claimedOnboardedArtist(artwork.claims, artwork.created_by ?? null),
+    }) ?? artwork.profiles;
   const username = artist?.username ?? null;
   let displayName: string | null = null;
   if (artist) {
@@ -452,7 +463,11 @@ export function getArtworkArtistGroupKey(
     const name = ext ? externalArtistDisplayName(ext).toLowerCase() : "";
     if (name) return `extname:${name}`;
   }
-  const artistId = artwork.artist_id;
+  const artistId = creditedArtistId({
+    artistId: artwork.artist_id,
+    uploaderId: artwork.created_by ?? null,
+    claims: artwork.claims,
+  });
   if (artistId) return artistId;
   const { label } = getArtworkArtistLabel(artwork);
   return `extname:${(label ?? "unknown").toLowerCase()}`;
@@ -571,7 +586,7 @@ const ARTWORK_SELECT = `
   artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
   profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles, is_public),
   artwork_likes(count),
-  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
+  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
 `;
 
 /**
@@ -627,7 +642,7 @@ const FEED_ARTWORK_SELECT = `
   artwork_images(storage_path, sort_order, view_type, display_adjust),
   profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public),
   artwork_likes(count),
-  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
+  claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
 `;
 
 export async function listPublicArtworks(
@@ -1572,7 +1587,7 @@ export async function getArtworkById(
       artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
-      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
+      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
     `
     )
     .eq("id", id)
@@ -1607,6 +1622,7 @@ export async function getArtworksByIds(
       story_ko,
       story_en,
       visibility,
+      created_by,
       pricing_mode,
       is_price_public,
       price_usd,
@@ -1622,7 +1638,7 @@ export async function getArtworksByIds(
       artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
       artwork_likes(count),
-      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en))
+      claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
     `
     )
     .in("id", ids);
@@ -2104,10 +2120,15 @@ export type DraftArtworkPayload = {
   title: string;
 };
 
-/** Optional forProfileId: when acting as account delegate, create on behalf of that profile. RLS allows only if caller is delegate. */
+/**
+ * forProfileId: acting-as principal. Used as artist_id only when no
+ * other artist was chosen, and as the audit subject for the delegate.
+ * artistProfileId: onboarded artist this card is for. Wins over the
+ * acting principal and the session user. created_by stays the session.
+ */
 export async function createDraftArtwork(
   payload: DraftArtworkPayload,
-  options?: { forProfileId?: string }
+  options?: { forProfileId?: string; artistProfileId?: string }
 ): Promise<{ data: string | null; error: unknown }> {
   const {
     data: { session },
@@ -2115,7 +2136,11 @@ export async function createDraftArtwork(
   if (!session?.user?.id)
     return { data: null, error: new Error("Not authenticated") };
 
-  const artistId = options?.forProfileId ?? session.user.id;
+  const artistId = draftArtistIdForInsert({
+    sessionUserId: session.user.id,
+    forProfileId: options?.forProfileId,
+    artistProfileId: options?.artistProfileId,
+  });
   const { data, error } = await supabase
     .from("artworks")
     .insert({
@@ -2245,10 +2270,10 @@ export async function assignArtworkArtist(
 }
 
 /**
- * Remember, on the draft, which onboarded artist this upload is for.
- * `artist_id` stays with the uploading account until publish so image
- * attach and caption edits still pass RLS. The claim is what publish
- * and a reopened bulk screen read.
+ * Remember which onboarded artist this draft is for.
+ * `artist_id` is that artist (내 작품). The claim is the uploader's
+ * provenance — curator, gallery, or owns — not a CREATED claim.
+ * Image edits still pass because created_by is the uploading session.
  */
 export async function rememberDraftArtistAttribution(
   artworkIds: string[],
@@ -2270,24 +2295,32 @@ export async function rememberDraftArtistAttribution(
       .eq("claim_type", opts.claimType)
       .limit(1);
     if (readErr) return { error: readErr };
-    if (existing && existing.length > 0) continue;
-    const { error } = await createClaimForExistingArtist({
-      artistProfileId: opts.artistProfileId,
-      claimType: opts.claimType,
-      workId: id,
-      visibility: "public",
-      period_status: opts.period_status ?? null,
-      subjectProfileId: opts.subjectProfileId ?? undefined,
-    });
-    if (error) return { error };
+    if (!existing || existing.length === 0) {
+      const { error } = await createClaimForExistingArtist({
+        artistProfileId: opts.artistProfileId,
+        claimType: opts.claimType,
+        workId: id,
+        visibility: "public",
+        period_status: opts.period_status ?? null,
+        subjectProfileId: opts.subjectProfileId ?? undefined,
+      });
+      if (error) return { error };
+    }
+    const { error: assignErr } = await assignArtworkArtist(id, opts.artistProfileId);
+    if (assignErr) return { error: assignErr };
   }
   return { error: null };
 }
 
-/** Drop the attribution claim when the operator cancels "another artist". */
+/**
+ * Drop the attribution claim when the operator cancels "another artist".
+ * `restoreArtistId` puts the row back on the uploading account so a
+ * cancelled batch is not left on the artist.
+ */
 export async function forgetDraftArtistAttribution(
   artworkIds: string[],
   artistProfileId: string,
+  opts?: { restoreArtistId?: string | null },
 ): Promise<{ error: unknown }> {
   if (artworkIds.length === 0 || !artistProfileId) return { error: null };
   const { error } = await supabase
@@ -2295,7 +2328,14 @@ export async function forgetDraftArtistAttribution(
     .delete()
     .in("work_id", artworkIds)
     .eq("artist_profile_id", artistProfileId);
-  return { error };
+  if (error) return { error };
+  const restore = opts?.restoreArtistId?.trim() || "";
+  if (!restore || restore === artistProfileId) return { error: null };
+  for (const id of artworkIds) {
+    const { error: assignErr } = await assignArtworkArtist(id, restore);
+    if (assignErr) return { error: assignErr };
+  }
+  return { error: null };
 }
 
 /**

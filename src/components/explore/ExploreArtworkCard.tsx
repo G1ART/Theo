@@ -9,6 +9,7 @@ import {
   getPrimaryClaim,
   type ArtworkWithLikes,
 } from "@/lib/supabase/artworks";
+import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
 import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
 import { UnonboardedBadge } from "@/components/artists/UnonboardedBadge";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
@@ -110,7 +111,7 @@ export function ExploreArtworkCard({
   const first = sorted[0];
   const imageUrl = first ? getArtworkImageUrl(first.storage_path, "medium") : null;
 
-  const artistProfile = (artwork as { profiles?: {
+  const storedArtist = (artwork as { profiles?: {
     id?: string;
     username?: string | null;
     display_name?: string | null;
@@ -119,6 +120,12 @@ export function ExploreArtworkCard({
     main_role?: string | null;
     roles?: string[] | null;
   } | null }).profiles ?? null;
+  const artistProfile =
+    personUnderArtworkTitle({
+      storedArtist,
+      uploaderId: artwork.created_by ?? null,
+      claimedArtist: claimedOnboardedArtist(artwork.claims, artwork.created_by ?? null),
+    }) ?? storedArtist;
   const primaryClaim = getPrimaryClaim(artwork);
   // QA 2026-07-28 — external_artists 도 KO/EN 슬롯을 함께 읽는다.
   const externalRow = primaryClaim
