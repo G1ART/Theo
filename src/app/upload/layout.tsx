@@ -10,8 +10,6 @@ import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
 import { AppShell } from "@/components/shell/AppShell";
-import { UPLOAD_MAX_IMAGE_MB_LABEL } from "@/lib/upload/limits";
-
 /**
  * Upload chrome sits in the existing 3-column shell (sidebar | center |
  * My Connection). Artworks is the entry workspace; Exhibition keeps the
@@ -118,7 +116,7 @@ export default function UploadLayout({
                 <div className="absolute right-0 top-7 z-20 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs leading-relaxed text-zinc-600 shadow-sm">
                   <p>{t("bulk.dropLine1")}</p>
                   <p className="mt-1">
-                    {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+                    {t("bulk.dropLine2")}
                   </p>
                 </div>
               )}

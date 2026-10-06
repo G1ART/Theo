@@ -1,3 +1,5 @@
+import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
+
 /**
  * 2026-07-28 — 클라이언트 자동 이미지 압축.
  *
@@ -48,6 +50,7 @@ export const COMPRESS_HARD_INPUT_MAX_BYTES = 200 * 1024 * 1024;
 const COMPRESSIBLE_MIMES = new Set([
   "image/jpeg",
   "image/pjpeg",
+  "image/jpg",
   "image/png",
   "image/webp",
 ]);
@@ -176,7 +179,7 @@ export async function compressArtworkImage(
   if (isPossiblyAnimated(file)) {
     return { skipped: true, reason: "animated", originalFile: file, originalBytes };
   }
-  if (!COMPRESSIBLE_MIMES.has(file.type)) {
+  if (!isCompressibleUpload(file)) {
     return { skipped: true, reason: "unsupported-mime", originalFile: file, originalBytes };
   }
   if (typeof createImageBitmap === "undefined" || typeof document === "undefined") {

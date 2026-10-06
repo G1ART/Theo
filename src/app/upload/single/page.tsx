@@ -60,7 +60,9 @@ import {
   UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
-import { isCompressibleMime } from "@/lib/image/compress";
+import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
+import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
+import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { formatSingleUploadFailure } from "@/lib/upload/formatUploadError";
 
 type UploadStep = "intent" | "attribution" | "form" | "dedup";
@@ -459,28 +461,30 @@ function UploadPageContent() {
     const isExternal = needsAttribution(intent) && useExternalArtist;
     // QA 2026-07-28 bilingual — legacy 슬롯은 KO 우선. 240004 트리거가 서버
     // 측에서도 KO 우선 sync 하므로 클라이언트 값과 트리거 결과가 일치한다.
-    const legacyTitle =
-      pickLegacyForSave(titleKo || null, titleEn || null) ?? title.trim() ?? "";
-    const legacyMedium =
-      pickLegacyForSave(mediumKo || null, mediumEn || null) ??
-      medium.trim() ??
-      "";
-    const legacyStory =
-      pickLegacyForSave(storyKo || null, storyEn || null) ??
-      (story.trim() || null);
+    const bilingual = registrationBilingualFields({
+      titleKo,
+      titleEn,
+      mediumKo,
+      mediumEn,
+      storyKo,
+      storyEn,
+      title,
+      medium,
+      story,
+    });
     const payload: CreateArtworkPayload = {
-      title: legacyTitle || title.trim(),
-      title_ko: titleKo.trim() || null,
-      title_en: titleEn.trim() || null,
+      title: bilingual.title || title.trim(),
+      title_ko: bilingual.title_ko,
+      title_en: bilingual.title_en,
       year: yearNum,
-      medium: legacyMedium || medium.trim(),
-      medium_ko: mediumKo.trim() || null,
-      medium_en: mediumEn.trim() || null,
+      medium: bilingual.medium || medium.trim(),
+      medium_ko: bilingual.medium_ko,
+      medium_en: bilingual.medium_en,
       size: sizeTrimmed,
       size_unit: sizeTrimmed ? sizeUnit : null,
-      story: legacyStory || story.trim() || null,
-      story_ko: storyKo.trim() || null,
-      story_en: storyEn.trim() || null,
+      story: bilingual.story,
+      story_ko: bilingual.story_ko,
+      story_en: bilingual.story_en,
       ownership_status: ownershipStatus,
       pricing_mode: pricingMode,
       is_price_public: pricingMode === "fixed" ? isPricePublic : false,
@@ -786,7 +790,7 @@ function UploadPageContent() {
     if (files.length === 0) return;
     const oversize = files.find((f) => f.size > getUploadCeilingBytes(f));
     if (oversize) {
-      const compressible = isCompressibleMime(oversize.type);
+      const compressible = isCompressibleUpload(oversize);
       const ceilingMb = compressible
         ? UPLOAD_MAX_COMPRESSIBLE_MB_LABEL
         : UPLOAD_MAX_IMAGE_MB_LABEL;
@@ -847,9 +851,13 @@ function UploadPageContent() {
     .filter(Boolean);
   function setMediumChips(next: string[]) {
     const joined = next.join(", ");
-    setMedium(joined);
-    if (locale === "ko") setMediumKo(joined);
-    else setMediumEn(joined);
+    if (locale === "ko") {
+      setMediumKo(joined);
+      setMedium(pickLegacyForSave(joined, mediumEn) ?? joined);
+    } else {
+      setMediumEn(joined);
+      setMedium(pickLegacyForSave(mediumKo, joined) ?? joined);
+    }
   }
   function addMediumChip(raw: string) {
     const value = raw.trim();
@@ -1289,36 +1297,45 @@ function UploadPageContent() {
             )}
             <article className="rounded-md border border-zinc-300 bg-white p-3">
               <div className="flex flex-col gap-3 md:flex-row">
-                <div className="w-[88px] shrink-0">
-                  <div className="relative h-[88px] w-[88px]">
+                <div className="w-28 shrink-0">
+                  <div className="relative bg-zinc-100">
                     <button
                       type="button"
                       onClick={() => document.getElementById("single-cover-input")?.click()}
-                      className="block h-full w-full bg-zinc-200"
+                      className="block w-full bg-zinc-100"
                     >
                       {coverImage ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={coverImage.enhancement?.previewUrl ?? coverImage.previewUrl}
                           alt=""
-                          className="h-full w-full object-cover"
+                          className="block h-auto max-h-40 w-full object-contain"
                         />
                       ) : (
-                        <span className="flex h-full items-center justify-center text-3xl font-light text-zinc-400">×</span>
+                        <span className="flex h-28 items-center justify-center text-3xl font-light text-zinc-400">×</span>
                       )}
                     </button>
-                    {coverImage && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEnhanceTargetId((cur) => (cur === coverImage.id ? null : coverImage.id))
-                        }
-                        className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] text-zinc-800 shadow-sm"
-                      >
-                        {t("bulk.enhance.row")}
-                      </button>
-                    )}
                   </div>
+                  {coverImage && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEnhanceTargetId((cur) => (cur === coverImage.id ? null : coverImage.id))
+                      }
+                      className="mt-1 flex w-full items-center justify-center gap-0.5 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] text-zinc-800 shadow-sm"
+                    >
+                      {t("bulk.enhance.row")}
+                    </button>
+                  )}
+                  {coverImage && (
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById("single-detail-input")?.click()}
+                      className="mt-1 w-full rounded border border-zinc-300 bg-white px-1 py-1 text-[10px] leading-tight text-zinc-800 hover:bg-zinc-50"
+                    >
+                      {t("bulk.cardUpload")}
+                    </button>
+                  )}
                   <input
                     id="single-cover-input"
                     type="file"
@@ -1360,33 +1377,27 @@ function UploadPageContent() {
                       setDetailsOpen(true);
                     }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setDetailsOpen((open) => !open)}
-                    aria-expanded={detailsOpen}
-                    className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-700 underline decoration-zinc-300 underline-offset-2"
-                  >
-                    <UploadCloudMark className="h-3.5 w-3.5" />
-                    {detailsOpen ? t("bulk.details") : t("bulk.cardUpload")}
-                    <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
-                  </button>
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.15fr)_5.25rem_minmax(0,1.35fr)]">
-                    <label className="block text-xs text-zinc-800">
-                      {t("bulk.tableTitle")}
-                      <input
-                        value={locale === "ko" ? titleKo || title : titleEn || title}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setTitle(v);
-                          if (locale === "ko") setTitleKo(v);
-                          else setTitleEn(v);
-                        }}
-                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-                      />
-                    </label>
+                    <BilingualFieldPair
+                      label={t("bulk.tableTitle")}
+                      addKoKey="bilingual.addKoTitle"
+                      addEnKey="bilingual.addEnTitle"
+                      placeholderKo={t("upload.placeholderTitle")}
+                      placeholderEn={t("upload.placeholderTitle")}
+                      valueKo={titleKo}
+                      valueEn={titleEn}
+                      onChangeKo={(v) => {
+                        setTitleKo(v);
+                        setTitle(pickLegacyForSave(v, titleEn) ?? v);
+                      }}
+                      onChangeEn={(v) => {
+                        setTitleEn(v);
+                        setTitle(pickLegacyForSave(titleKo, v) ?? v);
+                      }}
+                    />
                     <label className="block text-xs text-zinc-800">
                       {t("bulk.year")}
                       <select
@@ -1598,6 +1609,26 @@ function UploadPageContent() {
                           ))}
                         </div>
                       )}
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[11px] text-zinc-600">
+                          {locale === "ko" ? t("bilingual.addEnMedium") : t("bilingual.addKoMedium")}
+                        </summary>
+                        <input
+                          value={locale === "ko" ? mediumEn : mediumKo}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (locale === "ko") {
+                              setMediumEn(v);
+                              setMedium(pickLegacyForSave(mediumKo, v) ?? medium);
+                            } else {
+                              setMediumKo(v);
+                              setMedium(pickLegacyForSave(v, mediumEn) ?? medium);
+                            }
+                          }}
+                          placeholder={t("artwork.field.mediumPlaceholder")}
+                          className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                        />
+                      </details>
                     </div>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <label className="block text-xs text-zinc-800">
@@ -1693,6 +1724,24 @@ function UploadPageContent() {
                 </div>
               </div>
 
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((open) => !open)}
+                aria-expanded={detailsOpen}
+                className="mt-3 flex w-full items-start justify-between gap-3 rounded border border-zinc-300 px-3 py-2 text-left hover:bg-zinc-50"
+              >
+                <span>
+                  <span className="flex items-center gap-1 text-xs font-medium text-zinc-900">
+                    <UploadCloudMark className="h-3.5 w-3.5" />
+                    {t("bulk.extraImages")}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">
+                    {t("bulk.extraImagesHint")}
+                  </span>
+                </span>
+                <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
+              </button>
+
               {detailsOpen && (
                 <div className="mt-4">
                   {detailImages.length === 0 ? (
@@ -1702,16 +1751,15 @@ function UploadPageContent() {
                       className="flex w-full flex-col items-center rounded border border-zinc-300 px-4 py-8 text-center hover:bg-zinc-50"
                     >
                       <UploadCloudMark className="h-8 w-8 text-zinc-500" />
-                      <p className="mt-2 text-xs text-zinc-500">{t("bulk.detailsEmptyLine1")}</p>
-                      <p className="text-xs text-zinc-500">
-                        {t("bulk.detailsEmptyLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
-                      </p>
+                      <p className="mt-2 text-xs font-medium text-zinc-800">{t("bulk.cardUpload")}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{t("bulk.extraImagesHint")}</p>
+                      <p className="text-xs text-zinc-500">{t("bulk.dropLine2")}</p>
                     </button>
                   ) : (
                     <div className="flex items-end gap-3 rounded border border-zinc-300 px-3 py-3">
                       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
                         {detailImages.map((img) => (
-                          <div key={img.id} className="w-16">
+                          <div key={img.id} className="w-36">
                             <div className="relative">
                               <button
                                 type="button"
@@ -1743,25 +1791,24 @@ function UploadPageContent() {
                                 <img
                                   src={img.enhancement?.previewUrl ?? img.previewUrl}
                                   alt=""
-                                  className="h-full w-full object-cover"
+                                  className="h-full w-full object-contain"
                                 />
                               </button>
                               <div className={`h-1 ${coverBlocked ? "bg-red-500" : "bg-emerald-500"}`} />
                             </div>
-                            <select
-                              value={img.viewType === "wall_mounted" ? "detail" : img.viewType}
-                              onChange={(e) => {
-                                const v = e.target.value as ArtworkImageViewType;
+                            <button
+                              type="button"
+                              onClick={() => setEnhanceTargetId(img.id)}
+                              className="mt-1 flex w-16 items-center justify-center rounded border border-zinc-300 bg-white px-1 py-0.5 text-[10px] text-zinc-800 shadow-sm hover:bg-zinc-50"
+                            >
+                              {t("bulk.enhance.row")}
+                            </button>
+                            <ExtraViewRolePicker
+                              value={img.viewType}
+                              onChange={(v) => {
                                 setImages((prev) => prev.map((p) => (p.id === img.id ? { ...p, viewType: v } : p)));
                               }}
-                              aria-label={t("upload.imageViewTypeLabel")}
-                              className="mt-1 w-full rounded-full border border-zinc-300 bg-white px-1 py-0.5 text-[10px]"
-                            >
-                              <option value="detail">{t("bulk.view.detail")}</option>
-                              <option value="angle">{t("bulk.view.angle")}</option>
-                              <option value="in_situ">{t("bulk.view.inSitu")}</option>
-                              <option value="other">{t("bulk.view.other")}</option>
-                            </select>
+                            />
                           </div>
                         ))}
                       </div>
@@ -1771,7 +1818,7 @@ function UploadPageContent() {
                         className="mb-5 flex shrink-0 flex-col items-center gap-1 text-zinc-500"
                       >
                         <UploadCloudMark className="h-8 w-8" />
-                        <span className="text-[11px]">{t("bulk.detailsMore")}</span>
+                        <span className="text-[11px]">{t("bulk.cardUpload")}</span>
                       </button>
                     </div>
                   )}
@@ -1819,7 +1866,7 @@ function UploadPageContent() {
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-zinc-600"
                 aria-expanded={storyOpen}
               >
-                {t("upload.labelStory")}
+                {t("artwork.field.story")}
                 <span>{storyOpen ? "▴" : "▾"}</span>
               </button>
               {storyOpen && (
@@ -1869,18 +1916,6 @@ function UploadPageContent() {
                     rows={4}
                     maxLength={2000}
                   />
-                  <div className="mt-3">
-                    <p className="mb-1 text-xs text-zinc-500">{t("bilingual.addEnTitle")}</p>
-                    <input
-                      value={locale === "ko" ? titleEn : titleKo}
-                      onChange={(e) => {
-                        if (locale === "ko") setTitleEn(e.target.value);
-                        else setTitleKo(e.target.value);
-                      }}
-                      placeholder={t("upload.placeholderTitle")}
-                      className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-                    />
-                  </div>
                 </div>
               )}
             </div>

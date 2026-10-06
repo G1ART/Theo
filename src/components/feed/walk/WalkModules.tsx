@@ -329,8 +329,8 @@ function WorkLink({ work, children }: { work: WalkWorkView; children: ReactNode 
 
 function SquareImage({ src, alt, sizes }: { src: string | null; alt: string; sizes: string }) {
   return (
-    <div className="relative aspect-square overflow-hidden bg-zinc-200">
-      {src ? <Image src={src} alt={alt} fill sizes={sizes} className="object-cover" /> : null}
+    <div className="relative aspect-square overflow-hidden bg-zinc-100">
+      {src ? <Image src={src} alt={alt} fill sizes={sizes} className="object-contain" /> : null}
     </div>
   );
 }

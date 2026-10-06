@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import {
   getArtworkImageUrl,
   validatePublish,
@@ -11,9 +10,12 @@ import {
 } from "@/lib/supabase/artworks";
 import type { ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { useT } from "@/lib/i18n/useT";
+import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
+import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
+import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
+import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
-import { UPLOAD_MAX_IMAGE_MB_LABEL } from "@/lib/upload/limits";
 import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
 
 const OWNERSHIP_OPTIONS = [
@@ -24,13 +26,6 @@ const OWNERSHIP_OPTIONS = [
 ] as const;
 
 const PRICE_CURRENCIES = ["USD", "KRW"] as const;
-
-const VIEW_OPTIONS: { value: ArtworkImageViewType; labelKey: string }[] = [
-  { value: "detail", labelKey: "bulk.view.detail" },
-  { value: "angle", labelKey: "bulk.view.angle" },
-  { value: "in_situ", labelKey: "bulk.view.inSitu" },
-  { value: "other", labelKey: "bulk.view.other" },
-];
 
 function splitMedium(raw: string | null | undefined): string[] {
   return (raw ?? "")
@@ -93,7 +88,7 @@ type Props = {
   exhibitions: ExhibitionWithCredits[];
   exhibitionId: string;
   onToggle: () => void;
-  onEnhance: () => void;
+  onEnhance: (storagePath: string) => void;
   onAddFiles: (files: FileList | null) => void;
   onDragOver: () => void;
   onDragLeave: () => void;
@@ -103,6 +98,8 @@ type Props = {
   onLinkExhibition: (exhibitionId: string) => void;
   onSetViewType: (storagePath: string, viewType: ArtworkImageViewType) => void;
   onRemoveDetail: (storagePath: string) => void;
+  onPublish: () => void;
+  publishing: boolean;
 };
 
 export function BulkDraftCard({
@@ -123,6 +120,8 @@ export function BulkDraftCard({
   onLinkExhibition,
   onSetViewType,
   onRemoveDetail,
+  onPublish,
+  publishing,
 }: Props) {
   const { t, locale } = useT();
   const images = [...(draft.artwork_images ?? [])]
@@ -145,8 +144,21 @@ export function BulkDraftCard({
   const [height, setHeight] = useState(dims.h);
   const [depth, setDepth] = useState(dims.d);
   const sizeNa = sizeNotApplicable;
-  const [mediums, setMediums] = useState<string[]>(() => splitMedium(draft.medium));
+  const [mediums, setMediums] = useState<string[]>(() =>
+    splitMedium(locale === "ko" ? draft.medium_ko || draft.medium : draft.medium_en || draft.medium),
+  );
   const [mediumQuery, setMediumQuery] = useState("");
+  const [mediumAltOpen, setMediumAltOpen] = useState(
+    () => Boolean((locale === "ko" ? draft.medium_en : draft.medium_ko)?.trim()),
+  );
+  const [mediumAlt, setMediumAlt] = useState(
+    () => (locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? ""),
+  );
+  const [titleKo, setTitleKo] = useState(draft.title_ko ?? (locale === "ko" ? draft.title ?? "" : ""));
+  const [titleEn, setTitleEn] = useState(draft.title_en ?? (locale === "ko" ? "" : draft.title ?? ""));
+  const [storyKo, setStoryKo] = useState(draft.story_ko ?? (locale === "ko" ? draft.story ?? "" : ""));
+  const [storyEn, setStoryEn] = useState(draft.story_en ?? (locale === "ko" ? "" : draft.story ?? ""));
+  const [storyOpen, setStoryOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(details.length > 0);
   const [priceAmount, setPriceAmount] = useState(
     draft.price_input_amount != null ? String(draft.price_input_amount) : "",
@@ -158,10 +170,15 @@ export function BulkDraftCard({
     setWidth(next.w);
     setHeight(next.h);
     setDepth(next.d);
-    setMediums(splitMedium(draft.medium));
+    setMediums(splitMedium(locale === "ko" ? draft.medium_ko || draft.medium : draft.medium_en || draft.medium));
+    setMediumAlt(locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? "");
+    setTitleKo(draft.title_ko ?? (locale === "ko" ? draft.title ?? "" : ""));
+    setTitleEn(draft.title_en ?? (locale === "ko" ? "" : draft.title ?? ""));
+    setStoryKo(draft.story_ko ?? (locale === "ko" ? draft.story ?? "" : ""));
+    setStoryEn(draft.story_en ?? (locale === "ko" ? "" : draft.story ?? ""));
     setPriceAmount(draft.price_input_amount != null ? String(draft.price_input_amount) : "");
     setPriceCurrency(draft.price_input_currency || "USD");
-  }, [draft.id, bulkVersion, draft.size, draft.medium, draft.price_input_amount, draft.price_input_currency]);
+  }, [draft.id, bulkVersion, draft.size, draft.medium, draft.medium_ko, draft.medium_en, draft.title, draft.title_ko, draft.title_en, draft.story, draft.story_ko, draft.story_en, draft.price_input_amount, draft.price_input_currency, locale]);
 
   useEffect(() => {
     const patch: UpdateArtworkPayload = {};
@@ -206,13 +223,44 @@ export function BulkDraftCard({
     onSave({ size: written, size_unit: nextUnit });
   }
 
+  function commitCopy(
+    next: {
+      titleKo?: string;
+      titleEn?: string;
+      mediumKo?: string;
+      mediumEn?: string;
+      storyKo?: string;
+      storyEn?: string;
+    },
+    part: "title" | "medium" | "story",
+  ) {
+    const fields = registrationBilingualFields({
+      titleKo: next.titleKo ?? titleKo,
+      titleEn: next.titleEn ?? titleEn,
+      mediumKo: next.mediumKo ?? (locale === "ko" ? mediums.join(", ") : draft.medium_ko ?? ""),
+      mediumEn: next.mediumEn ?? (locale === "ko" ? draft.medium_en ?? "" : mediums.join(", ")),
+      storyKo: next.storyKo ?? storyKo,
+      storyEn: next.storyEn ?? storyEn,
+      title: draft.title ?? "",
+      medium: draft.medium ?? "",
+      story: draft.story ?? "",
+    });
+    if (part === "title") {
+      onSave({ title: fields.title, title_ko: fields.title_ko, title_en: fields.title_en });
+      return;
+    }
+    if (part === "medium") {
+      onSave({ medium: fields.medium, medium_ko: fields.medium_ko, medium_en: fields.medium_en });
+      return;
+    }
+    onSave({ story: fields.story, story_ko: fields.story_ko, story_en: fields.story_en });
+  }
+
   function commitMedium(next: string[]) {
     setMediums(next);
-    const medium = next.join(", ");
-    const patch: UpdateArtworkPayload = { medium };
-    if (locale === "ko") patch.medium_ko = medium || null;
-    else patch.medium_en = medium || null;
-    onSave(patch);
+    const joined = next.join(", ");
+    if (locale === "ko") commitCopy({ mediumKo: joined, mediumEn: mediumAlt }, "medium");
+    else commitCopy({ mediumEn: joined, mediumKo: mediumAlt }, "medium");
   }
 
   function addMedium(raw: string) {
@@ -236,7 +284,6 @@ export function BulkDraftCard({
   }
 
   const fileId = `bulk-add-${draft.id}`;
-  const maxMb = String(UPLOAD_MAX_IMAGE_MB_LABEL);
 
   return (
     <article
@@ -259,9 +306,9 @@ export function BulkDraftCard({
           {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
         </button>
 
-        <div className="w-[88px] shrink-0">
+        <div className="w-28 shrink-0">
           <div
-            className={`relative h-[88px] w-[88px] bg-zinc-200 ${dropActive ? "ring-2 ring-zinc-900" : ""}`}
+            className={`relative bg-zinc-100 ${dropActive ? "ring-2 ring-zinc-900" : ""}`}
             onDragOver={(e) => {
               if (![...e.dataTransfer.types].includes("Files")) return;
               e.preventDefault();
@@ -274,30 +321,35 @@ export function BulkDraftCard({
             }}
           >
             {thumb ? (
-              <Image
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
                 src={thumb}
                 alt=""
-                width={88}
-                height={88}
-                sizes="88px"
-                className="h-full w-full object-cover"
+                className="block h-auto max-h-40 w-full object-contain"
               />
             ) : (
-              <div className="flex h-full items-center justify-center text-zinc-400">
+              <div className="flex h-28 items-center justify-center text-zinc-400">
                 <span className="text-3xl font-light leading-none">×</span>
               </div>
             )}
-            {cover?.storage_path && (
-              <button
-                type="button"
-                onClick={onEnhance}
-                className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] text-zinc-800 shadow-sm hover:bg-zinc-50"
-              >
-                <WandMark className="h-3 w-3" />
-                {t("bulk.enhance.row")}
-              </button>
-            )}
           </div>
+          {cover?.storage_path && (
+            <button
+              type="button"
+              onClick={() => onEnhance(cover.storage_path)}
+              className="mt-1 flex w-full items-center justify-center gap-0.5 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] text-zinc-800 shadow-sm hover:bg-zinc-50"
+            >
+              <WandMark className="h-3 w-3" />
+              {t("bulk.enhance.row")}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => document.getElementById(fileId)?.click()}
+            className="mt-1 w-full rounded border border-zinc-300 bg-white px-1 py-1 text-[10px] leading-tight text-zinc-800 hover:bg-zinc-50"
+          >
+            {t("bulk.cardUpload")}
+          </button>
           <p className="mt-4 flex justify-center">
             <span
               className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${
@@ -325,37 +377,29 @@ export function BulkDraftCard({
           />
           <button
             type="button"
-            onClick={() => setDetailsOpen((open) => !open)}
-            aria-expanded={detailsOpen}
-            className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-900"
+            onClick={onPublish}
+            disabled={!ready || publishing}
+            className="mt-2 w-full rounded-full bg-zinc-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
           >
-            <UploadCloudMark className="h-3.5 w-3.5" />
-            {t("bulk.details")}
-            <span aria-hidden className="no-underline">
-              {detailsOpen ? "▴" : "▾"}
-            </span>
+            {t("bulk.cardPublish")}
           </button>
         </div>
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.15fr)_5.25rem_minmax(0,1.35fr)]">
-            <label className={label}>
-              {t("bulk.tableTitle")}
-              <input
-                type="text"
-                defaultValue={draft.title ?? ""}
-                key={`title-${draft.id}-${bulkVersion}`}
-                className={`${field} mt-1`}
-                onBlur={(e) => {
-                  const title = e.target.value;
-                  const patch: UpdateArtworkPayload = { title };
-                  if (locale === "ko") patch.title_ko = title || null;
-                  else patch.title_en = title || null;
-                  onSave(patch);
-                }}
-              />
-            </label>
+            <BilingualFieldPair
+              label={t("bulk.tableTitle")}
+              addKoKey="bilingual.addKoTitle"
+              addEnKey="bilingual.addEnTitle"
+              placeholderKo={t("bulk.tableTitle")}
+              placeholderEn={t("bulk.tableTitle")}
+              valueKo={titleKo}
+              valueEn={titleEn}
+              onChangeKo={(v) => setTitleKo(v)}
+              onChangeEn={(v) => setTitleEn(v)}
+              onBlur={() => commitCopy({ titleKo, titleEn }, "title")}
+            />
             <label className={label}>
               {t("bulk.year")}
               <select
@@ -519,6 +563,25 @@ export function BulkDraftCard({
                   ))}
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => setMediumAltOpen((open) => !open)}
+                className="mt-2 text-[11px] text-zinc-600 underline underline-offset-2"
+              >
+                {locale === "ko" ? t("bilingual.addEnMedium") : t("bilingual.addKoMedium")}
+              </button>
+              {mediumAltOpen && (
+                <input
+                  value={mediumAlt}
+                  onChange={(e) => setMediumAlt(e.target.value)}
+                  onBlur={() => {
+                    if (locale === "ko") commitCopy({ mediumEn: mediumAlt }, "medium");
+                    else commitCopy({ mediumKo: mediumAlt }, "medium");
+                  }}
+                  placeholder={t("artwork.field.mediumPlaceholder")}
+                  className={`${field} mt-1`}
+                />
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -603,6 +666,24 @@ export function BulkDraftCard({
         </div>
       </div>
 
+      <button
+        type="button"
+        onClick={() => setDetailsOpen((open) => !open)}
+        aria-expanded={detailsOpen}
+        className="mt-3 flex w-full items-start justify-between gap-3 rounded border border-zinc-300 px-3 py-2 text-left hover:bg-zinc-50"
+      >
+        <span>
+          <span className="flex items-center gap-1 text-xs font-medium text-zinc-900">
+            <UploadCloudMark className="h-3.5 w-3.5" />
+            {t("bulk.extraImages")}
+          </span>
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">
+            {t("bulk.extraImagesHint")}
+          </span>
+        </span>
+        <span aria-hidden className="text-zinc-500">{detailsOpen ? "▴" : "▾"}</span>
+      </button>
+
       {detailsOpen && (
         <div className="mt-4">
           {details.length === 0 ? (
@@ -612,9 +693,10 @@ export function BulkDraftCard({
               className="flex w-full flex-col items-center rounded border border-zinc-300 px-4 py-8 text-center hover:bg-zinc-50"
             >
               <UploadCloudMark className="h-8 w-8 text-zinc-500" />
-              <p className="mt-2 text-xs text-zinc-500">{t("bulk.detailsEmptyLine1")}</p>
+              <p className="mt-2 text-xs font-medium text-zinc-800">{t("bulk.cardUpload")}</p>
+              <p className="mt-1 text-xs text-zinc-500">{t("bulk.extraImagesHint")}</p>
               <p className="text-xs text-zinc-500">
-                {t("bulk.detailsEmptyLine2").replace("{maxMb}", maxMb)}
+                {t("bulk.dropLine2")}
               </p>
             </button>
           ) : (
@@ -622,11 +704,8 @@ export function BulkDraftCard({
               <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
                 {details.map((detail, index) => {
                   const detailThumb = getArtworkImageUrl(detail.storage_path, "thumb");
-                  const current = VIEW_OPTIONS.some((o) => o.value === detail.view_type)
-                    ? (detail.view_type as ArtworkImageViewType)
-                    : "detail";
                   return (
-                    <div key={detail.storage_path || `${draft.id}-d-${index}`} className="w-16">
+                    <div key={detail.storage_path || `${draft.id}-d-${index}`} className="w-36">
                       <div className="relative">
                         <button
                           type="button"
@@ -636,32 +715,25 @@ export function BulkDraftCard({
                         >
                           ×
                         </button>
-                        <div className="h-16 w-16 overflow-hidden border border-zinc-200 bg-zinc-200">
-                          <Image
-                            src={detailThumb}
-                            alt=""
-                            width={64}
-                            height={64}
-                            sizes="64px"
-                            className="h-full w-full object-cover"
-                          />
+                        <div className="h-16 w-16 overflow-hidden border border-zinc-200 bg-zinc-100">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={detailThumb} alt="" className="h-full w-full object-contain" />
                         </div>
                         <div className={`h-1 ${ready ? "bg-emerald-500" : "bg-red-500"}`} />
                       </div>
-                      <select
-                        value={current}
-                        onChange={(e) =>
-                          onSetViewType(detail.storage_path, e.target.value as ArtworkImageViewType)
-                        }
-                        aria-label={t("upload.imageViewTypeLabel")}
-                        className="mt-1 w-full rounded-full border border-zinc-300 bg-white px-1 py-0.5 text-[10px] text-zinc-800"
+                      <button
+                        type="button"
+                        onClick={() => onEnhance(detail.storage_path)}
+                        aria-label={`${t("bulk.enhance.row")} ${t(registrationViewLabelKey(detail.view_type))}`}
+                        className="mt-1 flex w-16 items-center justify-center gap-0.5 rounded border border-zinc-300 bg-white px-1 py-0.5 text-[10px] text-zinc-800 shadow-sm hover:bg-zinc-50"
                       >
-                        {VIEW_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {t(o.labelKey)}
-                          </option>
-                        ))}
-                      </select>
+                        <WandMark className="h-3 w-3" />
+                        {t("bulk.enhance.row")}
+                      </button>
+                      <ExtraViewRolePicker
+                        value={detail.view_type}
+                        onChange={(viewType) => onSetViewType(detail.storage_path, viewType)}
+                      />
                     </div>
                   );
                 })}
@@ -672,12 +744,43 @@ export function BulkDraftCard({
                 className="mb-5 flex shrink-0 flex-col items-center gap-1 text-zinc-500 hover:text-zinc-800"
               >
                 <UploadCloudMark className="h-8 w-8" />
-                <span className="text-[11px]">{t("bulk.detailsMore")}</span>
+                <span className="text-[11px]">{t("bulk.cardUpload")}</span>
               </button>
             </div>
           )}
         </div>
       )}
+
+      <div className="mt-3 rounded-md border border-zinc-200">
+        <button
+          type="button"
+          onClick={() => setStoryOpen((open) => !open)}
+          className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-zinc-700"
+          aria-expanded={storyOpen}
+        >
+          {t("artwork.field.story")}
+          <span aria-hidden>{storyOpen ? "▴" : "▾"}</span>
+        </button>
+        {storyOpen && (
+          <div className="border-t border-zinc-200 px-3 py-3">
+            <BilingualFieldPair
+              label={null}
+              addKoKey="bilingual.addKoStory"
+              addEnKey="bilingual.addEnStory"
+              placeholderKo={t("artwork.field.storyPlaceholder")}
+              placeholderEn={t("artwork.field.storyPlaceholder")}
+              valueKo={storyKo}
+              valueEn={storyEn}
+              onChangeKo={(v) => setStoryKo(v.length > 2000 ? v.slice(0, 2000) : v)}
+              onChangeEn={(v) => setStoryEn(v.length > 2000 ? v.slice(0, 2000) : v)}
+              onBlur={() => commitCopy({ storyKo, storyEn }, "story")}
+              as="textarea"
+              rows={4}
+              maxLength={2000}
+            />
+          </div>
+        )}
+      </div>
     </article>
   );
 }

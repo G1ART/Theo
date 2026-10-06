@@ -22,3 +22,28 @@ export function planDisplayReplacement(
       : null;
   return { original_storage_path: original, retire_storage_path: retire };
 }
+
+/**
+ * Swapping the cover file rewrites one artwork_images row.
+ * The artworks row stays — this is not delete-and-reupload.
+ */
+export function planCoverFileSwap(input: {
+  artworkId: string;
+  current: DisplayImageSlot;
+  nextStoragePath: string;
+}): {
+  artworkId: string;
+  deleteArtwork: false;
+  nextStoragePath: string;
+  original_storage_path: string;
+  retire_storage_path: string | null;
+} {
+  const image = planDisplayReplacement(input.current, input.nextStoragePath);
+  return {
+    artworkId: input.artworkId,
+    deleteArtwork: false,
+    nextStoragePath: input.nextStoragePath,
+    original_storage_path: image.original_storage_path,
+    retire_storage_path: image.retire_storage_path,
+  };
+}

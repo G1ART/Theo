@@ -33,7 +33,7 @@ export function ProfileCoverBand({ coverImagePath, positionY, alt = "" }: Props)
         fill
         sizes="(max-width: 768px) 100vw, 768px"
         priority
-        className="object-cover"
+        className="object-contain"
         style={{ objectPosition: `center ${focal}%` }}
       />
     </div>

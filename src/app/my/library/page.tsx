@@ -18,6 +18,8 @@ import {
   type ArtworkWithLikes,
   type MyLibrarySort,
   listMyArtworksForLibrary,
+  publishArtworks,
+  validatePublish,
 } from "@/lib/supabase/artworks";
 import { generateCsv, downloadCsv } from "@/lib/csv/parse";
 import { useActingAs } from "@/context/ActingAsContext";
@@ -38,6 +40,7 @@ export default function MyLibraryPage() {
   const [nextCursor, setNextCursor] = useState<ArtworkCursor | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<"all" | "public" | "draft">(() =>
     parseVisibilityParam(searchParams.get("visibility"))
   );
@@ -130,6 +133,19 @@ export default function MyLibraryPage() {
     });
     return () => cancelAnimationFrame(frame);
   }, [loadPage]);
+
+  async function publishOne(id: string) {
+    if (publishingId) return;
+    setPublishingId(id);
+    const { error } = await publishArtworks([id], { forProfileId: actingAsProfileId });
+    setPublishingId(null);
+    if (error) {
+      setToast(t("upload.publishFallback"));
+      return;
+    }
+    setItems((prev) => prev.map((a) => (a.id === id ? { ...a, visibility: "public" } : a)));
+    setToast(t("library.published"));
+  }
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -386,10 +402,14 @@ export default function MyLibraryPage() {
         ) : items.length === 0 ? (
           <EmptyState
             title={t("empty.library.title")}
-            description={`${t("empty.library.why")} ${t("empty.library.whatNext")}`}
+            description={`${t("empty.library.why")} ${t("empty.library.whatNext")} ${t("library.publishWhere")}`}
             action={{ label: t("empty.library.cta"), href: "/upload" }}
           />
         ) : (
+          <>
+          {items.some((a) => a.visibility === "draft") && (
+            <p className="mb-3 text-sm text-zinc-600">{t("library.publishWhere")}</p>
+          )}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {items.map((a) => (
               <div key={a.id} className="relative">
@@ -410,9 +430,20 @@ export default function MyLibraryPage() {
                   showEdit={!selectMode}
                   viewerId={myUserId}
                 />
+                {a.visibility === "draft" && !selectMode && (
+                  <button
+                    type="button"
+                    onClick={() => void publishOne(a.id)}
+                    disabled={publishingId === a.id || !validatePublish(a).ok}
+                    className="mt-2 w-full rounded-full bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    {t("library.publish")}
+                  </button>
+                )}
               </div>
             ))}
           </div>
+          </>
         )}
 
         {nextCursor != null && !loading && (

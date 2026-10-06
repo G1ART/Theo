@@ -10,7 +10,7 @@ import {
   getArtworkArtistLabel,
   getArtworkPriceDisplay,
 } from "@/lib/supabase/artworks";
-import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
+import { NaturalRatioArtworkImage } from "@/components/artwork/NaturalRatioArtworkImage";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import type { ClaimType } from "@/lib/provenance/types";
 import { claimTypeToLabel, claimTypeToByPhrase } from "@/lib/provenance/rpc";
@@ -105,13 +105,12 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
           {dragHandle}
         </div>
       )}
-      <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
+      <div className="relative w-full overflow-hidden bg-zinc-100">
           {imageUrl ? (
-            <CroppedArtworkImage
+            <NaturalRatioArtworkImage
               src={imageUrl}
               alt={localizedArtworkTitle ?? "Artwork"}
               sizes="(max-width: 768px) 100vw, 400px"
-              loading="lazy"
               adjust={readDisplayAdjust(firstImage?.display_adjust)}
             />
           ) : (

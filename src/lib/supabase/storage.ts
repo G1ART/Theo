@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { compressArtworkImage } from "@/lib/image/compress";
+import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
 import { renderPdfFirstPageAsWebp } from "@/lib/pdf/renderThumbnail";
 import type { EnhancementMeta } from "@/lib/image/enhancement/types";
 import { scrubJpegGps } from "@/lib/image/exifScrub";
@@ -715,13 +716,18 @@ export async function uploadProfileMedia(
   if (!limits) {
     throw new ProfileMediaValidationError("kind", `Unknown profile media kind: ${String(kind)}`);
   }
-  if (!limits.mimes.has(file.type)) {
+  let uploadFile = file;
+  if (isCompressibleUpload(file) && (file.size > limits.maxBytes || !limits.mimes.has(file.type))) {
+    const compressed = await compressArtworkImage(file, { targetMaxBytes: limits.maxBytes });
+    if (!compressed.skipped) uploadFile = compressed.displayFile;
+  }
+  if (!limits.mimes.has(uploadFile.type)) {
     throw new ProfileMediaValidationError(
       "mime",
       `Unsupported image type (${file.type || "unknown"}). Use JPEG, PNG, or WebP.`
     );
   }
-  if (file.size > limits.maxBytes) {
+  if (uploadFile.size > limits.maxBytes) {
     throw new ProfileMediaValidationError(
       "size",
       `File is too large (limit ${(limits.maxBytes / (1024 * 1024)).toFixed(0)} MB).`,
@@ -729,11 +735,11 @@ export async function uploadProfileMedia(
     );
   }
 
-  const safeName = sanitizeFilename(file.name);
+  const safeName = sanitizeFilename(uploadFile.name);
   const path = `${userId}/profile/${kind}/${crypto.randomUUID()}-${safeName}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+  const { error } = await supabase.storage.from(BUCKET).upload(path, uploadFile, {
     upsert: false,
-    contentType: file.type,
+    contentType: uploadFile.type,
     cacheControl: "3600",
   });
   if (error) throw error;

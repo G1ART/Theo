@@ -45,6 +45,7 @@ import { getSession } from "@/lib/supabase/auth";
 import { cleanupFailedAttach } from "@/lib/supabase/artworkStorageCleanup";
 import { removeStorageFile, removeStorageFiles, uploadArtworkImage } from "@/lib/supabase/storage";
 import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
+import { correctableArtworkImages, imageSlotForEnhance } from "@/lib/upload/enhanceFocus";
 import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDialog";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
@@ -84,10 +85,9 @@ import {
   BULK_MY_DRAFTS_QUERY_LIMIT,
   BULK_WEBSITE_STAGED_IDS_MAX,
   UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
-  UPLOAD_MAX_IMAGE_MB_LABEL,
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
-import { isCompressibleMime } from "@/lib/image/compress";
+import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
 import {
   buildCaptionPatch,
   isCaptionCsvFile,
@@ -157,6 +157,7 @@ export default function BulkUploadPage() {
   const { actingAsProfileId } = useActingAs();
   const [drafts, setDrafts] = useState<ArtworkWithLikes[]>([]);
   const [enhanceDraft, setEnhanceDraft] = useState<ArtworkWithLikes | null>(null);
+  const [enhancePath, setEnhancePath] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
   const [groupBusy, setGroupBusy] = useState(false);
   const [dropOnId, setDropOnId] = useState<string | null>(null);
@@ -385,7 +386,7 @@ export default function BulkUploadPage() {
       const ok = arr.filter((f) => f.size <= getUploadCeilingBytes(f));
       if (skippedFiles.length > 0) {
         const anyUnsupported = skippedFiles.some(
-          (f) => !isCompressibleMime(f.type),
+          (f) => !isCompressibleUpload(f),
         );
         const key = anyUnsupported
           ? "bulk.filesSkippedUnsupported"
@@ -972,12 +973,7 @@ export default function BulkUploadPage() {
   startUploadRef.current = startUpload;
 
   function orderedImages(d: ArtworkWithLikes) {
-    return [...(d.artwork_images ?? [])]
-      .filter((img) => {
-        const view = img.view_type ?? "";
-        return view !== "cutout" && view !== "cutout_alpha";
-      })
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    return correctableArtworkImages(d.artwork_images);
   }
 
   async function addDetailsToDraft(artworkId: string, list: FileList | File[] | null) {
@@ -2492,7 +2488,10 @@ export default function BulkUploadPage() {
             {drafts.length > 0 || placing.length > 0 ? t("bulk.dropLineMore") : t("bulk.dropLine1")}
           </p>
           <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-            {t("bulk.dropLine2").replace("{maxMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+            {t("bulk.dropLine2")}
+          </p>
+          <p className="mx-auto mt-2 max-w-lg text-xs leading-relaxed text-zinc-600">
+            {t("bulk.publishWhere")}
           </p>
         </div>
         <input
@@ -2620,17 +2619,21 @@ export default function BulkUploadPage() {
           />
         )}
 
-        {enhanceDraft && orderedImages(enhanceDraft).length > 0 && (
+        {enhanceDraft && enhancePath && imageSlotForEnhance(orderedImages(enhanceDraft), enhancePath).length > 0 && (
           <BulkEnhanceDialog
             artworkId={enhanceDraft.id}
             artistProfileId={enhanceDraft.artist_id ?? null}
             storageOwnerId={actingAsProfileId}
-            images={orderedImages(enhanceDraft)}
+            images={imageSlotForEnhance(orderedImages(enhanceDraft), enhancePath)}
             artworkWidthCm={enhanceDraft.width_cm ?? null}
             artworkHeightCm={enhanceDraft.height_cm ?? null}
-            onClose={() => setEnhanceDraft(null)}
+            onClose={() => {
+              setEnhanceDraft(null);
+              setEnhancePath(null);
+            }}
             onSaved={() => {
               setEnhanceDraft(null);
+              setEnhancePath(null);
               setToast(t("bulk.enhance.rowSaved"));
               setTimeout(() => setToast(null), 3200);
               void fetchDrafts({ silent: true });
@@ -2971,8 +2974,8 @@ export default function BulkUploadPage() {
             <article key={card.id} className="rounded-md border border-zinc-300 bg-white p-3">
               <div className="flex items-center gap-3">
                 <div
-                  className="h-[88px] w-[88px] shrink-0 bg-zinc-200 bg-cover bg-center"
-                  style={{ backgroundImage: `url("${card.previewUrl}")` }}
+                  className="h-28 w-28 shrink-0 bg-zinc-100 bg-contain bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url("${card.previewUrl}")`, backgroundSize: "contain", backgroundRepeat: "no-repeat", backgroundPosition: "center" }}
                   role="img"
                   aria-label={t("bulk.cardPlacing")}
                 />
@@ -2994,7 +2997,10 @@ export default function BulkUploadPage() {
                 exhibitions={myExhibitions}
                 exhibitionId={cardExhibition[d.id] ?? ""}
                 onToggle={() => toggleSelect(d.id)}
-                onEnhance={() => setEnhanceDraft(d)}
+                onEnhance={(storagePath) => {
+                  setEnhancePath(storagePath);
+                  setEnhanceDraft(d);
+                }}
                 onAddFiles={(files) => {
                   setDropOnId(null);
                   void addDetailsToDraft(d.id, files);
@@ -3009,6 +3015,8 @@ export default function BulkUploadPage() {
                 onLinkExhibition={(exhibitionId) => void linkOneExhibition(d.id, exhibitionId)}
                 onSetViewType={(storagePath, viewType) => void setDetailView(d.id, storagePath, viewType)}
                 onRemoveDetail={(storagePath) => void removeDetailImage(d.id, storagePath)}
+                onPublish={() => void handlePublish([d.id])}
+                publishing={publishing}
               />
             ))
           )}

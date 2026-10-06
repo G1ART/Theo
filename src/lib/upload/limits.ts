@@ -1,3 +1,5 @@
+import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
+
 /**
  * Upload limits documented in UI and used for client-side checks before Storage upload.
  *
@@ -35,13 +37,7 @@ export const UPLOAD_MAX_COMPRESSIBLE_MB_LABEL = 200;
  * whole compress module into places that only need the ceiling.
  */
 export function getUploadCeilingBytes(file: File): number {
-  const mime = (file.type || "").toLowerCase();
-  const isCompressible =
-    mime === "image/jpeg" ||
-    mime === "image/pjpeg" ||
-    mime === "image/png" ||
-    mime === "image/webp";
-  return isCompressible
+  return isCompressibleUpload(file)
     ? UPLOAD_MAX_COMPRESSIBLE_BYTES
     : UPLOAD_MAX_IMAGE_BYTES;
 }

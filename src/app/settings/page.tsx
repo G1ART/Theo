@@ -1180,6 +1180,123 @@ export default function SettingsPage() {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             <FloorPanel padding="sm">
+              <div className="space-y-4">
+                <BilingualFieldPair
+                  id="displayName"
+                  label={t("settings.displayName")}
+                  hint={t("bilingual.hintName")}
+                  addKoKey="bilingual.addKoName"
+                  addEnKey="bilingual.addEnName"
+                  placeholderKo={t("settings.placeholderDisplayName")}
+                  placeholderEn={t("settings.placeholderDisplayName")}
+                  valueKo={displayNameKo}
+                  valueEn={displayNameEn}
+                  onChangeKo={(v) => {
+                    setDisplayNameKo(v);
+                    if (locale === "ko") setDisplayName(v);
+                  }}
+                  onChangeEn={(v) => {
+                    setDisplayNameEn(v);
+                    if (locale !== "ko") setDisplayName(v);
+                  }}
+                  renderSecondaryAssist={({ secondaryLang }) =>
+                    secondaryLang === "en" ? (
+                      <RomanizationHintChip
+                        sourceText={displayNameKo}
+                        currentTargetText={displayNameEn}
+                        onApply={(text) => {
+                          setDisplayNameEn(text);
+                          if (locale !== "ko") setDisplayName(text);
+                        }}
+                        compact
+                      />
+                    ) : null
+                  }
+                />
+                <BilingualFieldPair
+                  id="bio"
+                  label={t("settings.bio")}
+                  hint={t("bilingual.hintProse")}
+                  addKoKey="bilingual.addKoBio"
+                  addEnKey="bilingual.addEnBio"
+                  placeholderKo={t("settings.placeholderBio")}
+                  placeholderEn={t("settings.placeholderBio")}
+                  valueKo={bioKo}
+                  valueEn={bioEn}
+                  onChangeKo={(v) => {
+                    setBioKo(v);
+                    if (locale === "ko") setBio(v);
+                  }}
+                  onChangeEn={(v) => {
+                    setBioEn(v);
+                    if (locale !== "ko") setBio(v);
+                  }}
+                  as="textarea"
+                  rows={2}
+                />
+                <BilingualFieldPair
+                  id="artistStatement"
+                  label={t("settings.identity.statement")}
+                  hint={t("bilingual.hintProse")}
+                  addKoKey="bilingual.addKoStatement"
+                  addEnKey="bilingual.addEnStatement"
+                  placeholderKo={t("profile.statement.placeholder")}
+                  placeholderEn={t("profile.statement.placeholder")}
+                  valueKo={statementKo}
+                  valueEn={statementEn}
+                  onChangeKo={(v) => {
+                    setStatementKo(v);
+                    if (locale === "ko") setStatement(v);
+                  }}
+                  onChangeEn={(v) => {
+                    setStatementEn(v);
+                    if (locale !== "ko") setStatement(v);
+                  }}
+                  as="textarea"
+                  rows={4}
+                  maxLength={4000}
+                  onBlur={handleStatementBlur}
+                  renderSecondaryAssist={({ secondaryLang }) => {
+                    const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
+                    const src = primaryLang === "ko" ? statementKo : statementEn;
+                    const anchor = secondaryLang === "ko" ? [bioKo] : [bioEn];
+                    return (
+                      <AiTranslationDraftButton
+                        sourceText={src}
+                        sourceLocale={primaryLang}
+                        targetLocale={secondaryLang}
+                        fieldKind="statement"
+                        styleAnchors={anchor.filter(Boolean) as string[]}
+                        onDraft={(text) => {
+                          if (secondaryLang === "ko") {
+                            setStatementKo(text);
+                            if (locale === "ko") setStatement(text);
+                          } else {
+                            setStatementEn(text);
+                            if (locale !== "ko") setStatement(text);
+                          }
+                        }}
+                        compact
+                      />
+                    );
+                  }}
+                />
+                <div>
+                  <label htmlFor="city-lead" className="mb-1 block text-sm font-medium">
+                    {t("settings.city")}
+                  </label>
+                  <input
+                    id="city-lead"
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder={t("settings.placeholderCity")}
+                    className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            </FloorPanel>
+            <FloorPanel padding="sm">
             <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
               <p className="mb-2 text-sm font-medium text-zinc-700">
                 {t("profile.completeness")}:{" "}
@@ -1293,6 +1410,16 @@ export default function SettingsPage() {
                       <p id="coverPositionYHint" className="text-xs text-zinc-500">
                         {t("settings.identity.coverRepositionHint")}
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCoverPositionY(50);
+                          void handleCoverPositionCommit(50);
+                        }}
+                        className="mt-2 text-xs text-zinc-700 underline underline-offset-2"
+                      >
+                        {t("settings.identity.coverUseFull")}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1305,61 +1432,6 @@ export default function SettingsPage() {
                 {isArtistRole({ main_role: mainRole, roles }) && (
                   <>
                     <div data-tour="profile-identity-statement" className="space-y-2">
-                      {/*
-                        QA 2026-07-28 — Artist Statement KO/EN 이중언어.
-                        Primary 언어는 즉시 legacy `statement` 도 갱신해
-                        onBlur 자동 저장을 유지하고, 240004 트리거가 KO
-                        우선 sync 를 서버 측에서 확정한다.
-                      */}
-                      <BilingualFieldPair
-                        id="artistStatement"
-                        label={t("settings.identity.statement")}
-                        hint={t("bilingual.hintProse")}
-                        addKoKey="bilingual.addKoStatement"
-                        addEnKey="bilingual.addEnStatement"
-                        placeholderKo={t("profile.statement.placeholder")}
-                        placeholderEn={t("profile.statement.placeholder")}
-                        valueKo={statementKo}
-                        valueEn={statementEn}
-                        onChangeKo={(v) => {
-                          setStatementKo(v);
-                          if (locale === "ko") setStatement(v);
-                        }}
-                        onChangeEn={(v) => {
-                          setStatementEn(v);
-                          if (locale !== "ko") setStatement(v);
-                        }}
-                        as="textarea"
-                        rows={6}
-                        maxLength={4000}
-                        onBlur={handleStatementBlur}
-                        renderSecondaryAssist={({ secondaryLang }) => {
-                          const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
-                          const src = primaryLang === "ko" ? statementKo : statementEn;
-                          // bio 를 tone anchor 로 사용 — 같은 저자의 다른
-                          // 산문이 있으면 register/목소리를 더 잘 옮긴다.
-                          const anchor = secondaryLang === "ko" ? [bioKo] : [bioEn];
-                          return (
-                            <AiTranslationDraftButton
-                              sourceText={src}
-                              sourceLocale={primaryLang}
-                              targetLocale={secondaryLang}
-                              fieldKind="statement"
-                              styleAnchors={anchor.filter(Boolean) as string[]}
-                              onDraft={(text) => {
-                                if (secondaryLang === "ko") {
-                                  setStatementKo(text);
-                                  if (locale === "ko") setStatement(text);
-                                } else {
-                                  setStatementEn(text);
-                                  if (locale !== "ko") setStatement(text);
-                                }
-                              }}
-                              compact
-                            />
-                          );
-                        }}
-                      />
                       <div className="flex items-center justify-between text-xs text-zinc-500">
                         <span>
                           {t("profile.statement.lengthHint")
@@ -1475,6 +1547,186 @@ export default function SettingsPage() {
                     </div>
                   </>
                 )}
+            {/* Profile details accordion */}
+            <div ref={profileDetailsRef} className="border-t border-zinc-200 pt-6">
+              {(() => {
+                const hasDetailsContent = Boolean(
+                  (careerStage && careerStage.trim()) ||
+                  (ageBand && ageBand.trim()) ||
+                  (city && city.trim()) ||
+                  (region && region.trim()) ||
+                  (country && country.trim()) ||
+                  (themes?.length ?? 0) > 0 ||
+                  (mediums?.length ?? 0) > 0 ||
+                  (styles?.length ?? 0) > 0 ||
+                  (keywords?.length ?? 0) > 0 ||
+                  (priceBand?.length ?? 0) > 0 ||
+                  (acquisitionChannels?.length ?? 0) > 0 ||
+                  (affiliation && affiliation.trim()) ||
+                  (programFocus?.length ?? 0) > 0
+                );
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !profileDetailsOpen;
+                      setProfileDetailsOpen(next);
+                      if (next) {
+                        setHasOpenedDetails(true);
+                        setTimeout(() => profileDetailsRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
+                      }
+                    }}
+                    className={
+                      hasDetailsContent
+                        ? chipButton
+                        : chipButtonPrimary
+                    }
+                  >
+                    {hasDetailsContent ? t("settings.editProfileDetails") : t("settings.addProfileDetails")}
+                  </button>
+                );
+              })()}
+              {profileDetailsOpen && (
+                <div className="space-y-6 pt-2">
+                  {maxSelectMessage && (
+                    <p className="rounded bg-amber-100 px-3 py-2 text-sm text-amber-800">
+                      {maxSelectMessage}
+                    </p>
+                  )}
+
+                  {/* Core */}
+                  <section>
+                    <h3 className="mb-2 text-sm font-semibold text-zinc-800">
+                      {t("profileDetails.core")}
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium">{t("settings.careerStage")}</label>
+                        <select
+                          value={careerStage}
+                          onChange={(e) => setCareerStage(e.target.value)}
+                          className="w-full rounded border border-zinc-300 px-3 py-2"
+                        >
+                          <option value="">{t("common.selectOption")}</option>
+                          {TAXONOMY.careerStageOptions.map((o) => (
+                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="ageBand" className="mb-1 block text-sm font-medium">{t("settings.ageBand")}</label>
+                        <select
+                          id="ageBand"
+                          value={ageBand}
+                          onChange={(e) => setAgeBand(e.target.value)}
+                          className="w-full rounded border border-zinc-300 px-3 py-2"
+                        >
+                          <option value="">{t("common.selectOption")}</option>
+                          {TAXONOMY.ageBandOptions.map((o) => (
+                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.region")}</label>
+                          <select value={region} onChange={(e) => setRegion(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm">
+                            <option value="">{t("common.selectOption")}</option>
+                            {TAXONOMY.regionOptions.map((o) => (
+                              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.country")}</label>
+                          <input type="text" value={country} onChange={(e) => setCountry(e.target.value)} placeholder={t("settings.placeholderCountry")} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium">{t("settings.themes")}</label>
+                        <p className="mb-1 text-xs text-zinc-500">{t("profileDetails.themesHint")}</p>
+                        <TaxonomyChipSelect
+                          options={TAXONOMY.themeOptions}
+                          value={themes}
+                          onChange={setThemes}
+                          max={TAXONOMY_LIMITS.themes}
+                          t={t}
+                          onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.themes)))}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium">{t("settings.keywords")} ({t("profileDetails.optional")})</label>
+                        <ChipInput values={keywords} onChange={setKeywords} placeholder={t("settings.placeholderKeywordAdd")} max={TAXONOMY_LIMITS.keywords} />
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Artist module */}
+                  {(roles.includes("artist") || mainRole === "artist") && (
+                    <section>
+                      <h3 className="mb-2 text-sm font-semibold text-zinc-800">
+                        {t("profileDetails.artistModule")}{" "}
+                        <span className="text-xs font-normal text-zinc-500">({t("profileDetails.recommended")})</span>
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.mediums")} ({t("profileDetails.optional")})</label>
+                          <TaxonomyChipSelect options={TAXONOMY.mediumOptions} value={mediums} onChange={setMediums} max={TAXONOMY_LIMITS.mediums} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.mediums)))} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.styles")} ({t("profileDetails.optional")})</label>
+                          <TaxonomyChipSelect options={TAXONOMY.styleOptions} value={styles} onChange={setStyles} max={TAXONOMY_LIMITS.styles} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.styles)))} />
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Collector module */}
+                  {(roles.includes("collector") || mainRole === "collector") && (
+                    <section>
+                      <h3 className="mb-2 text-sm font-semibold text-zinc-800">
+                        {t("profileDetails.collectorModule")}{" "}
+                        <span className="text-xs font-normal text-zinc-500">({t("profileDetails.recommended")})</span>
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.labelPriceBand")} ({t("profileDetails.optional")})</label>
+                          <TaxonomyChipSelect options={TAXONOMY.priceBandOptions} value={priceBand} onChange={setPriceBand} max={TAXONOMY_LIMITS.priceBand} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.priceBand)))} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.labelAcquisitionChannels")} ({t("profileDetails.optional")})</label>
+                          <TaxonomyChipSelect options={TAXONOMY.acquisitionChannelOptions} value={acquisitionChannels} onChange={setAcquisitionChannels} max={TAXONOMY_LIMITS.acquisitionChannels} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.acquisitionChannels)))} />
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Curator/Gallerist module */}
+                  {(roles.includes("curator") || roles.includes("gallerist") || mainRole === "curator" || mainRole === "gallerist") && (
+                    <section>
+                      <h3 className="mb-2 text-sm font-semibold text-zinc-800">
+                        {t("profileDetails.curatorModule")}
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.labelAffiliation")} ({t("profileDetails.optional")})</label>
+                          <select value={affiliation} onChange={(e) => setAffiliation(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2">
+                            <option value="">{t("common.selectOption")}</option>
+                            {TAXONOMY.affiliationOptions.map((o) => (
+                              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">{t("settings.labelProgramFocus")} ({t("profileDetails.optional")})</label>
+                          <TaxonomyChipSelect options={TAXONOMY.themeOptions} value={programFocus} onChange={setProgramFocus} max={TAXONOMY_LIMITS.programFocus} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.programFocus)))} />
+                        </div>
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
 
                 {identityErr && (
                   <p className="text-xs text-red-600" role="alert">
@@ -1581,102 +1833,7 @@ export default function SettingsPage() {
               <p className="mt-1 text-xs text-zinc-500">{t("settings.usernameHint")}</p>
             </div>
 
-            {/*
-              QA 2026-07-28 — display_name 이중언어 슬롯. 두 언어를 나란히
-              쓰는 작가는 KO/EN 을 각각 채운다. `+ 다른 언어 추가` 로
-              secondary 슬롯이 열리고 legacy `display_name` 은 240004 트리거
-              가 KO 우선으로 자동 sync. `bio` 도 같은 패턴.
-              display_name 에는 **AI 번역을 붙이지 않는다** — 사람 이름은
-              기계 번역이 아니라 로마자 힌트 (Track C 의 RomanizationHintChip)
-              로 seed 만 제공한다.
-            */}
-            <BilingualFieldPair
-              id="displayName"
-              label={t("settings.displayName")}
-              hint={t("bilingual.hintName")}
-              addKoKey="bilingual.addKoName"
-              addEnKey="bilingual.addEnName"
-              placeholderKo={t("settings.placeholderDisplayName")}
-              placeholderEn={t("settings.placeholderDisplayName")}
-              valueKo={displayNameKo}
-              valueEn={displayNameEn}
-              onChangeKo={(v) => {
-                setDisplayNameKo(v);
-                if (locale === "ko") setDisplayName(v);
-              }}
-              onChangeEn={(v) => {
-                setDisplayNameEn(v);
-                if (locale !== "ko") setDisplayName(v);
-              }}
-              renderSecondaryAssist={({ secondaryLang }) =>
-                // display_name 은 AI 번역을 붙이지 않는다. 대신 한글 원문이
-                // 있고 EN 슬롯이 비어 있을 때만 로마자 힌트를 노출.
-                secondaryLang === "en" ? (
-                  <RomanizationHintChip
-                    sourceText={displayNameKo}
-                    currentTargetText={displayNameEn}
-                    onApply={(text) => {
-                      setDisplayNameEn(text);
-                      if (locale !== "ko") setDisplayName(text);
-                    }}
-                    compact
-                  />
-                ) : null
-              }
-            />
-
             <div data-tour="profile-identity-bio">
-              <BilingualFieldPair
-                id="bio"
-                label={t("settings.bio")}
-                hint={t("bilingual.hintProse")}
-                addKoKey="bilingual.addKoBio"
-                addEnKey="bilingual.addEnBio"
-                placeholderKo={t("settings.placeholderBio")}
-                placeholderEn={t("settings.placeholderBio")}
-                valueKo={bioKo}
-                valueEn={bioEn}
-                onChangeKo={(v) => {
-                  setBioKo(v);
-                  if (locale === "ko") setBio(v);
-                }}
-                onChangeEn={(v) => {
-                  setBioEn(v);
-                  if (locale !== "ko") setBio(v);
-                }}
-                as="textarea"
-                rows={3}
-                renderSecondaryAssist={({ secondaryLang }) => {
-                  // Translate primary → secondary. Use the other-language
-                  // statement as a tone anchor when the artist already has
-                  // one; otherwise fall back to empty anchors (short prose
-                  // still gets a serviceable draft from the field kind).
-                  const primaryLang: "ko" | "en" = secondaryLang === "ko" ? "en" : "ko";
-                  const src = primaryLang === "ko" ? bioKo : bioEn;
-                  const anchor = secondaryLang === "ko"
-                    ? [statementKo]
-                    : [statementEn];
-                  return (
-                    <AiTranslationDraftButton
-                      sourceText={src}
-                      sourceLocale={primaryLang}
-                      targetLocale={secondaryLang}
-                      fieldKind="bio"
-                      styleAnchors={anchor.filter(Boolean) as string[]}
-                      onDraft={(text) => {
-                        if (secondaryLang === "ko") {
-                          setBioKo(text);
-                          if (locale === "ko") setBio(text);
-                        } else {
-                          setBioEn(text);
-                          if (locale !== "ko") setBio(text);
-                        }
-                      }}
-                      compact
-                    />
-                  );
-                }}
-              />
               <BioDraftAssist
                 currentBio={bio}
                 displayName={displayName}
@@ -1763,191 +1920,6 @@ export default function SettingsPage() {
                   </label>
                 ))}
               </div>
-            </div>
-
-            {/* Profile details accordion */}
-            <div ref={profileDetailsRef} className="border-t border-zinc-200 pt-6">
-              {(() => {
-                const hasDetailsContent = Boolean(
-                  (careerStage && careerStage.trim()) ||
-                  (ageBand && ageBand.trim()) ||
-                  (city && city.trim()) ||
-                  (region && region.trim()) ||
-                  (country && country.trim()) ||
-                  (themes?.length ?? 0) > 0 ||
-                  (mediums?.length ?? 0) > 0 ||
-                  (styles?.length ?? 0) > 0 ||
-                  (keywords?.length ?? 0) > 0 ||
-                  (priceBand?.length ?? 0) > 0 ||
-                  (acquisitionChannels?.length ?? 0) > 0 ||
-                  (affiliation && affiliation.trim()) ||
-                  (programFocus?.length ?? 0) > 0
-                );
-                return (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !profileDetailsOpen;
-                      setProfileDetailsOpen(next);
-                      if (next) {
-                        setHasOpenedDetails(true);
-                        setTimeout(() => profileDetailsRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
-                      }
-                    }}
-                    className={
-                      hasDetailsContent
-                        ? chipButton
-                        : chipButtonPrimary
-                    }
-                  >
-                    {hasDetailsContent ? t("settings.editProfileDetails") : t("settings.addProfileDetails")}
-                  </button>
-                );
-              })()}
-              {profileDetailsOpen && (
-                <div className="space-y-6 pt-2">
-                  {maxSelectMessage && (
-                    <p className="rounded bg-amber-100 px-3 py-2 text-sm text-amber-800">
-                      {maxSelectMessage}
-                    </p>
-                  )}
-
-                  {/* Core */}
-                  <section>
-                    <h3 className="mb-2 text-sm font-semibold text-zinc-800">
-                      {t("profileDetails.core")}
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="mb-1 block text-sm font-medium">{t("settings.careerStage")}</label>
-                        <select
-                          value={careerStage}
-                          onChange={(e) => setCareerStage(e.target.value)}
-                          className="w-full rounded border border-zinc-300 px-3 py-2"
-                        >
-                          <option value="">{t("common.selectOption")}</option>
-                          {TAXONOMY.careerStageOptions.map((o) => (
-                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="ageBand" className="mb-1 block text-sm font-medium">{t("settings.ageBand")}</label>
-                        <select
-                          id="ageBand"
-                          value={ageBand}
-                          onChange={(e) => setAgeBand(e.target.value)}
-                          className="w-full rounded border border-zinc-300 px-3 py-2"
-                        >
-                          <option value="">{t("common.selectOption")}</option>
-                          {TAXONOMY.ageBandOptions.map((o) => (
-                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <div className="col-span-1">
-                          <label className="mb-1 block text-sm font-medium">{t("settings.city")}</label>
-                          <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder={t("settings.placeholderCity")} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm" />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.region")}</label>
-                          <select value={region} onChange={(e) => setRegion(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm">
-                            <option value="">{t("common.selectOption")}</option>
-                            {TAXONOMY.regionOptions.map((o) => (
-                              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.country")}</label>
-                          <input type="text" value={country} onChange={(e) => setCountry(e.target.value)} placeholder={t("settings.placeholderCountry")} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm" />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium">{t("settings.themes")}</label>
-                        <p className="mb-1 text-xs text-zinc-500">{t("profileDetails.themesHint")}</p>
-                        <TaxonomyChipSelect
-                          options={TAXONOMY.themeOptions}
-                          value={themes}
-                          onChange={setThemes}
-                          max={TAXONOMY_LIMITS.themes}
-                          t={t}
-                          onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.themes)))}
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium">{t("settings.keywords")} ({t("profileDetails.optional")})</label>
-                        <ChipInput values={keywords} onChange={setKeywords} placeholder={t("settings.placeholderKeywordAdd")} max={TAXONOMY_LIMITS.keywords} />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Artist module */}
-                  {(roles.includes("artist") || mainRole === "artist") && (
-                    <section>
-                      <h3 className="mb-2 text-sm font-semibold text-zinc-800">
-                        {t("profileDetails.artistModule")}{" "}
-                        <span className="text-xs font-normal text-zinc-500">({t("profileDetails.recommended")})</span>
-                      </h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.mediums")} ({t("profileDetails.optional")})</label>
-                          <TaxonomyChipSelect options={TAXONOMY.mediumOptions} value={mediums} onChange={setMediums} max={TAXONOMY_LIMITS.mediums} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.mediums)))} />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.styles")} ({t("profileDetails.optional")})</label>
-                          <TaxonomyChipSelect options={TAXONOMY.styleOptions} value={styles} onChange={setStyles} max={TAXONOMY_LIMITS.styles} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.styles)))} />
-                        </div>
-                      </div>
-                    </section>
-                  )}
-
-                  {/* Collector module */}
-                  {(roles.includes("collector") || mainRole === "collector") && (
-                    <section>
-                      <h3 className="mb-2 text-sm font-semibold text-zinc-800">
-                        {t("profileDetails.collectorModule")}{" "}
-                        <span className="text-xs font-normal text-zinc-500">({t("profileDetails.recommended")})</span>
-                      </h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.labelPriceBand")} ({t("profileDetails.optional")})</label>
-                          <TaxonomyChipSelect options={TAXONOMY.priceBandOptions} value={priceBand} onChange={setPriceBand} max={TAXONOMY_LIMITS.priceBand} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.priceBand)))} />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.labelAcquisitionChannels")} ({t("profileDetails.optional")})</label>
-                          <TaxonomyChipSelect options={TAXONOMY.acquisitionChannelOptions} value={acquisitionChannels} onChange={setAcquisitionChannels} max={TAXONOMY_LIMITS.acquisitionChannels} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.acquisitionChannels)))} />
-                        </div>
-                      </div>
-                    </section>
-                  )}
-
-                  {/* Curator/Gallerist module */}
-                  {(roles.includes("curator") || roles.includes("gallerist") || mainRole === "curator" || mainRole === "gallerist") && (
-                    <section>
-                      <h3 className="mb-2 text-sm font-semibold text-zinc-800">
-                        {t("profileDetails.curatorModule")}
-                      </h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.labelAffiliation")} ({t("profileDetails.optional")})</label>
-                          <select value={affiliation} onChange={(e) => setAffiliation(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2">
-                            <option value="">{t("common.selectOption")}</option>
-                            {TAXONOMY.affiliationOptions.map((o) => (
-                              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">{t("settings.labelProgramFocus")} ({t("profileDetails.optional")})</label>
-                          <TaxonomyChipSelect options={TAXONOMY.themeOptions} value={programFocus} onChange={setProgramFocus} max={TAXONOMY_LIMITS.programFocus} t={t} onMaxReached={() => setMaxSelectMessage(t("profileDetails.maxSelectHint").replace("{max}", String(TAXONOMY_LIMITS.programFocus)))} />
-                        </div>
-                      </div>
-                    </section>
-                  )}
-                </div>
-              )}
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}

@@ -28,6 +28,21 @@ const ingest = bulk.slice(bulk.indexOf("async function startUpload"), bulk.index
 assert.equal(ingest.includes("detail"), false, "startUpload must not create a detail child");
 
 assert.match(card, /view !== "cutout" && view !== "cutout_alpha"/);
-assert.equal(card.includes('t("bulk.cardUpload")'), false);
+assert.match(card, /t\("bulk\.cardUpload"\)/, "the add-child control lives on the card");
+assert.equal(card.includes("createDraftArtwork"), false, "adding a child must not start a new work");
+assert.equal(card.includes("startUpload"), false, "the card button must not open a new upload");
+const single = read("src/app/upload/single/page.tsx");
+assert.match(single, /t\("bulk\.cardUpload"\)/);
+assert.match(single, /getElementById\("single-detail-input"\)/);
+assert.match(single, /ingestFiles\(e\.target\.files, "details"\)/);
+const messages = read("src/lib/i18n/messages.ts");
+assert.match(messages, /"bulk\.cardUpload": "Add detail photos"/);
+assert.match(messages, /"bulk\.cardUpload": "세부 사진 추가"/);
+assert.match(card, /onEnhance\(cover\.storage_path\)/);
+assert.match(card, /onEnhance\(detail\.storage_path\)/);
+assert.match(bulk, /imageSlotForEnhance\(orderedImages\(enhanceDraft\), enhancePath\)/);
+assert.match(messages, /"bulk\.cardUpload": "세부 사진 추가"/);
+assert.equal(messages.includes('"bulk.cardUpload": "업로드"'), false);
+assert.equal(messages.includes('"bulk.cardUpload": "Upload"'), false);
 
 console.log("bulk-no-auto-detail.test.ts: ok");

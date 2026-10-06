@@ -385,7 +385,7 @@ function StatementBody({ statement, heroImagePath, isOwner, ownerEditHref, langT
             alt={t("profile.statement.heroAlt")}
             fill
             sizes="(max-width: 768px) 100vw, 768px"
-            className="object-cover"
+            className="object-contain"
           />
         </div>
       )}

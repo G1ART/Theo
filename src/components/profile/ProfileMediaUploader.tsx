@@ -50,7 +50,7 @@ const SHAPE_CLASSES: Record<"square" | "wide", { box: string; img: string }> = {
   square: { box: "h-24 w-24 rounded-full", img: "h-full w-full object-cover" },
   wide: {
     box: "aspect-[3/1] w-full max-w-md rounded-lg",
-    img: "h-full w-full object-cover",
+    img: "h-full w-full object-contain",
   },
 };
 

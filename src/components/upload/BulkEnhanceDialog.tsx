@@ -41,6 +41,7 @@ export function BulkEnhanceDialog({
   artworkWidthCm = null,
   artworkHeightCm = null,
   localFile = null,
+  incomingFile = null,
   onCommit,
   meteringSource = "bulk",
 }: {
@@ -70,6 +71,11 @@ export function BulkEnhanceDialog({
    * save. Storage is not replaced.
    */
   localFile?: File | null;
+  /**
+   * A file chosen on the edit surface to replace the cover.
+   * Saving updates the image row and leaves the artwork in place.
+   */
+  incomingFile?: File | null;
   onCommit?: (draft: EnhancementDraft) => void;
   meteringSource?: "single" | "bulk" | "exhibition_single" | "exhibition_bulk";
 }) {
@@ -161,6 +167,15 @@ export function BulkEnhanceDialog({
    *     the user is actually looking at.
    */
   useEffect(() => {
+    if (incomingFile) {
+      replacedRef.current = true;
+      setFile(incomingFile);
+      setReplaced(true);
+      setDisplayOnly(false);
+      setLoadError(false);
+      setEnhancement(null);
+      return;
+    }
     if (localFile) {
       setFile(localFile);
       setDisplayOnly(false);
@@ -261,7 +276,7 @@ export function BulkEnhanceDialog({
     // We intentionally re-run when the selected slot's storage paths
     // change, including when `selectedIndex` moves between slots.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localFile, image?.storage_path, image?.original_storage_path]);
+  }, [incomingFile, localFile, image?.storage_path, image?.original_storage_path]);
 
   async function save() {
     if (onCommit) {
@@ -353,13 +368,34 @@ export function BulkEnhanceDialog({
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-          >
-            {t("bulk.enhance.rowClose")}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="cursor-pointer rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-800 hover:bg-zinc-50">
+              {t("artwork.replaceFile")}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only"
+                onChange={(e) => {
+                  const next = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!next) return;
+                  replacedRef.current = true;
+                  setFile(next);
+                  setReplaced(true);
+                  setEnhancement(null);
+                  setDisplayOnly(false);
+                  setLoadError(false);
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+            >
+              {t("bulk.enhance.rowClose")}
+            </button>
+          </div>
         </div>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-3">
           {loadError && (

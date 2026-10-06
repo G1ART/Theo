@@ -32,6 +32,8 @@ import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { useActingAs } from "@/context/ActingAsContext";
 import { BulkEnhanceDialog } from "@/components/upload/BulkEnhanceDialog";
+import { correctableArtworkImages, imageSlotForEnhance } from "@/lib/upload/enhanceFocus";
+import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import { ArtworkFieldVisibilityPanel } from "@/components/visibility/ArtworkFieldVisibilityPanel";
@@ -93,6 +95,8 @@ function EditArtworkContent() {
   const [saving, setSaving] = useState(false);
   const [inviteToast, setInviteToast] = useState<"sent" | "already" | "failed" | null>(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
+  const [enhancePath, setEnhancePath] = useState<string | null>(null);
+  const [replacementFile, setReplacementFile] = useState<File | null>(null);
 
   // Base form
   const [title, setTitle] = useState("");
@@ -560,19 +564,76 @@ function EditArtworkContent() {
         return (
           <div className="mb-6 flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={thumb} alt="" className="h-16 w-16 rounded object-cover bg-zinc-100" />
+            <img src={thumb} alt="" className="h-16 w-auto max-w-[7rem] rounded bg-zinc-100 object-contain" />
             <div>
-              <button
-                type="button"
-                onClick={() => setImageEditorOpen(true)}
-                className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 hover:bg-zinc-50"
-              >
-                {t("artwork.editImage")}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplacementFile(null);
+                    setEnhancePath(primary.storage_path);
+                    setImageEditorOpen(true);
+                  }}
+                  className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 hover:bg-zinc-50"
+                >
+                  {t("artwork.editImage")}
+                </button>
+                <label className="cursor-pointer rounded-full border border-zinc-900 px-3 py-1.5 text-sm text-zinc-900 hover:bg-zinc-50">
+                  {t("artwork.replaceFile")}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const next = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!next) return;
+                      setReplacementFile(next);
+                      setEnhancePath(primary.storage_path);
+                      setImageEditorOpen(true);
+                    }}
+                  />
+                </label>
+              </div>
               <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-                {t("artwork.editImageHint")}
+                {t("artwork.replaceFileHint")}
               </p>
             </div>
+          </div>
+        );
+      })()}
+      {(() => {
+        const primary = primaryArtworkImage(artwork.artwork_images);
+        const extras = correctableArtworkImages(artwork.artwork_images).filter(
+          (img) => img.storage_path !== primary?.storage_path,
+        );
+        if (extras.length === 0) return null;
+        return (
+          <div className="mb-6 flex flex-wrap gap-3">
+            {extras.map((img) => (
+              <div key={img.storage_path} className="w-16">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={getArtworkImageUrl(img.storage_path, "thumb")}
+                  alt=""
+                  className="h-16 w-16 rounded bg-zinc-100 object-contain"
+                />
+                <p className="mt-1 truncate text-[10px] text-zinc-500">
+                  {t(registrationViewLabelKey(img.view_type))}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplacementFile(null);
+                    setEnhancePath(img.storage_path);
+                    setImageEditorOpen(true);
+                  }}
+                  className="mt-1 w-full rounded-full border border-zinc-300 px-1 py-0.5 text-[10px] text-zinc-900 hover:bg-zinc-50"
+                >
+                  {t("artwork.editImage")}
+                </button>
+              </div>
+            ))}
           </div>
         );
       })()}
@@ -997,19 +1058,33 @@ function EditArtworkContent() {
           artworkId={artwork.id}
         />
       )}
-      {imageEditorOpen && primaryArtworkImage(artwork.artwork_images)?.storage_path && (
+      {imageEditorOpen && enhancePath && imageSlotForEnhance(artwork.artwork_images ?? [], enhancePath).length > 0 && (
         <BulkEnhanceDialog
           artworkId={artwork.id}
           artistProfileId={artwork.artist_id}
           storageOwnerId={actingAsProfileId}
-          images={[...(artwork.artwork_images ?? [])].sort(
-            (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+          images={imageSlotForEnhance(
+            [...(artwork.artwork_images ?? [])].sort(
+              (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+            ),
+            enhancePath,
           )}
           artworkWidthCm={artwork.width_cm ?? null}
           artworkHeightCm={artwork.height_cm ?? null}
-          onClose={() => setImageEditorOpen(false)}
+          incomingFile={
+            enhancePath === primaryArtworkImage(artwork.artwork_images)?.storage_path
+              ? replacementFile
+              : null
+          }
+          onClose={() => {
+            setImageEditorOpen(false);
+            setEnhancePath(null);
+            setReplacementFile(null);
+          }}
           onSaved={() => {
             setImageEditorOpen(false);
+            setEnhancePath(null);
+            setReplacementFile(null);
             void getArtworkById(id).then(({ data }) => {
               if (data) setArtwork(data as ArtworkWithLikes);
             });

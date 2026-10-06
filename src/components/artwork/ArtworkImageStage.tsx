@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { useT } from "@/lib/i18n/useT";
@@ -16,7 +15,7 @@ type SortedImage = {
  * Sprint 4 — extracted Passport image stage.
  * QA 2026-06-26 (#2/#5) — extended to a real carousel when an artwork
  * has more than one `artwork_images` row. The carousel preserves the
- * existing single-image contract (matte 1:1 container, object-contain,
+ * existing single-image contract (real aspect, object-contain,
  * desktop click-to-open at original size) and adds:
  *   - prev/next chevrons + dot pager,
  *   - keyboard ←/→ navigation when focused,
@@ -71,7 +70,7 @@ export function ArtworkImageStage({
   return (
     <div className="space-y-2">
       <div
-        className={`relative aspect-square w-full overflow-hidden rounded-lg bg-zinc-100 ${canOpen ? "cursor-zoom-in" : ""}`}
+        className={`relative w-full overflow-hidden rounded-lg bg-zinc-100 ${canOpen ? "cursor-zoom-in" : ""} ${current ? "" : "aspect-square"}`}
         role={canOpen ? "button" : undefined}
         tabIndex={hasImage ? 0 : undefined}
         onClick={() => {
@@ -96,14 +95,11 @@ export function ArtworkImageStage({
         }}
       >
         {current ? (
-          <Image
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={getArtworkImageUrl(current.storage_path, "medium")}
             alt={altLabel}
-            width={600}
-            height={600}
-            sizes="(max-width: 768px) 100vw, 600px"
-            priority
-            className="h-full w-full object-contain"
+            className="mx-auto block h-auto max-h-[85vh] w-full object-contain"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-sm text-zinc-400">
@@ -157,7 +153,7 @@ export function ArtworkImageStage({
                   <img
                     src={getArtworkImageUrl(img.storage_path, "thumb")}
                     alt=""
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-contain"
                   />
                 </button>
               </li>

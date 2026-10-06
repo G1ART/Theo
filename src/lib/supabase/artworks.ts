@@ -10,7 +10,7 @@ import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { recordActingContextEvent } from "@/lib/delegation/actingContext";
 import { isPublicSurfaceVisible } from "@/lib/feed/visibility";
 import { irDemoAssetUrl, isIrDemo } from "@/lib/irDemo/config";
-import { planDisplayReplacement } from "@/lib/image/replaceDisplayPlan";
+import { planCoverFileSwap, planDisplayReplacement } from "@/lib/image/replaceDisplayPlan";
 import type { EnhancementMeta } from "@/lib/image/enhancement/types";
 import {
   libraryPageCursor,
@@ -1953,6 +1953,14 @@ export async function replaceArtworkDisplayImage(input: {
       retire.add(previousOriginal);
     }
   }
+  const coverSwap = planCoverFileSwap({
+    artworkId: input.artworkId,
+    current: {
+      storage_path: input.currentStoragePath,
+      original_storage_path: input.currentOriginalPath,
+    },
+    nextStoragePath: uploaded.path,
+  });
   const { data, error } = await supabase
     .from("artwork_images")
     .update({
@@ -1961,7 +1969,7 @@ export async function replaceArtworkDisplayImage(input: {
       enhancement_meta: input.enhancementMeta,
       original_storage_path: originalPath,
     })
-    .eq("artwork_id", input.artworkId)
+    .eq("artwork_id", coverSwap.artworkId)
     .eq("storage_path", input.currentStoragePath)
     .select("storage_path");
   if (error || !data?.length) {
