@@ -8,14 +8,12 @@
  * WebP `Blob` plus a JSON-serializable `FlatRecipe` the caller can
  * persist to `enhancement_meta`.
  *
- * Perspective and edge straightening are solved in this package
- * (`homography.ts`, `rectifyArtwork.ts`). opencv.js is not loaded.
- * Sol still supplies the four corners. This engine does not replace
- * that detector. A straight quad is a homography. A slight bow between
- * those corners is a residual radial model when one coefficient
- * explains it, otherwise that measured curve is laid on the straight
- * side. A few pixels of bow is a few pixels of warp. The rectangle
- * path does not repaint inward by wall color.
+ * Perspective is solved in this package (`homography.ts`,
+ * `rectifyArtwork.ts`). opencv.js is not loaded. Sol still supplies
+ * the four corners. This engine does not replace that detector.
+ * The rectangle crop is that one homography. A radial coefficient
+ * or a per-edge curve is not applied, because it remaps the interior.
+ * The rectangle path does not repaint inward by wall color.
  */
 
 import type { AwbRecipe, FlatRecipe, NormalizedPoint, ProLookRecipe } from "./types";
@@ -93,16 +91,15 @@ export type RunFlatInput = {
    */
   aspectSource?: "artwork_dimensions" | "user" | "estimated";
   /**
-   * Edge straightening. `auto` traces the canvas between the confirmed
-   * corners. `off` keeps the perspective warp and skips curvature.
-   * `adjust` applies an optional shared bow and per-edge nudges.
-   * Omitted means `auto` whenever corners are present. Silhouette
-   * callers leave corners null, so this never runs there.
+   * Kept for the existing wizard. `auto`, `off`, and `adjust` all crop
+   * with the four-corner homography. A bow coefficient does not move
+   * pixels. Omitted means `auto` whenever corners are present.
+   * Silhouette callers leave corners null, so this never runs there.
    */
   edgeCurvature?: "auto" | "off" | "adjust";
-  /** Shared bow in the residual model. Used only when `edgeCurvature` is `adjust`. */
+  /** Accepted from the wizard. Not applied to pixels. */
   edgeCurvatureK1?: number | null;
-  /** Inward pixel nudges, one per edge. Fine-tune only. */
+  /** Accepted from the wizard. Not applied to pixels. */
   edgeNudges?: EdgeNudges | null;
   /**
    * Pro-look pipeline flags (2026-08-06). When present, the engine
@@ -545,9 +542,9 @@ export async function runFlatEnhancement(
     c: clampTone(input.tone?.c ?? 1, ENHANCEMENT_TONE_CAP),
     s: clampTone(input.tone?.s ?? 1, ENHANCEMENT_TONE_CAP),
   };
-  // Corners stay where sol or the artist put them. A slight bow
-  // between those corners is eased onto a straight edge. The rectangle
-  // path does not walk inward recoloring wall-like pixels.
+  // Corners stay where sol or the artist put them. The crop is the
+  // homography of those four points. The rectangle path does not walk
+  // inward recoloring wall-like pixels.
   const warpCorners = input.sourceCorners ?? null;
   const cropNormalized = normalizeCropFromCorners(warpCorners, input.crop);
 

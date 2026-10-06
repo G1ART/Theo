@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { distortPoint, radialModel, undistortPoint } from "../radialDistortion";
 import {
   fullFrame,
-  mapUnitToSource,
   planArtworkRectification,
   renderRectified,
   sampleBilinear,
@@ -94,8 +93,8 @@ function localUndistort(
   assert.equal(out.data[(10 * w + 12) * 4], data[(10 * w + 12) * 4]);
 }
 
-// Independent forward distortion. The fitter must recover the coefficient
-// it was not shown, and the confirmed corners stay the output corners.
+// A radially bowed photo is still cropped by the four corners only.
+// Recovering k1 and resampling the interior was the ripple.
 {
   const w = 220;
   const h = 180;
@@ -118,6 +117,16 @@ function localUndistort(
       data[i + 3] = 255;
     }
   }
+  const markX = 110;
+  for (let y = 50; y < 130; y += 1) {
+    for (let x = markX - 1; x <= markX + 1; x += 1) {
+      const i = (y * w + x) * 4;
+      data[i] = 0;
+      data[i + 1] = 220;
+      data[i + 2] = 0;
+      data[i + 3] = 255;
+    }
+  }
   const uCorners: [[number, number], [number, number], [number, number], [number, number]] = [
     [art.x0, art.y0],
     [art.x1, art.y0],
@@ -135,11 +144,53 @@ function localUndistort(
     aspectSource: "estimated",
     longEdge: w,
   });
-  assert.equal(plan.recipe.method, "radial");
-  assert.equal(plan.recipe.status, "applied");
-  assert.ok(Math.abs((plan.recipe.radial?.k1 ?? 99) - k1) < 0.08, `k1 ${plan.recipe.radial?.k1}`);
-  const tl = mapUnitToSource(plan, 0, 0);
-  assert.ok(tl && Math.hypot(tl[0] - corners[0][0], tl[1] - corners[0][1]) < 0.05);
+  assert.equal(plan.recipe.method, "identity");
+  assert.notEqual(plan.recipe.method, "radial");
+  assert.equal(plan.recipe.radial, null);
+  assert.equal(plan.sampleCurves, null);
+  assert.equal(plan.knots, null);
+  const out = renderRectified(raster, plan, frame);
+  const originX = plan.copyRect?.x ?? 0;
+  const originY = plan.copyRect?.y ?? 0;
+  for (let row = 0; row < out.height; row += 1) {
+    for (let col = 0; col < out.width; col += 1) {
+      const si = ((originY + row) * w + (originX + col)) * 4;
+      const di = (row * out.width + col) * 4;
+      assert.equal(out.data[di], data[si], `radial field moved ${col},${row}`);
+    }
+  }
+  const samples: Array<{ t: number; p: number }> = [];
+  for (let y = 0; y < out.height; y += 1) {
+    let sum = 0;
+    let n = 0;
+    for (let x = 0; x < out.width; x += 1) {
+      const i = (y * out.width + x) * 4;
+      if (out.data[i] < 12 && out.data[i + 1] > 200 && out.data[i + 2] < 12) {
+        sum += x;
+        n += 1;
+      }
+    }
+    if (n > 0) samples.push({ t: y, p: sum / n });
+  }
+  assert.ok(samples.length > out.height * 0.35, "straight mark was lost");
+  let n = 0;
+  let st = 0;
+  let sp = 0;
+  let stt = 0;
+  let stp = 0;
+  for (const s of samples) {
+    n += 1;
+    st += s.t;
+    sp += s.p;
+    stt += s.t * s.t;
+    stp += s.t * s.p;
+  }
+  const den = n * stt - st * st;
+  const b = Math.abs(den) < 1e-9 ? 0 : (n * stp - st * sp) / den;
+  const a = (sp - b * st) / n;
+  let wave = 0;
+  for (const s of samples) wave = Math.max(wave, Math.abs(s.p - (a + b * s.t)));
+  assert.ok(wave <= 1.25, `radial resample waved the mark ${wave.toFixed(2)}px`);
 
   const off = planArtworkRectification({
     raster,

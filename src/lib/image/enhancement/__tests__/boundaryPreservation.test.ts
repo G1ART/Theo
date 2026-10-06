@@ -67,12 +67,29 @@ function fill(
     aspectSource: "estimated",
     longEdge: Math.max(w, h),
   });
-  assert.equal(plan.recipe.status, "applied");
+  assert.equal(plan.recipe.method, "identity");
+  assert.equal(plan.radial, null);
+  assert.equal(plan.sampleCurves, null);
   const out = renderRectified({ data, width: w, height: h }, plan, fullFrame(w, h));
-  const left = (Math.floor(out.height / 2) * out.width + 2) * 4;
-  assert.ok(out.data[left] < 80, "left edge is the painting");
-  const right = (Math.floor(out.height / 2) * out.width + (out.width - 3)) * 4;
-  assert.ok(out.data[right] > 200, "right edge keeps the white ground");
+  const ox = plan.copyRect?.x ?? 0;
+  const oy = plan.copyRect?.y ?? 0;
+  const paint = ((art.y0 - oy + 8) * out.width + (art.x0 - ox + 4)) * 4;
+  assert.ok(out.data[paint] < 80, "inset pixel is the painting");
+  const strokeXs: number[] = [];
+  for (let y = art.y0 + 4; y < art.y1 - 4; y += 3) {
+    const row = y - oy;
+    let found = -1;
+    for (let x = 0; x < out.width; x += 1) {
+      const i = (row * out.width + x) * 4;
+      if (out.data[i] < 20 && out.data[i + 1] < 20 && out.data[i + 2] < 20) {
+        found = x;
+        break;
+      }
+    }
+    assert.ok(found >= 0, `stroke missing at ${y}`);
+    strokeXs.push(found);
+  }
+  assert.ok(Math.max(...strokeXs) - Math.min(...strokeXs) <= 1, "strokes gained a wave");
   let matte = 0;
   for (let i = 0; i < out.data.length; i += 4) {
     if (out.data[i] === 243 && out.data[i + 1] === 243 && out.data[i + 2] === 243) matte += 1;

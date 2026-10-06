@@ -7,11 +7,10 @@
  * A normalized corner [nx, ny] is the edge point (nx * width, ny * height),
  * the same contract the existing corner picker stores.
  *
- * U is S after the residual radial model is removed.
  * R is the frontal artwork rectangle, before the studio wall is added.
- *
- * The radial polynomial is a residual fit for this photo. It is not a
- * claim about a specific phone lens.
+ * The rectangle crop maps the four corners with one homography.
+ * `radial` and `manualResidual` stay in the recipe so older
+ * enhancement_meta still parses. The renderer does not apply them.
  */
 
 import type { Homography } from "./homography";

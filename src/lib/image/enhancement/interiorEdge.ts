@@ -1,12 +1,9 @@
 /**
  * Measured curves between the confirmed corners.
  *
- * The corners stay the endpoints. A straight chord through an inward
- * bow samples the wall, and a chord through an outward bow cuts the
- * bulge off. The curve detected between those corners is what the
- * frontal rectangle's straight edge samples, so a few pixels of lens
- * bow become a few pixels of warp. The painting is not inset, and a
- * smooth bow is not pushed to the inner side of its own peak.
+ * The rectangle crop does not sample through these curves. A Coons
+ * patch of a traced bow remaps the interior and ripples a flat
+ * painting. This measurement must not be wired back into the sampler.
  */
 
 import type { Point } from "./geometryPlan";

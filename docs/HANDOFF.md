@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-06
 
+## 2026-10-06 — 사각형 크롭은 네 모서리 호모그래피만 쓰고 면 전체를 휘지 않는다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**
+
+보정 결과의 가로 물결과 세로 빗금은 모서리 문제가 아니었다. `4de45ad`와 `59023d2`가 솔 호모그래피 위에 얹은 방사 계수·변 곡선 변위가 작품 면 전체를 다시 잡고 있었다. 곧은 원본에 없던 결이 생겼다.
+
+- gpt-5.6-sol 네 모서리 검출은 그대로다. `reasoning_effort`도 medium 그대로다. 크롭은 그 네 점을 정면 사각형으로 보내는 호모그래피 하나다.
+- 기본 사각형 경로에서 방사 계수, 변마다의 곡선 워프, `geometry-radial-v1` 변위장은 픽셀을 움직이지 않는다. 휨을 재는 코드가 남아 있어도 샘플러에 넣지 않는다. 기본은 꺼져 있다. 면 전체를 약하게 다시 샘플링하지도 않는다.
+- `paintBorderWall`의 행 단위 벽색, 흰 삼각형, 초승달처럼 파먹는 인셋은 되돌리지 않는다. `#f3f3f3`와 스튜디오 그림자는 색 보정 뒤, 작품 밖에 있다. 비정형 Photoroom은 실루엣이다. 새 마법사 단계는 없다.
+- 엔진 이름은 `geometry-radial-v1` 그대로다. `enhancement_meta` 스키마도 그대로고 컬럼 마이그레이션은 없다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx src/lib/image/enhancement/__tests__/bowedEdge.test.ts` (평평한 합성 그림과 휜 실루엣의 안쪽은 원본 크롭과 같고, 가로·세로 표시 줄에 주기적인 물결이 생기지 않는다. 키스톤도 호모그래피만 타고 물결이 없다. `#f3f3f3`는 사각형 안에 없다). `curvature.test.ts` (방사 계수를 되살려 면 전체를 휘지 않음). `boundaryPreservation.test.ts`, `geometry.test.ts`, `geometryReplay.test.ts`, `keystoneRegression.test.ts`. `npx tsx tests/wall-matte.test.ts`, `tests/studio-presentation.test.ts`, `tests/photoroom-matte-rectify.test.ts`.
+
 ## 2026-10-06 — 등록할 때 비율·추가 이미지·한영·이야기를 함께 남긴다
 
 > **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.**
