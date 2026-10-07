@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-07
 
+## 2026-10-07 — 한글 이름만 있어도 영문 검색에 걸린다
+
+> **Supabase SQL 돌려야 할 것은 없음. 환경 변수 추가·변경 없음.** 한 글자 오타의 trigram은 기존 `supabase/migrations/20261007160000_search_artist_name_and_typo.sql` 그대로다. 그 파일을 아직 안 돌렸어도, 정확히 친 이름과 로마자 일치는 ilike로 동작한다.
+
+영어 이름을 비워 둔 김현민도 `Hyunmin Kim`, `hyeonmin kim`, `h kim`으로 찾힌다. 성은 김 kim/gim, 이 lee/yi/rhee, 박 park/bak, 최 choi, 정 jung/jeong처럼 흔히 적는 표기를 본다. `h kim`은 성 김에 이름이 ㅎ으로 시작하는 경우다. 다른 성(Park, Lee)이나 김민수처럼 앞글자가 다른 이름은 빠진다. `김현민`을 그대로 치면 그대로 나온다.
+
+- 내 공간 작품 추가, 서재, 전시에서 작품 고르기, 사람 검색, 팔로우 목록, 가격 문의, 보드 협업, 작가 선택, 중복 작품 검색이 이 로마자를 쓴다. 한글만 있는 작품 제목도 그 로마자로 찾을 수 있다(봄 → bom).
+- 고아 초대와 운영 스태프 검색은 그대로다. 공개 검색에 남의 초안은 없고, 내 공간은 붙일 수 있는 작품만이다. 피드 산책, 보정, 표기, 다운로드는 그대로다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/search-match.test.ts` (영어 이름이 없는 김현민을 Hyunmin Kim, h kim, hyeonmin kim이 찾고, 한글 그대로도 찾고, 다른 성과 김민수는 빠짐).
+
 ## 2026-10-07 — 검색은 작가 이름과 한 글자 오타도 찾는다
 
 > **Supabase SQL:** `supabase/migrations/20261007160000_search_artist_name_and_typo.sql` 을 SQL Editor에서 **섹션 단위로 highlight → Run**. 한 번에 붙이지 않는다. `pg_trgm` 은 프로덕션에 이미 켜져 있고, 이 파일은 없을 때만 켠다. 인덱스는 제목·작가 이름용이다. **환경 변수 추가·변경 없음.** SQL을 돌리기 전에도 작가 이름·핸들·관련어의 정확한 일치는 ilike로 동작한다. 한 글자 오타의 trigram은 이 함수가 들어간 뒤다.

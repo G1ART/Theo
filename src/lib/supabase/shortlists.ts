@@ -1,5 +1,6 @@
 import { supabase } from "./client";
-import { buildIlikeClauses } from "@/lib/search/matchText";
+import { buildIlikeClauses, recordMatchesQuery } from "@/lib/search/matchText";
+import { looseInitialQuery } from "@/lib/search/romanize";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 
@@ -421,14 +422,31 @@ export async function searchProfilesForCollab(
     "display_name_en",
   ]);
   if (!clauses) return { data: [], error: null };
+  const loose = looseInitialQuery(q);
   let request = supabase
     .from("profiles")
     .select("id, username, display_name, display_name_ko, display_name_en");
   for (const clause of clauses) request = request.or(clause);
-  const { data, error } = await request.limit(10);
+  const { data, error } = await request.limit(loose ? 40 : 10);
   if (error) return { data: [], error };
+  const rows = ((data ?? []) as {
+    id: string;
+    username: string | null;
+    display_name: string | null;
+    display_name_ko: string | null;
+    display_name_en: string | null;
+  }[]).filter((row) =>
+    loose
+      ? recordMatchesQuery(q, [
+          row.username,
+          row.display_name,
+          row.display_name_ko,
+          row.display_name_en,
+        ])
+      : true,
+  );
   return {
-    data: (data ?? []) as {
+    data: rows.slice(0, 10) as {
       id: string;
       username: string | null;
       display_name: string | null;

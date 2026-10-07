@@ -1,3 +1,5 @@
+import { recordMatchesQuery } from "@/lib/search/matchText";
+import { looseInitialQuery } from "@/lib/search/romanize";
 import { supabase } from "./client";
 import { followProfileSearchClauses } from "@/lib/network/followSearch";
 
@@ -35,6 +37,20 @@ export type FollowProfileRow = {
 
 const PROFILE_SELECT =
   "id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles";
+
+function keepFollowSearchHit(search: string | null | undefined, profile: FollowProfileRow): boolean {
+  const q = search?.trim() ?? "";
+  if (!q || !looseInitialQuery(q)) return true;
+  return recordMatchesQuery(q, [
+    profile.username,
+    profile.display_name,
+    profile.display_name_ko,
+    profile.display_name_en,
+    profile.bio,
+    profile.bio_ko,
+    profile.bio_en,
+  ]);
+}
 
 type FollowListOptions = {
   limit?: number;
@@ -88,7 +104,8 @@ export async function getMyFollowers(options: FollowListOptions = {}) {
       if (!p || typeof (p as FollowProfileRow).id !== "string") return null;
       return { ...(p as FollowProfileRow), followed_at: r.created_at ?? null };
     })
-    .filter((p): p is FollowProfileRow => p !== null);
+    .filter((p): p is FollowProfileRow => p !== null)
+    .filter((p) => keepFollowSearchHit(search, p));
 
   return { data: profiles, nextCursor, error: null };
 }
@@ -136,7 +153,8 @@ export async function getMyFollowing(options: FollowListOptions = {}) {
       if (!p || typeof (p as FollowProfileRow).id !== "string") return null;
       return { ...(p as FollowProfileRow), followed_at: r.created_at ?? null };
     })
-    .filter((p): p is FollowProfileRow => p !== null);
+    .filter((p): p is FollowProfileRow => p !== null)
+    .filter((p) => keepFollowSearchHit(search, p));
 
   return { data: profiles, nextCursor, error: null };
 }

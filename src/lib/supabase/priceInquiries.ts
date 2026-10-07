@@ -1,5 +1,6 @@
 import { supabase } from "./client";
-import { buildIlikeClauses } from "@/lib/search/matchText";
+import { buildIlikeClauses, recordMatchesQuery } from "@/lib/search/matchText";
+import { looseInitialQuery } from "@/lib/search/romanize";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
@@ -424,7 +425,36 @@ export async function listPriceInquiriesForArtist(
   const { data, error } = await query;
   if (error) return { data: [], nextCursor: null, error };
 
-  const rows = (data ?? []) as Record<string, unknown>[];
+  const loose = looseInitialQuery(search);
+  const rows = ((data ?? []) as Record<string, unknown>[]).filter((row) => {
+    if (!loose) return true;
+    const art = row.artworks;
+    const artwork = Array.isArray(art) ? art[0] : art;
+    const personRaw = row.profiles;
+    const person = Array.isArray(personRaw) ? personRaw[0] : personRaw;
+    const artRow =
+      artwork && typeof artwork === "object"
+        ? (artwork as { title?: string | null; title_ko?: string | null; title_en?: string | null })
+        : null;
+    const personRow =
+      person && typeof person === "object"
+        ? (person as {
+            username?: string | null;
+            display_name?: string | null;
+            display_name_ko?: string | null;
+            display_name_en?: string | null;
+          })
+        : null;
+    return recordMatchesQuery(search, [
+      artRow?.title,
+      artRow?.title_ko,
+      artRow?.title_en,
+      personRow?.username,
+      personRow?.display_name,
+      personRow?.display_name_ko,
+      personRow?.display_name_en,
+    ]);
+  });
   const normalized = rows.map(normalizeInquiry);
   const slice = normalized.length > pageSize ? normalized.slice(0, pageSize) : normalized;
   let nextCursor: InquiryListCursor | null = null;

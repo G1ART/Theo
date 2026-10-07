@@ -1,3 +1,6 @@
+import { recordMatchesQuery } from "@/lib/search/matchText";
+import { looseInitialQuery } from "@/lib/search/romanize";
+import { recallProfilesForQuery } from "@/lib/search/recallPeople";
 import { supabase } from "./client";
 
 export type PublicProfile = {
@@ -55,19 +58,42 @@ export async function searchPeople(
   const rolesArr = Array.isArray(roles) ? roles : [];
   const cleanRoles = rolesArr.filter((r) => ROLE_OPTIONS.includes(r as (typeof ROLE_OPTIONS)[number]));
 
-  const { data, error } = await supabase.rpc("search_people", {
-    p_q: normalized,
-    p_roles: cleanRoles,
-    p_limit: limit,
-    p_cursor: cursor || null,
-  });
+  const recalledPromise = cursor
+    ? Promise.resolve([])
+    : recallProfilesForQuery({ q: normalized, limit, roles: cleanRoles });
+  const [{ data, error }, recalled] = await Promise.all([
+    supabase.rpc("search_people", {
+      p_q: normalized,
+      p_roles: cleanRoles,
+      p_limit: limit,
+      p_cursor: cursor || null,
+    }),
+    recalledPromise,
+  ]);
 
-  if (error) return { data: [], nextCursor: null, error };
-  const rows = (data ?? []) as PublicProfile[];
-  const nextCursor = rows.length >= limit && rows[rows.length - 1]?.id
-    ? encodePeopleCursor(rows[rows.length - 1].id)
+  const nameFields = (row: {
+    username?: string | null;
+    display_name?: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
+  }) => [row.username, row.display_name, row.display_name_ko, row.display_name_en];
+  const loose = looseInitialQuery(normalized);
+  const rpcRows = ((error ? [] : data ?? []) as PublicProfile[]).filter((row) =>
+    loose ? recordMatchesQuery(normalized, nameFields(row)) : true,
+  );
+  const merged: PublicProfile[] = [];
+  const seen = new Set<string>();
+  for (const row of [...recalled, ...rpcRows]) {
+    if (!row.id || seen.has(row.id)) continue;
+    seen.add(row.id);
+    merged.push(row);
+    if (merged.length >= limit) break;
+  }
+  if (error && merged.length === 0) return { data: [], nextCursor: null, error };
+  const nextCursor = rpcRows.length >= limit && rpcRows[rpcRows.length - 1]?.id
+    ? encodePeopleCursor(rpcRows[rpcRows.length - 1].id)
     : null;
-  return { data: rows, nextCursor, error: null };
+  return { data: merged, nextCursor, error: null };
 }
 
 /**
@@ -136,17 +162,48 @@ export async function searchPeopleWithExternal(options: {
     ROLE_OPTIONS.includes(r as (typeof ROLE_OPTIONS)[number])
   );
 
-  const { data, error } = await supabase.rpc("search_people_with_external", {
-    p_q: normalized,
-    p_roles: cleanRoles,
-    p_include_external: includeExternal,
-    p_inviter_id: inviterId,
-    p_limit: limit,
-  });
+  const [rpc, recalled] = await Promise.all([
+    supabase.rpc("search_people_with_external", {
+      p_q: normalized,
+      p_roles: cleanRoles,
+      p_include_external: includeExternal,
+      p_inviter_id: inviterId,
+      p_limit: limit,
+    }),
+    recallProfilesForQuery({ q: normalized, limit, roles: cleanRoles }),
+  ]);
 
-  if (error) return { data: [], error };
-  const rows = (data ?? []) as SearchPeopleWithExternalResult[];
-  return { data: rows, error: null };
+  if (rpc.error && recalled.length === 0) return { data: [], error: rpc.error };
+  const loose = looseInitialQuery(normalized);
+  const rpcRows = ((rpc.error ? [] : rpc.data ?? []) as SearchPeopleWithExternalResult[]).filter(
+    (row) =>
+      loose
+        ? recordMatchesQuery(normalized, [
+            row.username,
+            row.display_name,
+            row.display_name_ko,
+            row.display_name_en,
+          ])
+        : true,
+  );
+  const seen = new Set(rpcRows.map((row) => row.id));
+  const recalledRows: SearchPeopleWithExternalResult[] = recalled
+    .filter((row) => row.id && !seen.has(row.id))
+    .map((row) => ({
+      kind: "profile" as const,
+      id: row.id,
+      display_name: row.display_name,
+      display_name_ko: row.display_name_ko ?? null,
+      display_name_en: row.display_name_en ?? null,
+      username: row.username,
+      avatar_url: row.avatar_url,
+      main_role: row.main_role,
+      roles: row.roles,
+      works_count: 0,
+      latest_cover_paths: [],
+      invited_at: null,
+    }));
+  return { data: [...recalledRows, ...rpcRows].slice(0, limit), error: null };
 }
 
 export async function getFollowingIds(): Promise<{

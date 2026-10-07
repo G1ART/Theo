@@ -10,7 +10,19 @@
  * know the list; the client sends these expanded tokens.
  */
 
-import { hasHangul } from "@/lib/search/queryVariants";
+import {
+  crossScriptAlts,
+  hasHangulText,
+  initialCompounds,
+  isCrossScriptQuery,
+  looseInitialIlikeClause,
+  looseInitialQuery,
+  nameFieldsMatchQuery,
+  romanizeRevised,
+  romanizedSearchForms,
+} from "@/lib/search/romanize";
+
+export { isCrossScriptQuery, looseInitialQuery };
 
 const RELATED_GROUPS: readonly (readonly string[])[] = [
   ["벚꽃", "cherry", "blossom", "sakura"],
@@ -25,7 +37,7 @@ const RELATED_GROUPS: readonly (readonly string[])[] = [
 ];
 
 const MAX_TOKENS = 4;
-const MAX_ALTS = 6;
+const MAX_ALTS = 12;
 
 function cleanToken(raw: string): string {
   return raw.trim().replace(/^@+/, "").replace(/[%_\\,()"*]/g, "");
@@ -58,17 +70,50 @@ function pushAlt(out: string[], alt: string) {
  * Every inner array must hit (AND) for the query to match.
  */
 export function queryTokenGroups(raw: string): string[][] {
-  return tokenizeQuery(raw).map((token) => {
-    const alts: string[] = [];
-    pushAlt(alts, token);
-    const key = token.toLowerCase();
-    for (const group of RELATED_GROUPS) {
-      if (group.some((word) => word.toLowerCase() === key)) {
-        for (const word of group) pushAlt(alts, word);
-      }
+  return tokenizeQuery(raw).map((token) => tokenGroup(token));
+}
+
+function tokenGroup(token: string): string[] {
+  const alts: string[] = [];
+  pushAlt(alts, token);
+  const key = token.toLowerCase();
+  for (const group of RELATED_GROUPS) {
+    if (group.some((word) => word.toLowerCase() === key)) {
+      for (const word of group) pushAlt(alts, word);
     }
+  }
+  return alts;
+}
+
+/**
+ * Token groups plus cross-script spellings. "Hyunmin" also carries 현민
+ * and 김현민 when the rest of the query names the family 김. The people
+ * fan-out still uses `queryTokenGroups` so a Hangul token does not
+ * multiply into a dozen RPC calls.
+ */
+export function searchTokenGroups(raw: string): string[][] {
+  const tokens = tokenizeQuery(raw);
+  return tokens.map((token) => {
+    const alts = tokenGroup(token);
+    for (const extra of crossScriptAlts(token, tokens)) pushAlt(alts, extra);
     return alts;
   });
+}
+
+/**
+ * Groups sent to `search_artwork_ids`. An initial ("h kim") becomes
+ * Hangul compounds (김현, 김하, …) instead of the letter h, which would
+ * match every Latin word that contains h.
+ */
+export function rpcSearchGroups(raw: string): string[][] {
+  const loose = looseInitialQuery(raw);
+  if (loose) {
+    return [
+      initialCompounds(loose.surname, loose.initial).slice(0, 40),
+      [loose.surname, ...loose.aliases.slice(0, 3)],
+    ];
+  }
+  return searchTokenGroups(raw);
 }
 
 /**
@@ -100,7 +145,9 @@ export function buildIlikeClauses(
   raw: string,
   columns: readonly string[],
 ): string[] | null {
-  const groups = queryTokenGroups(raw);
+  const loose = looseInitialIlikeClause(raw, columns);
+  if (loose) return [loose];
+  const groups = searchTokenGroups(raw);
   if (groups.length === 0 || columns.length === 0) return null;
   const clauses: string[] = [];
   for (const group of groups) {
@@ -173,8 +220,10 @@ function tokenHitsBlob(token: string, blob: string): boolean {
   const hay = blob.toLowerCase();
   if (!needle || !hay) return false;
   if (hay.includes(needle)) return true;
-  const hangul = hasHangul(needle);
-  const minLen = hangul ? 2 : 4;
+  // Short Hangul stays exact. A one-character edit on two or three
+  // syllables would treat 김현민 and 박현민 as the same person. Those
+  // typos stay on the pg_trgm path.
+  const minLen = 4;
   if ([...needle].length < minLen) return false;
   for (const word of wordsOf(hay)) {
     if ([...word].length < minLen) continue;
@@ -183,19 +232,43 @@ function tokenHitsBlob(token: string, blob: string): boolean {
   return false;
 }
 
-/** Every token (or a related form) must hit the joined text. */
+function enrichRomanized(texts: string[]): string {
+  const extra: string[] = [];
+  for (const text of texts) {
+    if (text.length > 80 || !hasHangulText(text)) continue;
+    const rr = romanizeRevised(text);
+    if (rr) extra.push(rr);
+    for (const form of romanizedSearchForms(text).slice(0, 4)) extra.push(form);
+  }
+  return extra.length > 0 ? `${texts.join("\n")}\n${extra.join("\n")}` : texts.join("\n");
+}
+
+/** Every token (or a related form, or the other script) must hit the joined text. */
 export function recordMatchesQuery(
   query: string,
   fields: Array<string | null | undefined>,
 ): boolean {
-  const groups = queryTokenGroups(query);
+  const groups = searchTokenGroups(query);
   if (groups.length === 0) return false;
-  const blob = fields
+  const texts = fields
     .map((field) => (typeof field === "string" ? field.trim() : ""))
-    .filter(Boolean)
-    .join("\n");
-  if (!blob) return false;
-  return groups.every((alts) => alts.some((alt) => tokenHitsBlob(alt, blob)));
+    .filter(Boolean);
+  if (texts.length === 0) return false;
+  // "h kim" is a family name plus an initial, not the substrings h and kim
+  // inside a single word such as Hakim.
+  if (looseInitialQuery(query)) return nameFieldsMatchQuery(query, texts);
+  const raw = texts.join("\n");
+  if (groups.every((alts) => alts.some((alt) => tokenHitsBlob(alt, raw)))) return true;
+  const enriched = enrichRomanized(texts);
+  if (
+    enriched !== raw &&
+    groups.every((alts) =>
+      alts.some((alt) => [...alt].length >= 4 && tokenHitsBlob(alt, enriched)),
+    )
+  ) {
+    return true;
+  }
+  return nameFieldsMatchQuery(query, texts);
 }
 
 type NameSlot = {

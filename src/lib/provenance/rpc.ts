@@ -2,6 +2,8 @@
  * Provenance v1 RPCs.
  */
 
+import { buildIlikeClauses, recordMatchesQuery } from "@/lib/search/matchText";
+import { isCrossScriptQuery } from "@/lib/search/romanize";
 import { supabase } from "@/lib/supabase/client";
 import type {
   ClaimType,
@@ -290,17 +292,75 @@ export async function listPendingClaimsForWork(
   return { data: rows, error: null };
 }
 
+type DedupHit = { id: string; title: string | null; title_ko?: string | null; title_en?: string | null };
+
+function dedupRows(q: string, data: unknown): DedupHit[] {
+  if (!Array.isArray(data)) return [];
+  return (data as DedupHit[]).filter((row) =>
+    recordMatchesQuery(q, [row.title, row.title_ko, row.title_en]),
+  );
+}
+
+/** Public titles only, same artist scope as `search_works_for_dedup`. */
+async function dedupTitleSupplement(args: SearchWorksForDedupArgs): Promise<DedupHit[]> {
+  const q = args.q?.trim() ?? "";
+  if (!q || !isCrossScriptQuery(q)) return [];
+  const clauses = buildIlikeClauses(q, ["title", "title_ko", "title_en"]);
+  if (!clauses) return [];
+  const limit = Math.min(Math.max(args.limit ?? 20, 1), 40);
+
+  if (args.externalArtistId) {
+    let query = supabase
+      .from("artworks")
+      .select("id, title, title_ko, title_en, claims!inner(external_artist_id)")
+      .eq("visibility", "public")
+      .eq("claims.external_artist_id", args.externalArtistId);
+    for (const clause of clauses) query = query.or(clause);
+    const { data, error } = await query.limit(limit);
+    if (error || !data) return [];
+    return dedupRows(q, data);
+  }
+
+  let query = supabase
+    .from("artworks")
+    .select("id, title, title_ko, title_en")
+    .eq("visibility", "public");
+  if (args.artistProfileId) query = query.eq("artist_id", args.artistProfileId);
+  for (const clause of clauses ?? []) query = query.or(clause);
+  const { data, error } = await query.limit(limit);
+  if (error || !data) return [];
+  return dedupRows(q, data);
+}
+
 export async function searchWorksForDedup(
   args: SearchWorksForDedupArgs
 ): Promise<{ data: { id: string; title: string | null; [key: string]: unknown }[]; error: unknown }> {
-  const { data, error } = await supabase.rpc("search_works_for_dedup", {
-    p_artist_profile_id: args.artistProfileId ?? null,
-    p_external_artist_id: args.externalArtistId ?? null,
-    p_q: args.q ?? null,
-    p_limit: args.limit ?? 20,
-  });
-  if (error) return { data: [], error };
-  return { data: (data ?? []) as { id: string; title: string | null; [key: string]: unknown }[], error: null };
+  const [rpc, extra] = await Promise.all([
+    supabase.rpc("search_works_for_dedup", {
+      p_artist_profile_id: args.artistProfileId ?? null,
+      p_external_artist_id: args.externalArtistId ?? null,
+      p_q: args.q ?? null,
+      p_limit: args.limit ?? 20,
+    }),
+    dedupTitleSupplement(args),
+  ]);
+  if (rpc.error && extra.length === 0) return { data: [], error: rpc.error };
+  const rpcRows = (rpc.error ? [] : rpc.data ?? []) as DedupHit[];
+  const seen = new Set(rpcRows.map((row) => row.id));
+  const merged: DedupHit[] = [...rpcRows];
+  for (const row of extra) {
+    if (!row.id || seen.has(row.id)) continue;
+    seen.add(row.id);
+    merged.push(row);
+  }
+  return {
+    data: merged.slice(0, args.limit ?? 20) as {
+      id: string;
+      title: string | null;
+      [key: string]: unknown;
+    }[],
+    error: null,
+  };
 }
 
 export function claimTypeToLabel(claimType: ClaimType, projectTitle?: string | null): string {

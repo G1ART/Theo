@@ -4,8 +4,10 @@
 
 import { supabase } from "./client";
 import { ROLE_OPTIONS, encodePeopleCursor } from "./artists";
-import { buildIlikeClauses, queryTokenGroups, recallTermsForGroup } from "@/lib/search/matchText";
+import { queryTokenGroups, recallTermsForGroup, recordMatchesQuery } from "@/lib/search/matchText";
 import { getSearchQueryVariants } from "@/lib/search/queryVariants";
+import { looseInitialQuery } from "@/lib/search/romanize";
+import { recallProfilesForQuery } from "@/lib/search/recallPeople";
 
 export { ROLE_OPTIONS };
 
@@ -101,40 +103,27 @@ export type SearchPeopleOptions = {
   cursor?: string | null;
 };
 
-function roleMatches(row: PeopleRec, roles: string[]): boolean {
-  if (roles.length === 0) return true;
-  if (row.main_role && roles.includes(row.main_role)) return true;
-  return (row.roles ?? []).some((role) => roles.includes(role));
-}
-
 /**
  * Exact name / handle match against columns the RPC historically skipped
  * (`display_name_ko`, `display_name_en`). RLS applies. Merged with the
  * RPC so a correctly typed English name hits before the SQL migration.
  */
+function personFields(row: {
+  username?: string | null;
+  display_name?: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+}): Array<string | null | undefined> {
+  return [row.username, row.display_name, row.display_name_ko, row.display_name_en];
+}
+
 async function exactProfileMatches(
   q: string,
   roles: string[],
   limit: number,
 ): Promise<PeopleRec[]> {
-  const clauses = buildIlikeClauses(q, [
-    "username",
-    "display_name",
-    "display_name_ko",
-    "display_name_en",
-  ]);
-  if (!clauses) return [];
-  let query = supabase
-    .from("profiles")
-    .select(
-      "id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, main_role, roles, is_public",
-    );
-  for (const clause of clauses) query = query.or(clause);
-  const { data, error } = await query.limit(limit);
-  if (error || !data) return [];
-  return (data as PeopleRec[])
-    .filter((row) => roleMatches(row, roles))
-    .map((row) => ({ ...row, match_rank: 0, match_tier: 1 }));
+  const rows = await recallProfilesForQuery({ q, limit, roles });
+  return rows.map((row) => ({ ...row, match_rank: 0, match_tier: 1 }));
 }
 
 function mergePeople(rows: PeopleRec[], limit: number): PeopleRec[] {
@@ -172,10 +161,13 @@ export async function searchPeople(
     return { data: [], nextCursor: null, error };
   }
   const rows = (data ?? []) as PeopleRec[];
+  const rpcRows = looseInitialQuery(normalized)
+    ? rows.filter((row) => recordMatchesQuery(normalized, personFields(row)))
+    : rows;
   const merged = cursor
     ? rows
     : mergePeople(
-        [...(await exactProfileMatches(normalized, cleanRoles, limit ?? 15)), ...rows],
+        [...(await exactProfileMatches(normalized, cleanRoles, limit ?? 15)), ...rpcRows],
         limit ?? 15,
       );
   const nextCursor =
