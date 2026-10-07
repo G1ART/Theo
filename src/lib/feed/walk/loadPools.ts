@@ -30,7 +30,7 @@ const WORK_WITH_ARTIST =
   ", artist:profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public, city, education, mediums)";
 
 const EXH_COLS =
-  "id, project_type, title, title_ko, title_en, start_date, end_date, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, created_at";
+  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, created_at";
 
 const WORK_CAP = 36;
 const EXH_CAP = 10;
@@ -79,6 +79,7 @@ type ExhRow = {
   title_en: string | null;
   start_date: string | null;
   end_date: string | null;
+  status: string | null;
   curator_id: string | null;
   host_name: string | null;
   host_name_ko: string | null;
@@ -381,6 +382,7 @@ async function load(
       participantIds: participants.get(row.id) ?? [],
       workIds: (worksInEx.get(row.id) ?? []).filter((id) => workIds.has(id)),
       city,
+      status: row.status,
     });
   }
 
@@ -706,6 +708,7 @@ async function latestExhibitions(supabase: SupabaseClient, exclude: string[]): P
       .from("projects")
       .select(EXH_COLS)
       .eq("project_type", "exhibition")
+      .in("status", ["live", "ended"])
       .order("created_at", { ascending: false })
       .limit(EXH_CAP);
     if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);

@@ -175,8 +175,14 @@ function filledShows(ctx: Ctx): WalkExhibition[] {
   return ctx.pools.exhibitions.filter((row) => isFilledSlot(row.title));
 }
 
+/** Draft rows stay in the owner's own scenarios. The public walk skips them. */
+function isPublicExhibition(exhibition: WalkExhibition): boolean {
+  if (exhibition.status === undefined) return true;
+  return exhibition.status === "live" || exhibition.status === "ended";
+}
+
 function unusedShows(ctx: Ctx): WalkExhibition[] {
-  return filledShows(ctx).filter((row) => !ctx.used.has(keyE(row.id)));
+  return filledShows(ctx).filter((row) => isPublicExhibition(row) && !ctx.used.has(keyE(row.id)));
 }
 
 function catalogWorks(ctx: Ctx): WalkWork[] {
@@ -1455,7 +1461,7 @@ function looseStoryCollector(ctx: Ctx, saved: WalkWork[], exhibition: WalkExhibi
 function loosePublic(ctx: Ctx): Built | null {
   const works = catalogWorks(ctx);
   for (const exhibition of ctx.pools.exhibitions) {
-    if (!isFilledSlot(exhibition.title)) continue;
+    if (!isFilledSlot(exhibition.title) || !isPublicExhibition(exhibition)) continue;
     const built = loosePublicShow(ctx, exhibition, works);
     if (built) return built;
   }
@@ -1522,12 +1528,12 @@ function loosePublicShow(ctx: Ctx, exhibition: WalkExhibition, works: WalkWork[]
 function buildPublic(ctx: Ctx): Built | null {
   const loose = ctx.pools.works.filter((work) => ctx.idx.people.has(work.artistId));
   for (const exhibition of ctx.pools.exhibitions) {
-    if (!isFilledSlot(exhibition.title)) continue;
+    if (!isFilledSlot(exhibition.title) || !isPublicExhibition(exhibition)) continue;
     const full = storyPublic(ctx, exhibition, loose, true);
     if (full) return full;
   }
   for (const exhibition of ctx.pools.exhibitions) {
-    if (!isFilledSlot(exhibition.title)) continue;
+    if (!isFilledSlot(exhibition.title) || !isPublicExhibition(exhibition)) continue;
     const short = storyPublic(ctx, exhibition, loose, false);
     if (short) return short;
   }

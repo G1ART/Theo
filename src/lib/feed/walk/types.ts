@@ -51,6 +51,11 @@ export type WalkExhibition = {
   workIds: string[];
   /** Host or curator profile city. Null when neither profile has a city. */
   city: string | null;
+  /**
+   * `live` and `ended` belong on the public walk. `planned` is still a draft.
+   * Omitted only by older fixtures, which stay eligible.
+   */
+  status?: string | null;
 };
 
 export type WalkEngagement = {

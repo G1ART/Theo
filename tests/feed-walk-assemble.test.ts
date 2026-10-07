@@ -815,6 +815,56 @@ function testNewPassWhenExhibitionsWereUsed() {
   assertReal(page.modules, pools);
 }
 
+function testPlannedExhibitionStaysOffPublicWalk() {
+  const people = [
+    person({ id: "A", name: "규원", username: "lea" }),
+    person({ id: "B", name: "Bea" }),
+    person({ id: "C", name: "Cara" }),
+  ];
+  const works = [
+    work({ id: "W1", artistId: "A" }),
+    work({ id: "W2", artistId: "B" }),
+    work({ id: "W3", artistId: "C" }),
+  ];
+  const draft = exhibition({
+    id: "Test",
+    title: "Test",
+    status: "planned",
+    curatorId: "A",
+    participantIds: ["A"],
+    workIds: [],
+  });
+  const live = exhibition({
+    id: "Live",
+    title: "North Hall",
+    status: "live",
+    curatorId: "B",
+    participantIds: ["B"],
+    workIds: [],
+  });
+  const pools: WalkPools = {
+    people,
+    works,
+    exhibitions: [draft, live],
+    engagements: [],
+    follows: [],
+  };
+  const page = assembleWalk({ lane: "public", viewer: anonViewer(), pools, cursor: null });
+  const shown = idsOf(page.modules).exhibitions;
+  assert.equal(shown.includes("Test"), false);
+  assert.ok(shown.includes("Live"));
+
+  const onlyDraft = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools: { ...pools, exhibitions: [draft] },
+    cursor: null,
+  });
+  assert.equal(idsOf(onlyDraft.modules).exhibitions.includes("Test"), false);
+  assert.ok(onlyDraft.modules.length > 0);
+  assert.equal(onlyDraft.modules.every(isWorkModule), true);
+}
+
 testOrderAndCursor();
 testSkipWhenMissing();
 testEmptyWhenNothingReal();
@@ -826,5 +876,6 @@ testPlaceholderExhibitionOmitsShells();
 testNextPageStaysMixed();
 testArtworkOnlyWhenNoExhibitionsLeft();
 testNewPassWhenExhibitionsWereUsed();
+testPlannedExhibitionStaysOffPublicWalk();
 
 console.log("feed-walk-assemble: ok");
