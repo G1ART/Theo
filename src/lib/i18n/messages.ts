@@ -3932,7 +3932,7 @@ export const messages = {
     // QA 2026-07-28 — Exhibition preface (서문) + AI assist hardening
     "exhibition.preface": "Preface",
     "exhibition.prefaceHint":
-      "A short intro readers see above the works. Type freely, or use the writing assistant.",
+      "Write the short intro visitors read above the works.",
     "exhibition.prefacePlaceholder":
       "e.g. This exhibition traces a season of drawings made between studio and shore…",
     "exhibition.prefaceOtherLangPlaceholderKo":
@@ -8822,7 +8822,7 @@ export const messages = {
     // QA 2026-07-28 — 전시 서문(preface) + AI 도우미 안정화
     "exhibition.preface": "서문",
     "exhibition.prefaceHint":
-      "관람객이 작품 위에서 먼저 읽는 짧은 소개예요. 직접 쓰거나, 아래 문안 도우미로 초안을 만들 수 있어요.",
+      "관람객이 작품 위에서 먼저 읽는 짧은 소개를 적는 자리예요.",
     "exhibition.prefacePlaceholder":
       "예: 이번 전시는 스튜디오와 바닷가 사이에서 한 계절 동안 그려진 드로잉들을 모았어요…",
     "exhibition.prefaceOtherLangPlaceholderKo":

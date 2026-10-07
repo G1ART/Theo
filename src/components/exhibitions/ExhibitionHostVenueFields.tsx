@@ -10,7 +10,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
 import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
-import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftButton";
 import { HostVenueSuggest } from "@/components/exhibitions/HostVenueSuggest";
 import {
   listMyHostVenueSuggestions,
@@ -276,39 +275,6 @@ export function ExhibitionHostVenueFields({
                   ko: hostNameKo,
                   en: v,
                 });
-              }}
-              renderSecondaryAssist={({ secondaryLang }) => {
-                const primaryLang: "ko" | "en" =
-                  secondaryLang === "ko" ? "en" : "ko";
-                const src = primaryLang === "ko" ? hostNameKo : hostNameEn;
-                return (
-                  <AiTranslationDraftButton
-                    sourceText={src}
-                    sourceLocale={primaryLang}
-                    targetLocale={secondaryLang}
-                    fieldKind="host_name"
-                    onDraft={(text) => {
-                      if (secondaryLang === "ko") {
-                        onHostNamesChange({
-                          legacy:
-                            pickLegacyForSave(text || null, hostNameEn || null) ??
-                            "",
-                          ko: text,
-                          en: hostNameEn,
-                        });
-                      } else {
-                        onHostNamesChange({
-                          legacy:
-                            pickLegacyForSave(hostNameKo || null, text || null) ??
-                            "",
-                          ko: hostNameKo,
-                          en: text,
-                        });
-                      }
-                    }}
-                    compact
-                  />
-                );
               }}
             />
           )}
