@@ -7,8 +7,9 @@
  *   • Saved   — artworks pulled from every shortlist the user owns.
  *   • Recent  — recent public artworks (proxy for "recently seen"
  *               because we don't yet persist a per-viewer recent list).
- *   • Search  — title/free-text search against `artworks.title*`
- *               (also queries the medium so a locale-neutral hit lands).
+ *   • Search  — title, artist name / @handle, and a light typo.
+ *               Public works, the viewer's own works, and works they
+ *               uploaded. Someone else's draft is not returned.
  *
  * Filtering:
  *   • Only `work_form === 'flat_2d'` (default for legacy) is offered.
@@ -22,6 +23,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { findArtworkIdsForQuery } from "@/lib/search/findArtworkIds";
+import { artworkInPickerScope } from "@/lib/search/matchText";
 import { useT } from "@/lib/i18n/useT";
 import {
   getArtworkImageUrl,
@@ -50,6 +53,7 @@ const PICKER_SELECT = `
   size,
   size_unit,
   visibility,
+  created_by,
   artwork_images(storage_path, sort_order, width, height)
 `;
 
@@ -119,6 +123,7 @@ type RawPickerRow = {
   size: string | null;
   size_unit: "cm" | "in" | null;
   visibility: string | null;
+  created_by: string | null;
   artwork_images: PickerImageRow[] | null;
 };
 
@@ -269,16 +274,48 @@ export function ArtworkPickerSheet({
     let cancelled = false;
     setSearchLoading(true);
     const handle = setTimeout(async () => {
-      const like = `%${q.replace(/[%_]/g, "").slice(0, 60)}%`;
-      const { data } = await supabase
-        .from("artworks")
-        .select(PICKER_SELECT)
-        .or(`title.ilike.${like},title_ko.ilike.${like},title_en.ilike.${like}`)
-        .eq("visibility", "public")
-        .limit(30);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const viewerId = session?.user?.id ?? null;
+      const ids = await findArtworkIdsForQuery({
+        query: q,
+        mode: "attachable",
+        ownerId: viewerId,
+        limit: 30,
+      });
+      if (cancelled) return;
+      if (ids.length === 0) {
+        setSearchResults([]);
+        setSearchLoading(false);
+        return;
+      }
+      let req = supabase.from("artworks").select(PICKER_SELECT).in("id", ids);
+      if (viewerId) {
+        req = req.or(
+          `visibility.eq.public,artist_id.eq.${viewerId},created_by.eq.${viewerId}`,
+        );
+      } else {
+        req = req.eq("visibility", "public");
+      }
+      const { data } = await req;
       if (cancelled) return;
       const rows = (data ?? []) as unknown as RawPickerRow[];
-      setSearchResults(rows.map((r) => normalizeRow(r, locale)));
+      const allowed = rows.filter((row) =>
+        artworkInPickerScope(
+          {
+            visibility: row.visibility,
+            artistId: row.artist_id,
+            createdBy: row.created_by,
+          },
+          viewerId,
+        ),
+      );
+      const byId = new Map(allowed.map((row) => [row.id, row]));
+      const ordered = ids
+        .map((id) => byId.get(id))
+        .filter((row): row is RawPickerRow => Boolean(row));
+      setSearchResults(ordered.map((r) => normalizeRow(r, locale)));
       setSearchLoading(false);
     }, 300);
     return () => {

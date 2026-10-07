@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { followProfileSearchOr } from "@/lib/network/followSearch";
+import { followProfileSearchClauses } from "@/lib/network/followSearch";
 
 /**
  * Follow status for the viewer toward a given target.
@@ -55,8 +55,8 @@ export async function getMyFollowers(options: FollowListOptions = {}) {
   const { limit = 20, cursor, profileId = null, search = null } = options;
   const offset = Math.max(0, parseInt(cursor ?? "0", 10) || 0);
   const ownerId = profileId ?? session.user.id;
-  const searchOr = followProfileSearchOr(search);
-  const embed = searchOr ? "!inner" : "";
+  const searchClauses = followProfileSearchClauses(search);
+  const embed = searchClauses?.length ? "!inner" : "";
 
   let query = supabase
     .from("follows")
@@ -64,7 +64,11 @@ export async function getMyFollowers(options: FollowListOptions = {}) {
     .eq("following_id", ownerId)
     .eq("status", "accepted")
     .order("created_at", { ascending: false });
-  if (searchOr) query = query.or(searchOr, { referencedTable: "profiles" });
+  if (searchClauses) {
+    for (const clause of searchClauses) {
+      query = query.or(clause, { referencedTable: "profiles" });
+    }
+  }
   const { data: rows, error } = await query.range(offset, offset + limit);
 
   if (error) return { data: [], nextCursor: null, error };
@@ -99,8 +103,8 @@ export async function getMyFollowing(options: FollowListOptions = {}) {
   const { limit = 20, cursor, profileId = null, search = null } = options;
   const offset = Math.max(0, parseInt(cursor ?? "0", 10) || 0);
   const ownerId = profileId ?? session.user.id;
-  const searchOr = followProfileSearchOr(search);
-  const embed = searchOr ? "!inner" : "";
+  const searchClauses = followProfileSearchClauses(search);
+  const embed = searchClauses?.length ? "!inner" : "";
 
   let query = supabase
     .from("follows")
@@ -108,7 +112,11 @@ export async function getMyFollowing(options: FollowListOptions = {}) {
     .eq("follower_id", ownerId)
     .eq("status", "accepted")
     .order("created_at", { ascending: false });
-  if (searchOr) query = query.or(searchOr, { referencedTable: "profiles" });
+  if (searchClauses) {
+    for (const clause of searchClauses) {
+      query = query.or(clause, { referencedTable: "profiles" });
+    }
+  }
   const { data: rows, error } = await query.range(offset, offset + limit);
 
   if (error) return { data: [], nextCursor: null, error };

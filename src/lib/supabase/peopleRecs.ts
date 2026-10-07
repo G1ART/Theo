@@ -4,6 +4,7 @@
 
 import { supabase } from "./client";
 import { ROLE_OPTIONS, encodePeopleCursor } from "./artists";
+import { buildIlikeClauses, queryTokenGroups, recallTermsForGroup } from "@/lib/search/matchText";
 import { getSearchQueryVariants } from "@/lib/search/queryVariants";
 
 export { ROLE_OPTIONS };
@@ -100,11 +101,56 @@ export type SearchPeopleOptions = {
   cursor?: string | null;
 };
 
+function roleMatches(row: PeopleRec, roles: string[]): boolean {
+  if (roles.length === 0) return true;
+  if (row.main_role && roles.includes(row.main_role)) return true;
+  return (row.roles ?? []).some((role) => roles.includes(role));
+}
+
+/**
+ * Exact name / handle match against columns the RPC historically skipped
+ * (`display_name_ko`, `display_name_en`). RLS applies. Merged with the
+ * RPC so a correctly typed English name hits before the SQL migration.
+ */
+async function exactProfileMatches(
+  q: string,
+  roles: string[],
+  limit: number,
+): Promise<PeopleRec[]> {
+  const clauses = buildIlikeClauses(q, [
+    "username",
+    "display_name",
+    "display_name_ko",
+    "display_name_en",
+  ]);
+  if (!clauses) return [];
+  let query = supabase
+    .from("profiles")
+    .select(
+      "id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, main_role, roles, is_public",
+    );
+  for (const clause of clauses) query = query.or(clause);
+  const { data, error } = await query.limit(limit);
+  if (error || !data) return [];
+  return (data as PeopleRec[])
+    .filter((row) => roleMatches(row, roles))
+    .map((row) => ({ ...row, match_rank: 0, match_tier: 1 }));
+}
+
+function mergePeople(rows: PeopleRec[], limit: number): PeopleRec[] {
+  const byId = new Map<string, PeopleRec>();
+  for (const row of rows) {
+    const prev = byId.get(row.id);
+    if (!prev || (row.match_rank ?? 99) < (prev.match_rank ?? 99)) byId.set(row.id, row);
+  }
+  return [...byId.values()].slice(0, limit);
+}
+
 export async function searchPeople(
   options: SearchPeopleOptions
 ): Promise<{ data: PeopleRec[]; nextCursor: string | null; error: unknown }> {
   const { q, roles, limit = 15, cursor = null } = options;
-  const normalized = q.trim();
+  const normalized = q.trim().replace(/^@+/, "");
   if (!normalized) return { data: [], nextCursor: null, error: null };
 
   const rolesArr = Array.isArray(roles) ? roles : [];
@@ -119,13 +165,24 @@ export async function searchPeople(
     p_cursor: cursor ?? null,
   });
 
-  if (error) return { data: [], nextCursor: null, error };
+  if (error) {
+    if (cursor) return { data: [], nextCursor: null, error };
+    const exact = await exactProfileMatches(normalized, cleanRoles, limit ?? 15);
+    if (exact.length > 0) return { data: exact, nextCursor: null, error: null };
+    return { data: [], nextCursor: null, error };
+  }
   const rows = (data ?? []) as PeopleRec[];
+  const merged = cursor
+    ? rows
+    : mergePeople(
+        [...(await exactProfileMatches(normalized, cleanRoles, limit ?? 15)), ...rows],
+        limit ?? 15,
+      );
   const nextCursor =
     rows.length >= (limit ?? 15) && rows[rows.length - 1]?.id
       ? encodePeopleCursor(rows[rows.length - 1].id)
       : null;
-  return { data: rows, nextCursor, error: null };
+  return { data: merged, nextCursor, error: null };
 }
 
 /** Search artists by artwork title/medium/story (theme). Same profile shape as search_people. */
@@ -189,7 +246,7 @@ export async function searchPeopleWithArtwork(
   error: unknown;
 }> {
   const { q, roles, limit = 30, cursor = null } = options;
-  const normalized = q.trim();
+  const normalized = q.trim().replace(/^@+/, "");
   if (!normalized) return { data: [], nextCursor: null, suggestion: null, error: null };
 
   // Subsequent-page path: cursor is set → page through the primary
@@ -218,7 +275,12 @@ export async function searchPeopleWithArtwork(
       cursor: null,
     })
   );
-  const artworkPromises = variants.map((v) => searchArtistsByArtwork({ q: v, roles, limit: 20 }));
+  const artworkPromises = [
+    ...variants.map((v) => searchArtistsByArtwork({ q: v, roles, limit: 20 })),
+    ...(!/\s/.test(normalized) && [...normalized].length >= 5
+      ? [searchArtistsByArtwork({ q: [...normalized].slice(0, -1).join(""), roles, limit: 20 })]
+      : []),
+  ];
 
   // Multi-token artwork fanout (first-page only). Field-split data
   // (`medium = "자개, 옻칠"`, `title = "달항아리 III"`) makes phrase
@@ -292,6 +354,48 @@ export async function searchPeopleWithArtwork(
       }
     }
   }
+
+  // Each token must hit the person (name, handle, or one of their public
+  // works). Related words ("벚꽃" → blossom) and a one-character stem
+  // ("cheery" → cheer) are OR'd inside the token, then tokens are AND'd.
+  const tokenGroups = queryTokenGroups(normalized);
+  const tokenGroupsHelp =
+    tokenGroups.length >= 2 || tokenGroups.some((group) => group.length > 1);
+  if (tokenGroupsHelp) {
+    try {
+      const perGroup = await Promise.all(
+        tokenGroups.map(async (alts) => {
+          const artNeedles = recallTermsForGroup(alts);
+          const [nameHits, artHits] = await Promise.all([
+            Promise.all(alts.map((alt) => searchPeople({ q: alt, roles, limit: 20, cursor: null }))),
+            Promise.all(artNeedles.map((alt) => searchArtistsByArtwork({ q: alt, roles, limit: 20 }))),
+          ]);
+          const err = [...nameHits, ...artHits].find((res) => res.error)?.error;
+          if (err) throw err;
+          const map = new Map<string, PeopleRec>();
+          for (const res of [...nameHits, ...artHits]) {
+            for (const person of res.data ?? []) {
+              if (!map.has(person.id)) map.set(person.id, person);
+            }
+          }
+          return map;
+        }),
+      );
+      const [firstMap, ...restMaps] = perGroup;
+      if (firstMap) {
+        for (const [id, row] of firstMap) {
+          if (!restMaps.every((other) => other.has(id))) continue;
+          const ranked: PeopleRec = { ...row, match_rank: row.match_rank ?? 2 };
+          if (!byId.has(id) || (byId.get(id)!.match_rank ?? 99) > (ranked.match_rank ?? 99)) {
+            byId.set(id, ranked);
+          }
+        }
+      }
+    } catch (tokenErr) {
+      console.warn("[searchPeopleWithArtwork] token groups dropped due to error:", tokenErr);
+    }
+  }
+
   const merged = Array.from(byId.values())
     .sort((a, b) => {
       const ra = a.match_rank ?? 99;

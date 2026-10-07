@@ -27,6 +27,7 @@ import {
 } from "@/lib/upload/artistPublishNotice";
 import { getMyProfile } from "@/lib/supabase/me";
 import { searchPeople } from "@/lib/supabase/artists";
+import { artworkMatchesSearch } from "@/lib/search/matchText";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
 import {
@@ -792,51 +793,7 @@ export default function AddWorkToExhibitionPage() {
       if (!matchesParticipant) return false;
 
       if (!q) return true;
-      // QA 2026-08-17 bilingual — search across every language slot so
-      // typing in EN while a KO-only field exists still surfaces the
-      // matching artwork (and vice versa).
-      const bilingual = art as ArtworkWithLikes & {
-        title_ko?: string | null;
-        title_en?: string | null;
-        medium_ko?: string | null;
-        medium_en?: string | null;
-        story_ko?: string | null;
-        story_en?: string | null;
-      };
-      const titles = [
-        bilingual.title,
-        bilingual.title_ko,
-        bilingual.title_en,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const mediums = [
-        bilingual.medium,
-        bilingual.medium_ko,
-        bilingual.medium_en,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const stories = [
-        bilingual.story,
-        bilingual.story_ko,
-        bilingual.story_en,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const rawKeywords = (art as { keywords?: unknown }).keywords;
-      const keywords = Array.isArray(rawKeywords)
-        ? (rawKeywords as string[]).join(" ").toLowerCase()
-        : "";
-      return (
-        titles.includes(q) ||
-        mediums.includes(q) ||
-        stories.includes(q) ||
-        keywords.includes(q)
-      );
+      return artworkMatchesSearch(workQuery, art);
     });
   }, [artworks, participants, workQuery]);
 

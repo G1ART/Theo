@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { buildIlikeClauses } from "@/lib/search/matchText";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 
@@ -413,13 +414,18 @@ export async function searchProfilesForCollab(
 }> {
   const q = query.trim();
   if (!q) return { data: [], error: null };
-  const { data, error } = await supabase
+  const clauses = buildIlikeClauses(q, [
+    "username",
+    "display_name",
+    "display_name_ko",
+    "display_name_en",
+  ]);
+  if (!clauses) return { data: [], error: null };
+  let request = supabase
     .from("profiles")
-    .select("id, username, display_name, display_name_ko, display_name_en")
-    .or(
-      `username.ilike.%${q}%,display_name.ilike.%${q}%,display_name_ko.ilike.%${q}%,display_name_en.ilike.%${q}%`,
-    )
-    .limit(10);
+    .select("id, username, display_name, display_name_ko, display_name_en");
+  for (const clause of clauses) request = request.or(clause);
+  const { data, error } = await request.limit(10);
   if (error) return { data: [], error };
   return {
     data: (data ?? []) as {

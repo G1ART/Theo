@@ -17,6 +17,7 @@ import {
   mergeLibraryRows,
 } from "@/lib/artworks/libraryInventory";
 import { resolvePublicProfileLimit } from "@/lib/artworks/publicProfileQuery";
+import { findArtworkIdsForQuery } from "@/lib/search/findArtworkIds";
 import { uploadGaps } from "@/lib/upload/readiness";
 import {
   claimedOnboardedArtist,
@@ -1027,6 +1028,16 @@ export async function listMyArtworksForLibrary(
   const artistId = forProfileId ?? session.user.id;
   const isPopular = sort === "likes";
   const claimedIds = await listConfirmedClaimWorkIds(artistId);
+  let searchIds: string[] | null = null;
+  if (search.trim()) {
+    searchIds = await findArtworkIdsForQuery({
+      query: search,
+      mode: "library",
+      ownerId: artistId,
+      limit: 80,
+    });
+    if (searchIds.length === 0) return { data: [], nextCursor: null, error: null };
+  }
 
   async function fetchScope(scope: { claimedChunk: string[] | null }): Promise<{
     data: ArtworkWithLikes[];
@@ -1049,7 +1060,7 @@ export async function listMyArtworksForLibrary(
     if (ownershipStatus) query = query.eq("ownership_status", ownershipStatus);
     if (pricingMode) query = query.eq("pricing_mode", pricingMode);
     if (createdBy) query = query.eq("created_by", createdBy);
-    if (search.trim()) query = query.ilike("title", `%${search.trim().replace(/%/g, "\\%")}%`);
+    if (searchIds && searchIds.length > 0) query = query.in("id", searchIds);
     if (dateFrom) query = query.gte("created_at", dateFrom);
     if (dateTo) query = query.lte("created_at", dateTo);
 

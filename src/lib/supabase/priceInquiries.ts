@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { buildIlikeClauses } from "@/lib/search/matchText";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
@@ -141,8 +142,8 @@ const INQUIRY_LIST_SELECT = `
   source_feed_session_id,
   source_feed_item_key,
   source_payload,
-  artworks!artwork_id!inner(id, title, artist_id),
-  profiles!inquirer_id(username, display_name)
+  artworks!artwork_id!inner(id, title, title_ko, title_en, artist_id),
+  profiles!inquirer_id(username, display_name, display_name_ko, display_name_en)
 `;
 
 export type InquiryListCursor = { last_message_at: string; id: string };
@@ -155,10 +156,6 @@ export type ListPriceInquiriesForArtistOptions = {
   pipelineStage?: PipelineStage | "all";
   search?: string;
 };
-
-function escapeIlike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
 
 function normalizeInquiry(row: Record<string, unknown>): PriceInquiryRow {
   const aw = row.artworks;
@@ -403,10 +400,17 @@ export async function listPriceInquiriesForArtist(
     query = query.eq("pipeline_stage", pipelineStage);
   }
 
-  const q = search.trim().replace(/,/g, " ");
-  if (q) {
-    const pat = `%${escapeIlike(q)}%`;
-    query = query.or(`artworks.title.ilike.${pat},profiles.username.ilike.${pat}`);
+  const clauses = buildIlikeClauses(search, [
+    "artworks.title",
+    "artworks.title_ko",
+    "artworks.title_en",
+    "profiles.username",
+    "profiles.display_name",
+    "profiles.display_name_ko",
+    "profiles.display_name_en",
+  ]);
+  if (clauses) {
+    for (const clause of clauses) query = query.or(clause);
   }
 
   if (cursor?.last_message_at && cursor?.id) {
