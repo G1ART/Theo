@@ -4,7 +4,7 @@ Last updated: 2026-10-08
 
 ## 2026-10-08 — 클레임 메뉴의 삭제는 작품을 지우지 않는다
 
-> **Supabase SQL:** `supabase/migrations/20261008170208_claim_does_not_delete_artwork.sql` 을 SQL Editor에서 **섹션 단위로 highlight → Run**. 한 번에 붙이지 않는다. 섹션 3은 함수 하나다. dollar tag는 `$notify$`. **환경 변수 추가·변경 없음.**
+> **Supabase SQL 돌려야 할 것은 없음.** `supabase/migrations/20261008170208_claim_does_not_delete_artwork.sql` 은 2026-10-08에 MCP로 프로덕션에 **이미 적용**했다. 섹션 1 `artworks` DELETE, 섹션 2 `artwork_images` DELETE, 섹션 3 `notify_on_claim_rejected` (`$notify$`)를 나눠 실행했다. **환경 변수 추가·변경 없음.**
 
 작품 상세의 「이 작품은…」에서 소장 요청을 보내면 「요청 대기 중」 아래에 빨간 삭제가 있었다. 그 버튼은 클레임 취소가 아니라 `deleteArtworkCascade`였다. 대기 중이든 승인된 클레임이든 `subject_profile_id`만 맞으면 작품을 지울 수 있었고, DB 정책도 같았다. 2026-10-08에 LoRA-2가 그 경로로 지워졌다.
 
@@ -13,7 +13,7 @@ Last updated: 2026-10-08
 - 작품을 지울 수 있는 사람은 작가(`artist_id`)와 올린 사람(`created_by`), 그리고 기존 위임 정책이다. 모르는 사람, 대기 중인 요청자, 승인만 받은 사람은 버튼도 없고 서버에서도 거절된다. 코드는 읽히는 행이면 삭제 전에 거절하고, SQL을 돌리면 클레임만으로는 `artworks`·`artwork_images` DELETE가 되지 않는다.
 - 본인이 요청을 취소하면 「작가가 거절했습니다」 알림은 보내지 않는다. 작가가 거절하는 알림은 그대로다.
 
-**Verified:** `npx tsc --noEmit`. `npx tsx tests/claim-revoke-does-not-delete-artwork.test.ts` (대기·승인 클레임은 작품을 지우지 못하고, 작가와 올린 사람은 지울 수 있다. 취소는 클레임 행만 뺀다). 로그인하지 않은 브라우저에서 LoRA-2 상세는 열리고, 삭제와 클레임 취소는 없다. 요청자로 로그인한 클릭은 확인하지 못했다.
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/claim-revoke-does-not-delete-artwork.test.ts` (대기·승인 클레임은 작품을 지우지 못하고, 작가와 올린 사람은 지울 수 있다. 취소는 클레임 행만 뺀다). 로그인하지 않은 브라우저에서 LoRA-2 상세는 열리고, 삭제와 클레임 취소는 없다. 요청자로 로그인한 클릭은 확인하지 못했다. 프로덕션에서 `Allow owner delete artwork`와 `Allow owner delete artwork_images`는 작가·올린 사람만 보고 클레임을 보지 않는다. `notify_on_claim_rejected`는 본인 취소를 알림에서 뺀다.
 
 ## 2026-10-08 — 지워진 LoRA-2를 남은 파일로 다시 넣었다
 
