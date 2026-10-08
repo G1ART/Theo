@@ -25,6 +25,7 @@ import {
   draftArtistIdForInsert,
   personUnderArtworkTitle,
 } from "@/lib/upload/artworkOwner";
+import { canDeleteArtwork as canDeleteArtworkRole } from "@/lib/artworks/claimMenu";
 
 const BUCKET = "artworks";
 
@@ -283,14 +284,12 @@ export function canEditArtwork(artwork: Artwork, userId: UserIdLike): boolean {
   );
 }
 
-/** Can delete: artist, created_by(업로더), or anyone who has a claim (uploader/lister). */
+/**
+ * Artist or uploader (`created_by`). A pending or approved claim does not
+ * grant this. Claiming a relationship is not ownership-for-deletion.
+ */
 export function canDeleteArtwork(artwork: Artwork, userId: UserIdLike): boolean {
-  const ids = normalizeUserIds(userId);
-  if (ids.length === 0) return false;
-  if (ids.includes(artwork.artist_id)) return true;
-  if (artwork.created_by != null && ids.includes(artwork.created_by)) return true;
-  const claims = artwork.claims ?? [];
-  return claims.some((c) => ids.includes(c.subject_profile_id));
+  return canDeleteArtworkRole(artwork, userId);
 }
 
 /**
@@ -2004,12 +2003,24 @@ export async function deleteArtwork(artworkId: string) {
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.user?.id) return { error: new Error("Not authenticated") };
-  // RLS allows delete when artist_id = auth.uid() or user has claim (lister)
+
+  // When the row is readable, refuse claimants before the delete. A claim
+  // is not enough. If the row is not readable, RLS still decides: artist,
+  // uploader, or an existing delegate policy. Claim-only delete is denied.
+  const { data: row, error: readErr } = await supabase
+    .from("artworks")
+    .select("artist_id, created_by")
+    .eq("id", artworkId)
+    .maybeSingle();
+  if (!readErr && row && !canDeleteArtworkRole(row, session.user.id)) {
+    return { error: new Error("Artwork not found or not owned by you") };
+  }
+
   const { error } = await supabase.from("artworks").delete().eq("id", artworkId);
   return { error };
 }
 
-/** Delete artwork with cascade: storage files → artwork_images → artworks. Artist or lister (has claim). */
+/** Delete artwork with cascade. Artist or uploader only. A claim does not grant this. */
 export async function deleteArtworkCascade(
   artworkId: string
 ): Promise<{ error: unknown }> {
@@ -2019,8 +2030,8 @@ export async function deleteArtworkCascade(
   if (!session?.user?.id)
     return { error: new Error("Not authenticated") };
 
-  // Use getArtworkById to get full artwork with claims (respects RLS properly)
-  // Then use canDeleteArtwork to check permission (same logic used in UI)
+  // Readable row, then the same artist-or-uploader check the detail page uses.
+  // Claim rows on the artwork do not authorize this delete.
   const { data: artwork, error: fetchError } = await getArtworkById(artworkId);
   if (fetchError || !artwork) {
     return { error: new Error("Artwork not found") };
@@ -2059,7 +2070,7 @@ export async function deleteArtworkCascade(
     .eq("artwork_id", artworkId);
   if (imgErr) return { error: imgErr };
 
-  // Delete artwork (RLS allows if artist or has claim; no need to filter by artist_id here)
+  // RLS allows the artist or the uploader. A claim does not.
   const { error } = await supabase
     .from("artworks")
     .delete()

@@ -12,6 +12,7 @@ import type {
   CreateClaimForExistingArtistArgs,
   SearchWorksForDedupArgs,
 } from "./types";
+import { REVOCABLE_CLAIM_TYPES } from "@/lib/artworks/claimMenu";
 
 export type CreateExternalArtistAndClaimResult = {
   external_artist: { id: string; display_name: string; [key: string]: unknown };
@@ -196,6 +197,27 @@ export async function confirmClaim(
 export async function rejectClaim(claimId: string): Promise<{ error: unknown }> {
   const { error } = await supabase.from("claims").delete().eq("id", claimId);
   return { error };
+}
+
+/**
+ * Requester withdraws their own relationship claim. Deletes that claim row
+ * only. Never deletes the artwork. CREATED (authorship) is not revocable here.
+ */
+export async function revokeMyClaim(claimId: string): Promise<{ error: unknown }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id) return { error: new Error("Not authenticated") };
+  const { data, error } = await supabase
+    .from("claims")
+    .delete()
+    .eq("id", claimId)
+    .eq("subject_profile_id", session.user.id)
+    .in("claim_type", [...REVOCABLE_CLAIM_TYPES])
+    .select("id");
+  if (error) return { error };
+  if (!data?.length) return { error: new Error("Claim not found") };
+  return { error: null };
 }
 
 export type PendingClaimRow = {

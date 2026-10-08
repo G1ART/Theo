@@ -16,7 +16,6 @@ import {
   canEditArtwork,
   canViewProvenance,
   deleteArtworkCascade,
-  getMyClaim,
   getProvenanceClaims,
   recordArtworkView,
 } from "@/lib/supabase/artworks";
@@ -30,9 +29,11 @@ import {
   createClaimRequest,
   confirmClaim,
   rejectClaim,
+  revokeMyClaim,
   listPendingClaimsForWork,
   type PendingClaimRow,
 } from "@/lib/provenance/rpc";
+import { relationshipClaimsForActor } from "@/lib/artworks/claimMenu";
 import type { ClaimType } from "@/lib/provenance/types";
 import {
   createPriceInquiry,
@@ -132,6 +133,8 @@ function ArtworkDetailContent() {
   const [confirmingClaimId, setConfirmingClaimId] = useState<string | null>(null);
   const [confirmPeriodStatus, setConfirmPeriodStatus] = useState<"past" | "current" | "future">("current");
   const [claimDropdownOpen, setClaimDropdownOpen] = useState(false);
+  const [revokingClaimId, setRevokingClaimId] = useState<string | null>(null);
+  const [claimMenuError, setClaimMenuError] = useState<string | null>(null);
   const [fullSizeOpen, setFullSizeOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [myPriceInquiry, setMyPriceInquiry] = useState<PriceInquiryRow | null>(null);
@@ -196,8 +199,7 @@ function ArtworkDetailContent() {
 
   // Effective identity merges the operator's session uid with the
   // optional acting-as principal so that delegated edit/claim actions
-  // surface the principal's perspective. Order: principal first → wins
-  // priority searches in `getMyClaim`.
+  // surface the principal's perspective. Principal is listed first.
   const effectiveIds = useMemo<string[]>(() => {
     const out: string[] = [];
     if (actingAsProfileId) out.push(actingAsProfileId);
@@ -209,10 +211,23 @@ function ArtworkDetailContent() {
   );
   const canEdit = Boolean(artwork && canEditArtwork(artwork, effectiveIds));
   const canDelete = Boolean(artwork && canDeleteArtwork(artwork, effectiveIds));
-  const myClaim = artwork ? getMyClaim(artwork, effectiveIds) : null;
   const myClaimsByType =
     artwork?.claims?.filter((c) => effectiveIds.includes(c.subject_profile_id)) ?? [];
-  const hasPendingRequest = myClaim?.status === "pending";
+  const myRelationshipClaims = relationshipClaimsForActor(
+    (artwork?.claims ?? []).flatMap((c) =>
+      c.id
+        ? [
+            {
+              id: c.id,
+              claim_type: c.claim_type,
+              subject_profile_id: c.subject_profile_id,
+              status: c.status ?? null,
+            },
+          ]
+        : [],
+    ),
+    effectiveIds,
+  );
   const hasOwnsClaim = myClaimsByType.some((c) => c.claim_type === "OWNS");
   const canRequestClaim = Boolean(effectiveIds.length > 0 && artwork && !isOwner);
   const provenanceClaims = artwork ? getProvenanceClaims(artwork) : [];
@@ -691,6 +706,19 @@ function ArtworkDetailContent() {
     // Sprint 5.2 — refresh through the redacted-passport RPC so visibility
     // resolutions stay coherent with the new claim state. Owner sees full
     // data via the same call (resolver auto-passes the artwork owner).
+    await refreshPassport();
+  }
+
+  async function handleRevokeClaim(claimId: string) {
+    setClaimMenuError(null);
+    setRevokingClaimId(claimId);
+    const { error } = await revokeMyClaim(claimId);
+    setRevokingClaimId(null);
+    if (error) {
+      logSupabaseError("revokeMyClaim", error);
+      setClaimMenuError(formatSupabaseError(error, t, "errors.failedRevokeClaim"));
+      return;
+    }
     await refreshPassport();
   }
 
@@ -1463,8 +1491,44 @@ function ArtworkDetailContent() {
                     </button>
                   </div>
                 )}
-                {hasPendingRequest && (
-                  <p className="mt-2 text-sm text-zinc-500">{t("artwork.requestPending")}</p>
+                {myRelationshipClaims.map((c) => {
+                  const phraseKey =
+                    c.claim_type === "OWNS"
+                      ? "artwork.ownedByMe"
+                      : c.claim_type === "CURATED"
+                        ? "artwork.curatedByMe"
+                        : c.claim_type === "EXHIBITED"
+                          ? "artwork.exhibitedByMe"
+                          : c.claim_type === "INVENTORY"
+                            ? "artwork.inventoryByMe"
+                            : null;
+                  const phrase = phraseKey ? t(phraseKey) : c.claim_type;
+                  const pending = c.status === "pending";
+                  const label =
+                    pending && myRelationshipClaims.length === 1
+                      ? t("artwork.requestPending")
+                      : pending
+                        ? `${phrase} · ${t("artwork.requestPending")}`
+                        : phrase;
+                  const canRevoke = Boolean(userId && c.subject_profile_id === userId);
+                  return (
+                    <div key={c.id} className="mt-2">
+                      <p className="text-sm text-zinc-500">{label}</p>
+                      {canRevoke && (
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeClaim(c.id)}
+                          disabled={revokingClaimId !== null}
+                          className="mt-1 text-sm font-medium text-zinc-700 hover:text-zinc-900 disabled:opacity-50"
+                        >
+                          {revokingClaimId === c.id ? "..." : t("artwork.revokeClaim")}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {claimMenuError && (
+                  <p className="mt-2 text-sm text-zinc-600">{claimMenuError}</p>
                 )}
               </div>
             )}
