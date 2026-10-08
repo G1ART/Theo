@@ -1,6 +1,20 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
+
+## 2026-10-08 — 지워진 LoRA-2를 남은 파일로 다시 넣었다
+
+> **Supabase SQL 돌려야 할 것은 없음.** 아래 복구는 MCP `execute_sql`로 프로덕션에 **이미 적용**했다. 마이그레이션 파일은 없다. **환경 변수 추가·변경 없음.**
+
+`deleteArtworkCascade`는 하드 삭제다. `deleted_at`도 없고, 스토리지 표시 파일·원본을 지운 뒤 `artwork_images`, `artworks`를 지운다. `claims.work_id`는 `ON DELETE CASCADE`라 클레임도 같이 사라진다. 스토리지 삭제가 실패해도 DB 정리는 계속된다.
+
+2026-10-08 15:20:06 UTC에 `af761579-7913-46f8-9f79-f34a2bb38e02`가 그 경로로 지워졌다. 행·이미지·클레임은 없었다. 같은 작가 폴더의 파일 4개는 버킷에 남아 있었다. 지우기 직전 피드·작품 화면이 그 파일을 읽고 있었다.
+
+- 작품 id `af761579-7913-46f8-9f79-f34a2bb38e02`를 다시 넣었다. `title`은 `LoRA-2` (남아 있는 `LoRA-1`과 같은 표기. 원래 문자열은 로그에 없었다). `artist_id`·`created_by`는 `58a4f01c-d93f-4033-adce-253323abbe59` (Sol Kang, @sol_kang). `visibility`는 `public`. `created_at`·`updated_at`은 첫 표시 파일 시각 `2026-10-07 00:32:11.821181+00`.
+- 이미지 2장. 표지 `sort_order` 0은 `…/cc565f76-…-IMG_7160.webp`와 원본 `…/original/…-IMG_7160.jpg` (1,168,808 / 16,127,660 bytes). 두 번째는 `…/90e45703-…-IMG_7164.webp`와 원본 jpg (2,174,490 / 7,625,710 bytes). `view_type`은 둘 다 컬럼 기본값 `wall_mounted`.
+- 연도, 재료, 크기, 이야기, 가격, 클레임, 좋아요, 전시 연결은 남은 행이 없어 넣지 않았다. `ownership_status`·`pricing_mode`·`work_form`은 컬럼 기본값(`available`, `fixed`, `flat_2d`)이다. 포인트 인 타임 복구는 시작하지 않았다.
+
+**Verified:** 복구 후 `artworks` 1행, `artwork_images` 2행, `claims` 0행. 두 webp 공개 URL은 HTTP 200 (`content-length` 1168808, 2174490).
 
 ## 2026-10-07 — 탭에서 올린 작품은 그 탭에 바로 들어간다
 
