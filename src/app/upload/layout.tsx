@@ -10,6 +10,7 @@ import { TourTrigger, TourHelpButton } from "@/components/tour";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
 import { AppShell } from "@/components/shell/AppShell";
+import { ProfileTabUploadNotice } from "@/components/upload/ProfileTabUploadNotice";
 /**
  * Upload chrome sits in the existing 3-column shell (sidebar | center |
  * My Connection). Artworks is the entry workspace; Exhibition keeps the
@@ -86,6 +87,7 @@ export default function UploadLayout({
             {t("upload.tabExhibitionShort")}
           </Link>
         </nav>
+        {onArtworks && <ProfileTabUploadNotice search={query} />}
         {onArtworks && (
           <div className="relative mt-6 mb-6 grid grid-cols-2 text-center">
             <Link

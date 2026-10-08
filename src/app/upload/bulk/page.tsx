@@ -105,6 +105,8 @@ import {
   type BulkFailure,
   type BulkListNote,
 } from "@/lib/supabase/bulkUpload";
+import { persistCreatedWorksOnProfileTab } from "@/lib/studio/profileTabUpload";
+import { profileReturnPath } from "@/lib/studio/studioPortfolioConfig";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -237,6 +239,7 @@ export default function BulkUploadPage() {
       { pendingId: string; draftId: string; name: string }[]
     >
   >(async () => []);
+  const profileTabCreatedIdsRef = useRef<Set<string>>(new Set());
   const csvTextRef = useRef("");
   const heldRowsRef = useRef<{ draftId: string; rowIndex: number }[] | null>(null);
   const captionLockRef = useRef(false);
@@ -743,6 +746,7 @@ export default function BulkUploadPage() {
     setUploadSucceeded(0);
     setUploadFailures([]);
     const uploadedIds: string[] = [];
+    const createdForTab: string[] = [];
     const failures: { name: string; message: string }[] = [];
     const results: ({ pendingId: string; draftId: string; name: string } | null)[] = new Array(queue.length).fill(null);
 
@@ -838,6 +842,7 @@ export default function BulkUploadPage() {
         if (attachErr) throw attachErr;
         imageAttached = true;
         uploadedIds.push(artworkId);
+        if (createdHere) createdForTab.push(artworkId);
         if (owner.plan && createdHere) {
           await persistArtistOnDrafts(
             [artworkId],
@@ -946,6 +951,13 @@ export default function BulkUploadPage() {
         ownerNow.artistId,
         ownerNow.plan.listerClaim.claimType,
       );
+    }
+    if (createdForTab.length > 0) {
+      for (const id of createdForTab) profileTabCreatedIdsRef.current.add(id);
+      await persistCreatedWorksOnProfileTab({
+        artworkIds: createdForTab,
+        tabParam: searchParams.get("tab"),
+      });
     }
     await fetchDrafts();
     const done = new Set(queue.map((item) => item.id));
@@ -1413,6 +1425,14 @@ export default function BulkUploadPage() {
           createdHeld.push({ draftId: id, rowIndex });
         }
       }
+      if (createdHeld.length > 0) {
+        const createdIds = createdHeld.map((row) => row.draftId);
+        for (const id of createdIds) profileTabCreatedIdsRef.current.add(id);
+        await persistCreatedWorksOnProfileTab({
+          artworkIds: createdIds,
+          tabParam: searchParams.get("tab"),
+        });
+      }
       heldRowsRef.current = createdHeld.length > 0 ? createdHeld : null;
 
       const unmatchedLabels = [...plan.unmatched.map((row) => row.label), ...issues];
@@ -1644,6 +1664,15 @@ export default function BulkUploadPage() {
       }
 
       // Navigate / refetch ONLY when at least one work landed publicly.
+      const filedIds = publishedIds.filter((id) => profileTabCreatedIdsRef.current.has(id));
+      let filedToTab = false;
+      if (filedIds.length > 0) {
+        const filed = await persistCreatedWorksOnProfileTab({
+          artworkIds: filedIds,
+          tabParam: searchParams.get("tab"),
+        });
+        filedToTab = filed.attached;
+      }
       if (publishedIds.length > 0) {
         void logBetaEvent("bulk_publish_completed", {
           count: publishedIds.length,
@@ -1708,7 +1737,9 @@ export default function BulkUploadPage() {
           : await getMyProfile();
         const username = (profile as { username?: string | null } | null)?.username?.trim();
         if (username) {
-          router.push(`/u/${username}`);
+          router.push(
+            filedToTab ? profileReturnPath(username, searchParams.get("tab")) : `/u/${username}`,
+          );
           return;
         }
         setSelected(new Set());

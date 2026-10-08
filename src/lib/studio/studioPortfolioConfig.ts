@@ -461,3 +461,70 @@ export function serializeActiveTabParam(active: ActiveStudioTab): string {
   if (active.kind === "persona") return active.tab;
   return `custom-${active.id}`;
 }
+
+export type ProfileTabAttachResult = {
+  portfolio: StudioPortfolioV1;
+  /** True when every new id is stored on the named custom tab. */
+  attached: boolean;
+  tabId: string | null;
+  label: string | null;
+};
+
+/**
+ * File new works into the custom tab the upload was started from.
+ * 전체 and the other persona tabs are filters over the artist's works,
+ * not membership lists, so they leave `custom_tabs` unchanged.
+ * An unknown tab id does not create a tab and does not file anywhere.
+ */
+export function attachCreatedWorksToProfileTab(params: {
+  portfolio: StudioPortfolioV1;
+  artworkIds: string[];
+  tabParam: string | null | undefined;
+}): ProfileTabAttachResult {
+  const unchanged: ProfileTabAttachResult = {
+    portfolio: params.portfolio,
+    attached: false,
+    tabId: null,
+    label: null,
+  };
+  const active = parseActiveTabParam(params.tabParam ?? null);
+  if (!active || active.kind !== "custom") return unchanged;
+  const tab = (params.portfolio.custom_tabs ?? []).find((t) => t.id === active.id);
+  if (!tab) return unchanged;
+  const ids = params.artworkIds.map((id) => id.trim()).filter((id) => id.length > 0);
+  if (ids.length === 0) {
+    return {
+      portfolio: params.portfolio,
+      attached: false,
+      tabId: tab.id,
+      label: tab.label,
+    };
+  }
+  const portfolio = assignArtworksToCustomTab({
+    portfolio: params.portfolio,
+    artworkIds: ids,
+    targetCustomId: tab.id,
+  });
+  const next = (portfolio.custom_tabs ?? []).find((t) => t.id === tab.id);
+  const landed = ids.every((id) => (next?.artwork_ids ?? []).includes(id));
+  return {
+    portfolio,
+    attached: landed,
+    tabId: tab.id,
+    label: tab.label,
+  };
+}
+
+/** Profile "add work" entry. Persona tabs, including 전체, do not file into a custom tab. */
+export function uploadHrefForActiveTab(active: ActiveStudioTab): string {
+  if (active.kind !== "custom") return "/upload";
+  return `/upload?tab=${encodeURIComponent(serializeActiveTabParam(active))}`;
+}
+
+/** After publish, own-profile return. Other-artist and exhibition returns stay with their callers. */
+export function profileReturnPath(username: string, tabParam: string | null | undefined): string {
+  const base = `/u/${username}`;
+  const active = parseActiveTabParam(tabParam ?? null);
+  if (!active || active.kind !== "custom") return base;
+  return `${base}?tab=${encodeURIComponent(serializeActiveTabParam(active))}`;
+}

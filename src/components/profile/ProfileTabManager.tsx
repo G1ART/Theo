@@ -77,10 +77,7 @@ export function ProfileTabManager({
     id: row.key,
     label: `${row.label} (${row.count})`,
   }));
-  const activeStripKey =
-    stripPublic.find((row) => isActiveTab(row, active))?.key ??
-    stripPublic[0]?.key ??
-    "";
+  const activeStripKey = stripPublic.find((row) => isActiveTab(row, active))?.key ?? "";
 
   const list = stripDraft.length > 0 ? stripDraft : stripRows;
 

@@ -83,6 +83,8 @@ import {
   filterStripForPublicView,
   parseActiveTabParam,
   parseStudioPortfolio,
+  serializeActiveTabParam,
+  uploadHrefForActiveTab,
 } from "@/lib/studio/studioPortfolioConfig";
 
 type Props = {
@@ -503,6 +505,17 @@ export function UserProfileContent({
   );
 
   const isExhibitionsView = active.kind === "persona" && active.tab === "exhibitions";
+  const uploadHref = uploadHrefForActiveTab(active);
+  const activeCustomLabel =
+    active.kind === "custom"
+      ? (portfolio.custom_tabs ?? []).find((tab) => tab.id === active.id)?.label ?? null
+      : null;
+  const showUploadTile =
+    roleTab === "artist" &&
+    isOwner &&
+    !isExhibitionsView &&
+    (active.kind === "custom" ||
+      (active.kind === "persona" && (active.tab === "all" || active.tab === "CREATED")));
   const customTabs = portfolio.custom_tabs ?? [];
   const actingAsThisProfile =
     !!actingAsProfileId && actingAsProfileId === profile.id && actingAsProfileId !== viewerId;
@@ -940,7 +953,17 @@ export function UserProfileContent({
           stripPublic={stripPublic}
           stripRows={stripRows}
           active={active}
-          onActiveChange={setActive}
+          onActiveChange={(next) => {
+            setActive(next);
+            if (typeof window === "undefined") return;
+            const params = new URLSearchParams(window.location.search);
+            params.set("tab", serializeActiveTabParam(next));
+            window.history.replaceState(
+              window.history.state,
+              "",
+              `${pathname}?${params.toString()}`,
+            );
+          }}
           portfolio={portfolio}
           defaultTabLabels={defaultTabLabels}
           onPersisted={() => router.refresh()}
@@ -1312,21 +1335,26 @@ export function UserProfileContent({
         roleTab === "collector" ? (
           <EmptyState title={t("profile.collectorEmpty")} size="sm" />
         ) : isOwner && !isExhibitionsView ? (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <UploadYourWorkTile label={t("profile.section.uploadYourWork")} />
+          <div>
+            {active.kind === "custom" && (
+              <p className="mb-4 text-sm text-zinc-600" role="status">
+                {activeCustomLabel
+                  ? t("upload.profileTab.into").replace("{name}", activeCustomLabel)
+                  : t("upload.profileTab.intoThis")}
+              </p>
+            )}
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <UploadYourWorkTile href={uploadHref} label={t("profile.section.uploadYourWork")} />
+            </div>
           </div>
         ) : (
           <EmptyState title={t("profile.noWorks")} size="sm" />
         )
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {roleTab === "artist" &&
-            isOwner &&
-            !isExhibitionsView &&
-            active.kind === "persona" &&
-            (active.tab === "all" || active.tab === "CREATED") && (
-              <UploadYourWorkTile label={t("profile.section.uploadYourWork")} />
-            )}
+          {showUploadTile && (
+            <UploadYourWorkTile href={uploadHref} label={t("profile.section.uploadYourWork")} />
+          )}
           {displayedArtworks.map((artwork) => (
             <div key={artwork.id} className="relative">
               {tabAssignMode && (
@@ -1398,10 +1426,10 @@ export function UserProfileContent({
   );
 }
 
-function UploadYourWorkTile({ label }: { label: string }) {
+function UploadYourWorkTile({ href, label }: { href: string; label: string }) {
   return (
     <Link
-      href="/upload"
+      href={href}
       className="flex aspect-square w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 bg-white text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-800"
     >
       <span aria-hidden className="text-3xl leading-none">+</span>

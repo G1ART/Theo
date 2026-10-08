@@ -29,6 +29,8 @@ import {
 import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
+import { persistCreatedWorksOnProfileTab } from "@/lib/studio/profileTabUpload";
+import { profileReturnPath } from "@/lib/studio/studioPortfolioConfig";
 import { addWorkToExhibition, listMyExhibitions, type ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
@@ -727,6 +729,10 @@ function UploadPageContent() {
           })
         : null;
       if (artistNotice) writeArtistPublishNotice(artistNotice);
+      const filed = await persistCreatedWorksOnProfileTab({
+        artworkIds: [artworkId],
+        tabParam: searchParams.get("tab"),
+      });
       const artistPath = artistProfilePath(artistNotice?.artistUsername);
 
       const { getMyProfile, getProfileById } = await import("@/lib/supabase/profiles");
@@ -767,7 +773,9 @@ function UploadPageContent() {
           return;
         }
         if (username) {
-          router.push(`/u/${username}`);
+          router.push(
+            filed.attached ? profileReturnPath(username, searchParams.get("tab")) : `/u/${username}`,
+          );
           return;
         }
         setArtworkBack("/upload");

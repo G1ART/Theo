@@ -39,6 +39,7 @@ import {
   parseActiveTabParam,
   parseStudioPortfolio,
   serializeActiveTabParam,
+  uploadHrefForActiveTab,
   type StudioPortfolioV1,
   type StudioStripTab,
 } from "@/lib/studio/studioPortfolioConfig";
@@ -699,7 +700,7 @@ export function StudioPortfolioPanel({
         return (
           <EmptyState
             title={t("me.noWorks")}
-            action={{ label: t("me.uploadFirst"), href: "/upload" }}
+            action={{ label: t("me.uploadFirst"), href: uploadHrefForActiveTab(active) }}
           />
         );
       }
@@ -729,7 +730,7 @@ export function StudioPortfolioPanel({
       return (
         <EmptyState
           title={t("me.noWorks")}
-          action={{ label: t("me.uploadFirst"), href: "/upload" }}
+          action={{ label: t("me.uploadFirst"), href: uploadHrefForActiveTab(active) }}
         />
       );
     }
