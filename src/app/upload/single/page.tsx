@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSession } from "@/lib/supabase/auth";
@@ -29,7 +29,9 @@ import {
 import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
-import { persistCreatedWorksOnProfileTab } from "@/lib/studio/profileTabUpload";
+import { persistUploadFiling } from "@/lib/studio/profileTabUpload";
+import { UploadTabFiling, type UploadTabSelection } from "@/components/upload/UploadTabFiling";
+import { planFromUploadSelection } from "@/lib/studio/profileContentKind";
 import { profileReturnPath } from "@/lib/studio/studioPortfolioConfig";
 import { addWorkToExhibition, listMyExhibitions, type ExhibitionWithCredits } from "@/lib/supabase/exhibitions";
 import { logSupabaseError } from "@/lib/supabase/errors";
@@ -127,6 +129,7 @@ function UploadPageContent() {
   const preservedFromBoard = searchParams.get("fromBoard");
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
+  const filingRef = useRef<UploadTabSelection | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [step, setStep] = useState<UploadStep>(() => {
     if (!fromExhibition) return "form";
@@ -492,6 +495,7 @@ function UploadPageContent() {
       is_price_public: pricingMode === "fixed" ? isPricePublic : false,
       price_input_amount: pricingMode === "fixed" && priceAmount ? parseFloat(priceAmount) : undefined,
       price_input_currency: pricingMode === "fixed" ? priceCurrency : undefined,
+      work_kind: "artwork",
     };
     const selectedOnboardedId =
       needsAttribution(intent) && selectedArtist && !isExternal ? selectedArtist.id : null;
@@ -513,6 +517,19 @@ function UploadPageContent() {
     // artist_id after the claim and files exist.
     const holderId = actingAsProfileId ?? userId;
     payload.artist_id = holderId;
+    const filingSelection = filingRef.current;
+    const filingPlan =
+      filingSelection && userId
+        ? planFromUploadSelection({
+            selection: filingSelection,
+            sessionUserId: userId,
+            actingAsProfileId,
+            selectedArtistId: selectedOnboardedId,
+            mode: "all",
+            cardTab: null,
+          })
+        : null;
+    if (filingPlan) payload.work_kind = filingPlan.workKind;
 
     setIsSubmitting(true);
 
@@ -729,10 +746,10 @@ function UploadPageContent() {
           })
         : null;
       if (artistNotice) writeArtistPublishNotice(artistNotice);
-      const filed = await persistCreatedWorksOnProfileTab({
-        artworkIds: [artworkId],
-        tabParam: searchParams.get("tab"),
-      });
+      const filed = filingPlan
+        ? await persistUploadFiling({ artworkIds: [artworkId], plan: filingPlan })
+        : { ok: true, error: null };
+      const filedToTab = filed.ok && (filingPlan?.memberships.length ?? 0) > 0;
       const artistPath = artistProfilePath(artistNotice?.artistUsername);
 
       const { getMyProfile, getProfileById } = await import("@/lib/supabase/profiles");
@@ -773,8 +790,14 @@ function UploadPageContent() {
           return;
         }
         if (username) {
+          const ownMembership = filingPlan?.memberships.find(
+            (membership) => membership.profileId === (actingAsProfileId ?? userId),
+          );
+          const returnTab = ownMembership
+            ? `custom-${ownMembership.tabId}`
+            : searchParams.get("tab");
           router.push(
-            filed.attached ? profileReturnPath(username, searchParams.get("tab")) : `/u/${username}`,
+            filedToTab ? profileReturnPath(username, returnTab) : `/u/${username}`,
           );
           return;
         }
@@ -910,6 +933,20 @@ function UploadPageContent() {
         )}
 
         <ActingAsChip mode="posting" />
+        <UploadTabFiling
+          tabParam={searchParams.get("tab")}
+          intent={intent}
+          actingAsProfileId={actingAsProfileId}
+          selectedArtist={
+            needsAttribution(intent) && selectedArtist && !useExternalArtist ? selectedArtist : null
+          }
+          mode="all"
+          onMode={() => {}}
+          allowEach={false}
+          onSelection={(selection) => {
+            filingRef.current = selection;
+          }}
+        />
 
         {/* Step: Attribution (OWNS, INVENTORY, CURATED) */}
         {step === "attribution" && needsAttribution(intent) && (

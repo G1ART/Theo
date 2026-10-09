@@ -6,6 +6,10 @@
  * OWNS/INVENTORY/CURATED = works where the profile has that claim type (lister).
  */
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
+import {
+  isProfileAllKind,
+  normalizeProfileContentKind,
+} from "@/lib/studio/profileContentKind";
 
 export type PersonaTab = "all" | "exhibitions" | "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -32,13 +36,24 @@ export function isOwnArtistWork(artwork: ArtistWorkRef, profileId: string): bool
   );
 }
 
+function kindOf(artwork: ArtworkWithLikes) {
+  return normalizeProfileContentKind(
+    (artwork as ArtworkWithLikes & { work_kind?: string | null }).work_kind,
+  );
+}
+
 export function filterArtworksByPersona(
   artworks: ArtworkWithLikes[],
   profileId: string,
   tab: PersonaTab
 ): ArtworkWithLikes[] {
-  if (tab === "all" || tab === "exhibitions") return artworks;
-  if (tab === "CREATED") return artworks.filter((a) => isOwnArtistWork(a, profileId));
+  if (tab === "exhibitions") return artworks;
+  if (tab === "all") return artworks.filter((a) => isProfileAllKind(kindOf(a)));
+  if (tab === "CREATED") {
+    return artworks.filter(
+      (a) => isOwnArtistWork(a, profileId) && isProfileAllKind(kindOf(a)),
+    );
+  }
   return artworks.filter((a) => {
     const claims = a.claims ?? [];
     return claims.some(
@@ -48,8 +63,10 @@ export function filterArtworksByPersona(
 }
 
 export function getPersonaCounts(artworks: ArtworkWithLikes[], profileId: string) {
-  const all = artworks.length;
-  const created = artworks.filter((a) => isOwnArtistWork(a, profileId)).length;
+  const all = artworks.filter((a) => isProfileAllKind(kindOf(a))).length;
+  const created = artworks.filter(
+    (a) => isOwnArtistWork(a, profileId) && isProfileAllKind(kindOf(a)),
+  ).length;
   const owns = artworks.filter((a) =>
     (a.claims ?? []).some(
       (c) => c.subject_profile_id === profileId && c.claim_type === "OWNS"
@@ -92,6 +109,7 @@ export function getArtworksByAllBuckets(
   const exhibited: ArtworkWithLikes[] = [];
   const owns: ArtworkWithLikes[] = [];
   for (const a of artworks) {
+    if (!isProfileAllKind(kindOf(a))) continue;
     if (isOwnArtistWork(a, profileId)) {
       created.push(a);
       continue;

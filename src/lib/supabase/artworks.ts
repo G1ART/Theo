@@ -228,6 +228,11 @@ export type Artwork = {
   story_ko?: string | null;
   story_en?: string | null;
   visibility: string | null;
+  /**
+   * Public listing kind. The main feed and 전체 read this column.
+   * Missing on older payloads means artwork.
+   */
+  work_kind?: "artwork" | "print_edition" | "art_goods" | "collected" | null;
   /** 업로드 당사자(레코드 생성자). 삭제 권한에 사용 */
   created_by?: string | null;
   pricing_mode: string | null;
@@ -568,6 +573,7 @@ const ARTWORK_SELECT = `
   story_ko,
   story_en,
   visibility,
+  work_kind,
   created_by,
   pricing_mode,
   is_price_public,
@@ -624,6 +630,7 @@ const FEED_ARTWORK_SELECT = `
   depth_cm,
   dims_confirmed_at,
   visibility,
+  work_kind,
   created_by,
   pricing_mode,
   is_price_public,
@@ -665,6 +672,7 @@ export async function listPublicArtworks(
     .from("artworks")
     .select(FEED_ARTWORK_SELECT)
     .eq("visibility", "public")
+    .in("work_kind", ["artwork", "print_edition"])
     .limit(requestLimit);
 
   if (isPopular) {
@@ -835,6 +843,7 @@ export async function listFollowingArtworks(
       .from("artworks")
       .select(FEED_ARTWORK_SELECT)
       .eq("visibility", "public")
+      .in("work_kind", ["artwork", "print_edition"])
       .in("artist_id", artistIds)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
@@ -869,6 +878,7 @@ export async function listFollowingArtworks(
         .from("artworks")
         .select(FEED_ARTWORK_SELECT)
         .eq("visibility", "public")
+        .in("work_kind", ["artwork", "print_edition"])
         .in("id", idsToFetch);
       if (!error && data?.length) {
         const mine = (data ?? []).map((r) => normalizeArtworkRow(r as Record<string, unknown>) as ArtworkWithLikes);
@@ -1481,6 +1491,8 @@ export type CreateArtworkPayload = {
   price_input_currency?: string | null;
   /** Override artist (for OWNS/INVENTORY; default = session user) */
   artist_id?: string | null;
+  /** Public listing kind. Defaults to artwork when omitted. */
+  work_kind?: "artwork" | "print_edition" | "art_goods" | "collected" | null;
 };
 
 export async function createArtwork(
@@ -1539,6 +1551,7 @@ export async function createArtwork(
       story_ko: payload.story_ko?.trim() || null,
       story_en: payload.story_en?.trim() || null,
       visibility: "public",
+      work_kind: payload.work_kind ?? "artwork",
       ownership_status: payload.ownership_status,
       pricing_mode: payload.pricing_mode,
       is_price_public,
@@ -1581,6 +1594,7 @@ export async function getArtworkById(
       story_ko,
       story_en,
       visibility,
+      work_kind,
       created_by,
       pricing_mode,
       is_price_public,
@@ -1632,6 +1646,7 @@ export async function getArtworksByIds(
       story_ko,
       story_en,
       visibility,
+      work_kind,
       created_by,
       pricing_mode,
       is_price_public,
@@ -2148,6 +2163,7 @@ export async function deleteDraftArtworks(
 
 export type DraftArtworkPayload = {
   title: string;
+  work_kind?: "artwork" | "print_edition" | "art_goods" | "collected" | null;
 };
 
 /**
@@ -2178,6 +2194,7 @@ export async function createDraftArtwork(
       created_by: session.user.id,
       title: payload.title || "Untitled",
       visibility: "draft",
+      work_kind: payload.work_kind ?? "artwork",
       ownership_status: "available",
       pricing_mode: "inquire",
       size: "",

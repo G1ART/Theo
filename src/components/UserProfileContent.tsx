@@ -35,7 +35,9 @@ import { getSession } from "@/lib/supabase/auth";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import type { ProfilePublic } from "@/lib/supabase/profiles";
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
-import { canEditArtwork, getArtworkImageUrl, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import { canEditArtwork, getArtworkImageUrl, getArtworksByIds, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
+import { isCollectedMembershipOnly } from "@/lib/studio/profileContentKind";
 import {
   dismissArtistPublishNotice,
   peekArtistPublishNotice,
@@ -133,6 +135,7 @@ export function UserProfileContent({
   const [reorderMode, setReorderMode] = useState(false);
   const [active, setActive] = useState<ActiveStudioTab>({ kind: "persona", tab: "all" });
   const [localArtworks, setLocalArtworks] = useState<ArtworkWithLikes[]>(artworks);
+  const [membershipWorks, setMembershipWorks] = useState<ArtworkWithLikes[]>([]);
   const [saving, setSaving] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   const [savedToastMsg, setSavedToastMsg] = useState<string | null>(null);
@@ -433,6 +436,33 @@ export function UserProfileContent({
 
   const roles = (profile.roles ?? []) as string[];
 
+  useEffect(() => {
+    const ids = [
+      ...new Set((portfolio.custom_tabs ?? []).flatMap((tab) => tab.artwork_ids)),
+    ];
+    const have = new Set(artworks.map((artwork) => artwork.id));
+    const missing = ids.filter((id) => !have.has(id));
+    if (missing.length === 0) {
+      setMembershipWorks([]);
+      return;
+    }
+    let cancelled = false;
+    void getArtworksByIds(missing).then(({ data }) => {
+      if (!cancelled) setMembershipWorks(data ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [artworks, portfolio.custom_tabs]);
+
+  const catalog = useMemo(() => {
+    const map = new Map(artworks.map((artwork) => [artwork.id, artwork]));
+    for (const artwork of membershipWorks) {
+      if (!map.has(artwork.id)) map.set(artwork.id, artwork);
+    }
+    return [...map.values()];
+  }, [artworks, membershipWorks]);
+
   const defaultTabLabels: Record<PersonaTab, string> = useMemo(
     () => ({
       all: t("profile.personaAll"),
@@ -449,7 +479,7 @@ export function UserProfileContent({
     () =>
       buildStudioStripTabs({
         profileId: profile.id,
-        artworks,
+        artworks: catalog,
         exhibitionsCount: exhibitions.length,
         mainRole: profile.main_role ?? null,
         roles,
@@ -460,7 +490,7 @@ export function UserProfileContent({
     [
       profile.id,
       profile.main_role,
-      artworks,
+      catalog,
       exhibitions.length,
       roles,
       portfolio,
@@ -482,18 +512,24 @@ export function UserProfileContent({
 
   const displayedArtworks = useMemo(() => {
     if (active.kind === "persona") {
-      return filterArtworksByPersona(artworks, profile.id, active.tab);
+      const rows = filterArtworksByPersona(artworks, profile.id, active.tab);
+      if (active.tab === "all" || active.tab === "CREATED") {
+        return rows.filter(
+          (artwork) => !isCollectedMembershipOnly(artwork, profile.id, portfolio.custom_tabs),
+        );
+      }
+      return rows;
     }
     const tab = (portfolio.custom_tabs ?? []).find((c) => c.id === active.id);
     if (!tab) return [];
-    const byId = new Map(artworks.map((a) => [a.id, a]));
+    const byId = new Map(catalog.map((a) => [a.id, a]));
     const out: ArtworkWithLikes[] = [];
     for (const id of tab.artwork_ids) {
       const a = byId.get(id);
       if (a) out.push(a);
     }
     return out;
-  }, [active, artworks, profile.id, portfolio.custom_tabs]);
+  }, [active, artworks, catalog, profile.id, portfolio.custom_tabs]);
   // Reorderable artworks: user is artist OR has any claim (not just CREATED)
   const reorderableArtworks = useMemo(
     () => localArtworks.filter((a) => {
@@ -966,6 +1002,12 @@ export function UserProfileContent({
           }}
           portfolio={portfolio}
           defaultTabLabels={defaultTabLabels}
+          profileId={profile.id}
+          works={catalog.map((artwork) => ({
+            id: artwork.id,
+            title: pickLocalizedArtworkTitle(artwork, locale) || artwork.title || artwork.id,
+            artistId: artwork.artist_id,
+          }))}
           onPersisted={() => router.refresh()}
           onToast={(msg) => {
             setSavedToastMsg(msg);
@@ -1390,6 +1432,13 @@ export function UserProfileContent({
               )}
               <ArtworkCard
                 artwork={artwork}
+                listingKind={
+                  active.kind === "custom"
+                    ? (portfolio.custom_tabs ?? []).find((tab) => tab.id === active.id)?.kind ??
+                      artwork.work_kind ??
+                      null
+                    : artwork.work_kind ?? null
+                }
                 likesCount={artwork.likes_count ?? 0}
                 isLiked={likedIds.has(artwork.id)}
                 disableNavigation={tabAssignMode || downloadMode === "select"}

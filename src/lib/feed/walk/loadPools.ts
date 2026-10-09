@@ -23,7 +23,9 @@ const PROFILE_COLS =
   "id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public, city, education, mediums";
 
 const WORK_COLS =
-  "id, title, title_ko, title_en, year, medium, medium_ko, medium_en, artist_id, created_at, likes_count, visibility, artwork_images(storage_path, sort_order)";
+  "id, title, title_ko, title_en, year, medium, medium_ko, medium_en, artist_id, created_at, likes_count, visibility, work_kind, artwork_images(storage_path, sort_order)";
+
+const MAIN_FEED_KINDS = ["artwork", "print_edition"] as const;
 
 const WORK_WITH_ARTIST =
   WORK_COLS +
@@ -625,6 +627,7 @@ async function viewerArtworkRows(supabase: SupabaseClient, userId: string): Prom
     .select(WORK_COLS)
     .eq("artist_id", userId)
     .eq("visibility", "public")
+    .in("work_kind", [...MAIN_FEED_KINDS])
     .order("created_at", { ascending: false })
     .limit(8);
   return (data as WorkRow[] | null) ?? [];
@@ -765,9 +768,9 @@ async function mediumMatches(
   if (needles.length === 0) return [];
   const needle = needles[0]!;
   const batches = await Promise.all([
-    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium", needle).limit(12),
-    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium_ko", needle).limit(8),
-    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").eq("medium_en", needle).limit(8),
+    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").in("work_kind", [...MAIN_FEED_KINDS]).eq("medium", needle).limit(12),
+    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").in("work_kind", [...MAIN_FEED_KINDS]).eq("medium_ko", needle).limit(8),
+    supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").in("work_kind", [...MAIN_FEED_KINDS]).eq("medium_en", needle).limit(8),
   ]);
   return batches.flatMap((batch) => (batch.data as WorkRow[] | null) ?? []);
 }
@@ -783,6 +786,7 @@ async function worksByArtists(
       .select(WORK_COLS)
       .in("artist_id", artistIds.slice(0, 24))
       .eq("visibility", "public")
+      .in("work_kind", [...MAIN_FEED_KINDS])
       .order("created_at", { ascending: false })
       .limit(18);
     if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);
@@ -801,7 +805,8 @@ async function worksByIds(supabase: SupabaseClient, ids: string[]): Promise<Work
     .from("artworks")
     .select(WORK_WITH_ARTIST)
     .in("id", ids.slice(0, WORK_CAP))
-    .eq("visibility", "public");
+    .eq("visibility", "public")
+    .in("work_kind", [...MAIN_FEED_KINDS]);
   return (data as WorkRow[] | null) ?? [];
 }
 
@@ -811,7 +816,7 @@ async function recentWorks(
   exclude: string[] = []
 ): Promise<WorkRow[]> {
   const run = (skip: boolean) => {
-    let query = supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").limit(20);
+    let query = supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").in("work_kind", [...MAIN_FEED_KINDS]).limit(20);
     if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);
     query =
       sort === "popular"

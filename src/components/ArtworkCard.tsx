@@ -40,10 +40,19 @@ type Props = {
   dragHandle?: React.ReactNode;
   /** When set, show full provenance (curator, collector) if visible to viewer */
   viewerId?: string | null;
+  /** Tab or stored kind. Print/edition, goods, and collected get a label. The name stays the artist. */
+  listingKind?: string | null;
 };
 
 
-export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUpdate, showDelete = false, onDelete, showEdit = false, disableNavigation = false, dragHandle, viewerId = null }: Props) {
+function listingLabelKey(kind: string | null | undefined): string | null {
+  if (kind === "print_edition") return "profile.kind.printEdition";
+  if (kind === "art_goods") return "profile.kind.artGoods";
+  if (kind === "collected") return "profile.kind.collected";
+  return null;
+}
+
+export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUpdate, showDelete = false, onDelete, showEdit = false, disableNavigation = false, dragHandle, viewerId = null, listingKind = null }: Props) {
   const router = useRouter();
   const { t, locale } = useT();
   const images = artwork.artwork_images ?? [];
@@ -123,6 +132,11 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
           <h3 className="font-semibold text-zinc-900">
             {localizedArtworkTitle ?? "Untitled"}
           </h3>
+          {listingLabelKey(listingKind ?? artwork.work_kind) && (
+            <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              {t(listingLabelKey(listingKind ?? artwork.work_kind)!)}
+            </p>
+          )}
           <p className="text-sm text-zinc-600">
             {[artwork.year, localizedMedium].filter(Boolean).join(" · ")}
           </p>

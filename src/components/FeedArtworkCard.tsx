@@ -405,6 +405,11 @@ export function FeedArtworkCard({
             </p>
           )}
 
+          {artwork.work_kind === "print_edition" && (
+            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              {t("profile.kind.printEdition")}
+            </p>
+          )}
           <h3 className="truncate text-sm font-normal tracking-tight text-zinc-700">
             {pickLocalizedArtworkTitle(artwork, locale)}
           </h3>

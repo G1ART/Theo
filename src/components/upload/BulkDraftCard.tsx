@@ -100,6 +100,9 @@ type Props = {
   onRemoveDetail: (storagePath: string) => void;
   onPublish: () => void;
   publishing: boolean;
+  tabChoices?: { id: string; label: string }[] | null;
+  tabId?: string | null;
+  onTabId?: (id: string) => void;
 };
 
 export function BulkDraftCard({
@@ -122,6 +125,9 @@ export function BulkDraftCard({
   onRemoveDetail,
   onPublish,
   publishing,
+  tabChoices = null,
+  tabId = null,
+  onTabId,
 }: Props) {
   const { t, locale } = useT();
   const images = [...(draft.artwork_images ?? [])]
@@ -291,6 +297,23 @@ export function BulkDraftCard({
         selected ? "border-zinc-400" : "border-zinc-300"
       }`}
     >
+      {tabChoices && onTabId && (
+        <label className="mb-3 block text-xs text-zinc-700">
+          {t("profile.tabs.uploadPick")}
+          <select
+            value={tabId ?? ""}
+            onChange={(e) => onTabId(e.target.value)}
+            className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+          >
+            <option value="">{t("profile.tabs.uploadNone")}</option>
+            {tabChoices.map((tab) => (
+              <option key={tab.id} value={tab.id}>
+                {tab.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="flex flex-col gap-3 md:flex-row">
         <div className="flex shrink-0 gap-3">
         <button

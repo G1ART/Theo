@@ -105,8 +105,13 @@ import {
   type BulkFailure,
   type BulkListNote,
 } from "@/lib/supabase/bulkUpload";
-import { persistCreatedWorksOnProfileTab } from "@/lib/studio/profileTabUpload";
+import { persistUploadFiling } from "@/lib/studio/profileTabUpload";
 import { profileReturnPath } from "@/lib/studio/studioPortfolioConfig";
+import { UploadTabFiling, type UploadTabSelection } from "@/components/upload/UploadTabFiling";
+import {
+  planFromUploadSelection,
+  type KnownProfileTab,
+} from "@/lib/studio/profileContentKind";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -157,6 +162,14 @@ export default function BulkUploadPage() {
 
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
+  const [filingMode, setFilingMode] = useState<"all" | "each">("all");
+  const [filingSelection, setFilingSelection] = useState<UploadTabSelection | null>(null);
+  const [cardTabIds, setCardTabIds] = useState<Record<string, string>>({});
+  const filingRef = useRef<UploadTabSelection | null>(null);
+  const filingModeRef = useRef(filingMode);
+  filingModeRef.current = filingMode;
+  const cardTabIdsRef = useRef(cardTabIds);
+  cardTabIdsRef.current = cardTabIds;
   const [drafts, setDrafts] = useState<ArtworkWithLikes[]>([]);
   const [enhanceDraft, setEnhanceDraft] = useState<ArtworkWithLikes | null>(null);
   const [enhancePath, setEnhancePath] = useState<string | null>(null);
@@ -559,6 +572,27 @@ export default function BulkUploadPage() {
   useExternalArtistRef.current = useExternalArtist;
   periodStatusRef.current = periodStatus;
   actingAsRef.current = actingAsProfileId;
+
+  async function fileDraft(artworkId: string, cardKey: string, sessionUserId: string) {
+    const selection = filingRef.current;
+    if (!selection || !sessionUserId) return;
+    const chosenId = cardTabIdsRef.current[cardKey] ?? cardTabIdsRef.current[artworkId] ?? "";
+    const cardTab: KnownProfileTab | null =
+      selection.cardChoices.find((tab) => tab.id === chosenId) ?? null;
+    const selectedId =
+      otherArtistActiveRef.current && selectedArtistRef.current?.id
+        ? selectedArtistRef.current.id
+        : null;
+    const plan = planFromUploadSelection({
+      selection,
+      sessionUserId,
+      actingAsProfileId: actingAsRef.current,
+      selectedArtistId: selectedId,
+      mode: filingModeRef.current,
+      cardTab,
+    });
+    await persistUploadFiling({ artworkIds: [artworkId], plan });
+  }
   otherArtistActiveRef.current =
     !useExternalArtist &&
     ((intent !== null && intent !== "CREATED" && !!selectedArtist) ||
@@ -799,8 +833,25 @@ export default function BulkUploadPage() {
             );
           }
         } else {
+          const filingNow = filingRef.current;
+          const chosenNow = cardTabIdsRef.current[slotId] ?? "";
+          const cardNow =
+            filingNow?.cardChoices.find((tab) => tab.id === chosenNow) ?? null;
+          const kindNow = filingNow
+            ? planFromUploadSelection({
+                selection: filingNow,
+                sessionUserId: userId,
+                actingAsProfileId: actingAsRef.current,
+                selectedArtistId:
+                  otherArtistActiveRef.current && selectedArtistRef.current?.id
+                    ? selectedArtistRef.current.id
+                    : null,
+                mode: filingModeRef.current,
+                cardTab: cardNow,
+              }).workKind
+            : "artwork";
           const { data: id, error: createErr } = await createDraftArtwork(
-            { title },
+            { title, work_kind: kindNow },
             {
               forProfileId: actingAsProfileId ?? undefined,
               artistProfileId: owner.plan ? insertedArtistId : undefined,
@@ -811,6 +862,13 @@ export default function BulkUploadPage() {
           }
           createdHere = true;
           artworkId = id;
+        }
+        if (artworkId) {
+          const chosen = cardTabIdsRef.current[slotId];
+          if (chosen) {
+            cardTabIdsRef.current[artworkId] = chosen;
+          }
+          await fileDraft(artworkId, slotId, userId);
         }
         // Route bulk uploads into the principal's storage folder when
         // acting-as, so lifecycle (delete/replace/cleanup) is rooted on
@@ -953,11 +1011,10 @@ export default function BulkUploadPage() {
       );
     }
     if (createdForTab.length > 0) {
-      for (const id of createdForTab) profileTabCreatedIdsRef.current.add(id);
-      await persistCreatedWorksOnProfileTab({
-        artworkIds: createdForTab,
-        tabParam: searchParams.get("tab"),
-      });
+      for (const id of createdForTab) {
+        profileTabCreatedIdsRef.current.add(id);
+        await fileDraft(id, id, userId);
+      }
     }
     await fetchDrafts();
     const done = new Set(queue.map((item) => item.id));
@@ -1410,8 +1467,22 @@ export default function BulkUploadPage() {
                 card: owner,
               })
             : undefined;
+          const filingNow = filingRef.current;
+          const kindNow = filingNow
+            ? planFromUploadSelection({
+                selection: filingNow,
+                sessionUserId: captionUserId,
+                actingAsProfileId: actingAsRef.current,
+                selectedArtistId:
+                  otherArtistActiveRef.current && selectedArtistRef.current?.id
+                    ? selectedArtistRef.current.id
+                    : null,
+                mode: filingModeRef.current,
+                cardTab: null,
+              }).workKind
+            : "artwork";
           const { data: id, error } = await createDraftArtwork(
-            { title },
+            { title, work_kind: kindNow },
             {
               forProfileId: actingAsProfileId ?? undefined,
               artistProfileId: owner?.plan ? insertedArtistId : undefined,
@@ -1421,6 +1492,7 @@ export default function BulkUploadPage() {
           if (owner?.plan) {
             await persistArtistOnDrafts([id], owner.artistId, owner.plan.listerClaim.claimType);
           }
+          if (captionUserId) await fileDraft(id, id, captionUserId);
           issues.push(...(await writeCaption(id, row)));
           createdHeld.push({ draftId: id, rowIndex });
         }
@@ -1428,10 +1500,6 @@ export default function BulkUploadPage() {
       if (createdHeld.length > 0) {
         const createdIds = createdHeld.map((row) => row.draftId);
         for (const id of createdIds) profileTabCreatedIdsRef.current.add(id);
-        await persistCreatedWorksOnProfileTab({
-          artworkIds: createdIds,
-          tabParam: searchParams.get("tab"),
-        });
       }
       heldRowsRef.current = createdHeld.length > 0 ? createdHeld : null;
 
@@ -1665,13 +1733,17 @@ export default function BulkUploadPage() {
 
       // Navigate / refetch ONLY when at least one work landed publicly.
       const filedIds = publishedIds.filter((id) => profileTabCreatedIdsRef.current.has(id));
+      const publishUserId = session?.user?.id ?? "";
       let filedToTab = false;
-      if (filedIds.length > 0) {
-        const filed = await persistCreatedWorksOnProfileTab({
-          artworkIds: filedIds,
-          tabParam: searchParams.get("tab"),
-        });
-        filedToTab = filed.attached;
+      if (filedIds.length > 0 && publishUserId) {
+        for (const id of filedIds) await fileDraft(id, id, publishUserId);
+        const selection = filingRef.current;
+        filedToTab = !!(
+          selection?.sharedTab ||
+          selection?.artistTab ||
+          selection?.collectorTab ||
+          selection?.entryTab
+        );
       }
       if (publishedIds.length > 0) {
         void logBetaEvent("bulk_publish_completed", {
@@ -2490,6 +2562,20 @@ export default function BulkUploadPage() {
           </div>
         )}
 
+        <UploadTabFiling
+          tabParam={searchParams.get("tab")}
+          intent={intent}
+          actingAsProfileId={actingAsProfileId}
+          selectedArtist={
+            needsAttribution && selectedArtist && !useExternalArtist ? selectedArtist : null
+          }
+          mode={filingMode}
+          onMode={setFilingMode}
+          onSelection={(selection) => {
+            filingRef.current = selection;
+            setFilingSelection(selection);
+          }}
+        />
         <div
           className="mb-2 cursor-pointer rounded-md border border-zinc-300 bg-white px-6 py-10 text-center hover:border-zinc-400"
           onClick={() => document.getElementById("bulk-file-input")?.click()}
@@ -3048,6 +3134,21 @@ export default function BulkUploadPage() {
                 onRemoveDetail={(storagePath) => void removeDetailImage(d.id, storagePath)}
                 onPublish={() => void handlePublish([d.id])}
                 publishing={publishing}
+                tabChoices={
+                  filingMode === "each"
+                    ? (filingSelection?.cardChoices ?? []).map((tab) => ({
+                        id: tab.id,
+                        label: tab.label ?? tab.id,
+                      }))
+                    : null
+                }
+                tabId={cardTabIds[d.id] ?? null}
+                onTabId={(tabId) => {
+                  setCardTabIds((prev) => ({ ...prev, [d.id]: tabId }));
+                  cardTabIdsRef.current[d.id] = tabId;
+                  const sessionUserId = filingSelection?.actorProfileId;
+                  if (sessionUserId) void fileDraft(d.id, d.id, sessionUserId);
+                }}
               />
             ))
           )}

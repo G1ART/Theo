@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { chipButton, chipButtonPrimary } from "@/components/ds/buttonStyles";
+import { ProfileTabCreateDialog } from "@/components/profile/ProfileTabCreateDialog";
+import { ProfileTabDeleteDialog } from "@/components/profile/ProfileTabDeleteDialog";
 import { useT } from "@/lib/i18n/useT";
 import type { PersonaTab } from "@/lib/provenance/personaTabs";
+import { planCustomTabDelete } from "@/lib/studio/profileContentKind";
+import { applyCustomTabDelete } from "@/lib/studio/profileTabDelete";
 import {
   addCustomTab,
   MAX_CUSTOM_TABS,
   MAX_TAB_LABEL_LEN,
   type StudioCustomTabV1,
   type StudioPortfolioV1,
-  removeCustomTab,
 } from "@/lib/studio/studioPortfolioConfig";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
@@ -22,6 +25,8 @@ type Props = {
   /** Persona tabs currently shown (so we only edit labels/public for those) */
   visiblePersonaTabs: PersonaTab[];
   defaultTabLabels: Record<PersonaTab, string>;
+  works?: { id: string; title: string; artistId: string }[];
+  profileId?: string;
   onSave: (next: StudioPortfolioV1) => Promise<boolean>;
 };
 
@@ -31,12 +36,15 @@ export function StudioPortfolioManageModal({
   portfolio,
   visiblePersonaTabs,
   defaultTabLabels,
+  works = [],
+  profileId = "",
   onSave,
 }: Props) {
   const { t } = useT();
   const [draft, setDraft] = useState<StudioPortfolioV1>(portfolio);
   const [saving, setSaving] = useState(false);
-  const [newName, setNewName] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setDraft(portfolio);
@@ -45,6 +53,12 @@ export function StudioPortfolioManageModal({
   if (!open) return null;
 
   const custom = draft.custom_tabs ?? [];
+  const deleteTarget = custom.find((tab) => tab.id === deleteId) ?? null;
+  const worksById = new Map(works.map((work) => [work.id, work]));
+  const deleteWorks = (deleteTarget?.artwork_ids ?? []).map((id) => ({
+    id,
+    title: worksById.get(id)?.title || id,
+  }));
 
   async function handleSave() {
     setSaving(true);
@@ -159,9 +173,7 @@ export function StudioPortfolioManageModal({
                     </label>
                     <button
                       type="button"
-                      onClick={() =>
-                        setDraft((d) => removeCustomTab(d, ct.id))
-                      }
+                      onClick={() => setDeleteId(ct.id)}
                       className="text-sm text-red-600 hover:underline"
                     >
                       {t("studio.portfolio.deleteCustomTab")}
@@ -174,23 +186,11 @@ export function StudioPortfolioManageModal({
               </li>
             ))}
           </ul>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <input
-              type="text"
-              maxLength={MAX_TAB_LABEL_LEN}
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder={t("studio.portfolio.newTabPlaceholder")}
-              className="flex-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-            />
+          <div className="mt-3">
             <button
               type="button"
               disabled={custom.length >= MAX_CUSTOM_TABS}
-              onClick={() => {
-                const label = newName.trim() || t("studio.portfolio.newTabDefaultName");
-                setDraft((d) => addCustomTab(d, label));
-                setNewName("");
-              }}
+              onClick={() => setCreateOpen(true)}
               className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
             >
               {t("studio.portfolio.addCustomTab")}
@@ -216,6 +216,69 @@ export function StudioPortfolioManageModal({
           </button>
         </div>
       </div>
+      <ProfileTabCreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreate={(label, kind) => {
+          setDraft((current) => addCustomTab(current, label, kind));
+        }}
+      />
+      <ProfileTabDeleteDialog
+        open={!!deleteTarget}
+        tabLabel={deleteTarget?.label ?? ""}
+        works={deleteWorks}
+        destinations={custom
+          .filter((tab) => tab.id !== deleteTarget?.id)
+          .map((tab) => ({ id: tab.id, label: tab.label }))}
+        busy={saving}
+        onClose={() => setDeleteId(null)}
+        onConfirm={(choice) => {
+          if (!deleteTarget) return;
+          const artistIdByArtwork: Record<string, string> = {};
+          for (const work of works) artistIdByArtwork[work.id] = work.artistId;
+          const plan = planCustomTabDelete({
+            isCustomTab: true,
+            sourceTabId: deleteTarget.id,
+            artworkIds: deleteTarget.artwork_ids,
+            mode: choice.mode,
+            destination: custom
+              .filter((tab) => tab.id === choice.destinationId)
+              .map((tab) => ({
+                id: tab.id,
+                kind: tab.kind ?? "artwork",
+                ownerProfileId: profileId,
+                label: tab.label,
+              }))[0] ?? null,
+            selectedIds: choice.selectedIds,
+            artistIdByArtwork,
+          });
+          if (!plan.ok || !plan.destinationTabId && plan.moveIds.length > 0) return;
+          const destination = custom.find((tab) => tab.id === plan.destinationTabId);
+          void (async () => {
+            setSaving(true);
+            const applied = await applyCustomTabDelete({
+              portfolio: draft,
+              sourceTabId: deleteTarget.id,
+              deleteArtworkIds: plan.deleteArtworkIds,
+              moveIds: plan.moveIds,
+              destinationTabId: plan.destinationTabId,
+              kindByArtworkId: destination
+                ? Object.fromEntries(
+                    plan.moveIds.map((id) => [
+                      id,
+                      plan.kindByArtworkId[id] ?? null,
+                    ]),
+                  )
+                : {},
+            });
+            setSaving(false);
+            if (!applied.ok) return;
+            setDraft(applied.portfolio);
+            setDeleteId(null);
+            await onSave(applied.portfolio);
+          })();
+        }}
+      />
     </div>
     </BodyPortal>
   );

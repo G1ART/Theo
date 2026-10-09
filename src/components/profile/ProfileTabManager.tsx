@@ -2,15 +2,18 @@
 
 import { useState } from "react";
 import { LaneChips, type LaneOption } from "@/components/ds";
-import { hitTarget } from "@/components/ds/buttonStyles";
+import { ProfileTabCreateDialog } from "@/components/profile/ProfileTabCreateDialog";
+import { TabReorderList } from "@/components/profile/TabReorderList";
 import { StudioPortfolioManageModal } from "@/components/studio/StudioPortfolioManageModal";
 import { useT } from "@/lib/i18n/useT";
 import { persistStudioPortfolio } from "@/lib/studio/persistStudioPortfolio";
 import type { PersonaTab } from "@/lib/provenance/personaTabs";
-import type {
-  ActiveStudioTab,
-  StudioPortfolioV1,
-  StudioStripTab,
+import type { ProfileContentKind } from "@/lib/studio/profileContentKind";
+import {
+  addCustomTab,
+  type ActiveStudioTab,
+  type StudioPortfolioV1,
+  type StudioStripTab,
 } from "@/lib/studio/studioPortfolioConfig";
 
 type Props = {
@@ -21,6 +24,8 @@ type Props = {
   onActiveChange: (next: ActiveStudioTab) => void;
   portfolio: StudioPortfolioV1;
   defaultTabLabels: Record<PersonaTab, string>;
+  works?: { id: string; title: string; artistId: string }[];
+  profileId?: string;
   onPersisted: () => void;
   onToast: (msg: string) => void;
 };
@@ -47,11 +52,14 @@ export function ProfileTabManager({
   onActiveChange,
   portfolio,
   defaultTabLabels,
+  works = [],
+  profileId = "",
   onPersisted,
   onToast,
 }: Props) {
   const { t } = useT();
   const [manageOpen, setManageOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [stripDraft, setStripDraft] = useState<StudioStripTab[]>([]);
   const [saving, setSaving] = useState(false);
@@ -86,49 +94,10 @@ export function ProfileTabManager({
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {isOwner && reorderMode ? (
           <>
-            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
-            {list.map((row, idx) => (
-              <span key={row.key} className="flex shrink-0 items-center gap-0.5">
-                <button
-                  type="button"
-                  disabled={idx === 0}
-                  onClick={() => {
-                    if (idx <= 0) return;
-                    const next = [...list];
-                    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                    setStripDraft(next);
-                  }}
-                  className={`${hitTarget} inline-flex items-center justify-center rounded border border-zinc-300 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40`}
-                  aria-label={t("my.moveTabUp")}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  disabled={idx >= list.length - 1}
-                  onClick={() => {
-                    if (idx >= list.length - 1) return;
-                    const next = [...list];
-                    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                    setStripDraft(next);
-                  }}
-                  className={`${hitTarget} inline-flex items-center justify-center rounded border border-zinc-300 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40`}
-                  aria-label={t("my.moveTabDown")}
-                >
-                  ↓
-                </button>
-                <span
-                  className={`rounded-full px-3 py-1 text-sm ${
-                    row.publicOnProfile
-                      ? "bg-zinc-100 text-zinc-700"
-                      : "bg-zinc-50 text-zinc-400"
-                  }`}
-                >
-                  {row.label} ({row.count})
-                </span>
-              </span>
-            ))}
-            </div>
+            <TabReorderList
+              rows={list}
+              onChange={(next) => setStripDraft(next)}
+            />
             <div className="flex w-full justify-end gap-2 sm:ml-auto sm:w-auto">
             <button
               type="button"
@@ -201,6 +170,13 @@ export function ProfileTabManager({
                 )}
                 <button
                   type="button"
+                  onClick={() => setCreateOpen(true)}
+                  className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
+                >
+                  {t("studio.portfolio.addCustomTab")}
+                </button>
+                <button
+                  type="button"
                   data-tour="public-profile-tab-settings"
                   onClick={() => setManageOpen(true)}
                   className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
@@ -214,14 +190,25 @@ export function ProfileTabManager({
       </div>
 
       {isOwner && (
+        <>
         <StudioPortfolioManageModal
           open={manageOpen}
           onClose={() => setManageOpen(false)}
           portfolio={portfolio}
           visiblePersonaTabs={visiblePersonaTabs}
           defaultTabLabels={defaultTabLabels}
+          works={works}
+          profileId={profileId}
           onSave={persist}
         />
+        <ProfileTabCreateDialog
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreate={(label, kind: ProfileContentKind) => {
+            void persist(addCustomTab(portfolio, label, kind));
+          }}
+        />
+        </>
       )}
     </div>
   );

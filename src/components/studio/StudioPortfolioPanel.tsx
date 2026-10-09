@@ -29,6 +29,8 @@ import { ExhibitionSortDropdown } from "@/components/exhibitions/ExhibitionSortD
 import { updateMyProfileDetails } from "@/lib/supabase/profileDetails";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { StudioPortfolioManageModal } from "@/components/studio/StudioPortfolioManageModal";
+import { TabReorderList } from "@/components/profile/TabReorderList";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 import {
@@ -334,6 +336,12 @@ export function StudioPortfolioPanel({
           portfolio={portfolio}
           visiblePersonaTabs={visiblePersonaTabs}
           defaultTabLabels={defaultTabLabels}
+          profileId={profile.id}
+          works={artworks.map((artwork) => ({
+            id: artwork.id,
+            title: pickLocalizedArtworkTitle(artwork, locale) || artwork.title || artwork.id,
+            artistId: artwork.artist_id,
+          }))}
           onSave={persistPortfolio}
         />
       )}
@@ -421,41 +429,7 @@ export function StudioPortfolioPanel({
     const list = stripDraft.length > 0 ? stripDraft : stripRows;
     return (
       <>
-        {list.map((row, idx) => (
-          <span key={row.key} className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                if (idx <= 0) return;
-                const next = [...list];
-                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                setStripDraft(next);
-              }}
-              className="rounded border border-zinc-300 p-0.5 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
-              disabled={idx === 0}
-              aria-label={t("my.moveTabUp")}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (idx >= list.length - 1) return;
-                const next = [...list];
-                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                setStripDraft(next);
-              }}
-              className="rounded border border-zinc-300 p-0.5 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
-              disabled={idx === list.length - 1}
-              aria-label={t("my.moveTabDown")}
-            >
-              ↓
-            </button>
-            <span className="rounded bg-zinc-100 px-2 py-1 text-sm text-zinc-700">
-              {row.label} ({row.count})
-            </span>
-          </span>
-        ))}
+        <TabReorderList rows={list} onChange={setStripDraft} />
         <button
           type="button"
           disabled={tabOrderSaving}

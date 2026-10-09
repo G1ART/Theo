@@ -9,6 +9,11 @@ import {
   type PersonaTab,
   type PersonaTabItem,
 } from "@/lib/provenance/personaTabs";
+import {
+  isCollectedMembershipOnly,
+  normalizeProfileContentKind,
+  type ProfileContentKind,
+} from "@/lib/studio/profileContentKind";
 
 export const STUDIO_PORTFOLIO_KEY = "studio_portfolio";
 export const CUSTOM_TAB_STRIP_PREFIX = "c:";
@@ -34,6 +39,8 @@ export type StudioCustomTabV1 = {
   label: string;
   public: boolean;
   artwork_ids: string[];
+  /** Stored kind. Missing values were created before kinds existed and stay artwork. */
+  kind?: ProfileContentKind;
 };
 
 export type StudioPortfolioV1 = {
@@ -55,6 +62,7 @@ export type StudioStripTab = {
   label: string;
   count: number;
   publicOnProfile: boolean;
+  contentKind?: ProfileContentKind;
 };
 
 function isPersonaTab(x: string): x is PersonaTab {
@@ -123,7 +131,8 @@ function normalizeCustomTabs(raw: unknown): StudioCustomTabV1[] {
     const artwork_ids = dedupeStrings(
       idsRaw.filter((x): x is string => typeof x === "string" && x.length > 0)
     ).slice(0, MAX_ARTWORK_IDS_PER_CUSTOM_TAB);
-    out.push({ id, label, public: pub, artwork_ids });
+    const kind = normalizeProfileContentKind(o.kind);
+    out.push({ id, label, public: pub, artwork_ids, kind });
     if (out.length >= MAX_CUSTOM_TABS) break;
   }
   return dedupeCustomTabMemberships(out);
@@ -293,7 +302,12 @@ export function buildStudioStripTabs(params: {
     defaultTabLabels,
   } = params;
 
-  const counts = getPersonaCounts(artworks, profileId);
+  const counts = getPersonaCounts(
+    artworks.filter(
+      (artwork) => !isCollectedMembershipOnly(artwork, profileId, portfolio.custom_tabs),
+    ),
+    profileId,
+  );
   const stripPersonaOrder = (() => {
     const fromStrip = (portfolio.tab_strip_order ?? []).filter((e) => isPersonaTab(e)) as PersonaTab[];
     if (fromStrip.length > 0) return fromStrip;
@@ -346,6 +360,7 @@ export function buildStudioStripTabs(params: {
       label: ct.label,
       count,
       publicOnProfile: ct.public !== false,
+      contentKind: normalizeProfileContentKind(ct.kind),
     });
   }
   return rows;
@@ -422,7 +437,11 @@ export function removeCustomTab(portfolio: StudioPortfolioV1, customId: string):
   return { ...portfolio, custom_tabs, tab_strip_order };
 }
 
-export function addCustomTab(portfolio: StudioPortfolioV1, label: string): StudioPortfolioV1 {
+export function addCustomTab(
+  portfolio: StudioPortfolioV1,
+  label: string,
+  kind: ProfileContentKind = "artwork",
+): StudioPortfolioV1 {
   const tabs = portfolio.custom_tabs ?? [];
   if (tabs.length >= MAX_CUSTOM_TABS) return portfolio;
   const id = newCustomTabId();
@@ -430,6 +449,7 @@ export function addCustomTab(portfolio: StudioPortfolioV1, label: string): Studi
     id,
     label: normalizeLabel(label, "Tab"),
     public: true,
+    kind: normalizeProfileContentKind(kind),
     artwork_ids: [],
   };
   const tab_strip_order = [...(portfolio.tab_strip_order ?? []), customTabStripToken(id)];
