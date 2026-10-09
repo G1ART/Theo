@@ -270,7 +270,7 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
 function ExhibitionWorkThumbs({ works }: { works: ExhibitionThumb[] }) {
   return (
     <div className="hidden min-w-0 flex-1 md:block">
-      <ul className="grid w-3/4 grid-cols-3 gap-3">
+      <ul className="ml-auto grid w-3/4 grid-cols-3 gap-3">
         {works.map((work) => (
           <li key={work.id} className="min-w-0">
             <Link
