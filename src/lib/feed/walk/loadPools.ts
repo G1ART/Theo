@@ -6,6 +6,7 @@ import {
   pickLocalizedHostName,
   pickLocalizedMedium,
 } from "@/lib/i18n/pickLocalized";
+import { pickExhibitionThumbs, type ExhibitionThumb } from "./exhibitionThumbs";
 import type {
   WalkCursor,
   WalkEngagement,
@@ -187,10 +188,12 @@ async function load(
     ...shelf.latest.flatMap((row) => [row.host_profile_id, row.curator_id].filter((id): id is string => !!id)),
   ]);
 
-  const [extraExhibitions, links, claims, mediumRows, followedWorks, alumni, seededProfiles] = await Promise.all([
+  const shownExhibitionIds = exhibitionIds.slice(0, EXH_CAP + 4);
+  const [extraExhibitions, links, thumbMap, claims, mediumRows, followedWorks, alumni, seededProfiles] = await Promise.all([
     missing.length ? exhibitionsByIds(supabase, missing) : Promise.resolve([] as ExhRow[]),
-    exhibitionWorks(supabase, exhibitionIds.slice(0, EXH_CAP + 4)),
-    exhibitionClaims(supabase, exhibitionIds.slice(0, EXH_CAP + 4)),
+    exhibitionWorks(supabase, shownExhibitionIds),
+    exhibitionThumbMap(supabase, shownExhibitionIds),
+    exhibitionClaims(supabase, shownExhibitionIds),
     rich
       ? withTimeout("medium", mediumMatches(supabase, viewerWorks, locale), optionalMs, [] as WorkRow[], skipped)
       : Promise.resolve([] as WorkRow[]),
@@ -383,6 +386,7 @@ async function load(
       coverPath: row.cover_image_paths?.[0] ?? null,
       participantIds: participants.get(row.id) ?? [],
       workIds: (worksInEx.get(row.id) ?? []).filter((id) => workIds.has(id)),
+      thumbs: thumbMap.get(row.id),
       city,
       status: row.status,
     });
@@ -741,6 +745,65 @@ async function exhibitionWorks(
     .in("exhibition_id", exhibitionIds.slice(0, 14))
     .limit(160);
   return (data as { exhibition_id: string | null; work_id: string | null }[] | null) ?? [];
+}
+
+type ThumbImage = { storage_path?: string | null; sort_order?: number | null };
+type ThumbArtwork = {
+  id?: string | null;
+  visibility?: string | null;
+  work_kind?: string | null;
+  artwork_images?: ThumbImage[] | null;
+};
+type ThumbLink = {
+  artworks?: ThumbArtwork | ThumbArtwork[] | null;
+};
+type ThumbProject = {
+  id?: string | null;
+  exhibition_works?: ThumbLink[] | null;
+};
+
+/**
+ * One query for every exhibition on this page: at most six public
+ * artwork or print images each. Titles, artists, and enhancement
+ * metadata stay off the row.
+ */
+async function exhibitionThumbMap(
+  supabase: SupabaseClient,
+  exhibitionIds: string[]
+): Promise<Map<string, ExhibitionThumb[]>> {
+  const map = new Map<string, ExhibitionThumb[]>();
+  if (exhibitionIds.length === 0) return map;
+  const { data, error } = await supabase
+    .from("projects")
+    .select(
+      "id, exhibition_works(sort_order, created_at, artworks!inner(id, visibility, work_kind, artwork_images(storage_path, sort_order)))"
+    )
+    .in("id", exhibitionIds.slice(0, 14))
+    .eq("exhibition_works.artworks.visibility", "public")
+    .in("exhibition_works.artworks.work_kind", [...MAIN_FEED_KINDS])
+    .order("sort_order", { referencedTable: "exhibition_works", ascending: true, nullsFirst: false })
+    .order("created_at", { referencedTable: "exhibition_works", ascending: true })
+    .limit(6, { referencedTable: "exhibition_works" });
+  if (error || !data) return map;
+  for (const row of data as ThumbProject[]) {
+    if (!row.id) continue;
+    const links = Array.isArray(row.exhibition_works) ? row.exhibition_works : [];
+    const sources = links.flatMap((link) => {
+      const art = Array.isArray(link.artworks) ? link.artworks[0] : link.artworks;
+      if (!art?.id) return [];
+      return [
+        {
+          id: art.id,
+          imagePath: primaryImage(art.artwork_images ?? null),
+          visibility: art.visibility ?? null,
+          workKind: art.work_kind ?? null,
+        },
+      ];
+    });
+    const picked = pickExhibitionThumbs(sources);
+    if (picked.length > 0) map.set(row.id, picked);
+  }
+  return map;
 }
 
 async function exhibitionClaims(

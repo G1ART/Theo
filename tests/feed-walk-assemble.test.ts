@@ -570,6 +570,7 @@ function testPlaceholderExhibitionOmitsShells() {
       gallery: { id: "Lea", name: "Lea", username: "lea", avatarUrl: null },
       coverPath: null,
       city: null,
+      works: [],
     },
   };
   assert.equal(visibleModule(shellShow), null);
@@ -865,6 +866,83 @@ function testPlannedExhibitionStaysOffPublicWalk() {
   assert.equal(onlyDraft.modules.every(isWorkModule), true);
 }
 
+function exhibitionCard(thumbs: WalkExhibition["thumbs"], workIds: string[] = []) {
+  const people = [
+    person({ id: "A", name: "규원", username: "lea" }),
+    person({ id: "B", name: "Bea" }),
+    person({ id: "C", name: "Cara" }),
+  ];
+  const works = [
+    work({ id: "W1", artistId: "A", title: "Caption One", imagePath: "w1.jpg" }),
+    work({ id: "W2", artistId: "B", title: "Caption Two", imagePath: "w2.jpg" }),
+    work({ id: "W3", artistId: "C", title: "Caption Three", imagePath: "w3.jpg" }),
+  ];
+  const live = exhibition({
+    id: "Live",
+    title: "Three by Three",
+    status: "live",
+    curatorId: "B",
+    participantIds: ["B"],
+    workIds,
+    thumbs,
+  });
+  const page = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools: { people, works, exhibitions: [live], engagements: [], follows: [] },
+    cursor: null,
+  });
+  const card = page.modules.find((mod) => mod.type === "exhibition_card");
+  assert.ok(card && card.type === "exhibition_card");
+  return card;
+}
+
+function testExhibitionCardThumbs() {
+  const eight = Array.from({ length: 8 }, (_, index) => ({
+    id: `T${index + 1}`,
+    imagePath: `t${index + 1}.jpg`,
+    visibility: "public" as const,
+    workKind: "artwork" as const,
+  }));
+  const full = exhibitionCard([
+    { id: "Goods", imagePath: "goods.jpg", visibility: "public", workKind: "art_goods" },
+    { id: "Held", imagePath: "held.jpg", visibility: "public", workKind: "collected" },
+    { id: "Quiet", imagePath: "quiet.jpg", visibility: "private", workKind: "artwork" },
+    { id: "Blank", imagePath: null, visibility: "public", workKind: "print_edition" },
+    ...eight,
+  ]);
+  assert.deepEqual(full.exhibition.works, [
+    { id: "T1", imagePath: "t1.jpg" },
+    { id: "T2", imagePath: "t2.jpg" },
+    { id: "T3", imagePath: "t3.jpg" },
+    { id: "T4", imagePath: "t4.jpg" },
+    { id: "T5", imagePath: "t5.jpg" },
+    { id: "T6", imagePath: "t6.jpg" },
+  ]);
+  const blob = JSON.stringify(full.exhibition.works);
+  assert.equal(blob.includes("artistName"), false);
+  assert.equal(blob.includes("artistId"), false);
+  assert.equal(blob.includes("title"), false);
+  assert.equal(blob.includes("Caption"), false);
+  assert.equal(blob.includes("Goods"), false);
+  assert.equal(blob.includes("workKind"), false);
+
+  const few = exhibitionCard([
+    { id: "P1", imagePath: "p1.jpg", visibility: "public", workKind: "print_edition" },
+    { id: "P2", imagePath: "p2.jpg", visibility: "public", workKind: "artwork" },
+  ]);
+  assert.equal(few.exhibition.works.length, 2);
+  assert.deepEqual(
+    few.exhibition.works.map((row) => row.id),
+    ["P1", "P2"]
+  );
+
+  const none = exhibitionCard([]);
+  assert.deepEqual(none.exhibition.works, []);
+  assert.equal(none.exhibition.title, "Three by Three");
+}
+
+testExhibitionCardThumbs();
 testOrderAndCursor();
 testSkipWhenMissing();
 testEmptyWhenNothingReal();

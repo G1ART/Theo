@@ -8,6 +8,7 @@ import { setArtworkBack } from "@/lib/artworkBack";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { visibleModule } from "@/lib/feed/walk/content";
 import { fillTemplate } from "@/lib/feed/walk/fill";
+import type { ExhibitionThumb } from "@/lib/feed/walk/exhibitionThumbs";
 import type {
   FeedModule,
   WalkCopy,
@@ -221,6 +222,13 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
   const start = dotDate(exhibition.startDate);
   const end = dotDate(exhibition.endDate);
   const dates = start && end ? `${start} - ${end}` : start ?? end;
+  const works = (exhibition.works ?? []).filter((work) => work.imagePath.trim()).slice(0, 6);
+  const credits = (
+    <>
+      {exhibition.curator && <CreditPill label={t("role.curator")} credit={exhibition.curator} />}
+      {exhibition.gallery && <CreditPill label={t("feed.walk.role.gallery")} credit={exhibition.gallery} />}
+    </>
+  );
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(140px,200px)_minmax(0,1fr)]">
       <Link
@@ -238,14 +246,14 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
         >
           {exhibition.title}
         </Link>
-        <div className="mt-3 space-y-2">
-          {exhibition.curator && (
-            <CreditPill label={t("role.curator")} credit={exhibition.curator} />
-          )}
-          {exhibition.gallery && (
-            <CreditPill label={t("feed.walk.role.gallery")} credit={exhibition.gallery} />
-          )}
-        </div>
+        {works.length > 0 ? (
+          <div className="mt-3 flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-2">{credits}</div>
+            <ExhibitionWorkThumbs works={works} />
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">{credits}</div>
+        )}
         <div className="mt-auto flex items-end justify-between gap-3 pt-6">
           <Link
             href={`/e/${exhibition.id}`}
@@ -258,6 +266,32 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ExhibitionWorkThumbs({ works }: { works: ExhibitionThumb[] }) {
+  return (
+    <ul className="grid w-full max-w-[12.75rem] shrink-0 grid-cols-3 gap-1.5 sm:my-auto sm:ml-4 sm:w-[10.5rem] sm:max-w-none">
+      {works.map((work) => (
+        <li key={work.id} className="min-w-0">
+          <Link
+            href={`/artwork/${work.id}`}
+            onClick={() => setArtworkBack()}
+            className="block focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300"
+          >
+            <div className="relative aspect-square overflow-hidden bg-zinc-100">
+              <Image
+                src={getArtworkImageUrl(work.imagePath, "thumb")}
+                alt=""
+                fill
+                sizes="72px"
+                className="object-cover"
+              />
+            </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 

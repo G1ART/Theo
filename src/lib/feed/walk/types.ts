@@ -1,3 +1,5 @@
+import type { ExhibitionThumb, ExhibitionThumbInput } from "./exhibitionThumbs";
+
 /**
  * Modular main-feed walk.
  *
@@ -49,6 +51,11 @@ export type WalkExhibition = {
   coverPath: string | null;
   participantIds: string[];
   workIds: string[];
+  /**
+   * Participating works already resolved for the highlight card.
+   * Omitted by older fixtures, which fall back to `workIds`.
+   */
+  thumbs?: ExhibitionThumbInput[];
   /** Host or curator profile city. Null when neither profile has a city. */
   city: string | null;
   /**
@@ -150,6 +157,8 @@ export type WalkExhibitionView = {
   gallery: WalkCredit | null;
   coverPath: string | null;
   city: string | null;
+  /** Up to six image-only works. Empty when the exhibition has none to show. */
+  works: ExhibitionThumb[];
 };
 
 type ModuleBase = {

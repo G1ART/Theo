@@ -1,5 +1,6 @@
 import { keepVisibleModules } from "./content";
 import { encodeCursor } from "./cursor";
+import { pickExhibitionThumbs } from "./exhibitionThumbs";
 import { isFilledSlot } from "./fill";
 import type {
   FeedModule,
@@ -416,7 +417,18 @@ function toExhibition(exhibition: WalkExhibition, idx: Indexes): WalkExhibitionV
     gallery: toCredit(host, galleryName(exhibition, idx)),
     coverPath: exhibition.coverPath,
     city: exhibition.city,
+    works: exhibitionCardThumbs(exhibition, idx),
   };
+}
+
+function exhibitionCardThumbs(exhibition: WalkExhibition, idx: Indexes) {
+  const attached = pickExhibitionThumbs(exhibition.thumbs ?? []);
+  if (attached.length > 0) return attached;
+  const fromPool = exhibition.workIds.flatMap((id) => {
+    const work = idx.works.get(id);
+    return work ? [{ id: work.id, imagePath: work.imagePath }] : [];
+  });
+  return pickExhibitionThumbs(fromPool);
 }
 
 function toWork(work: WalkWork, idx: Indexes): WalkWorkView {
