@@ -239,21 +239,19 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
         <SquareImage src={src} alt="" sizes="200px" />
       </Link>
       <div className="flex min-w-0 flex-col">
-        <Link
-          href={`/e/${exhibition.id}`}
-          onClick={() => setExhibitionBack()}
-          className="text-base font-medium leading-snug text-zinc-900 hover:underline sm:text-lg"
-        >
-          {exhibition.title}
-        </Link>
-        {works.length > 0 ? (
-          <div className="mt-3 flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 space-y-2">{credits}</div>
-            <ExhibitionWorkThumbs works={works} />
+        <div className="flex min-w-0 flex-1 flex-col md:flex-row md:items-start md:gap-5">
+          <div className={works.length > 0 ? "min-w-0 md:max-w-[16rem] md:shrink-0" : "min-w-0"}>
+            <Link
+              href={`/e/${exhibition.id}`}
+              onClick={() => setExhibitionBack()}
+              className="text-base font-medium leading-snug text-zinc-900 hover:underline sm:text-lg"
+            >
+              {exhibition.title}
+            </Link>
+            <div className="mt-3 space-y-2">{credits}</div>
           </div>
-        ) : (
-          <div className="mt-3 space-y-2">{credits}</div>
-        )}
+          {works.length > 0 ? <ExhibitionWorkThumbs works={works} /> : null}
+        </div>
         <div className="mt-auto flex items-end justify-between gap-3 pt-6">
           <Link
             href={`/e/${exhibition.id}`}
@@ -271,7 +269,7 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
 
 function ExhibitionWorkThumbs({ works }: { works: ExhibitionThumb[] }) {
   return (
-    <ul className="grid w-full max-w-[12.75rem] shrink-0 grid-cols-3 gap-1.5 sm:my-auto sm:ml-4 sm:w-[10.5rem] sm:max-w-none">
+    <ul className="hidden min-w-0 flex-1 grid-cols-3 gap-3 md:grid">
       {works.map((work) => (
         <li key={work.id} className="min-w-0">
           <Link
@@ -284,7 +282,7 @@ function ExhibitionWorkThumbs({ works }: { works: ExhibitionThumb[] }) {
                 src={getArtworkImageUrl(work.imagePath, "thumb")}
                 alt=""
                 fill
-                sizes="72px"
+                sizes="180px"
                 className="object-cover"
               />
             </div>
