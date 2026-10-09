@@ -31,6 +31,7 @@ import {
   type ExhibitionWorkRow,
 } from "@/lib/supabase/exhibitions";
 import { getArtworksByIds, getArtworkImageUrl, getArtworkArtistLabel, getArtworkArtistGroupKey, type ArtworkWithLikes } from "@/lib/supabase/artworks";
+import { EXHIBITION_THUMB_LIMIT, isFeedThumbArtwork, normalizeFeedThumbIds } from "@/lib/feed/walk/exhibitionThumbs";
 import {
   removeStorageFile,
   uploadExhibitionMedia,
@@ -86,6 +87,17 @@ function classifyExhibitionMediaFile(file: File): "image" | "pdf" | null {
   return null;
 }
 
+function feedThumbPath(art: {
+  artwork_images?: { storage_path?: string | null; sort_order?: number | null }[] | null;
+}): string | null {
+  const images = (art.artwork_images ?? []).filter(
+    (img): img is { storage_path: string; sort_order?: number | null } =>
+      typeof img.storage_path === "string" && img.storage_path.trim().length > 0
+  );
+  images.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  return images[0]?.storage_path ?? null;
+}
+
 function moveInArray<T>(arr: T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return arr;
   const next = [...arr];
@@ -111,6 +123,8 @@ export default function ExhibitionDetailPage() {
   const [newBucketTitle, setNewBucketTitle] = useState("");
   const [coverDraft, setCoverDraft] = useState<string[]>([]);
   const [savingCover, setSavingCover] = useState(false);
+  const [feedThumbDraft, setFeedThumbDraft] = useState<string[]>([]);
+  const [savingFeedThumbs, setSavingFeedThumbs] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadQueue | null>(null);
   const [dragQueueItemId, setDragQueueItemId] = useState<string | null>(null);
   const [dragArtistBucketId, setDragArtistBucketId] = useState<string | null>(null);
@@ -140,6 +154,7 @@ export default function ExhibitionDetailPage() {
     }
     setExhibition(exRes.data);
     setCoverDraft((exRes.data.cover_image_paths ?? []).slice(0, 3));
+    setFeedThumbDraft(normalizeFeedThumbIds(exRes.data.feed_thumb_work_ids));
     setWorks(worksRes.data ?? []);
     setMedia(mediaRes.data ?? []);
     setMediaBucketRows(bucketRes.data ?? []);
@@ -185,6 +200,25 @@ export default function ExhibitionDetailPage() {
       list: listByArtist.get(key) ?? [],
     }));
   }, [orderedArtworks, locale, t]);
+
+  const feedThumbPool = useMemo(() => {
+    const artistKeys = new Set<string>();
+    const works: Array<{ id: string; image: string; artistName: string }> = [];
+    for (const art of orderedArtworks) {
+      if (!isFeedThumbArtwork({ visibility: art.visibility, workKind: art.work_kind })) continue;
+      const image = feedThumbPath(art);
+      if (!image) continue;
+      artistKeys.add(getArtworkArtistGroupKey(art));
+      const { label } = getArtworkArtistLabel(art, locale);
+      works.push({ id: art.id, image, artistName: label ?? "" });
+    }
+    return { artistCount: artistKeys.size, works };
+  }, [orderedArtworks, locale]);
+
+  const feedThumbChosen = useMemo(() => {
+    const allowed = new Set(feedThumbPool.works.map((work) => work.id));
+    return feedThumbDraft.filter((id) => allowed.has(id));
+  }, [feedThumbDraft, feedThumbPool.works]);
 
   const mediaBucketsBase = useMemo(
     () => groupExhibitionMediaByBucket(media, (k) => t(k), mediaBucketRows),
@@ -316,6 +350,31 @@ export default function ExhibitionDetailPage() {
       return;
     }
     await fetchData();
+  }
+
+  function toggleFeedThumb(workId: string) {
+    const allowed = new Set(feedThumbPool.works.map((work) => work.id));
+    setFeedThumbDraft((prev) => {
+      const current = prev.filter((id) => allowed.has(id));
+      if (current.includes(workId)) return current.filter((id) => id !== workId);
+      if (current.length >= EXHIBITION_THUMB_LIMIT) return current;
+      return [...current, workId];
+    });
+  }
+
+  async function saveFeedThumbs(next: string[]) {
+    if (!id) return;
+    const allowed = new Set(feedThumbPool.works.map((work) => work.id));
+    const ids = normalizeFeedThumbIds(next.filter((workId) => allowed.has(workId)));
+    setSavingFeedThumbs(true);
+    const { error: err } = await updateExhibition(id, { feed_thumb_work_ids: ids });
+    setSavingFeedThumbs(false);
+    if (err) {
+      setError(formatSupabaseError(err, t, "common.errorSave"));
+      return;
+    }
+    setFeedThumbDraft(ids);
+    setExhibition((prev) => (prev ? { ...prev, feed_thumb_work_ids: ids.length > 0 ? ids : null } : prev));
   }
 
   async function prepareBucketUpload(bucket: ExhibitionMediaBucket, files: FileList | null) {
@@ -830,6 +889,68 @@ export default function ExhibitionDetailPage() {
                 </section>
               );
             })()}
+
+            {feedThumbPool.artistCount > EXHIBITION_THUMB_LIMIT && (
+              <section className="mb-8 rounded-lg border border-zinc-200 bg-white p-4">
+                <h2 className="mb-1 text-sm font-medium text-zinc-700">{t("exhibition.feedThumbs")}</h2>
+                <p className="mb-3 text-xs text-zinc-500">{t("exhibition.feedThumbsHint")}</p>
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6">
+                  {feedThumbPool.works.map((work) => {
+                    const selectedAt = feedThumbChosen.indexOf(work.id);
+                    const selected = selectedAt >= 0;
+                    return (
+                      <button
+                        type="button"
+                        key={work.id}
+                        onClick={() => toggleFeedThumb(work.id)}
+                        aria-pressed={selected}
+                        className="text-left"
+                      >
+                        <span
+                          className={`relative block aspect-square overflow-hidden rounded border ${
+                            selected ? "border-zinc-900 ring-2 ring-zinc-300" : "border-zinc-200"
+                          }`}
+                        >
+                          <Image
+                            src={getArtworkImageUrl(work.image, "thumb")}
+                            alt=""
+                            fill
+                            className="object-cover"
+                            sizes="120px"
+                          />
+                          {selected && (
+                            <span className="absolute left-1 top-1 rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-white">
+                              {selectedAt + 1}
+                            </span>
+                          )}
+                        </span>
+                        {work.artistName && (
+                          <span className="mt-1 block truncate text-[10px] text-zinc-600">{work.artistName}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={savingFeedThumbs}
+                    onClick={() => saveFeedThumbs(feedThumbChosen)}
+                    className="rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    {savingFeedThumbs ? t("common.loading") : t("exhibition.feedThumbsSave")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingFeedThumbs || feedThumbChosen.length === 0}
+                    onClick={() => saveFeedThumbs([])}
+                    className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {t("exhibition.feedThumbsClear")}
+                  </button>
+                </div>
+              </section>
+            )}
 
             {byArtist.length > 0 && (
               <section data-tour="exhibition-detail-media" className="mb-8">

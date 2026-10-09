@@ -422,13 +422,24 @@ function toExhibition(exhibition: WalkExhibition, idx: Indexes): WalkExhibitionV
 }
 
 function exhibitionCardThumbs(exhibition: WalkExhibition, idx: Indexes) {
-  const attached = pickExhibitionThumbs(exhibition.thumbs ?? []);
-  if (attached.length > 0) return attached;
+  const options = { feedThumbWorkIds: exhibition.feedThumbWorkIds };
+  if (exhibition.thumbs != null) {
+    return pickExhibitionThumbs(exhibition.thumbs, options);
+  }
   const fromPool = exhibition.workIds.flatMap((id) => {
     const work = idx.works.get(id);
-    return work ? [{ id: work.id, imagePath: work.imagePath }] : [];
+    if (!work) return [];
+    return [
+      {
+        id: work.id,
+        imagePath: work.imagePath,
+        artistId: work.artistId,
+        visibility: "public" as const,
+        workKind: "artwork" as const,
+      },
+    ];
   });
-  return pickExhibitionThumbs(fromPool);
+  return pickExhibitionThumbs(fromPool, options);
 }
 
 function toWork(work: WalkWork, idx: Indexes): WalkWorkView {

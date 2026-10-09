@@ -54,8 +54,15 @@ export type WalkExhibition = {
   /**
    * Participating works already resolved for the highlight card.
    * Omitted by older fixtures, which fall back to `workIds`.
+   * An empty list means the exhibition was checked and has nothing to show.
    */
   thumbs?: ExhibitionThumbInput[];
+  /**
+   * Gallery-chosen feed thumbnails, in display order.
+   * Null or omitted means the feed divides the slots across artists.
+   * Honored only when more than six artists have a showable work.
+   */
+  feedThumbWorkIds?: string[] | null;
   /** Host or curator profile city. Null when neither profile has a city. */
   city: string | null;
   /**

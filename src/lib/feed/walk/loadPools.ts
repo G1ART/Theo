@@ -6,7 +6,7 @@ import {
   pickLocalizedHostName,
   pickLocalizedMedium,
 } from "@/lib/i18n/pickLocalized";
-import { pickExhibitionThumbs, type ExhibitionThumb } from "./exhibitionThumbs";
+import { normalizeFeedThumbIds, type ExhibitionThumbInput } from "./exhibitionThumbs";
 import type {
   WalkCursor,
   WalkEngagement,
@@ -33,7 +33,7 @@ const WORK_WITH_ARTIST =
   ", artist:profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public, city, education, mediums)";
 
 const EXH_COLS =
-  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, created_at";
+  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at";
 
 const WORK_CAP = 36;
 const EXH_CAP = 10;
@@ -89,6 +89,7 @@ type ExhRow = {
   host_name_en: string | null;
   host_profile_id: string | null;
   cover_image_paths: string[] | null;
+  feed_thumb_work_ids: string[] | null;
   created_at: string | null;
 };
 
@@ -387,6 +388,7 @@ async function load(
       participantIds: participants.get(row.id) ?? [],
       workIds: (worksInEx.get(row.id) ?? []).filter((id) => workIds.has(id)),
       thumbs: thumbMap.get(row.id),
+      feedThumbWorkIds: savedFeedThumbs(row.feed_thumb_work_ids),
       city,
       status: row.status,
     });
@@ -750,6 +752,7 @@ async function exhibitionWorks(
 type ThumbImage = { storage_path?: string | null; sort_order?: number | null };
 type ThumbArtwork = {
   id?: string | null;
+  artist_id?: string | null;
   visibility?: string | null;
   work_kind?: string | null;
   artwork_images?: ThumbImage[] | null;
@@ -762,29 +765,105 @@ type ThumbProject = {
   exhibition_works?: ThumbLink[] | null;
 };
 
+type ThumbSourceRow = {
+  exhibition_id: string | null;
+  work_id: string | null;
+  artist_key: string | null;
+  image_path: string | null;
+  sort_order: number | null;
+  created_at: string | null;
+};
+
+function savedFeedThumbs(value: unknown): string[] | null {
+  const ids = normalizeFeedThumbIds(value);
+  return ids.length > 0 ? ids : null;
+}
+
+function thumbSourceOrder(a: ThumbSourceRow, b: ThumbSourceRow): number {
+  if (a.sort_order == null && b.sort_order != null) return 1;
+  if (a.sort_order != null && b.sort_order == null) return -1;
+  if (a.sort_order != null && b.sort_order != null && a.sort_order !== b.sort_order) {
+    return a.sort_order - b.sort_order;
+  }
+  const created = (a.created_at ?? "").localeCompare(b.created_at ?? "");
+  if (created !== 0) return created;
+  return (a.work_id ?? "").localeCompare(b.work_id ?? "");
+}
+
 /**
- * One query for every exhibition on this page: at most six public
- * artwork or print images each. Titles, artists, and enhancement
- * metadata stay off the row.
+ * One query for every exhibition on this page. The database returns a
+ * bounded set (six works for each of the first twelve artists, plus any
+ * gallery pick). Titles and enhancement metadata stay off the row.
+ * The walk then divides those candidates into at most six tiles.
  */
 async function exhibitionThumbMap(
   supabase: SupabaseClient,
   exhibitionIds: string[]
-): Promise<Map<string, ExhibitionThumb[]>> {
-  const map = new Map<string, ExhibitionThumb[]>();
-  if (exhibitionIds.length === 0) return map;
+): Promise<Map<string, ExhibitionThumbInput[]>> {
+  const ids = exhibitionIds.slice(0, 14);
+  if (ids.length === 0) return new Map();
+  const fromRpc = await thumbSourcesFromRpc(supabase, ids);
+  if (fromRpc) return fromRpc;
+  return thumbSourcesFromEmbed(supabase, ids);
+}
+
+async function thumbSourcesFromRpc(
+  supabase: SupabaseClient,
+  exhibitionIds: string[]
+): Promise<Map<string, ExhibitionThumbInput[]> | null> {
+  const { data, error } = await supabase.rpc("exhibition_feed_thumb_sources", {
+    p_exhibition_ids: exhibitionIds,
+  });
+  if (error || !Array.isArray(data)) return null;
+  const map = new Map<string, ExhibitionThumbInput[]>();
+  for (const id of exhibitionIds) map.set(id, []);
+  const grouped = new Map<string, ThumbSourceRow[]>();
+  for (const row of data as ThumbSourceRow[]) {
+    if (!row.exhibition_id || !row.work_id || !row.image_path) continue;
+    const list = grouped.get(row.exhibition_id) ?? [];
+    list.push(row);
+    grouped.set(row.exhibition_id, list);
+  }
+  for (const [exhibitionId, list] of grouped) {
+    list.sort(thumbSourceOrder);
+    const rows: ExhibitionThumbInput[] = [];
+    const seen = new Set<string>();
+    for (const row of list) {
+      const id = row.work_id?.trim() ?? "";
+      const imagePath = row.image_path?.trim() ?? "";
+      if (!id || !imagePath || seen.has(id)) continue;
+      seen.add(id);
+      rows.push({
+        id,
+        imagePath,
+        artistId: row.artist_key,
+        visibility: "public",
+        workKind: "artwork",
+      });
+    }
+    map.set(exhibitionId, rows);
+  }
+  return map;
+}
+
+async function thumbSourcesFromEmbed(
+  supabase: SupabaseClient,
+  exhibitionIds: string[]
+): Promise<Map<string, ExhibitionThumbInput[]>> {
+  const map = new Map<string, ExhibitionThumbInput[]>();
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, exhibition_works(sort_order, created_at, artworks!inner(id, visibility, work_kind, artwork_images(storage_path, sort_order)))"
+      "id, exhibition_works(sort_order, created_at, artworks!inner(id, artist_id, visibility, work_kind, artwork_images(storage_path, sort_order)))"
     )
-    .in("id", exhibitionIds.slice(0, 14))
+    .in("id", exhibitionIds)
     .eq("exhibition_works.artworks.visibility", "public")
     .in("exhibition_works.artworks.work_kind", [...MAIN_FEED_KINDS])
     .order("sort_order", { referencedTable: "exhibition_works", ascending: true, nullsFirst: false })
     .order("created_at", { referencedTable: "exhibition_works", ascending: true })
-    .limit(6, { referencedTable: "exhibition_works" });
+    .limit(200, { referencedTable: "exhibition_works" });
   if (error || !data) return map;
+  for (const id of exhibitionIds) map.set(id, []);
   for (const row of data as ThumbProject[]) {
     if (!row.id) continue;
     const links = Array.isArray(row.exhibition_works) ? row.exhibition_works : [];
@@ -795,13 +874,13 @@ async function exhibitionThumbMap(
         {
           id: art.id,
           imagePath: primaryImage(art.artwork_images ?? null),
+          artistId: art.artist_id ?? null,
           visibility: art.visibility ?? null,
           workKind: art.work_kind ?? null,
         },
       ];
     });
-    const picked = pickExhibitionThumbs(sources);
-    if (picked.length > 0) map.set(row.id, picked);
+    map.set(row.id, sources);
   }
   return map;
 }

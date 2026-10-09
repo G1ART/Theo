@@ -3,6 +3,7 @@
  * Design: docs/EXHIBITION_PROJECT_AND_MULTI_CLAIM_DESIGN.md
  */
 
+import { normalizeFeedThumbIds } from "@/lib/feed/walk/exhibitionThumbs";
 import { supabase } from "./client";
 import type { ExhibitionWithCredits } from "@/lib/exhibitionCredits";
 import { listMyDelegations } from "./delegations";
@@ -52,6 +53,11 @@ export type ExhibitionRow = {
   venue_name_en?: string | null;
   host_profile_id: string | null;
   cover_image_paths: string[] | null;
+  /**
+   * Gallery-chosen feed thumbnails, in display order. Null means the
+   * feed divides the six slots across artists.
+   */
+  feed_thumb_work_ids?: string[] | null;
   created_at: string | null;
 };
 
@@ -60,7 +66,7 @@ const SELECT_WITH_CREDITS =
   // QA 2026-07-28 — additive bilingual columns for host_name and the
   // joined curator/host profile display_name. The 240004 trigger keeps
   // the legacy `host_name` / `display_name` in sync (KO wins).
-  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, external_curator_id, host_name, host_name_ko, host_name_en, venue_name, venue_name_ko, venue_name_en, host_profile_id, cover_image_paths, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username), external_curator:external_artists!external_curator_id(display_name, display_name_ko, display_name_en)";
+  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, external_curator_id, host_name, host_name_ko, host_name_en, venue_name, venue_name_ko, venue_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username), external_curator:external_artists!external_curator_id(display_name, display_name_ko, display_name_en)";
 
 export type ExhibitionWorkRow = {
   id: string;
@@ -286,7 +292,7 @@ export async function createExhibition(args: {
 /** Update exhibition (title, dates, status, curator, host). */
 export async function updateExhibition(
   id: string,
-  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "external_curator_id" | "host_name" | "host_name_ko" | "host_name_en" | "venue_name" | "venue_name_ko" | "venue_name_en" | "host_profile_id" | "cover_image_paths">>,
+  patch: Partial<Pick<ExhibitionRow, "title" | "title_ko" | "title_en" | "preface_ko" | "preface_en" | "start_date" | "end_date" | "status" | "curator_id" | "external_curator_id" | "host_name" | "host_name_ko" | "host_name_en" | "venue_name" | "venue_name_ko" | "venue_name_en" | "host_profile_id" | "cover_image_paths" | "feed_thumb_work_ids">>,
   options?: {
     /** Principal profile id when operator is acting-as. Audit-only. */
     actingSubjectProfileId?: string | null;
@@ -317,6 +323,10 @@ export async function updateExhibition(
   if (patch.venue_name_en !== undefined) payload.venue_name_en = patch.venue_name_en?.trim() || null;
   if (patch.host_profile_id !== undefined) payload.host_profile_id = patch.host_profile_id;
   if (patch.cover_image_paths !== undefined) payload.cover_image_paths = patch.cover_image_paths ?? [];
+  if (patch.feed_thumb_work_ids !== undefined) {
+    const ids = normalizeFeedThumbIds(patch.feed_thumb_work_ids);
+    payload.feed_thumb_work_ids = ids.length > 0 ? ids : null;
+  }
 
   const { error } = await supabase.from("projects").update(payload).eq("id", id);
 

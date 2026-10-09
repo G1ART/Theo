@@ -866,7 +866,11 @@ function testPlannedExhibitionStaysOffPublicWalk() {
   assert.equal(onlyDraft.modules.every(isWorkModule), true);
 }
 
-function exhibitionCard(thumbs: WalkExhibition["thumbs"], workIds: string[] = []) {
+function exhibitionCard(
+  thumbs: WalkExhibition["thumbs"],
+  workIds: string[] = [],
+  extra: Partial<WalkExhibition> = {}
+) {
   const people = [
     person({ id: "A", name: "규원", username: "lea" }),
     person({ id: "B", name: "Bea" }),
@@ -885,6 +889,7 @@ function exhibitionCard(thumbs: WalkExhibition["thumbs"], workIds: string[] = []
     participantIds: ["B"],
     workIds,
     thumbs,
+    ...extra,
   });
   const page = assembleWalk({
     lane: "public",
@@ -942,7 +947,77 @@ function testExhibitionCardThumbs() {
   assert.equal(none.exhibition.title, "Three by Three");
 }
 
+function worksOf(artistId: string, count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${artistId}-${index}`,
+    imagePath: `${artistId}-${index}.jpg`,
+    visibility: "public" as const,
+    workKind: "artwork" as const,
+    artistId,
+  }));
+}
+
+function testGroupShowThumbs() {
+  const two = exhibitionCard([...worksOf("A", 8), ...worksOf("B", 8)]);
+  assert.deepEqual(
+    two.exhibition.works.map((row) => row.id),
+    ["A-0", "A-1", "A-2", "B-0", "B-1", "B-2"]
+  );
+  assert.equal(JSON.stringify(two.exhibition.works).includes("artistId"), false);
+
+  const three = exhibitionCard([...worksOf("A", 4), ...worksOf("B", 4), ...worksOf("C", 4)]);
+  assert.deepEqual(
+    three.exhibition.works.map((row) => row.id),
+    ["A-0", "A-1", "B-0", "B-1", "C-0", "C-1"]
+  );
+
+  const four = exhibitionCard(["A", "B", "C", "D"].flatMap((artist) => worksOf(artist, 3)));
+  assert.deepEqual(
+    four.exhibition.works.map((row) => row.id),
+    ["A-0", "A-1", "B-0", "B-1", "C-0", "D-0"]
+  );
+
+  const five = exhibitionCard(["A", "B", "C", "D", "E"].flatMap((artist) => worksOf(artist, 3)));
+  assert.deepEqual(
+    five.exhibition.works.map((row) => row.id),
+    ["A-0", "A-1", "B-0", "C-0", "D-0", "E-0"]
+  );
+
+  const sevenArtists = ["A", "B", "C", "D", "E", "F", "G"];
+  const sevenRows = sevenArtists.flatMap((artist) => worksOf(artist, 3));
+  const seven = exhibitionCard(sevenRows);
+  assert.deepEqual(
+    seven.exhibition.works.map((row) => row.id),
+    ["A-0", "B-0", "C-0", "D-0", "E-0", "F-0"]
+  );
+  const again = exhibitionCard(sevenRows);
+  assert.deepEqual(
+    again.exhibition.works.map((row) => row.id),
+    seven.exhibition.works.map((row) => row.id)
+  );
+
+  const manual = ["G-1", "A-2", "C-1", "E-0", "B-1", "D-2"];
+  const chosen = exhibitionCard(sevenRows, [], { feedThumbWorkIds: manual });
+  assert.deepEqual(
+    chosen.exhibition.works.map((row) => row.id),
+    manual
+  );
+
+  const shortPick = exhibitionCard(sevenRows, [], { feedThumbWorkIds: ["G-1", "A-2"] });
+  assert.deepEqual(
+    shortPick.exhibition.works.map((row) => row.id),
+    ["G-1", "A-2"]
+  );
+
+  const solo = exhibitionCard(worksOf("A", 8));
+  assert.deepEqual(
+    solo.exhibition.works.map((row) => row.id),
+    ["A-0", "A-1", "A-2", "A-3", "A-4", "A-5"]
+  );
+}
+
 testExhibitionCardThumbs();
+testGroupShowThumbs();
 testOrderAndCursor();
 testSkipWhenMissing();
 testEmptyWhenNothingReal();
