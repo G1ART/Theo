@@ -269,27 +269,29 @@ function ExhibitionCard({ exhibition }: { exhibition: WalkExhibitionView }) {
 
 function ExhibitionWorkThumbs({ works }: { works: ExhibitionThumb[] }) {
   return (
-    <ul className="hidden min-w-0 flex-1 grid-cols-3 gap-3 md:grid">
-      {works.map((work) => (
-        <li key={work.id} className="min-w-0">
-          <Link
-            href={`/artwork/${work.id}`}
-            onClick={() => setArtworkBack()}
-            className="block focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300"
-          >
-            <div className="relative aspect-square overflow-hidden bg-zinc-100">
-              <Image
-                src={getArtworkImageUrl(work.imagePath, "thumb")}
-                alt=""
-                fill
-                sizes="180px"
-                className="object-cover"
-              />
-            </div>
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <div className="hidden min-w-0 flex-1 md:block">
+      <ul className="grid w-3/4 grid-cols-3 gap-3">
+        {works.map((work) => (
+          <li key={work.id} className="min-w-0">
+            <Link
+              href={`/artwork/${work.id}`}
+              onClick={() => setArtworkBack()}
+              className="block focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300"
+            >
+              <div className="relative aspect-square overflow-hidden bg-zinc-100">
+                <Image
+                  src={getArtworkImageUrl(work.imagePath, "thumb")}
+                  alt=""
+                  fill
+                  sizes="120px"
+                  className="object-cover"
+                />
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
