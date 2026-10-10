@@ -432,7 +432,7 @@ export default function MyInquiriesPage() {
                       list is calm at rest. */}
                   <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-600">
                     {(() => {
-                      const { primary, secondary } = formatIdentityPair(row.inquirer, t);
+                      const { primary, secondary } = formatIdentityPair(row.inquirer, t, locale);
                       return (
                         <span>
                           {primary}

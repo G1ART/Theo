@@ -268,10 +268,14 @@ export type ProfileListItem = {
   id: string;
   username: string | null;
   display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   main_role: string | null;
   roles: string[] | null;
   bio: string | null;
+  bio_ko?: string | null;
+  bio_en?: string | null;
 };
 
 export type ProfileListCursor = { created_at: string; id: string };
@@ -291,7 +295,7 @@ export async function listPublicProfiles(options: {
 
   let query = supabase
     .from("profiles")
-    .select("id, username, display_name, avatar_url, main_role, roles, bio, created_at")
+    .select("id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, bio, bio_ko, bio_en, created_at")
     .eq("is_public", true)
     .not("username", "is", null)
     .order("created_at", { ascending: false })

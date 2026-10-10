@@ -185,8 +185,12 @@ export type FirstClassArtworkField = (typeof FIRST_CLASS_ARTWORK_FIELDS)[number]
 export type RedactedArtworkPassport = {
   id: string;
   title: string | null;
+  title_ko?: string | null;
+  title_en?: string | null;
   year: number | null;
   medium: string | null;
+  medium_ko?: string | null;
+  medium_en?: string | null;
   size: string | null;
   size_unit: "cm" | "in" | null;
   visibility: string | null;
@@ -205,6 +209,8 @@ export type RedactedArtworkPassport = {
   fx_rate_to_usd: number | null;
   fx_date: string | null;
   story: string | null;
+  story_ko?: string | null;
+  story_en?: string | null;
   // Joined collections (never gated at the row level):
   artwork_images:
     | { storage_path: string; sort_order?: number | null }[]
@@ -215,8 +221,12 @@ export type RedactedArtworkPassport = {
     id: string;
     username: string | null;
     display_name: string | null;
+    display_name_ko?: string | null;
+    display_name_en?: string | null;
     avatar_url: string | null;
     bio: string | null;
+    bio_ko?: string | null;
+    bio_en?: string | null;
     main_role: string | null;
     roles: string[] | null;
   } | null;
@@ -255,9 +265,15 @@ export type RoomItemForViewer = {
   note: string | null;
   position: number;
   artwork_title: string | null;
+  artwork_title_ko?: string | null;
+  artwork_title_en?: string | null;
   artwork_image_path: string | null;
   artwork_artist_name: string | null;
+  artwork_artist_name_ko?: string | null;
+  artwork_artist_name_en?: string | null;
   exhibition_title: string | null;
+  exhibition_title_ko?: string | null;
+  exhibition_title_en?: string | null;
 };
 
 export type RoomMetaForViewer = {
@@ -267,6 +283,8 @@ export type RoomMetaForViewer = {
   owner_id: string;
   owner_username: string | null;
   owner_display_name: string | null;
+  owner_display_name_ko?: string | null;
+  owner_display_name_en?: string | null;
 };
 
 export type RoomForViewer = {

@@ -77,10 +77,10 @@ export function PeopleResultCard({
   introOpenSignal,
   setIntroOpenSignal,
 }: PeopleResultCardProps) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const username = profile.username ?? "";
   const isPrivateTarget = profile.is_public === false;
-  const identity = formatIdentityPair(profile, t);
+  const identity = formatIdentityPair(profile, t, locale);
   const roleChips = formatRoleChips(profile, t, { max: 3 });
   const isRecentlyActive = profile.is_recently_active === true;
   const avatarUrl = profile.avatar_url

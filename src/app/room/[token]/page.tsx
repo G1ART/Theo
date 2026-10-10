@@ -9,6 +9,10 @@ import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { logRoomAction } from "@/lib/supabase/shortlists";
 import { useT } from "@/lib/i18n/useT";
+import {
+  pickLocalizedDisplayName,
+  pickLocalizedTitle,
+} from "@/lib/i18n/pickLocalized";
 import { setRoomSource } from "@/lib/room/source";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -62,7 +66,7 @@ const PENDING_ROOM_RESOLUTION: VisibilityResolution = {
 export default function RoomPage() {
   const params = useParams();
   const pathname = usePathname();
-  const { t } = useT();
+  const { t, locale } = useT();
   const token = typeof params.token === "string" ? params.token : "";
   const [meta, setMeta] = useState<RoomMetaForViewer | null>(null);
   const [items, setItems] = useState<RoomItemForViewer[]>([]);
@@ -178,7 +182,17 @@ export default function RoomPage() {
     );
   }
 
-  const ownerLabel = meta.owner_display_name ?? meta.owner_username ?? "—";
+  const ownerLabel =
+    pickLocalizedDisplayName(
+      {
+        display_name: meta.owner_display_name,
+        display_name_ko: meta.owner_display_name_ko,
+        display_name_en: meta.owner_display_name_en,
+      },
+      locale,
+    ) ||
+    meta.owner_username ||
+    "—";
 
   return (
     <PageShell variant="studio">
@@ -256,6 +270,23 @@ export default function RoomPage() {
           {items.map((item) => {
             if (item.artwork_id) {
               const href = `/artwork/${item.artwork_id}?fromRoom=${encodeURIComponent(token)}`;
+              const artworkTitle =
+                pickLocalizedTitle(
+                  {
+                    title: item.artwork_title,
+                    title_ko: item.artwork_title_ko,
+                    title_en: item.artwork_title_en,
+                  },
+                  locale,
+                ) || t("room.untitledArtwork");
+              const artistName = pickLocalizedDisplayName(
+                {
+                  display_name: item.artwork_artist_name,
+                  display_name_ko: item.artwork_artist_name_ko,
+                  display_name_en: item.artwork_artist_name_en,
+                },
+                locale,
+              );
               return (
                 <li key={item.item_id}>
                   <article className="flex flex-col">
@@ -271,7 +302,7 @@ export default function RoomPage() {
                         {item.artwork_image_path ? (
                           <img
                             src={getArtworkImageUrl(item.artwork_image_path, "medium")}
-                            alt={item.artwork_title ?? ""}
+                            alt={artworkTitle}
                             className="h-full w-full object-contain transition-opacity duration-300 group-hover:opacity-95"
                           />
                         ) : (
@@ -282,11 +313,11 @@ export default function RoomPage() {
                       </div>
                       <div className="mt-3">
                         <p className="truncate text-[15px] font-medium text-zinc-900">
-                          {item.artwork_title ?? t("room.untitledArtwork")}
+                          {artworkTitle}
                         </p>
-                        {item.artwork_artist_name ? (
+                        {artistName ? (
                           <p className="mt-0.5 truncate text-xs text-zinc-500">
-                            {item.artwork_artist_name}
+                            {artistName}
                           </p>
                         ) : null}
                       </div>
@@ -334,7 +365,14 @@ export default function RoomPage() {
                         </span>
                       </div>
                       <p className="mt-3 truncate text-[15px] font-medium text-zinc-900 group-hover:underline">
-                        {item.exhibition_title ?? t("room.untitledExhibition")}
+                        {pickLocalizedTitle(
+                          {
+                            title: item.exhibition_title,
+                            title_ko: item.exhibition_title_ko,
+                            title_en: item.exhibition_title_en,
+                          },
+                          locale,
+                        ) || t("room.untitledExhibition")}
                       </p>
                     </Link>
                     {item.note ? (

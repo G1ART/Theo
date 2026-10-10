@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-09
 
+## 2026-10-09 — 화면 언어에 저장된 제목·이름·재료를 보여 준다
+
+> **Supabase SQL:** `supabase/migrations/20261009220000_locale_display_stored_fields.sql` 을 2026-10-09에 MCP로 프로덕션에 **이미 적용**했다. 새 컬럼은 없다. 섹션 1 `artwork_artist_name_slot`, 섹션 2 `get_artwork_passport_for_viewer`, 섹션 3 `get_room_for_viewer_by_token` 을 나눠 실행했다. **환경 변수 추가·변경 없음.**
+
+작품 기록 조회가 예전 제목·재료·이름만 돌려줘서, 영어 제목이 저장돼 있어도 영어 화면이 한국어를 유지했다. 저장된 칸이 있으면 그 언어를 쓰고, 비어 있으면 다른 언어, 그다음 예전 칸으로 떨어진다. 번역 API는 쓰지 않는다.
+
+- 작품 기록, 프라이빗 룸, 사람 검색, 둘러보기 작가 카드, 피드 사람 카드, 스튜디오 헤더, 문의·클레임에 보이는 이름.
+- 피드 작품 카드, 전시 카드, 프로필 헤더, 쇼트리스트는 이미 같은 순서로 고르고 있었다.
+- 정은지 「빛이 머문 자리」: `title_en` 은 `Where the Light lingers` 로 저장돼 있었다. `display_name_en` 과 `medium_ko` 는 비어 있다. 영어 이름과 한국어 재료는 저장되지 않아서, 그 두 칸은 다른 언어로 떨어진다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/locale-field-pick.test.ts`. 패스포트가 이 작품의 `title_en` 을 돌려주는 것을 SQL로 확인했다.
+
 ## 2026-10-09 — 로고와 새로고침은 맨 위로, 뒤로 가기만 보던 자리를 유지한다
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**

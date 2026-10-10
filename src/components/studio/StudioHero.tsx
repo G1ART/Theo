@@ -66,8 +66,8 @@ export function StudioHero({
   pendingInboundDelegations,
   pendingNetworkActivityCount,
 }: Props) {
-  const { t } = useT();
-  const identity = formatIdentityPair(profile);
+  const { t, locale } = useT();
+  const identity = formatIdentityPair(profile, t, locale);
   const roleChips = formatRoleChips(profile, t, { max: 3 });
   const avatar = avatarUrl(profile.avatar_url);
   const pct = Math.max(0, Math.min(100, Math.round(completeness ?? 0)));

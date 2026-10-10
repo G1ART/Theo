@@ -37,7 +37,7 @@ export function StudioViewsInsights({
   viewers,
   suppressActions,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const preview = viewers.slice(0, 3);
   const primary = count === null ? t("studio.views.loading") : String(count);
   return (
@@ -52,7 +52,7 @@ export function StudioViewsInsights({
             <ul className="flex -space-x-2">
               {preview.map((row) => {
                 const src = avatarSrc(row.viewer_profile?.avatar_url);
-                const name = formatDisplayName(row.viewer_profile);
+                const name = formatDisplayName(row.viewer_profile, t, locale);
                 return (
                   <li key={row.id} className="h-8 w-8 overflow-hidden rounded-full border-2 border-white bg-zinc-200">
                     <Link
@@ -80,7 +80,7 @@ export function StudioViewsInsights({
               })}
             </ul>
             <p className="text-xs text-zinc-500">
-              {formatDisplayName(preview[0]?.viewer_profile)}
+              {formatDisplayName(preview[0]?.viewer_profile, t, locale)}
               {preview[0]?.viewer_profile?.username && (
                 <span className="ml-1 text-zinc-400">{formatUsername(preview[0].viewer_profile)}</span>
               )}

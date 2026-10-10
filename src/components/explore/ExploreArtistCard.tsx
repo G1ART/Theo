@@ -50,9 +50,9 @@ function initialsFrom(name: string): string {
 
 export function ExploreArtistCard({ profile, locked = false }: Props) {
   const router = useRouter();
-  const { t } = useT();
+  const { t, locale } = useT();
 
-  const { primary: name, secondary: handle } = formatIdentityPair(profile, t);
+  const { primary: name, secondary: handle } = formatIdentityPair(profile, t, locale);
   const roleChips = formatRoleChips(profile, t, { max: 2 });
   const avatarUrl = getAvatarUrl(profile.avatar_url);
   const hue = hueFromSeed(profile.id || profile.username || name || "?");

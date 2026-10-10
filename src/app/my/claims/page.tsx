@@ -19,7 +19,7 @@ import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { setArtworkBack } from "@/lib/artworkBack";
 
 export default function MyClaimsPage() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const [list, setList] = useState<PendingClaimRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,7 +89,7 @@ export default function MyClaimsPage() {
           <ul className="space-y-4">
             {list.map((row) => {
               const claimant = row.profiles ?? null;
-              const claimantName = formatDisplayName(claimant);
+              const claimantName = formatDisplayName(claimant, t, locale);
               const claimantHandle = formatUsername(claimant);
               return (
               <li key={row.id} className="rounded-lg border border-zinc-200 bg-white p-4">

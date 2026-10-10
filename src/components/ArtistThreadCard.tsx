@@ -26,6 +26,8 @@ export type ArtistThreadArtist = {
   id: string;
   username: string | null;
   display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
   avatar_url: string | null;
   bio?: string | null;
   roles?: string[] | null;
@@ -60,7 +62,7 @@ export function ArtistThreadCard({
   const { t, locale } = useT();
   const username = artist.username ?? "";
   const { primary: displayName, secondary: handleLabel } =
-    formatIdentityPair(artist);
+    formatIdentityPair(artist, t, locale);
   const roleChips = formatRoleChips(
     { roles: artist.roles ?? [], main_role: null, ...artist },
     t,
@@ -224,7 +226,7 @@ export function ArtistThreadCard({
       {/* Attribution + View profile link */}
       <div className="border-t border-zinc-100 px-4 py-2">
         <p className="text-xs text-zinc-500">
-          by {formatDisplayName(artist)}
+          by {formatDisplayName(artist, t, locale)}
           {byPhrase && <> · {byPhrase} {displayName}</>}
         </p>
         {username && (

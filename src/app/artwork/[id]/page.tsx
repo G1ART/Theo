@@ -790,7 +790,7 @@ function ArtworkDetailContent() {
     claimedArtist: claimedOnboardedArtist(artwork.claims, artwork.created_by ?? null),
   });
   const artist = headerArtist ?? storedArtist;
-  const { label: artistLabel, profileUsername } = getArtworkArtistLabel(artwork);
+  const { label: artistLabel, profileUsername } = getArtworkArtistLabel(artwork, locale);
   const username = artist?.username || profileUsername || "";
   const headerProfileId = artist?.id ?? artwork.artist_id;
   const isExternalArtist = isExternalArtistArtwork(artwork);
@@ -959,7 +959,7 @@ function ArtworkDetailContent() {
                 artwork.ownership_status,
                 t
               );
-              const ownerLabel = getArtworkArtistLabel(artwork).label;
+              const ownerLabel = getArtworkArtistLabel(artwork, locale).label;
 
               const availHasValue = !!fieldPresence?.availability;
               const availGated = !availEff.canView && availHasValue;
@@ -1176,7 +1176,7 @@ function ArtworkDetailContent() {
                       <li key={row.id} className="rounded border border-zinc-200 bg-white p-3">
                         <div className="mb-1 flex flex-wrap items-center gap-2 text-sm">
                           {(() => {
-                            const pair = formatIdentityPair(row.inquirer);
+                            const pair = formatIdentityPair(row.inquirer, t, locale);
                             return (
                               <span className="font-medium text-zinc-700">
                                 {pair.primary}
@@ -1537,7 +1537,7 @@ function ArtworkDetailContent() {
                 <p className="mb-2 text-sm font-medium text-zinc-700">{t("artwork.pendingRequests")}</p>
                 <ul className="space-y-2">
                   {pendingClaims.map((row) => {
-                    const name = formatIdentityPair(row.profiles).primary;
+                    const name = formatIdentityPair(row.profiles, t, locale).primary;
                     const typeLabel =
                       row.claim_type === "OWNS"
                         ? t("artwork.ownedByMe")
@@ -1692,7 +1692,7 @@ function ArtworkDetailContent() {
               fieldKey="description"
               resolution={eff}
               viewerRelationship={viewerRelationship}
-              ownerLabel={getArtworkArtistLabel(artwork).label}
+              ownerLabel={getArtworkArtistLabel(artwork, locale).label}
               surface="artwork_passport"
               onAfterFollow={() => void refreshPassport()}
             >

@@ -209,10 +209,10 @@ function PersonCard({
   feedContext?: FeedContext;
   cardIndex: number;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const username = profile.username ?? "";
   const { primary: displayName, secondary: handleLabel } =
-    formatIdentityPair(profile, t);
+    formatIdentityPair(profile, t, locale);
   const avatarUrl = getAvatarUrl(profile.avatar_url);
   const roleChips = formatRoleChips(profile, t, { max: 1 });
   const reasonLine = reasonTagToI18n(profile.reason_tags ?? [], t);
