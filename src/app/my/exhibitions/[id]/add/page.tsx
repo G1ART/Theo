@@ -12,6 +12,7 @@ import {
   addWorkToExhibition,
   listWorksInExhibition,
 } from "@/lib/supabase/exhibitions";
+import { claimPeriodFromExhibitionStatus } from "@/lib/upload/exhibitionPeriod";
 import {
   listMyArtworks,
   listPublicArtworksByArtistId,
@@ -813,13 +814,14 @@ export default function AddWorkToExhibitionPage() {
     // Align provenance: create CURATED claim so "this work in this exhibition" has gallery–curator provenance.
     const art = artworks.find((a) => a.id === workId);
     if (art?.artist_id) {
+      const period = claimPeriodFromExhibitionStatus(exhibitionStatus);
       const { error: claimErr } = await createClaimForExistingArtist({
         artistProfileId: art.artist_id,
         claimType: "CURATED",
         workId,
         projectId: id,
         visibility: "public",
-        period_status: "current",
+        ...(period ? { period_status: period } : {}),
       });
       if (claimErr) {
         logSupabaseError("createClaimForExistingArtist (after add to exhibition)", claimErr);

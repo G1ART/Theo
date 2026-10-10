@@ -50,7 +50,8 @@ import { BulkGroupDialog, type GroupCard } from "@/components/upload/BulkGroupDi
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { searchPeopleWithExternal, type SearchPeopleWithExternalResult } from "@/lib/supabase/artists";
 import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
-import { createExternalArtist } from "@/lib/provenance/rpc";
+import { createExternalArtist, stampCuratorClaimPeriod } from "@/lib/provenance/rpc";
+import { claimPeriodForExhibition } from "@/lib/upload/exhibitionPeriodLookup";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { useT } from "@/lib/i18n/useT";
@@ -324,7 +325,6 @@ export default function BulkUploadPage() {
   >(null);
   // Soft-required email (2026-07-01) — opt out to link manually later via /my/artists.
   const [externalNoEmail, setExternalNoEmail] = useState(linkLaterFromExhibition);
-  const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
   /** Attribution 단계를 '다음' 버튼으로 완료했을 때만 true. 전시에서 진입 시 작가/외부 이미 선택됨 → 바로 업로드 단계. */
   const [attributionStepDone, setAttributionStepDone] = useState(
     !!(
@@ -559,7 +559,6 @@ export default function BulkUploadPage() {
   const selectedArtistRef = useRef(selectedArtist);
   const intentRef = useRef(intent);
   const useExternalArtistRef = useRef(useExternalArtist);
-  const periodStatusRef = useRef(periodStatus);
   const actingAsRef = useRef(actingAsProfileId);
   /**
    * True while "another artist" is the active claim. Set synchronously
@@ -571,7 +570,6 @@ export default function BulkUploadPage() {
   selectedArtistRef.current = selectedArtist;
   intentRef.current = intent;
   useExternalArtistRef.current = useExternalArtist;
-  periodStatusRef.current = periodStatus;
   actingAsRef.current = actingAsProfileId;
 
   async function fileDraft(artworkId: string, cardKey: string, sessionUserId: string) {
@@ -724,10 +722,13 @@ export default function BulkUploadPage() {
   async function persistArtistOnDrafts(ids: string[], artistId: string, claimIntent: IntentType | null) {
     if (ids.length === 0 || !artistId) return false;
     const claimType = attributionClaimType(claimIntent);
+    const period = claimType === "OWNS"
+      ? null
+      : await claimPeriodForExhibition(addToExhibitionId, myExhibitions);
     const { error } = await rememberDraftArtistAttribution(ids, {
       artistProfileId: artistId,
       claimType,
-      period_status: claimType === "OWNS" ? null : periodStatusRef.current,
+      period_status: period,
       subjectProfileId: actingAsRef.current,
     });
     if (error) {
@@ -1282,10 +1283,12 @@ export default function BulkUploadPage() {
     if (!linkExhibitionId || ids.length === 0) return;
     setLinkingExhibition(true);
     try {
+      const linkedPeriod = await claimPeriodForExhibition(linkExhibitionId, myExhibitions);
       for (const workId of ids) {
         await addWorkToExhibition(linkExhibitionId, workId, {
           actingSubjectProfileId: actingAsProfileId ?? null,
         });
+        if (linkedPeriod) await stampCuratorClaimPeriod(workId, linkedPeriod);
       }
       void logBetaEvent("exhibition_artwork_added", { exhibition_id: linkExhibitionId, count: ids.length });
       setToast(t("bulk.exhibitionLinked"));
@@ -1645,8 +1648,9 @@ export default function BulkUploadPage() {
           // consistent. RLS / RPC verify delegation rights server-side.
           onBehalfOfProfileId: actingAsProfileId ?? null,
         };
-        if (publishIntent === "INVENTORY" || publishIntent === "CURATED") {
-          opts.period_status = periodStatus;
+        const linkedPeriod = await claimPeriodForExhibition(addToExhibitionId, myExhibitions);
+        if ((publishIntent === "INVENTORY" || publishIntent === "CURATED") && linkedPeriod) {
+          opts.period_status = linkedPeriod;
         }
         // QA 2026-06-26 (#8) — DO NOT forward addToExhibitionId as a
         // projectId to the claim RPC; the server rejects work_id +
@@ -1688,10 +1692,12 @@ export default function BulkUploadPage() {
       // exhibition page, which is exactly the "잘못 저장된 것 같다"
       // confusion QA reported.
       if (addToExhibitionId && publishedIds.length > 0 && intent === "CURATED") {
+        const linkedPeriod = await claimPeriodForExhibition(addToExhibitionId, myExhibitions);
         for (const workId of publishedIds) {
           await addWorkToExhibition(addToExhibitionId, workId, {
             actingSubjectProfileId: actingAsProfileId ?? null,
           });
+          if (linkedPeriod) await stampCuratorClaimPeriod(workId, linkedPeriod);
         }
       }
 
@@ -1925,6 +1931,8 @@ export default function BulkUploadPage() {
     if (error) {
       setToast(t("bulk.group.addFailed"));
     } else {
+      const linkedPeriod = await claimPeriodForExhibition(exhibitionId, myExhibitions);
+      if (linkedPeriod) await stampCuratorClaimPeriod(workId, linkedPeriod);
       setCardExhibition((m) => ({ ...m, [workId]: exhibitionId }));
       setToast(t("bulk.exhibitionLinked"));
     }
@@ -2016,10 +2024,12 @@ export default function BulkUploadPage() {
     if (linkExhibitionId) {
       setLinkingExhibition(true);
       try {
+        const linkedPeriod = await claimPeriodForExhibition(linkExhibitionId, myExhibitions);
         for (const workId of ids) {
           await addWorkToExhibition(linkExhibitionId, workId, {
             actingSubjectProfileId: actingAsProfileId ?? null,
           });
+          if (linkedPeriod) await stampCuratorClaimPeriod(workId, linkedPeriod);
         }
         setCardExhibition((prev) => {
           const next = { ...prev };
@@ -2437,21 +2447,6 @@ export default function BulkUploadPage() {
                   </ul>
                 )}
               </>
-            )}
-            {(intent === "INVENTORY" || intent === "CURATED") && (
-              <div>
-                <label className="mb-1 block text-sm font-medium">{t("artwork.periodLabel")} *</label>
-                <select
-                  value={periodStatus}
-                  onChange={(e) => setPeriodStatus(e.target.value as "past" | "current" | "future")}
-                  required
-                  className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm"
-                >
-                  <option value="past">{t("artwork.periodPast")}</option>
-                  <option value="current">{t("artwork.periodCurrent")}</option>
-                  <option value="future">{t("artwork.periodFuture")}</option>
-                </select>
-              </div>
             )}
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <button

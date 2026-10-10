@@ -134,6 +134,19 @@ export async function getExternalArtistInviteEmail(
   return { data: (data as string | null) ?? null, error: null };
 }
 
+/** Copy an exhibition's period onto the uploader's curator/inventory claim. */
+export async function stampCuratorClaimPeriod(
+  workId: string,
+  period: "past" | "current" | "future",
+): Promise<{ error: unknown }> {
+  const { error } = await supabase
+    .from("claims")
+    .update({ period_status: period })
+    .eq("work_id", workId)
+    .in("claim_type", ["CURATED", "INVENTORY"]);
+  return { error };
+}
+
 export async function updateClaim(
   claimId: string,
   payload: {

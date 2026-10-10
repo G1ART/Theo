@@ -35,7 +35,9 @@ import {
   createClaimForExistingArtist,
   createExternalArtistAndClaim,
   searchWorksForDedup,
+  stampCuratorClaimPeriod,
 } from "@/lib/provenance/rpc";
+import { claimPeriodForExhibition } from "@/lib/upload/exhibitionPeriodLookup";
 import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
@@ -283,7 +285,6 @@ function UploadPageContent() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [enhanceTargetId, setEnhanceTargetId] = useState<string | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
-  const [periodStatus, setPeriodStatus] = useState<"past" | "current" | "future">("current");
 
   // Dedup
   const [similarWorks, setSimilarWorks] = useState<{ id: string; title: string | null }[]>([]);
@@ -617,10 +618,13 @@ function UploadPageContent() {
 
       // Create claim BEFORE attaching image (RLS: artwork_images INSERT needs claim for lister)
       const claimType: ClaimType = intent === "CREATED" ? "CREATED" : (intent ?? "OWNS");
+      const linkedExhibitionId = (exhibitionPick || addToExhibitionId || "").trim();
+      const linkedPeriod =
+        claimType === "INVENTORY" || claimType === "CURATED"
+          ? await claimPeriodForExhibition(linkedExhibitionId, myExhibitions)
+          : null;
       const claimPayload: { period_status?: "past" | "current" | "future" } = {};
-      if (claimType === "INVENTORY" || claimType === "CURATED") {
-        claimPayload.period_status = periodStatus;
-      }
+      if (linkedPeriod) claimPayload.period_status = linkedPeriod;
       if (isExternal) {
         const { error: claimErr } = await createExternalArtistAndClaim({
           displayName: externalArtistName.trim(),
@@ -789,7 +793,6 @@ function UploadPageContent() {
         }
       }
 
-      const linkedExhibitionId = (exhibitionPick || addToExhibitionId || "").trim();
       if (linkedExhibitionId) {
         const { error: addExErr } = await addWorkToExhibition(
           linkedExhibitionId,
@@ -798,6 +801,8 @@ function UploadPageContent() {
         );
         if (addExErr) {
           logSupabaseError("addWorkToExhibition", addExErr);
+        } else if (linkedPeriod) {
+          await stampCuratorClaimPeriod(artworkId, linkedPeriod);
         }
       }
 
@@ -1731,21 +1736,6 @@ function UploadPageContent() {
                         {t("bulk.pricePublic")}
                       </label>
                     </div>
-                  )}
-                  {(intent === "INVENTORY" || intent === "CURATED") && (
-                    <label className="mt-3 block text-xs text-zinc-800">
-                      {t("artwork.periodLabel")} *
-                      <select
-                        value={periodStatus}
-                        onChange={(e) => setPeriodStatus(e.target.value as "past" | "current" | "future")}
-                        required
-                        className="mt-1 w-full max-w-xs rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm"
-                      >
-                        <option value="past">{t("artwork.periodPast")}</option>
-                        <option value="current">{t("artwork.periodCurrent")}</option>
-                        <option value="future">{t("artwork.periodFuture")}</option>
-                      </select>
-                    </label>
                   )}
                 </div>
               </div>
