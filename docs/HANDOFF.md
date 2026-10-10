@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-09
 
+## 2026-10-09 — 로고와 새로고침은 맨 위로, 뒤로 가기만 보던 자리를 유지한다
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+피드에 저장해 둔 스크롤, 이미 불러온 페이지, 다음 커서는 작품이나 전시에서 돌아올 때만 다시 연다.
+
+- 브라우저 뒤로 가기, 화면 안의 피드로 돌아가기: 보던 자리와 이미 불러온 모듈을 유지한다.
+- 로고, For you / 작품 / 아티스트 / 전시 / 전체, 정렬, 새로고침, 피드 자체를 여는 이동: 맨 위부터 다시 연다. 그 기록은 읽지 않는다. 로고와 탭은 다음 화면을 그리기 전에 지운다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/feed-scroll-restore.test.ts`. 로컬 `/feed` HTML의 새로고침 스크립트가 `feed:snapshot:v1:` 와 복원 표시를 지우도록 들어 있다. 자동화 브라우저의 `/feed`는 세션 확인 전에 본문이 비어 스크롤 클릭은 보지 못했다.
+
 ## 2026-10-09 — 다인전 피드 썸네일은 작가마다 나누고, 여섯 명이 넘으면 갤러리가 고른다
 
 > **Supabase SQL:** `supabase/migrations/20261009120000_exhibition_feed_thumbs.sql` 을 2026-10-09에 MCP로 프로덕션에 **이미 적용**했다. 섹션 1 `projects.feed_thumb_work_ids`, 섹션 2 `exhibition_feed_thumb_sources` (`$thumb$`) 를 나눠 실행했다. **환경 변수 추가·변경 없음.**

@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { clearAllFeedSnapshots } from "@/lib/feed/scrollSnapshot";
+import { forgetFeedSessionCache } from "@/lib/feed/scrollRestore";
 import { isIrDemo } from "@/lib/irDemo/config";
 
 /** Returns the canonical app origin (NEXT_PUBLIC_APP_URL) for auth redirect URLs.
@@ -131,7 +131,7 @@ export async function signOut() {
   // Drop any feed scroll+state snapshots from the previous session so
   // a subsequent sign-in on the same tab lands on a fresh personalized
   // surface instead of hydrating the outgoing user's cursors/likes.
-  clearAllFeedSnapshots();
+  forgetFeedSessionCache();
   return supabase.auth.signOut();
 }
 

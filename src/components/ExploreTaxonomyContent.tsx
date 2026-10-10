@@ -17,11 +17,14 @@ import {
   type ProfileListCursor,
   type ProfileListItem,
 } from "@/lib/supabase/profiles";
+import { saveFeedSnapshot, type FeedSnapshot } from "@/lib/feed/scrollSnapshot";
 import {
-  readFeedSnapshot,
-  saveFeedSnapshot,
-  type FeedSnapshot,
-} from "@/lib/feed/scrollSnapshot";
+  canWriteFeedSnapshot,
+  feedResetRefetches,
+  handleFeedSnapshotClick,
+  readFeedSnapshotForMount,
+  subscribeFeedReset,
+} from "@/lib/feed/scrollRestore";
 import { ExploreArtworkCard } from "./explore/ExploreArtworkCard";
 import { ExploreArtistCard } from "./explore/ExploreArtistCard";
 import { ExploreExhibitionCard } from "./explore/ExploreExhibitionCard";
@@ -83,8 +86,12 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
   const initialSnapshotRef = useRef<FeedSnapshot<ExploreSnapshot> | null | undefined>(
     undefined
   );
+  const restorePendingRef = useRef(false);
   if (initialSnapshotRef.current === undefined) {
-    initialSnapshotRef.current = readFeedSnapshot<ExploreSnapshot>(snapshotKey);
+    initialSnapshotRef.current = readFeedSnapshotForMount<ExploreSnapshot>(snapshotKey);
+    restorePendingRef.current = Boolean(
+      initialSnapshotRef.current && initialSnapshotRef.current.scrollY > 0
+    );
   }
   const hydrated = initialSnapshotRef.current !== null;
   const initialState = initialSnapshotRef.current?.state;
@@ -176,6 +183,7 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
     const snap = initialSnapshotRef.current;
     if (!snap) return;
     window.scrollTo(0, snap.scrollY);
+    restorePendingRef.current = false;
     const raf = window.requestAnimationFrame(() => {
       window.scrollTo(0, snap.scrollY);
     });
@@ -210,6 +218,7 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
     if (typeof window === "undefined") return;
 
     const persist = () => {
+      if (!canWriteFeedSnapshot()) return;
       const state = persistStateRef.current;
       // Snapshot only after the first fetch has landed for the current
       // tab. Prevents overwriting a valid restore payload with an
@@ -218,6 +227,7 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
       const hasExhibitions = state.exhibitions.length > 0;
       const hasArtists = state.artists.length > 0;
       if (!hasArtworks && !hasExhibitions && !hasArtists) return;
+      if (window.scrollY === 0 && restorePendingRef.current) return;
       saveFeedSnapshot(snapshotKey, state, window.scrollY);
     };
 
@@ -226,21 +236,7 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
     };
     const onPageHide = () => persist();
     const onClick = (ev: MouseEvent) => {
-      const target = ev.target as HTMLElement | null;
-      if (!target) return;
-      const anchor = target.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor) return;
-      const href = anchor.getAttribute("href") ?? "";
-      if (
-        href.startsWith("/artwork/") ||
-        href.startsWith("/exhibition/") ||
-        href.startsWith("/artist/") ||
-        href.startsWith("/@") ||
-        href.startsWith("/u/") ||
-        href.startsWith("/e/")
-      ) {
-        persist();
-      }
+      handleFeedSnapshotClick(ev, persist);
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -253,6 +249,15 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
       persist();
     };
   }, [snapshotKey]);
+
+  useEffect(() => {
+    return subscribeFeedReset(() => {
+      window.scrollTo(0, 0);
+      restorePendingRef.current = false;
+      if (!feedResetRefetches()) return;
+      void fetchInitial();
+    });
+  }, [fetchInitial]);
 
   const hasMore =
     (needsArtworks && artworksCursor != null) ||

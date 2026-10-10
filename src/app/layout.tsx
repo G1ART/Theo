@@ -13,7 +13,9 @@ import { BackToTopFab } from "@/components/ui/BackToTopFab";
 import { ActingAsProvider } from "@/context/ActingAsContext";
 import { TourProvider } from "@/components/tour";
 import { IrDemoBanner } from "@/components/irDemo/IrDemoBanner";
+import { FEED_RELOAD_BOOT_SCRIPT } from "@/lib/feed/feedSessionKeys";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
+import Script from "next/script";
 import {
   LOCALE_COOKIE,
   defaultLocaleFromRequest,
@@ -96,6 +98,9 @@ export default async function RootLayout({
         className={`${suit.variable} ${geistSans.variable} ${geistMono.variable} antialiased`}
         translate="no"
       >
+        <Script id="feed-reload-scroll" strategy="beforeInteractive">
+          {FEED_RELOAD_BOOT_SCRIPT}
+        </Script>
         <LocaleProvider initialLocale={initialLocale}>
           <HtmlLangSync />
           <AuthBootstrap />

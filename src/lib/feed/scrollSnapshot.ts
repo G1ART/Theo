@@ -1,5 +1,9 @@
 "use client";
 
+import { SNAPSHOT_PREFIX } from "@/lib/feed/feedSessionKeys";
+
+export { SNAPSHOT_PREFIX };
+
 /**
  * Feed scroll + state snapshots for back-navigation restore.
  *
@@ -21,6 +25,10 @@
  * fetch, then `scrollTo(scrollY)` in a `useLayoutEffect` so the paint
  * lands at the same offset the user left from.
  *
+ * Only a return from an artwork or exhibition may read that cache.
+ * `scrollRestore.ts` refuses it on a `/feed` reload, and logo / feed-tab
+ * clicks clear it before the next paint.
+ *
  * ## Trade-offs
  *
  * - `sessionStorage` (this module) vs. router cache: the App Router
@@ -39,8 +47,6 @@
  *   just saw", stale enough that a longer detour (deep artwork read,
  *   phone call) sees fresh discovery data on return.
  */
-
-const SNAPSHOT_PREFIX = "feed:snapshot:v1:";
 
 /** 5 minutes. Beyond this the discovery layer is likely stale enough
  *  that showing a fresh feed reads more accurate to the platform. */

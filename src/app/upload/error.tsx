@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
+import { discardFeedSession, isPlainPrimaryClick } from "@/lib/feed/scrollRestore";
 
 export default function UploadError({
   error,
@@ -40,6 +41,10 @@ export default function UploadError({
         </button>
         <Link
           href="/feed"
+          onClick={(event) => {
+            if (!isPlainPrimaryClick(event)) return;
+            discardFeedSession({ refetch: false });
+          }}
           className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
         >
           {t("nav.feed")}

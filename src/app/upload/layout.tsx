@@ -11,6 +11,7 @@ import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { PageShell } from "@/components/ds/PageShell";
 import { AppShell } from "@/components/shell/AppShell";
 import { ProfileTabUploadNotice } from "@/components/upload/ProfileTabUploadNotice";
+import { discardFeedSession, isPlainPrimaryClick } from "@/lib/feed/scrollRestore";
 /**
  * Upload chrome sits in the existing 3-column shell (sidebar | center |
  * My Connection). Artworks is the entry workspace; Exhibition keeps the
@@ -144,6 +145,10 @@ export default function UploadLayout({
                 </button>
                 <Link
                   href="/feed"
+                  onClick={(event) => {
+                    if (!isPlainPrimaryClick(event)) return;
+                    discardFeedSession({ refetch: false });
+                  }}
                   className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                 >
                   {t("nav.feed")}

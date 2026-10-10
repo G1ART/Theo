@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentProps } from "react";
+import {
+  classifyFeedAnchor,
+  discardFeedSessionForHref,
+  isPlainPrimaryClick,
+} from "@/lib/feed/scrollRestore";
 import { onUploadLeaveClick } from "@/lib/shell/leaveUploadNav";
 
 /**
@@ -19,6 +24,13 @@ export function ShellNavLink({
     <Link
       href={href}
       onClick={(event) => {
+        if (
+          typeof href === "string" &&
+          isPlainPrimaryClick(event) &&
+          classifyFeedAnchor(href) === "open-feed"
+        ) {
+          discardFeedSessionForHref(href);
+        }
         if (
           typeof href === "string" &&
           onUploadLeaveClick(pathname, href, event)

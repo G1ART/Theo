@@ -5,7 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { EmptyState, FeedGridSkeleton } from "@/components/ds";
 import { keepVisibleModules } from "@/lib/feed/walk/content";
 import type { FeedModule, WalkLane, WalkPage } from "@/lib/feed/walk/types";
-import { readFeedSnapshot, saveFeedSnapshot } from "@/lib/feed/scrollSnapshot";
+import { saveFeedSnapshot } from "@/lib/feed/scrollSnapshot";
+import {
+  canWriteFeedSnapshot,
+  feedResetRefetches,
+  handleFeedSnapshotClick,
+  readFeedSnapshotForMount,
+  subscribeFeedReset,
+} from "@/lib/feed/scrollRestore";
 import { useT } from "@/lib/i18n/useT";
 import { supabase } from "@/lib/supabase/client";
 import { WalkModuleView } from "./WalkModules";
@@ -29,7 +36,7 @@ function snapshotKeyFor(pathname: string, search: string, lane: WalkLane, sort: 
 }
 
 function readWalkSnap(key: string, userId: string | null): { modules: FeedModule[]; cursor: string | null; hasMore: boolean; scrollY: number } | null {
-  const snap = readFeedSnapshot<WalkSnap>(key);
+  const snap = readFeedSnapshotForMount<WalkSnap>(key);
   const state = snap?.state;
   if (!snap || !state || state.userId !== userId || !Array.isArray(state.modules)) return null;
   const modules = keepVisibleModules(state.modules);
@@ -65,6 +72,7 @@ export function FeedWalk({ userId, lane, sort }: Props) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef<{ cursor: string; promise: Promise<WalkPage> } | null>(null);
   const restoreY = useRef<number | null>(boot && boot.scrollY > 0 ? boot.scrollY : null);
+  const restoreGen = useRef(0);
   const snapshotKeyRef = useRef(snapshotKey);
   snapshotKeyRef.current = snapshotKey;
 
@@ -120,9 +128,11 @@ export function FeedWalk({ userId, lane, sort }: Props) {
   useEffect(() => {
     const y = restoreY.current;
     if (y == null || modules.length === 0) return;
+    const gen = restoreGen.current;
     let frames = 0;
     let raf = 0;
     const tick = () => {
+      if (gen !== restoreGen.current) return;
       window.scrollTo(0, y);
       frames += 1;
       const landed = Math.abs(window.scrollY - y) <= 2;
@@ -232,15 +242,14 @@ export function FeedWalk({ userId, lane, sort }: Props) {
 
   useEffect(() => {
     const persist = () => {
+      if (!canWriteFeedSnapshot()) return;
       const state = persistStateRef.current;
       if (state.modules.length === 0) return;
       const y = window.scrollY;
-      const key = snapshotKeyRef.current;
-      if (y === 0) {
-        const existing = readFeedSnapshot<WalkSnap>(key);
-        if (existing && existing.scrollY > 0 && existing.state?.modules?.length) return;
-      }
-      saveFeedSnapshot(key, state, y);
+      // A restore mount paints at 0 for a frame. Don't overwrite the
+      // detail-return snapshot before scrollTo lands.
+      if (y === 0 && restoreY.current != null) return;
+      saveFeedSnapshot(snapshotKeyRef.current, state, y);
     };
 
     const onVisibilityChange = () => {
@@ -248,11 +257,7 @@ export function FeedWalk({ userId, lane, sort }: Props) {
     };
     const onPageHide = () => persist();
     const onClick = (ev: MouseEvent) => {
-      const target = ev.target as HTMLElement | null;
-      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor) return;
-      const href = anchor.getAttribute("href") ?? "";
-      if (href.startsWith("/u/") || href.startsWith("/e/") || href.startsWith("/artwork/")) persist();
+      handleFeedSnapshotClick(ev, persist);
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -265,6 +270,40 @@ export function FeedWalk({ userId, lane, sort }: Props) {
       persist();
     };
   }, [snapshotKey]);
+
+  useEffect(() => {
+    return subscribeFeedReset(() => {
+      restoreGen.current += 1;
+      restoreY.current = null;
+      window.scrollTo(0, 0);
+      if (!feedResetRefetches()) return;
+      cursorRef.current = null;
+      loadingMoreRef.current = false;
+      inflightRef.current = null;
+      const seq = ++fetchSeqRef.current;
+      setModules([]);
+      setHasMore(false);
+      setError(false);
+      setLoading(true);
+      setPaging(false);
+      void requestPage(null)
+        .then((page) => {
+          if (seq !== fetchSeqRef.current) return;
+          setModules(page.modules);
+          cursorRef.current = page.nextCursor;
+          setHasMore(Boolean(page.nextCursor) && page.modules.length > 0);
+          setLoading(false);
+          prefetch(page.nextCursor);
+        })
+        .catch(() => {
+          if (seq !== fetchSeqRef.current) return;
+          setModules([]);
+          setError(true);
+          setHasMore(false);
+          setLoading(false);
+        });
+    });
+  }, [prefetch, requestPage]);
 
   if (loading && modules.length === 0) {
     return <FeedGridSkeleton />;

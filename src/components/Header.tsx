@@ -34,6 +34,9 @@ import {
   useFollowInviteCount,
 } from "@/components/shell/HamburgerContextPeek";
 import { hitTarget } from "@/components/ds/buttonStyles";
+import { captureFeedDocumentNavigation } from "@/lib/feed/scrollRestore";
+
+captureFeedDocumentNavigation();
 
 /**
  * Global top-bar. On desktop AppShell routes (`lg+`) the sidebar takes
