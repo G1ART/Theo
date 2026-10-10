@@ -809,7 +809,7 @@ export default function BulkUploadPage() {
       if (!file || typeof file.size !== "number" || file.size <= 0) {
         // eslint-disable-next-line no-console
         console.error("[bulk-upload] skipping empty payload", slotId, file?.name);
-        const message = t("bulk.uploadFailedFileGeneric").replace("{name}", file?.name || t("bulk.uploadFailedUnnamedFile"));
+        const message = formatBulkFileUploadFailure(file?.name || "", new Error("empty file"), t);
         failures.push({ name: file?.name || "", message });
         setUploadFailures([...failures]);
         setUploadError(message);

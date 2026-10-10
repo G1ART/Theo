@@ -1625,7 +1625,11 @@ export const messages = {
       "This file is too large to store as-is. If it's a HEIC or GIF, convert to JPEG/PNG/WebP (those auto-compress up to 200 MB); otherwise please shrink it a little and try again.",
     "upload.failedNetwork": "We could not reach the server. Check your connection and try again.",
     "upload.failedAuth": "Your session expired. Sign in again and retry.",
+    "upload.failedPermission":
+      "This account can’t create that draft. Sign in with an account that can add works for this artist, then try again.",
+    "upload.failedEmpty": "That file is empty, so it was not uploaded.",
     "upload.failedGeneric": "Something went wrong while uploading. Please try again.",
+    "upload.failedDetail": "The upload failed. {reason}",
     "artists.title": "Find artists",
     "artists.searchPlaceholder": "Search by username or display name...",
     "artists.noArtists": "No artists found.",
@@ -1782,8 +1786,12 @@ export const messages = {
       "Could not reach the server for “{name}”. Check your connection and try again.",
     "bulk.uploadFailedFileAuth":
       "Your session expired while uploading “{name}”. Sign in again and retry.",
+    "bulk.uploadFailedFilePermission":
+      "“{name}” was not saved. This account can’t open a draft for the selected artist.",
+    "bulk.uploadFailedFileEmpty": "“{name}” is empty, so it was not uploaded.",
     "bulk.uploadFailedFileGeneric":
       "“{name}” could not be uploaded. Try again, or use a different file.",
+    "bulk.uploadFailedFileDetail": "“{name}” could not be uploaded. {reason}",
     "bulk.uploadFailedUnnamedFile": "this file",
     "bulk.dropzone": "Drop images or click to select",
     "bulk.dropzoneHint":
@@ -6566,7 +6574,11 @@ export const messages = {
       "이 파일은 지금 크기 그대로 저장하기 어려워요. HEIC이나 GIF라면 JPEG/PNG/WebP로 변환해 주세요 (이 형식들은 200MB까지 자동 압축돼요). 그 외 형식이라면 크기를 조금 줄인 뒤 다시 시도해 주세요.",
     "upload.failedNetwork": "서버에 연결하지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.",
     "upload.failedAuth": "로그인이 만료된 것 같아요. 다시 로그인한 뒤 시도해 주세요.",
+    "upload.failedPermission":
+      "이 계정으로는 그 초안을 만들 수 없어요. 작품을 추가할 수 있는 계정으로 다시 로그인한 뒤 시도해 주세요.",
+    "upload.failedEmpty": "파일이 비어 있어서 올리지 못했어요.",
     "upload.failedGeneric": "업로드 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
+    "upload.failedDetail": "업로드에 실패했어요. {reason}",
     "artists.title": "아티스트 찾기",
     "artists.searchPlaceholder": "사용자명 또는 표시 이름으로 검색...",
     "artists.noArtists": "아티스트를 찾을 수 없습니다.",
@@ -6723,8 +6735,12 @@ export const messages = {
       "「{name}」 업로드 중 서버에 연결하지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.",
     "bulk.uploadFailedFileAuth":
       "「{name}」을(를) 올리는 동안 로그인이 만료된 것 같아요. 다시 로그인한 뒤 재시도해 주세요.",
+    "bulk.uploadFailedFilePermission":
+      "「{name}」을(를) 저장하지 못했어요. 이 계정으로는 고른 작가의 초안을 만들 수 없어요.",
+    "bulk.uploadFailedFileEmpty": "「{name}」 파일이 비어 있어서 올리지 못했어요.",
     "bulk.uploadFailedFileGeneric":
       "「{name}」을(를) 올리지 못했어요. 다시 시도하거나 다른 파일로 바꿔 보세요.",
+    "bulk.uploadFailedFileDetail": "「{name}」을(를) 올리지 못했어요. {reason}",
     "bulk.uploadFailedUnnamedFile": "이 파일",
     "bulk.dropzone": "이미지를 놓거나 클릭하여 선택",
     "bulk.dropzoneHint":

@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-10
 
+## 2026-10-10 — 다른 작가로 올리는 벌크 초안이 파일 거절로 보이던 것을 고친다
+
+> **Supabase SQL:** `supabase/migrations/20261010205939_uploader_can_read_own_drafts.sql` 을 2026-10-10에 MCP로 프로덕션에 **이미 적용**했다. 정책 하나라 섹션을 나누지 않아도 된다. **환경 변수 추가·변경 없음.**
+
+`HH-26-106.jpg` (JPEG, 753,266 bytes, 1920×2560, Display P3, 파일명의 하이픈) 는 형식이나 품질 때문에 막힌 것이 아니다. The GREEN 계정이 현혜명 작가로 초안을 만들 때 `artist_id` 는 작가, `created_by` 는 올리는 계정, `visibility` 는 draft 다. 클레임이 생기기 전에 id 를 돌려받는 `INSERT ... RETURNING` 이 그 행을 읽을 SELECT 정책이 없어서 Postgres 가 `new row violates row-level security policy for table "artworks"` 를 냈다. 화면은 그 사유를 지우고 모든 실패를 같은 문장으로 보여 줬다.
+
+- JPG/JPEG 는 허용 목록에 있다. 업로드 앞단의 품질 하한은 그대로 없다. 이 크기는 200MB 압축 상한과 50MB 저장 상한 아래에 있다.
+- 올린 계정(`created_by = auth.uid()`)은 방금 만든 초안을 읽을 수 있다. 다른 계정과 비로그인 조회는 그대로 막힌다. 품질 게이트는 업로드 앞에 다시 넣지 않았다.
+- 빈 파일, 권한, 그 밖의 서버 사유는 서로 다른 문장으로 보여 준다.
+
+**Verified:** `npx tsx tests/upload-failure-reason.test.ts`. `npx tsx tests/upload-no-quality-gate.test.ts`. `npx tsx tests/bulk-other-artist-session.test.ts`. The GREEN 계정으로 현혜명 작가의 draft 를 `INSERT ... RETURNING` 하는 프로브는 정책 적용 뒤에 성공하고, 다른 계정과 anon 은 0건이다. 프로브 행은 rollback 했다.
+
 ## 2026-10-10 — 작품 업로드에서 기간 칸을 뺀다
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**

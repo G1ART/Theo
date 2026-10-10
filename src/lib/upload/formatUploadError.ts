@@ -7,8 +7,18 @@ function norm(msg: string): string {
 }
 
 /** Classify common browser / Supabase storage failure strings. */
-export function classifyUploadFailureMessage(message: string): "oversized" | "payload" | "network" | "auth" | "unknown" {
+export function classifyUploadFailureMessage(
+  message: string,
+): "oversized" | "payload" | "network" | "auth" | "permission" | "empty" | "unknown" {
   const m = norm(message);
+  if (m.includes("empty file") || m.includes("empty payload") || m === "file is empty") return "empty";
+  if (
+    m.includes("row-level security") ||
+    m.includes("permission denied") ||
+    m.includes("42501")
+  ) {
+    return "permission";
+  }
   if (m.includes("401") || m.includes("403") || m.includes("unauthorized") || m.includes("jwt")) return "auth";
   if (m.includes("413") || m.includes("payload too large") || m.includes("request entity too large")) return "payload";
   if (
@@ -24,6 +34,14 @@ export function classifyUploadFailureMessage(message: string): "oversized" | "pa
     return "network";
   }
   return "unknown";
+}
+
+/** Short, token-free snippet of an unexpected server message. */
+export function uploadFailureDetail(message: string): string {
+  const cleaned = message.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  if (/bearer\s|eyJ|service_role|apikey|authorization/i.test(cleaned)) return "";
+  return cleaned.slice(0, 140);
 }
 
 /**
@@ -52,8 +70,15 @@ export function formatBulkFileUploadFailure(fileName: string, err: unknown, t: T
       return t("bulk.uploadFailedFileNetwork").replace("{name}", safeName);
     case "auth":
       return t("bulk.uploadFailedFileAuth").replace("{name}", safeName);
-    default:
-      return t("bulk.uploadFailedFileGeneric").replace("{name}", safeName);
+    case "permission":
+      return t("bulk.uploadFailedFilePermission").replace("{name}", safeName);
+    case "empty":
+      return t("bulk.uploadFailedFileEmpty").replace("{name}", safeName);
+    default: {
+      const detail = uploadFailureDetail(raw);
+      if (!detail) return t("bulk.uploadFailedFileGeneric").replace("{name}", safeName);
+      return t("bulk.uploadFailedFileDetail").replace("{name}", safeName).replace("{reason}", detail);
+    }
   }
 }
 
@@ -69,7 +94,14 @@ export function formatSingleUploadFailure(err: unknown, t: T): string {
       return t("upload.failedNetwork");
     case "auth":
       return t("upload.failedAuth");
-    default:
-      return t("upload.failedGeneric");
+    case "permission":
+      return t("upload.failedPermission");
+    case "empty":
+      return t("upload.failedEmpty");
+    default: {
+      const detail = uploadFailureDetail(raw);
+      if (!detail) return t("upload.failedGeneric");
+      return t("upload.failedDetail").replace("{reason}", detail);
+    }
   }
 }
