@@ -66,7 +66,6 @@ import { pickLegacyForSave, pickLocalizedDisplayName, pickLocalizedTitle } from 
 import { inviteCardKind, sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
 import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
-import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import {
@@ -75,7 +74,7 @@ import {
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
-import { mediumFieldsFromBoxes, registrationBilingualFields } from "@/lib/upload/registrationCopy";
+import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
 import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { formatSingleUploadFailure } from "@/lib/upload/formatUploadError";
 
@@ -277,8 +276,6 @@ function UploadPageContent() {
   const [isPricePublic, setIsPricePublic] = useState(false);
   const [myExhibitions, setMyExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [exhibitionPick, setExhibitionPick] = useState(addToExhibitionId ?? "");
-  const [mediumQuery, setMediumQuery] = useState("");
-  const [mediumTokens, setMediumTokens] = useState<string[]>([]);
   const [sizeNa, setSizeNa] = useState(false);
   const [dimH, setDimH] = useState("");
   const [dimW, setDimW] = useState("");
@@ -451,28 +448,11 @@ function UploadPageContent() {
     setStep("form");
   }
 
-  function mediumSlots(primaryText = mediumQuery, chips = mediumTokens, altText = locale === "ko" ? mediumEn : mediumKo) {
-    return mediumFieldsFromBoxes({
-      locale: locale === "ko" ? "ko" : "en",
-      primaryText,
-      altText,
-      chips,
-    });
-  }
-
-  function applyMediumBoxes(primaryText: string, chips: string[], altText: string) {
-    const fields = mediumSlots(primaryText, chips, altText);
-    setMediumKo(fields.mediumKo);
-    setMediumEn(fields.mediumEn);
-    setMedium(pickLegacyForSave(fields.mediumKo, fields.mediumEn) ?? "");
-  }
-
   function currentGaps() {
-    const slots = mediumSlots();
     return uploadGaps({
       title,
       year,
-      medium: pickLegacyForSave(slots.mediumKo, slots.mediumEn) ?? medium,
+      medium: pickLegacyForSave(mediumKo, mediumEn) ?? medium,
       size,
       sizeNotApplicable: sizeNa,
       pricingMode,
@@ -534,12 +514,11 @@ function UploadPageContent() {
     const isExternal = needsAttribution(intent) && useExternalArtist;
     // QA 2026-07-28 bilingual — legacy 슬롯은 KO 우선. 240004 트리거가 서버
     // 측에서도 KO 우선 sync 하므로 클라이언트 값과 트리거 결과가 일치한다.
-    const slots = mediumSlots();
     const bilingual = registrationBilingualFields({
       titleKo,
       titleEn,
-      mediumKo: slots.mediumKo,
-      mediumEn: slots.mediumEn,
+      mediumKo,
+      mediumEn,
       storyKo,
       storyEn,
       title,
@@ -964,34 +943,6 @@ function UploadPageContent() {
     });
   }
 
-  function addMediumChip(raw: string) {
-    const value = raw.trim();
-    if (!value) return;
-    const alt = locale === "ko" ? mediumEn : mediumKo;
-    if (mediumTokens.some((chip) => chip.toLowerCase() === value.toLowerCase())) {
-      setMediumQuery("");
-      applyMediumBoxes("", mediumTokens, alt);
-      return;
-    }
-    const next = [...mediumTokens, value];
-    setMediumTokens(next);
-    setMediumQuery("");
-    applyMediumBoxes("", next, alt);
-  }
-  function removeMediumChip(chip: string) {
-    const next = mediumTokens.filter((item) => item !== chip);
-    const alt = locale === "ko" ? mediumEn : mediumKo;
-    setMediumTokens(next);
-    applyMediumBoxes(mediumQuery, next, alt);
-  }
-  const mediumSuggestions = TAXONOMY.mediumOptions
-    .map((opt) => t(opt.labelKey))
-    .filter((name) => {
-      const q = mediumQuery.trim().toLowerCase();
-      if (!q) return false;
-      return name.toLowerCase().includes(q) && !mediumTokens.some((chip) => chip.toLowerCase() === name.toLowerCase());
-    })
-    .slice(0, 6);
   const yearOptions = Array.from({ length: 81 }, (_, i) => String(new Date().getFullYear() - i));
   const coverImage = images[0];
   const detailImages = images.slice(1);
@@ -1688,82 +1639,23 @@ function UploadPageContent() {
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1.35fr)]">
-                    <div>
-                      <p className="mb-1 text-xs text-zinc-800">
-                        {t("bulk.medium")} *
-                        <span className="ml-2 font-normal text-zinc-400">{t("bulk.mediumSearch")}</span>
-                      </p>
-                      <div className="flex items-center rounded border border-zinc-300">
-                        <input
-                          value={mediumQuery}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setMediumQuery(v);
-                            applyMediumBoxes(v, mediumTokens, locale === "ko" ? mediumEn : mediumKo);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              addMediumChip(mediumQuery);
-                            }
-                          }}
-                          placeholder={t("bulk.mediumSearch")}
-                          className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => addMediumChip(mediumQuery)}
-                          className="px-2 text-lg leading-none text-zinc-500"
-                          aria-label={t("bulk.mediumAdd")}
-                        >
-                          +
-                        </button>
-                      </div>
-                      {mediumSuggestions.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {mediumSuggestions.map((name) => (
-                            <button
-                              key={name}
-                              type="button"
-                              onClick={() => addMediumChip(name)}
-                              className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] text-zinc-600"
-                            >
-                              {name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {mediumTokens.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {mediumTokens.map((chip) => (
-                            <span key={chip} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-0.5 text-xs">
-                              {chip}
-                              <button
-                                type="button"
-                                aria-label={chip}
-                                onClick={() => removeMediumChip(chip)}
-                                className="text-zinc-400"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-[11px] text-zinc-600">
-                          {locale === "ko" ? t("bilingual.addEnMedium") : t("bilingual.addKoMedium")}
-                        </summary>
-                        <input
-                          value={locale === "ko" ? mediumEn : mediumKo}
-                          onChange={(e) => {
-                            applyMediumBoxes(mediumQuery, mediumTokens, e.target.value);
-                          }}
-                          placeholder={t("artwork.field.mediumPlaceholder")}
-                          className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-                        />
-                      </details>
-                    </div>
+                    <BilingualFieldPair
+                      label={`${t("bulk.medium")} *`}
+                      addKoKey="bilingual.addKoMedium"
+                      addEnKey="bilingual.addEnMedium"
+                      placeholderKo={t("artwork.field.mediumPlaceholder")}
+                      placeholderEn={t("artwork.field.mediumPlaceholder")}
+                      valueKo={mediumKo}
+                      valueEn={mediumEn}
+                      onChangeKo={(v) => {
+                        setMediumKo(v);
+                        if (locale === "ko") setMedium(v);
+                      }}
+                      onChangeEn={(v) => {
+                        setMediumEn(v);
+                        if (locale !== "ko") setMedium(v);
+                      }}
+                    />
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <label className="block text-xs text-zinc-800">
                         {t("upload.tabExhibitionShort")}

@@ -14,8 +14,7 @@ import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
-import { registrationBilingualFields, withPendingLocaleMedium } from "@/lib/upload/registrationCopy";
-import { TAXONOMY } from "@/lib/profile/taxonomy";
+import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
 import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
 
 const OWNERSHIP_OPTIONS = [
@@ -27,11 +26,17 @@ const OWNERSHIP_OPTIONS = [
 
 const PRICE_CURRENCIES = ["USD", "KRW"] as const;
 
-function splitMedium(raw: string | null | undefined): string[] {
-  return (raw ?? "")
-    .split(/[,，]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+function readMediumPair(
+  draft: { medium?: string | null; medium_ko?: string | null; medium_en?: string | null },
+  locale: "ko" | "en",
+): { ko: string; en: string } {
+  let ko = draft.medium_ko ?? "";
+  let en = draft.medium_en ?? "";
+  if (!ko.trim() && !en.trim() && draft.medium?.trim()) {
+    if (locale === "ko") ko = draft.medium;
+    else en = draft.medium;
+  }
+  return { ko, en };
 }
 
 /** Width × height × depth when the string actually has two dimensions. "30호" stays a size label. */
@@ -150,17 +155,10 @@ export function BulkDraftCard({
   const [height, setHeight] = useState(dims.h);
   const [depth, setDepth] = useState(dims.d);
   const sizeNa = sizeNotApplicable;
-  const [mediums, setMediums] = useState<string[]>(() =>
-    splitMedium(locale === "ko" ? draft.medium_ko || draft.medium : draft.medium_en || draft.medium),
-  );
-  const [mediumQuery, setMediumQuery] = useState("");
-  const [mediumAltOpen, setMediumAltOpen] = useState(
-    () => Boolean((locale === "ko" ? draft.medium_en : draft.medium_ko)?.trim()),
-  );
-  const [mediumAlt, setMediumAlt] = useState(
-    () => (locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? ""),
-  );
-  const mediumAltDirty = useRef(false);
+  const seededMedium = readMediumPair(draft, locale === "ko" ? "ko" : "en");
+  const [mediumKo, setMediumKo] = useState(seededMedium.ko);
+  const [mediumEn, setMediumEn] = useState(seededMedium.en);
+  const mediumDirty = useRef(false);
   const [titleKo, setTitleKo] = useState(draft.title_ko ?? (locale === "ko" ? draft.title ?? "" : ""));
   const [titleEn, setTitleEn] = useState(draft.title_en ?? (locale === "ko" ? "" : draft.title ?? ""));
   const [storyKo, setStoryKo] = useState(draft.story_ko ?? (locale === "ko" ? draft.story ?? "" : ""));
@@ -177,11 +175,10 @@ export function BulkDraftCard({
     setWidth(next.w);
     setHeight(next.h);
     setDepth(next.d);
-    if (!mediumQuery.trim()) {
-      setMediums(splitMedium(locale === "ko" ? draft.medium_ko || draft.medium : draft.medium_en || draft.medium));
-    }
-    if (!mediumAltDirty.current) {
-      setMediumAlt(locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? "");
+    if (!mediumDirty.current) {
+      const nextMedium = readMediumPair(draft, locale === "ko" ? "ko" : "en");
+      setMediumKo(nextMedium.ko);
+      setMediumEn(nextMedium.en);
     }
     setTitleKo(draft.title_ko ?? (locale === "ko" ? draft.title ?? "" : ""));
     setTitleEn(draft.title_en ?? (locale === "ko" ? "" : draft.title ?? ""));
@@ -207,14 +204,6 @@ export function BulkDraftCard({
     years.unshift(String(draft.year));
   }
   const unit = draft.size_unit === "in" ? "in" : "cm";
-  const suggestions = TAXONOMY.mediumOptions
-    .map((opt) => t(opt.labelKey))
-    .filter((name) => {
-      const q = mediumQuery.trim().toLowerCase();
-      if (!q) return false;
-      return name.toLowerCase().includes(q) && !mediums.some((m) => m.toLowerCase() === name.toLowerCase());
-    })
-    .slice(0, 6);
 
   function commitSize(next: { w?: string; h?: string; d?: string; na?: boolean; unit?: "cm" | "in" }) {
     const w = next.w ?? width;
@@ -238,25 +227,16 @@ export function BulkDraftCard({
     next: {
       titleKo?: string;
       titleEn?: string;
-      mediumKo?: string;
-      mediumEn?: string;
       storyKo?: string;
       storyEn?: string;
     },
-    part: "title" | "medium" | "story",
+    part: "title" | "story",
   ) {
-    const localeKey = locale === "ko" ? "ko" : "en";
-    const mergedMedium = withPendingLocaleMedium({
-      locale: localeKey,
-      mediumKo: next.mediumKo ?? (locale === "ko" ? mediums.join(", ") : mediumAlt || draft.medium_ko || ""),
-      mediumEn: next.mediumEn ?? (locale === "ko" ? mediumAlt || draft.medium_en || "" : mediums.join(", ")),
-      pending: part === "medium" ? mediumQuery : "",
-    });
     const fields = registrationBilingualFields({
       titleKo: next.titleKo ?? titleKo,
       titleEn: next.titleEn ?? titleEn,
-      mediumKo: mergedMedium.mediumKo,
-      mediumEn: mergedMedium.mediumEn,
+      mediumKo,
+      mediumEn,
       storyKo: next.storyKo ?? storyKo,
       storyEn: next.storyEn ?? storyEn,
       title: draft.title ?? "",
@@ -267,32 +247,23 @@ export function BulkDraftCard({
       onSave({ title: fields.title, title_ko: fields.title_ko, title_en: fields.title_en });
       return;
     }
-    if (part === "medium") {
-      mediumAltDirty.current = false;
-      setMediums(splitMedium(locale === "ko" ? mergedMedium.mediumKo : mergedMedium.mediumEn));
-      setMediumAlt(locale === "ko" ? mergedMedium.mediumEn : mergedMedium.mediumKo);
-      setMediumQuery("");
-      return onSave({ medium: fields.medium, medium_ko: fields.medium_ko, medium_en: fields.medium_en });
-    }
     onSave({ story: fields.story, story_ko: fields.story_ko, story_en: fields.story_en });
   }
 
-  function commitMedium(next: string[]) {
-    setMediums(next);
-    const joined = next.join(", ");
-    if (locale === "ko") commitCopy({ mediumKo: joined, mediumEn: mediumAlt }, "medium");
-    else commitCopy({ mediumEn: joined, mediumKo: mediumAlt }, "medium");
-  }
-
-  function addMedium(raw: string) {
-    const value = raw.trim();
-    if (!value) return;
-    if (mediums.some((m) => m.toLowerCase() === value.toLowerCase())) {
-      setMediumQuery("");
-      return;
-    }
-    setMediumQuery("");
-    commitMedium([...mediums, value]);
+  function commitMedium(ko = mediumKo, en = mediumEn) {
+    mediumDirty.current = false;
+    const fields = registrationBilingualFields({
+      titleKo,
+      titleEn,
+      mediumKo: ko,
+      mediumEn: en,
+      storyKo,
+      storyEn,
+      title: draft.title ?? "",
+      medium: draft.medium ?? "",
+      story: draft.story ?? "",
+    });
+    return onSave({ medium: fields.medium, medium_ko: fields.medium_ko, medium_en: fields.medium_en });
   }
 
   function commitPrice(amount: string, currency: string) {
@@ -416,11 +387,7 @@ export function BulkDraftCard({
           <button
             type="button"
             onClick={() => {
-              if (!mediumQuery.trim() && !mediumAltDirty.current) {
-                onPublish();
-                return;
-              }
-              void Promise.resolve(commitCopy({}, "medium")).then(() => onPublish());
+              void Promise.resolve(commitMedium()).then(() => onPublish());
             }}
             disabled={!ready || publishing}
             className="mt-2 w-full rounded-full bg-zinc-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
@@ -546,96 +513,26 @@ export function BulkDraftCard({
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1.35fr)]">
-            <div>
-              <p className={label}>
-                {t("bulk.medium")} <span>*</span>
-                <span className="ml-2 font-normal text-zinc-400">{t("bulk.mediumSearch")}</span>
-              </p>
-              <div className="flex items-center rounded border border-zinc-300 bg-white">
-                <input
-                  value={mediumQuery}
-                  onChange={(e) => setMediumQuery(e.target.value)}
-                  onBlur={() => {
-                    if (!mediumQuery.trim()) return;
-                    commitCopy({}, "medium");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addMedium(mediumQuery);
-                    }
-                  }}
-                  placeholder={t("bulk.mediumSearch")}
-                  className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-zinc-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => addMedium(mediumQuery)}
-                  className="px-2 text-lg leading-none text-zinc-500 hover:text-zinc-900"
-                  aria-label={t("bulk.mediumAdd")}
-                >
-                  +
-                </button>
-              </div>
-              {suggestions.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {suggestions.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => addMedium(name)}
-                      className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-50"
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {mediums.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {mediums.map((chip) => (
-                    <span
-                      key={chip}
-                      className="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-0.5 text-xs text-zinc-800"
-                    >
-                      {chip}
-                      <button
-                        type="button"
-                        className="text-zinc-400 hover:text-zinc-800"
-                        aria-label={chip}
-                        onClick={() => commitMedium(mediums.filter((m) => m !== chip))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => setMediumAltOpen((open) => !open)}
-                className="mt-2 text-[11px] text-zinc-600 underline underline-offset-2"
-              >
-                {locale === "ko" ? t("bilingual.addEnMedium") : t("bilingual.addKoMedium")}
-              </button>
-              {mediumAltOpen && (
-                <input
-                  value={mediumAlt}
-                  onChange={(e) => {
-                    mediumAltDirty.current = true;
-                    setMediumAlt(e.target.value);
-                  }}
-                  onBlur={(e) => {
-                    const v = e.currentTarget.value;
-                    setMediumAlt(v);
-                    if (locale === "ko") commitCopy({ mediumEn: v }, "medium");
-                    else commitCopy({ mediumKo: v }, "medium");
-                  }}
-                  placeholder={t("artwork.field.mediumPlaceholder")}
-                  className={`${field} mt-1`}
-                />
-              )}
-            </div>
+            <BilingualFieldPair
+              label={`${t("bulk.medium")} *`}
+              addKoKey="bilingual.addKoMedium"
+              addEnKey="bilingual.addEnMedium"
+              placeholderKo={t("artwork.field.mediumPlaceholder")}
+              placeholderEn={t("artwork.field.mediumPlaceholder")}
+              valueKo={mediumKo}
+              valueEn={mediumEn}
+              onChangeKo={(v) => {
+                mediumDirty.current = true;
+                setMediumKo(v);
+              }}
+              onChangeEn={(v) => {
+                mediumDirty.current = true;
+                setMediumEn(v);
+              }}
+              onBlur={() => {
+                void commitMedium();
+              }}
+            />
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <label className={label}>
