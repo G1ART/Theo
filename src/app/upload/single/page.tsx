@@ -13,7 +13,17 @@ import {
   type ArtworkImageViewType,
   type CreateArtworkPayload,
 } from "@/lib/supabase/artworks";
-import { planOnboardedArtistPublish, resolveUploadedArtworkArtist } from "@/lib/upload/artworkOwner";
+import {
+  planOnboardedArtistPublish,
+  resolveRegistrationArtist,
+  resolveUploadedArtworkArtist,
+} from "@/lib/upload/artworkOwner";
+import {
+  bulkSessionFromArtist,
+  clearBulkSessionArtist,
+  readBulkSessionArtist,
+  writeBulkSessionArtist,
+} from "@/lib/upload/bulkSessionArtist";
 import {
   artistProfilePath,
   resolveArtistPublishNotice,
@@ -65,7 +75,7 @@ import {
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
-import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
+import { registrationBilingualFields, withPendingLocaleMedium } from "@/lib/upload/registrationCopy";
 import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { formatSingleUploadFailure } from "@/lib/upload/formatUploadError";
 
@@ -140,7 +150,9 @@ function UploadPageContent() {
     if (preselectedExternalName) return "attribution";
     return "form";
   });
-  const [intent, setIntent] = useState<IntentType | null>(fromExhibition ? "CURATED" : "CREATED");
+  const [intent, setIntent] = useState<IntentType | null>(
+    fromExhibition || preselectedArtistId ? "CURATED" : "CREATED",
+  );
 
   // Attribution (non-CREATED)
   const [artistSearch, setArtistSearch] = useState("");
@@ -289,6 +301,24 @@ function UploadPageContent() {
     });
   }, []);
 
+  // The other-artist choice lives on the upload workspace. Switching from
+  // the multi-work form to this one-work form must not drop it.
+  useEffect(() => {
+    if (preselectedArtistId || preselectedExternalName) return;
+    const saved = readBulkSessionArtist();
+    if (!saved) return;
+    setSelectedArtist((current) =>
+      current ?? {
+        id: saved.artistId,
+        username: saved.username,
+        display_name: saved.displayName,
+        display_name_ko: saved.displayNameKo,
+        display_name_en: saved.displayNameEn,
+      },
+    );
+    setIntent((current) => (current && current !== "CREATED" ? current : saved.intent));
+  }, [preselectedArtistId, preselectedExternalName]);
+
   useEffect(() => {
     void listMyExhibitions({ forProfileId: actingAsProfileId ?? null }).then(({ data }) => {
       setMyExhibitions(data ?? []);
@@ -408,14 +438,33 @@ function UploadPageContent() {
       }
     }
     setError(null);
+    if (!useExternalArtist && selectedArtist) {
+      const session = bulkSessionFromArtist(
+        selectedArtist,
+        intent === "OWNS" || intent === "INVENTORY" || intent === "CURATED" ? intent : "CURATED",
+      );
+      if (session) writeBulkSessionArtist(session);
+    } else if (useExternalArtist) {
+      clearBulkSessionArtist();
+    }
     setStep("form");
   }
 
+  function mediumSlots() {
+    return withPendingLocaleMedium({
+      locale: locale === "ko" ? "ko" : "en",
+      mediumKo,
+      mediumEn,
+      pending: mediumQuery,
+    });
+  }
+
   function currentGaps() {
+    const slots = mediumSlots();
     return uploadGaps({
       title,
       year,
-      medium,
+      medium: pickLegacyForSave(slots.mediumKo, slots.mediumEn) ?? medium,
       size,
       sizeNotApplicable: sizeNa,
       pricingMode,
@@ -438,8 +487,19 @@ function UploadPageContent() {
 
   async function fetchSimilarWorks() {
     setDedupLoading(true);
+    const remembered = useExternalArtist ? null : readBulkSessionArtist();
+    const attribution = userId
+      ? resolveRegistrationArtist({
+          sessionUserId: userId,
+          actingAsProfileId,
+          intent,
+          selectedArtistId: useExternalArtist ? null : selectedArtist?.id ?? null,
+          sessionArtistId: remembered?.artistId ?? null,
+          useExternalArtist: needsAttribution(intent) && useExternalArtist,
+        })
+      : null;
     const { data } = await searchWorksForDedup({
-      artistProfileId: needsAttribution(intent) && selectedArtist ? selectedArtist.id : userId ?? undefined,
+      artistProfileId: attribution?.onboardedArtistId ?? userId ?? undefined,
       q: title.trim(),
       limit: 5,
     });
@@ -466,11 +526,12 @@ function UploadPageContent() {
     const isExternal = needsAttribution(intent) && useExternalArtist;
     // QA 2026-07-28 bilingual — legacy 슬롯은 KO 우선. 240004 트리거가 서버
     // 측에서도 KO 우선 sync 하므로 클라이언트 값과 트리거 결과가 일치한다.
+    const slots = mediumSlots();
     const bilingual = registrationBilingualFields({
       titleKo,
       titleEn,
-      mediumKo,
-      mediumEn,
+      mediumKo: slots.mediumKo,
+      mediumEn: slots.mediumEn,
       storyKo,
       storyEn,
       title,
@@ -497,8 +558,27 @@ function UploadPageContent() {
       price_input_currency: pricingMode === "fixed" ? priceCurrency : undefined,
       work_kind: "artwork",
     };
-    const selectedOnboardedId =
-      needsAttribution(intent) && selectedArtist && !isExternal ? selectedArtist.id : null;
+    const rememberedArtist = isExternal ? null : readBulkSessionArtist();
+    const attribution = resolveRegistrationArtist({
+      sessionUserId: userId,
+      actingAsProfileId,
+      intent,
+      selectedArtistId: isExternal ? null : selectedArtist?.id ?? null,
+      sessionArtistId: rememberedArtist?.artistId ?? null,
+      useExternalArtist: isExternal,
+    });
+    const selectedOnboardedId = attribution.onboardedArtistId;
+    const noticeArtist =
+      selectedArtist ??
+      (rememberedArtist && selectedOnboardedId === rememberedArtist.artistId
+        ? {
+            id: rememberedArtist.artistId,
+            username: rememberedArtist.username,
+            display_name: rememberedArtist.displayName,
+            display_name_ko: rememberedArtist.displayNameKo,
+            display_name_en: rememberedArtist.displayNameEn,
+          }
+        : null);
     const owner = resolveUploadedArtworkArtist({
       sessionUserId: userId,
       actingAsProfileId,
@@ -509,7 +589,7 @@ function UploadPageContent() {
           sessionUserId: userId,
           actingAsProfileId,
           selectedArtistId: selectedOnboardedId,
-          intent,
+          intent: attribution.claimIntent,
         })
       : null;
     // Insert under the account that can attach images (self, or the
@@ -739,10 +819,10 @@ function UploadPageContent() {
       const artistNotice = artistPlan
         ? await resolveArtistPublishNotice({
             artistId: artistPlan.artistId,
-            artistName: selectedArtist
-              ? formatDisplayName(selectedArtist, t, locale)
+            artistName: noticeArtist
+              ? formatDisplayName(noticeArtist, t, locale)
               : null,
-            artistUsername: selectedArtist?.username ?? null,
+            artistUsername: noticeArtist?.username ?? null,
           })
         : null;
       if (artistNotice) writeArtistPublishNotice(artistNotice);
@@ -1170,6 +1250,13 @@ function UploadPageContent() {
                               type="button"
                               onClick={() => {
                                 setSelectedArtist(opt);
+                                const session = bulkSessionFromArtist(
+                                  opt,
+                                  intent === "OWNS" || intent === "INVENTORY" || intent === "CURATED"
+                                    ? intent
+                                    : "CURATED",
+                                );
+                                if (session) writeBulkSessionArtist(session);
                                 setPreselectedExternalArtistId(null);
                                 setReselectedExternalMeta(null);
                                 setUseExternalArtist(false);
@@ -1268,6 +1355,7 @@ function UploadPageContent() {
               <button
                 type="button"
                 onClick={() => {
+                  clearBulkSessionArtist();
                   setIntent("CREATED");
                   setSelectedArtist(null);
                   setUseExternalArtist(false);

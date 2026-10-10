@@ -71,6 +71,42 @@ export function planOnboardedArtistPublish(input: {
   };
 }
 
+export type RegistrationIntent = "CREATED" | ListerClaimType | null;
+
+/**
+ * Who a first save should credit.
+ *
+ * The single-work form defaults to CREATED ("I made this") until the
+ * operator opens attribution. A chosen artist — on this form, from the
+ * exhibition link, or remembered from the upload workspace — still wins.
+ * The uploader stays `created_by`. Own-work uploads stay CREATED.
+ */
+export function resolveRegistrationArtist(input: {
+  sessionUserId: string;
+  actingAsProfileId?: string | null;
+  intent: RegistrationIntent;
+  selectedArtistId?: string | null;
+  sessionArtistId?: string | null;
+  useExternalArtist?: boolean;
+}): {
+  onboardedArtistId: string | null;
+  claimIntent: "CREATED" | ListerClaimType;
+} {
+  const subject = (input.actingAsProfileId?.trim() || input.sessionUserId).trim();
+  const lister =
+    input.intent === "OWNS" || input.intent === "INVENTORY" || input.intent === "CURATED"
+      ? input.intent
+      : null;
+  if (input.useExternalArtist && lister) {
+    return { onboardedArtistId: null, claimIntent: lister };
+  }
+  const picked = input.selectedArtistId?.trim() || input.sessionArtistId?.trim() || "";
+  if (picked && picked !== subject) {
+    return { onboardedArtistId: picked, claimIntent: lister ?? "CURATED" };
+  }
+  return { onboardedArtistId: null, claimIntent: lister ?? "CREATED" };
+}
+
 type HeaderPerson = { id?: string | null };
 
 /**

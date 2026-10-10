@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-09
 
+## 2026-10-09 — 최초 등록에 한영 재료와 고른 작가를 남긴다
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+작품 `a623fd1a-e4a8-4f26-9134-14ea31c5767b` (테스트 / Test, 1996, 24 × 24 in) 를 확인했다. `medium_ko` 는 비어 있고 `medium_en` 은 `Mixed media on Canvas` 다. `artist_id` 와 `created_by`, CREATED 클레임이 모두 김현민(`g1art_founder`)이다. 저장된 행만으로는 현혜명이 주인이었다는 근거가 없어서 그 행은 고치지 않았다.
+
+- 한 점 등록의 재료 칸은 칩으로 만들기 전에 검색창에 남아 있으면 저장에서 빠졌다. 다른 언어만 들어가도 필수값 검사를 통과했다. 이제 검색창에 남은 글도 현재 언어 재료로 같이 저장한다.
+- 여러 점 카드도 같다. 다른 언어 칸은 입력 중인 값을 덮어쓰지 않고, 발행 직전에 검색창에 남은 재료를 먼저 넣는다.
+- 한 점 등록은 기본이 "내가 만든 작품"이라, 업로드 화면에서 고른 다른 작가나 주소의 작가 id를 무시했다. 고른 작가가 올리는 사람과 다르면 `artist_id` 는 그 작가, `created_by` 는 올리는 사람, 클레임은 큐레이터(또는 고른 소장/재고)다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/registration-save.test.ts`. `npx tsx tests/artwork-owner-is-selected-artist.test.ts`. `npx tsx tests/registration-artist-feedback.test.ts`.
+
 ## 2026-10-09 — 화면 언어에 저장된 제목·이름·재료를 보여 준다
 
 > **Supabase SQL:** `supabase/migrations/20261009220000_locale_display_stored_fields.sql` 을 2026-10-09에 MCP로 프로덕션에 **이미 적용**했다. 새 컬럼은 없다. 섹션 1 `artwork_artist_name_slot`, 섹션 2 `get_artwork_passport_for_viewer`, 섹션 3 `get_room_for_viewer_by_token` 을 나눠 실행했다. **환경 변수 추가·변경 없음.**

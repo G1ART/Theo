@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getArtworkImageUrl,
   validatePublish,
@@ -14,7 +14,7 @@ import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
-import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
+import { registrationBilingualFields, withPendingLocaleMedium } from "@/lib/upload/registrationCopy";
 import { TAXONOMY } from "@/lib/profile/taxonomy";
 import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
 
@@ -94,7 +94,7 @@ type Props = {
   onDragLeave: () => void;
   sizeNotApplicable: boolean;
   onSizeNotApplicable: (na: boolean) => void;
-  onSave: (patch: UpdateArtworkPayload) => void;
+  onSave: (patch: UpdateArtworkPayload) => void | Promise<void>;
   onLinkExhibition: (exhibitionId: string) => void;
   onSetViewType: (storagePath: string, viewType: ArtworkImageViewType) => void;
   onRemoveDetail: (storagePath: string) => void;
@@ -160,6 +160,7 @@ export function BulkDraftCard({
   const [mediumAlt, setMediumAlt] = useState(
     () => (locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? ""),
   );
+  const mediumAltDirty = useRef(false);
   const [titleKo, setTitleKo] = useState(draft.title_ko ?? (locale === "ko" ? draft.title ?? "" : ""));
   const [titleEn, setTitleEn] = useState(draft.title_en ?? (locale === "ko" ? "" : draft.title ?? ""));
   const [storyKo, setStoryKo] = useState(draft.story_ko ?? (locale === "ko" ? draft.story ?? "" : ""));
@@ -176,8 +177,12 @@ export function BulkDraftCard({
     setWidth(next.w);
     setHeight(next.h);
     setDepth(next.d);
-    setMediums(splitMedium(locale === "ko" ? draft.medium_ko || draft.medium : draft.medium_en || draft.medium));
-    setMediumAlt(locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? "");
+    if (!mediumQuery.trim()) {
+      setMediums(splitMedium(locale === "ko" ? draft.medium_ko || draft.medium : draft.medium_en || draft.medium));
+    }
+    if (!mediumAltDirty.current) {
+      setMediumAlt(locale === "ko" ? draft.medium_en ?? "" : draft.medium_ko ?? "");
+    }
     setTitleKo(draft.title_ko ?? (locale === "ko" ? draft.title ?? "" : ""));
     setTitleEn(draft.title_en ?? (locale === "ko" ? "" : draft.title ?? ""));
     setStoryKo(draft.story_ko ?? (locale === "ko" ? draft.story ?? "" : ""));
@@ -240,11 +245,18 @@ export function BulkDraftCard({
     },
     part: "title" | "medium" | "story",
   ) {
+    const localeKey = locale === "ko" ? "ko" : "en";
+    const mergedMedium = withPendingLocaleMedium({
+      locale: localeKey,
+      mediumKo: next.mediumKo ?? (locale === "ko" ? mediums.join(", ") : mediumAlt || draft.medium_ko || ""),
+      mediumEn: next.mediumEn ?? (locale === "ko" ? mediumAlt || draft.medium_en || "" : mediums.join(", ")),
+      pending: part === "medium" ? mediumQuery : "",
+    });
     const fields = registrationBilingualFields({
       titleKo: next.titleKo ?? titleKo,
       titleEn: next.titleEn ?? titleEn,
-      mediumKo: next.mediumKo ?? (locale === "ko" ? mediums.join(", ") : draft.medium_ko ?? ""),
-      mediumEn: next.mediumEn ?? (locale === "ko" ? draft.medium_en ?? "" : mediums.join(", ")),
+      mediumKo: mergedMedium.mediumKo,
+      mediumEn: mergedMedium.mediumEn,
       storyKo: next.storyKo ?? storyKo,
       storyEn: next.storyEn ?? storyEn,
       title: draft.title ?? "",
@@ -256,8 +268,11 @@ export function BulkDraftCard({
       return;
     }
     if (part === "medium") {
-      onSave({ medium: fields.medium, medium_ko: fields.medium_ko, medium_en: fields.medium_en });
-      return;
+      mediumAltDirty.current = false;
+      setMediums(splitMedium(locale === "ko" ? mergedMedium.mediumKo : mergedMedium.mediumEn));
+      setMediumAlt(locale === "ko" ? mergedMedium.mediumEn : mergedMedium.mediumKo);
+      setMediumQuery("");
+      return onSave({ medium: fields.medium, medium_ko: fields.medium_ko, medium_en: fields.medium_en });
     }
     onSave({ story: fields.story, story_ko: fields.story_ko, story_en: fields.story_en });
   }
@@ -400,7 +415,13 @@ export function BulkDraftCard({
           />
           <button
             type="button"
-            onClick={onPublish}
+            onClick={() => {
+              if (!mediumQuery.trim() && !mediumAltDirty.current) {
+                onPublish();
+                return;
+              }
+              void Promise.resolve(commitCopy({}, "medium")).then(() => onPublish());
+            }}
             disabled={!ready || publishing}
             className="mt-2 w-full rounded-full bg-zinc-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
           >
@@ -596,10 +617,15 @@ export function BulkDraftCard({
               {mediumAltOpen && (
                 <input
                   value={mediumAlt}
-                  onChange={(e) => setMediumAlt(e.target.value)}
-                  onBlur={() => {
-                    if (locale === "ko") commitCopy({ mediumEn: mediumAlt }, "medium");
-                    else commitCopy({ mediumKo: mediumAlt }, "medium");
+                  onChange={(e) => {
+                    mediumAltDirty.current = true;
+                    setMediumAlt(e.target.value);
+                  }}
+                  onBlur={(e) => {
+                    const v = e.currentTarget.value;
+                    setMediumAlt(v);
+                    if (locale === "ko") commitCopy({ mediumEn: v }, "medium");
+                    else commitCopy({ mediumKo: v }, "medium");
                   }}
                   placeholder={t("artwork.field.mediumPlaceholder")}
                   className={`${field} mt-1`}

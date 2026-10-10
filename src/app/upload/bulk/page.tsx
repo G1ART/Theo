@@ -474,6 +474,7 @@ export default function BulkUploadPage() {
         forProfileId: actingAsProfileId ?? undefined,
       });
       const rows = data ?? [];
+      draftsRef.current = rows;
       setDrafts(rows);
       if (!silent) setLoading(false);
       return rows;
@@ -1533,7 +1534,7 @@ export default function BulkUploadPage() {
   async function handlePublish(idsOverride?: string[]) {
     const ids = idsOverride ?? Array.from(selected);
     if (ids.length === 0) return;
-    const toPublish = drafts.filter((d) => ids.includes(d.id));
+    const toPublish = draftsRef.current.filter((d) => ids.includes(d.id));
     const invalid = toPublish.filter((d) => !draftReady(d).ok);
     if (invalid.length > 0) return;
     const savedForPublish = useExternalArtist ? null : readBulkSessionArtist();
@@ -3128,7 +3129,7 @@ export default function BulkUploadPage() {
                 onSizeNotApplicable={(na) =>
                   setSizeExempt((prev) => ({ ...prev, [d.id]: na }))
                 }
-                onSave={(patch) => void saveDraftPatch(d.id, patch)}
+                onSave={(patch) => saveDraftPatch(d.id, patch)}
                 onLinkExhibition={(exhibitionId) => void linkOneExhibition(d.id, exhibitionId)}
                 onSetViewType={(storagePath, viewType) => void setDetailView(d.id, storagePath, viewType)}
                 onRemoveDetail={(storagePath) => void removeDetailImage(d.id, storagePath)}
