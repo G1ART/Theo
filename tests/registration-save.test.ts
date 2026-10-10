@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { resolveRegistrationArtist } from "../src/lib/upload/artworkOwner";
 import {
+  mediumFieldsFromBoxes,
   registrationBilingualFields,
   withPendingLocaleMedium,
 } from "../src/lib/upload/registrationCopy";
@@ -12,22 +13,27 @@ const CURATOR = "d4b84e70-3b10-4da9-a6da-ad7830fc7519";
 const ARTIST = "8b4dc6e1-d9f7-4ac9-a626-ef61566af657";
 
 {
-  const slots = withPendingLocaleMedium({
+  // The open medium box still holds the Korean. The other box holds the
+  // English. No chip was added. Both columns must be in the save payload.
+  const shown = mediumFieldsFromBoxes({
     locale: "ko",
-    mediumKo: "",
-    mediumEn: "Mixed media on Canvas",
-    pending: "캔버스에 혼합재료",
+    primaryText: "캔버스에 복합재료",
+    altText: "Mixed media on canvas",
+    chips: [],
   });
   const saved = registrationBilingualFields({
     titleKo: "테스트",
     titleEn: "Test",
-    mediumKo: slots.mediumKo,
-    mediumEn: slots.mediumEn,
+    mediumKo: shown.mediumKo,
+    mediumEn: shown.mediumEn,
     storyKo: "",
     storyEn: "",
   });
-  assert.equal(saved.medium_ko, "캔버스에 혼합재료");
-  assert.equal(saved.medium_en, "Mixed media on Canvas");
+  assert.equal(shown.mediumKo, "캔버스에 복합재료");
+  assert.equal(shown.mediumEn, "Mixed media on canvas");
+  assert.equal(saved.medium_ko, "캔버스에 복합재료");
+  assert.equal(saved.medium_en, "Mixed media on canvas");
+  assert.equal(saved.medium, "캔버스에 복합재료");
   assert.equal(saved.title_ko, "테스트");
   assert.equal(saved.title_en, "Test");
 }

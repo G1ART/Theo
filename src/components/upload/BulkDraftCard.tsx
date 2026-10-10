@@ -555,6 +555,10 @@ export function BulkDraftCard({
                 <input
                   value={mediumQuery}
                   onChange={(e) => setMediumQuery(e.target.value)}
+                  onBlur={() => {
+                    if (!mediumQuery.trim()) return;
+                    commitCopy({}, "medium");
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();

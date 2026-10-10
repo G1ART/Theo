@@ -21,32 +21,54 @@ export type RegistrationBilingualInput = {
  * The other language is never cleared just because the UI locale shows one.
  * Legacy columns stay KO-first so older readers still have a title.
  */
+
+function mediumParts(value: string): string[] {
+  return value
+    .split(/[,，]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 /**
- * The medium box on first registration is a chip search. Text left in
- * that box is the current language and must be stored with the other
- * language, not dropped because the artist did not press +.
+ * What the upload form is showing.
+ *
+ * `primaryText` is the open medium box for the current language.
+ * `altText` is the other language box.
+ * `chips` are terms already added with + for the current language.
+ * Typing in either box is enough. The current language does not have to
+ * become a chip first, and the other language must not replace it.
  */
+export function mediumFieldsFromBoxes(input: {
+  locale: "ko" | "en";
+  primaryText: string;
+  altText: string;
+  chips?: string[];
+}): { mediumKo: string; mediumEn: string } {
+  const parts = (input.chips ?? []).flatMap((chip) => mediumParts(chip));
+  const pending = input.primaryText.trim();
+  if (pending && !parts.some((part) => part.toLowerCase() === pending.toLowerCase())) {
+    parts.push(pending);
+  }
+  const joined = parts.join(", ");
+  const alt = input.altText.trim();
+  if (input.locale === "ko") return { mediumKo: joined, mediumEn: alt };
+  return { mediumKo: alt, mediumEn: joined };
+}
+
+/** @deprecated Use mediumFieldsFromBoxes. Kept so chip drafts still merge. */
 export function withPendingLocaleMedium(input: {
   locale: "ko" | "en";
   mediumKo: string;
   mediumEn: string;
   pending?: string | null;
 }): { mediumKo: string; mediumEn: string } {
-  const mediumKo = input.mediumKo ?? "";
-  const mediumEn = input.mediumEn ?? "";
-  const pending = input.pending?.trim() ?? "";
-  if (!pending) return { mediumKo, mediumEn };
-  const primary = input.locale === "ko" ? mediumKo : mediumEn;
-  const parts = primary
-    .split(/[,，]/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (!parts.some((part) => part.toLowerCase() === pending.toLowerCase())) {
-    parts.push(pending);
-  }
-  const joined = parts.join(", ");
-  if (input.locale === "ko") return { mediumKo: joined, mediumEn };
-  return { mediumKo, mediumEn: joined };
+  const localeKey = input.locale === "ko" ? "ko" : "en";
+  return mediumFieldsFromBoxes({
+    locale: localeKey,
+    primaryText: input.pending ?? "",
+    altText: localeKey === "ko" ? input.mediumEn : input.mediumKo,
+    chips: mediumParts(localeKey === "ko" ? input.mediumKo : input.mediumEn),
+  });
 }
 
 export function registrationBilingualFields(input: RegistrationBilingualInput) {

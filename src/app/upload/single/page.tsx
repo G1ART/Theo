@@ -75,7 +75,7 @@ import {
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
 import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
-import { registrationBilingualFields, withPendingLocaleMedium } from "@/lib/upload/registrationCopy";
+import { mediumFieldsFromBoxes, registrationBilingualFields } from "@/lib/upload/registrationCopy";
 import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { formatSingleUploadFailure } from "@/lib/upload/formatUploadError";
 
@@ -278,6 +278,7 @@ function UploadPageContent() {
   const [myExhibitions, setMyExhibitions] = useState<ExhibitionWithCredits[]>([]);
   const [exhibitionPick, setExhibitionPick] = useState(addToExhibitionId ?? "");
   const [mediumQuery, setMediumQuery] = useState("");
+  const [mediumTokens, setMediumTokens] = useState<string[]>([]);
   const [sizeNa, setSizeNa] = useState(false);
   const [dimH, setDimH] = useState("");
   const [dimW, setDimW] = useState("");
@@ -450,13 +451,20 @@ function UploadPageContent() {
     setStep("form");
   }
 
-  function mediumSlots() {
-    return withPendingLocaleMedium({
+  function mediumSlots(primaryText = mediumQuery, chips = mediumTokens, altText = locale === "ko" ? mediumEn : mediumKo) {
+    return mediumFieldsFromBoxes({
       locale: locale === "ko" ? "ko" : "en",
-      mediumKo,
-      mediumEn,
-      pending: mediumQuery,
+      primaryText,
+      altText,
+      chips,
     });
+  }
+
+  function applyMediumBoxes(primaryText: string, chips: string[], altText: string) {
+    const fields = mediumSlots(primaryText, chips, altText);
+    setMediumKo(fields.mediumKo);
+    setMediumEn(fields.mediumEn);
+    setMedium(pickLegacyForSave(fields.mediumKo, fields.mediumEn) ?? "");
   }
 
   function currentGaps() {
@@ -956,36 +964,32 @@ function UploadPageContent() {
     });
   }
 
-  const mediumChips = (locale === "ko" ? mediumKo || medium : mediumEn || medium)
-    .split(/[,，]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  function setMediumChips(next: string[]) {
-    const joined = next.join(", ");
-    if (locale === "ko") {
-      setMediumKo(joined);
-      setMedium(pickLegacyForSave(joined, mediumEn) ?? joined);
-    } else {
-      setMediumEn(joined);
-      setMedium(pickLegacyForSave(mediumKo, joined) ?? joined);
-    }
-  }
   function addMediumChip(raw: string) {
     const value = raw.trim();
     if (!value) return;
-    if (mediumChips.some((m) => m.toLowerCase() === value.toLowerCase())) {
+    const alt = locale === "ko" ? mediumEn : mediumKo;
+    if (mediumTokens.some((chip) => chip.toLowerCase() === value.toLowerCase())) {
       setMediumQuery("");
+      applyMediumBoxes("", mediumTokens, alt);
       return;
     }
+    const next = [...mediumTokens, value];
+    setMediumTokens(next);
     setMediumQuery("");
-    setMediumChips([...mediumChips, value]);
+    applyMediumBoxes("", next, alt);
+  }
+  function removeMediumChip(chip: string) {
+    const next = mediumTokens.filter((item) => item !== chip);
+    const alt = locale === "ko" ? mediumEn : mediumKo;
+    setMediumTokens(next);
+    applyMediumBoxes(mediumQuery, next, alt);
   }
   const mediumSuggestions = TAXONOMY.mediumOptions
     .map((opt) => t(opt.labelKey))
     .filter((name) => {
       const q = mediumQuery.trim().toLowerCase();
       if (!q) return false;
-      return name.toLowerCase().includes(q) && !mediumChips.some((m) => m.toLowerCase() === name.toLowerCase());
+      return name.toLowerCase().includes(q) && !mediumTokens.some((chip) => chip.toLowerCase() === name.toLowerCase());
     })
     .slice(0, 6);
   const yearOptions = Array.from({ length: 81 }, (_, i) => String(new Date().getFullYear() - i));
@@ -1692,7 +1696,11 @@ function UploadPageContent() {
                       <div className="flex items-center rounded border border-zinc-300">
                         <input
                           value={mediumQuery}
-                          onChange={(e) => setMediumQuery(e.target.value)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setMediumQuery(v);
+                            applyMediumBoxes(v, mediumTokens, locale === "ko" ? mediumEn : mediumKo);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -1725,15 +1733,15 @@ function UploadPageContent() {
                           ))}
                         </div>
                       )}
-                      {mediumChips.length > 0 && (
+                      {mediumTokens.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {mediumChips.map((chip) => (
+                          {mediumTokens.map((chip) => (
                             <span key={chip} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-0.5 text-xs">
                               {chip}
                               <button
                                 type="button"
                                 aria-label={chip}
-                                onClick={() => setMediumChips(mediumChips.filter((m) => m !== chip))}
+                                onClick={() => removeMediumChip(chip)}
                                 className="text-zinc-400"
                               >
                                 ×
@@ -1749,14 +1757,7 @@ function UploadPageContent() {
                         <input
                           value={locale === "ko" ? mediumEn : mediumKo}
                           onChange={(e) => {
-                            const v = e.target.value;
-                            if (locale === "ko") {
-                              setMediumEn(v);
-                              setMedium(pickLegacyForSave(mediumKo, v) ?? medium);
-                            } else {
-                              setMediumKo(v);
-                              setMedium(pickLegacyForSave(v, mediumEn) ?? medium);
-                            }
+                            applyMediumBoxes(mediumQuery, mediumTokens, e.target.value);
                           }}
                           placeholder={t("artwork.field.mediumPlaceholder")}
                           className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
