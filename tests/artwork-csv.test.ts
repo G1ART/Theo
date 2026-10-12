@@ -310,4 +310,27 @@ import { parseCsv } from "../src/lib/csv/parse";
   assert.equal(uneven.unmatched.length, 1);
 }
 
+{
+  const split = parseArtworkCsv("제목,가로,세로,단위\n정원,130,90,cm\n");
+  assert.equal(split.rows[0]?.size, "130 × 90");
+  assert.equal(split.rows[0]?.sizeUnit, "cm");
+  const splitPatch = buildCaptionPatch(split.rows[0]!, "ko");
+  assert.equal(splitPatch.patch.size, "130 × 90");
+  assert.equal(splitPatch.patch.size_unit, "cm");
+  assert.equal(splitPatch.dims?.widthCm, 130);
+  assert.equal(splitPatch.dims?.heightCm, 90);
+
+  const inches = parseArtworkCsv("title,width,height,size_unit\nWave,36,36,in\n");
+  assert.equal(inches.rows[0]?.size, "36 × 36");
+  assert.equal(inches.rows[0]?.sizeUnit, "in");
+
+  const already = parseArtworkCsv("title,size,width,height\nWave,36 x 36 in,1,2\n");
+  assert.equal(already.rows[0]?.size, "36 x 36 in");
+  assert.equal(already.rows[0]?.sizeUnit, "in");
+
+  const oneSide = parseArtworkCsv("title,width,size_unit\nStone,130,cm\n");
+  assert.equal(oneSide.rows[0]?.size, "130");
+  assert.equal(oneSide.rows[0]?.sizeUnit, "cm");
+}
+
 console.log("artwork-csv tests: ok");

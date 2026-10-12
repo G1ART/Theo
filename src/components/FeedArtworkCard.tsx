@@ -32,68 +32,11 @@ import {
   formatUsername,
   hasPublicLinkableUsername,
 } from "@/lib/identity/format";
-import {
-  formatSizeForLocale,
-  parseSizeWithUnit,
-  type SizeUnitPref,
-} from "@/lib/size/format";
+import { formatArtworkSizeOverlay } from "@/lib/size/format";
 import { useSizeUnitPref } from "@/lib/size/preference";
 import { LikeButton } from "./LikeButton";
 import { ArtworkArtistName } from "@/components/artwork/ArtworkArtistName";
 import { Chip } from "@/components/ds";
-
-/**
- * `formatSizeForLocale` may prefix the dimensions with a Hosu marker
- * (`30F · `, `약 30F · `, `~30F · `). The salon size pill is meant to
- * read at a glance, so we drop any leading Hosu marker and keep only the
- * dimension base (e.g. `90.9 × 72.7 cm`).
- *
- * Final defence: if the base does *not* end with a `cm` / `in` unit
- * marker, return null so the pill never renders without a unit. cm and
- * inch differ by ~2.5x — a unit-less number on a thumbnail can mislead
- * viewers far worse than silently hiding the pill until the data is
- * patched. This catches legacy / stale-build paths in which an upstream
- * formatter accidentally emits a unit-less string (e.g. raw fall-through
- * in `formatSizeForLocale` when `parseSize` doesn't match a known
- * pattern, or older builds where the gate didn't yet exist).
- */
-function extractSizeBase(formatted: string | null): string | null {
-  if (!formatted) return null;
-  const trimmed = formatted.trim();
-  if (!trimmed) return null;
-  if (!/\b(?:cm|in)\b/i.test(trimmed)) return null;
-  return trimmed;
-}
-
-/**
- * Build the size pill string for the salon grid. Returns null when:
- * - the `size` field is missing / empty, or
- * - the value doesn't parse at all, or
- * - the unit can't be confidently determined: no suffix on the input
- *   (`120 × 80`), no Hosu marker (`30F`), and no `artwork.size_unit`
- *   column. cm and inch differ by ~2.5x, so guessing a unit on a bare
- *   number can mislead viewers far worse than quietly hiding the pill
- *   until the data is patched (Artsy / Artnet / 1stDibs follow the
- *   same policy).
- *
- * Hosu inputs always evaluate as `unit: "cm"` in `parseSizeWithUnit`
- * (Hosu is a cm-based standard) and therefore pass the gate. The only
- * silently-hidden case is a bare unit-less number with no `size_unit`.
- */
-function buildSizePill(
-  size: string | null | undefined,
-  sizeUnit: "cm" | "in" | null | undefined,
-  locale: string,
-  prefUnit: SizeUnitPref
-): string | null {
-  if (!size || !size.trim()) return null;
-  const parsed = parseSizeWithUnit(size);
-  const inputHasUnit = parsed?.unit != null;
-  if (!inputHasUnit && (sizeUnit == null || sizeUnit === undefined)) {
-    return null;
-  }
-  return extractSizeBase(formatSizeForLocale(size, locale, sizeUnit ?? null, prefUnit));
-}
 
 type ArtistProfileLite = {
   id?: string;
@@ -269,7 +212,7 @@ export function FeedArtworkCard({
   const isMini = variant === "discoveryMini";
   const sizeOverlay = isMini
     ? null
-    : buildSizePill(artwork.size, artwork.size_unit ?? null, locale, sizePref);
+    : formatArtworkSizeOverlay(artwork.size, locale, artwork.size_unit ?? null, sizePref);
   // Standard tiles use a 4:5 portrait aspect for a magazine rhythm. Anchor /
   // spotlight stays square because its wider column span already gives it
   // visual weight; a taller anchor would push the row height up. Mini stays
@@ -314,6 +257,7 @@ export function FeedArtworkCard({
     <article
       role="link"
       tabIndex={0}
+      data-feed-detail=""
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       aria-label={pickLocalizedArtworkTitle(artwork, locale) || undefined}

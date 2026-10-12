@@ -11,6 +11,9 @@ export type CsvField =
   | "year"
   | "medium"
   | "size"
+  | "width"
+  | "height"
+  | "depth"
   | "size_unit"
   | "ownership_status"
   | "pricing_mode"
@@ -55,6 +58,12 @@ const ALIASES: Record<string, CsvField> = {
   size: "size",
   크기: "size",
   사이즈: "size",
+  width: "width",
+  가로: "width",
+  height: "height",
+  세로: "height",
+  depth: "depth",
+  깊이: "depth",
   sizeunit: "size_unit",
   크기단위: "size_unit",
   단위: "size_unit",

@@ -212,6 +212,7 @@ export function ExploreArtworkCard({
     <article
       role="link"
       tabIndex={0}
+      data-feed-detail=""
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       aria-label={localizedTitle || artwork.title || undefined}

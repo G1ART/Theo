@@ -17,12 +17,13 @@ import {
   type ProfileListCursor,
   type ProfileListItem,
 } from "@/lib/supabase/profiles";
-import { saveFeedSnapshot, type FeedSnapshot } from "@/lib/feed/scrollSnapshot";
+import { readFeedSnapshot, saveFeedSnapshot, type FeedSnapshot } from "@/lib/feed/scrollSnapshot";
 import {
   canWriteFeedSnapshot,
   feedResetRefetches,
   handleFeedSnapshotClick,
   readFeedSnapshotForMount,
+  shouldPreserveFeedScroll,
   subscribeFeedReset,
 } from "@/lib/feed/scrollRestore";
 import { ExploreArtworkCard } from "./explore/ExploreArtworkCard";
@@ -228,6 +229,8 @@ export function ExploreTaxonomyContent({ tab, sort, userId }: Props) {
       const hasArtists = state.artists.length > 0;
       if (!hasArtworks && !hasExhibitions && !hasArtists) return;
       if (window.scrollY === 0 && restorePendingRef.current) return;
+      const existing = readFeedSnapshot<ExploreSnapshot>(snapshotKey);
+      if (shouldPreserveFeedScroll(window.scrollY, existing?.scrollY)) return;
       saveFeedSnapshot(snapshotKey, state, window.scrollY);
     };
 

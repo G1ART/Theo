@@ -21,6 +21,8 @@ import type {
 import { hasPublicLinkableUsername } from "@/lib/identity/format";
 import { useT } from "@/lib/i18n/useT";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
+import { formatArtworkSizeOverlay } from "@/lib/size/format";
+import { useSizeUnitPref } from "@/lib/size/preference";
 
 type Props = {
   module: FeedModule;
@@ -151,7 +153,7 @@ function ArtistCard({
         <div className="mt-auto grid grid-cols-3 gap-3">
           {shown.map((work) => (
             <WorkLink key={work.id} work={work}>
-              <SquareImage src={workSrc(work, true)} alt={work.title} sizes="160px" />
+              <WorkThumb work={work} sizes="160px" alt={work.title} />
             </WorkLink>
           ))}
         </div>
@@ -174,7 +176,7 @@ function GalleryTile({ work }: { work: WalkWorkView }) {
   const caption = [work.title, work.year].filter(Boolean).join(" . ");
   return (
     <WorkLink work={work}>
-      <SquareImage src={workSrc(work, false)} alt={work.title || work.artistName} sizes="240px" />
+      <WorkThumb work={work} sizes="240px" alt={work.title || work.artistName} />
       <div className="mt-2 space-y-0.5 text-sm text-zinc-900">
         {work.artistName && <p className="truncate font-medium">{work.artistName}</p>}
         {caption && <p className="truncate">{caption}</p>}
@@ -190,7 +192,7 @@ function CreditTile({ work }: { work: WalkWorkView }) {
   return (
     <div className="min-w-0">
       <WorkLink work={work}>
-        <SquareImage src={workSrc(work, false)} alt={work.title || work.artistName} sizes="240px" />
+        <WorkThumb work={work} sizes="240px" alt={work.title || work.artistName} />
       </WorkLink>
       <div className="mt-2 flex items-baseline justify-between gap-2 text-sm text-zinc-900">
         <p className="min-w-0 truncate font-medium">{work.title}</p>
@@ -361,10 +363,32 @@ function WorkLink({ work, children }: { work: WalkWorkView; children: ReactNode 
   );
 }
 
-function SquareImage({ src, alt, sizes }: { src: string | null; alt: string; sizes: string }) {
+function WorkThumb({ work, alt, sizes }: { work: WalkWorkView; alt: string; sizes: string }) {
+  const { locale } = useT();
+  const pref = useSizeUnitPref();
+  const label = formatArtworkSizeOverlay(work.size, locale, work.sizeUnit, pref);
+  return <SquareImage src={workSrc(work, true)} alt={alt} sizes={sizes} sizeLabel={label} />;
+}
+
+function SquareImage({
+  src,
+  alt,
+  sizes,
+  sizeLabel = null,
+}: {
+  src: string | null;
+  alt: string;
+  sizes: string;
+  sizeLabel?: string | null;
+}) {
   return (
     <div className="relative aspect-square overflow-hidden bg-zinc-100">
       {src ? <Image src={src} alt={alt} fill sizes={sizes} className="object-contain" /> : null}
+      {sizeLabel ? (
+        <span className="pointer-events-none absolute bottom-1.5 left-1.5 max-w-[calc(100%-0.75rem)] truncate whitespace-nowrap rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium leading-none tracking-tight text-zinc-800 shadow-sm backdrop-blur-sm sm:bottom-2 sm:left-2 sm:text-[11px]">
+          {sizeLabel}
+        </span>
+      ) : null}
     </div>
   );
 }

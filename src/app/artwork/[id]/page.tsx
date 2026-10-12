@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useParams } from "next/navigation";
-import { getArtworkBack } from "@/lib/artworkBack";
+import { artworkDeleteNavigation, getArtworkBack, readHistoryIdx } from "@/lib/artworkBack";
+import { armFeedRestore } from "@/lib/feed/scrollRestore";
 import { getArtworkArtistLabel, getArtworkPriceDisplay, isExternalArtistArtwork } from "@/lib/supabase/artworks";
 import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
 import { compareArtworkImageOrder } from "@/lib/artworks/primaryImage";
@@ -248,7 +249,26 @@ function ArtworkDetailContent() {
       setError(formatSupabaseError(err, t, "errors.failedDelete"));
       return;
     }
-    router.push("/my");
+    const nav = artworkDeleteNavigation({
+      historyIdx: readHistoryIdx(),
+      stampedPath: getArtworkBack().path,
+    });
+    if (nav.path.startsWith("/feed")) armFeedRestore();
+    if (nav.action === "replace" || typeof window === "undefined") {
+      router.replace(nav.path);
+      return;
+    }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("popstate", onPop);
+      if (window.location.pathname.startsWith("/artwork/")) router.replace(nav.path);
+    };
+    const onPop = () => finish();
+    window.addEventListener("popstate", onPop);
+    window.history.back();
+    window.setTimeout(finish, 400);
   }
 
   const recordView = useCallback(async () => {

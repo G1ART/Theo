@@ -1,6 +1,11 @@
 import { fieldForHeader, type CsvField } from "./columns";
 import { parseCsv } from "./parse";
-import { parseSizeToDimensionsCm, type ArtworkDimensionsCm } from "@/lib/size/format";
+import {
+  composeDimensionSize,
+  parseSizeToDimensionsCm,
+  readDimensionFields,
+  type ArtworkDimensionsCm,
+} from "@/lib/size/format";
 
 export type OwnershipStatus = "available" | "owned" | "sold" | "not_for_sale";
 
@@ -166,6 +171,9 @@ type ColKey =
   | "year"
   | "medium"
   | "size"
+  | "width"
+  | "height"
+  | "depth"
   | "sizeUnit"
   | "price"
   | "currency"
@@ -197,6 +205,10 @@ export function parseArtworkCsv(text: string): { rows: ArtworkCsvRow[]; hasFilen
       if (index.sizeUnit == null) index.sizeUnit = i;
       return;
     }
+    if (field === "width" || field === "height" || field === "depth") {
+      if (index[field] == null) index[field] = i;
+      return;
+    }
     if (field === "ownership_status") {
       if (index.ownership == null) index.ownership = i;
       return;
@@ -216,7 +228,10 @@ export function parseArtworkCsv(text: string): { rows: ArtworkCsvRow[]; hasFilen
         const i = index[key];
         return i == null ? "" : (cells[i] ?? "").trim();
       };
-      const size = cell("size") || null;
+      const sizeCell = cell("size");
+      const fromBoxes = composeDimensionSize(cell("width"), cell("height"), cell("depth"));
+      const sizeHasPair = Boolean(readDimensionFields(sizeCell).h);
+      const size = (sizeHasPair ? sizeCell : fromBoxes || sizeCell) || null;
       const filename = cell("filename") || null;
       const priceCell = parsePriceCell(cell("price"));
       const currencyCell = parseCurrency(cell("currency"));

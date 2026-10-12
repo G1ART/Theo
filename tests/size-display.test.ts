@@ -72,6 +72,40 @@ import assert from "node:assert/strict";
   assert.equal(formatSizeForLocale("Variable size", "en"), "Variable size");
   // Trailing .0 dropped.
   assert.equal(formatSizeForLocale("100 x 80", "ko", "cm"), "100 × 80 cm");
+  // One stored number keeps its unit. The other side is not invented.
+  assert.equal(formatSizeForLocale("36", "ko", "cm"), "36 cm");
+  assert.equal(formatSizeForLocale("36", "en", "in"), "36 in");
+  assert.equal(formatSizeForLocale("36", "ko", "in"), "91.4 cm");
+  assert.equal(formatSizeForLocale("130", "ko", "cm"), "130 cm");
+  assert.equal(formatSizeForLocale("130", "en", "cm"), "51.2 in");
+  assert.equal(formatSizeForLocale("36", "ko", null), "36");
+  assert.equal(formatSizeForLocale("30호", "ko", "cm"), "30호");
+  assert.equal(formatSizeForLocale("Variable size", "ko", "cm"), "Variable size");
+  // Curly inch marks are inches, not a bare pair.
+  assert.equal(formatSizeForLocale("36” x 36”", "en"), "36 × 36 in");
+
+  const { composeDimensionSize, readDimensionFields, sizeTextForSave, formatArtworkSizeOverlay } =
+    await import("../src/lib/size/format");
+  assert.equal(composeDimensionSize("36", "36", ""), "36 × 36");
+  assert.equal(composeDimensionSize("130", "", ""), "130");
+  assert.equal(composeDimensionSize("", "40", "2"), "40 × 2");
+  assert.deepEqual(readDimensionFields("36 × 24"), { w: "36", h: "24", d: "" });
+  assert.deepEqual(readDimensionFields("130"), { w: "130", h: "", d: "" });
+  assert.deepEqual(readDimensionFields("30호"), { w: "", h: "", d: "" });
+  assert.equal(
+    sizeTextForSave({ size: "36", width: "36", height: "48", depth: "" }),
+    "36 × 48"
+  );
+  assert.equal(
+    sizeTextForSave({ size: "30F (90.9 x 72.7 cm)", width: "90.9", height: "72.7" }),
+    "30F (90.9 x 72.7 cm)"
+  );
+  assert.equal(sizeTextForSave({ size: "36 × 24", width: "", height: "", notApplicable: true }), "");
+  assert.equal(formatArtworkSizeOverlay("36", "ko", "cm"), "36 cm");
+  assert.equal(formatArtworkSizeOverlay("36 × 48", "ko", "in"), "91.4 × 121.9 cm");
+  assert.equal(formatArtworkSizeOverlay("91 × 72", "ko", null), null);
+  assert.equal(formatArtworkSizeOverlay("", "ko", "cm"), null);
+  assert.equal(formatArtworkSizeOverlay("130 × 90", "en", "cm"), "51.2 × 35.4 in");
 
   console.log("size-display.test.ts: ok");
 })().catch((err) => {

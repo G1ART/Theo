@@ -1,8 +1,8 @@
 /**
  * When the feed may reuse its session cache (scroll Y + loaded pages + cursor).
  *
- * Restore only when the visitor returns from an artwork or exhibition:
- * browser Back, or the in-app Back to Feed link. Logo, feed tabs, refresh,
+ * Restore when the visitor returns from anywhere they opened off the feed
+ * (artwork, exhibition, person, browser Back). Logo, feed tabs, refresh,
  * and any control that opens the feed itself start at the top.
  *
  * The cache still lives in `sessionStorage` (`feed:snapshot:v1:*`). A reload
@@ -235,10 +235,28 @@ export function subscribeFeedReset(listener: () => void): () => void {
   return () => window.removeEventListener(RESET_EVENT, listener);
 }
 
-/** Artist, profile, and other non-detail exits must not restore on the way back. */
+/**
+ * Leave the feed for a profile, exhibition, search, or any other page.
+ * The snapshot stays so browser Back and the in-app back link return
+ * to the same scroll. Logo, feed tabs, and refresh clear it themselves.
+ */
 export function leaveFeedWithoutRestore(): void {
   blockPersist = false;
-  forgetFeedSessionCache();
+  armFeedRestore();
+}
+
+/** True when this click should keep the feed scroll for the way back. */
+export function feedExitKeepsScroll(kind: FeedAnchorKind): boolean {
+  return kind === "detail" || kind === "leave";
+}
+
+/**
+ * An unmount during client navigation often runs after the viewport
+ * has already jumped to 0. That write used to replace the scroll the
+ * click had just saved, so Back landed at the top.
+ */
+export function shouldPreserveFeedScroll(nextY: number, existingY: number | null | undefined): boolean {
+  return nextY === 0 && existingY != null && existingY > 0;
 }
 
 export function handleFeedSnapshotClick(event: MouseEvent, persist: () => void): void {
@@ -246,20 +264,24 @@ export function handleFeedSnapshotClick(event: MouseEvent, persist: () => void):
   const target = event.target;
   if (!(target instanceof Element)) return;
   const anchor = target.closest("a[href]");
-  if (!(anchor instanceof HTMLAnchorElement)) return;
-  if (anchor.target === "_blank") return;
-  const href = anchor.getAttribute("href") ?? "";
-  const kind = classifyFeedAnchor(href);
-  if (kind === "detail") {
+  if (anchor instanceof HTMLAnchorElement && anchor.target !== "_blank") {
+    const href = anchor.getAttribute("href") ?? "";
+    const kind = classifyFeedAnchor(href);
+    if (kind === "open-feed") {
+      discardFeedSessionForHref(href);
+      return;
+    }
+    if (feedExitKeepsScroll(kind)) {
+      armFeedRestore();
+      persist();
+    }
+    return;
+  }
+  // Cards that route with router.push instead of an <a>.
+  if (target.closest("[data-feed-detail]")) {
     armFeedRestore();
     persist();
-    return;
   }
-  if (kind === "open-feed") {
-    discardFeedSessionForHref(href);
-    return;
-  }
-  if (kind === "leave") leaveFeedWithoutRestore();
 }
 
 /**

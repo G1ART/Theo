@@ -24,7 +24,7 @@ const PROFILE_COLS =
   "id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public, city, education, mediums";
 
 const WORK_COLS =
-  "id, title, title_ko, title_en, year, medium, medium_ko, medium_en, artist_id, created_at, likes_count, visibility, work_kind, artwork_images(storage_path, sort_order)";
+  "id, title, title_ko, title_en, year, medium, medium_ko, medium_en, size, size_unit, artist_id, created_at, likes_count, visibility, work_kind, artwork_images(storage_path, sort_order)";
 
 const MAIN_FEED_KINDS = ["artwork", "print_edition"] as const;
 
@@ -67,6 +67,8 @@ type WorkRow = {
   medium: string | null;
   medium_ko: string | null;
   medium_en: string | null;
+  size: string | null;
+  size_unit: string | null;
   artist_id: string | null;
   created_at: string | null;
   likes_count: number | null;
@@ -358,6 +360,8 @@ async function load(
       medium: pickLocalizedMedium(row, locale).trim() || null,
       artistId: row.artist_id,
       imagePath: primaryImage(row.artwork_images),
+      size: row.size?.trim() || null,
+      sizeUnit: row.size_unit === "in" || row.size_unit === "cm" ? row.size_unit : null,
       exhibitionIds: workExhibitionIds.get(row.id) ?? [],
     });
   }

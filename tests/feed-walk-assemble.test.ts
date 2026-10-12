@@ -44,6 +44,8 @@ function work(
     medium: partial.medium ?? "mixed",
     imagePath: null,
     exhibitionIds: partial.exhibitionIds ?? [],
+    size: null,
+    sizeUnit: null,
     ...partial,
   };
 }

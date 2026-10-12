@@ -116,7 +116,7 @@ const NUMBER_RE = /\d+(?:\.\d+)?/g;
  * Strings with no numeric dimensions ("Variable size", "N/A") → null.
  */
 export function parseSizeWithUnit(size: string): ParsedSizeWithUnit | null {
-  const raw = size.trim();
+  const raw = normalizeSizeText(size.trim());
   if (!raw) return null;
 
   // 1) Explicit typed hosu (e.g. "30F", "30F (90.9 x 72.7 cm)").
@@ -159,6 +159,85 @@ export function parseSizeWithUnit(size: string): ParsedSizeWithUnit | null {
 }
 
 /**
+ * A size cell that is only one number, plus a known unit.
+ * "36" + cm → "36 cm". The missing side is not invented.
+ * Free-form notes ("Variable size", "30호") stay as written.
+ */
+function formatLoneDimension(
+  raw: string,
+  locale: string,
+  storedUnit: SizeUnit | null | undefined,
+  prefUnit: SizeUnitPref | null | undefined
+): string | null {
+  if (!raw) return null;
+  const lone = raw.match(/^(\d+(?:\.\d+)?)$/);
+  if (!lone || (storedUnit !== "cm" && storedUnit !== "in")) return raw;
+  const n = parseFloat(lone[1]);
+  if (!Number.isFinite(n) || n <= 0) return raw;
+  const viewUnit = resolveViewUnit(prefUnit, locale);
+  if (viewUnit === "in") {
+    return `${round1(storedUnit === "in" ? n : cmToIn(n))} in`;
+  }
+  return `${round1(storedUnit === "cm" ? n : inToCm(n))} cm`;
+}
+
+/**
+ * Width × height × depth. Empty sides are omitted, never guessed.
+ * "30" and "40" and "" → "30 × 40".
+ */
+export function composeDimensionSize(width: string, height: string, depth = ""): string {
+  return [width, height, depth].map((part) => part.trim()).filter(Boolean).join(" × ");
+}
+
+/** Split a saved size back into the width / height / depth boxes. */
+export function readDimensionFields(size: string | null | undefined): { w: string; h: string; d: string } {
+  const raw = (size ?? "").trim();
+  const pair = raw.match(
+    /(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)(?:\s*[x×*]\s*(\d+(?:\.\d+)?))?/i
+  );
+  if (pair) return { w: pair[1] ?? "", h: pair[2] ?? "", d: pair[3] ?? "" };
+  const lone = raw.match(/^(\d+(?:\.\d+)?)(?:\s*(?:cm|in(?:ch(?:es)?)?))?$/i);
+  if (lone) return { w: lone[1] ?? "", h: "", d: "" };
+  return { w: "", h: "", d: "" };
+}
+
+/**
+ * What the first save should write. Separate boxes win over a stale
+ * one-number string. A hosu label the artist applied is kept whole.
+ */
+export function sizeTextForSave(input: {
+  size?: string | null;
+  width?: string | null;
+  height?: string | null;
+  depth?: string | null;
+  notApplicable?: boolean;
+}): string {
+  if (input.notApplicable) return "";
+  const raw = (input.size ?? "").trim();
+  if (/^\s*\d+\s*[FPMS]\b/.test(raw)) return raw;
+  const composed = composeDimensionSize(input.width ?? "", input.height ?? "", input.depth ?? "");
+  return composed || raw;
+}
+
+/**
+ * Salon / feed pill. Same rules as {@link formatSizeForLocale}.
+ * Returns null when there is no size, or when the unit cannot be known
+ * (a bare "91 × 72" must not be labeled as cm or inches).
+ */
+export function formatArtworkSizeOverlay(
+  size: string | null | undefined,
+  locale: string,
+  storedUnit?: SizeUnit | null,
+  prefUnit?: SizeUnitPref | null
+): string | null {
+  const formatted = formatSizeForLocale(size, locale, storedUnit, prefUnit);
+  if (!formatted) return null;
+  const trimmed = formatted.trim();
+  if (!trimmed || !/\b(?:cm|in)\b/i.test(trimmed)) return null;
+  return trimmed;
+}
+
+/**
  * Format a stored size for display.
  * - `storedUnit` (the `size_unit` column) is the source of truth for the
  *   unit the numbers were entered in; when null we fall back to the unit
@@ -171,6 +250,8 @@ export function parseSizeWithUnit(size: string): ParsedSizeWithUnit | null {
  * - Free-form values ("Variable size") are returned verbatim.
  * - When the true unit is unknown (bare numbers, no `size_unit`), the raw
  *   numbers are returned WITHOUT a unit so callers can gate on it.
+ * - One bare number plus `size_unit` is shown with that unit. The empty
+ *   side is left empty.
  */
 export function formatSizeForLocale(
   size: string | null | undefined,
@@ -180,7 +261,7 @@ export function formatSizeForLocale(
 ): string | null {
   if (!size || !size.trim()) return null;
   const parsed = parseSizeWithUnit(size);
-  if (!parsed) return size.trim(); // free-form note
+  if (!parsed) return formatLoneDimension(size.trim(), locale, storedUnit, prefUnit);
 
   const { widthCm, heightCm, hosuNumber, hosuType } = parsed.parsed;
   const detected = parsed.unit; // unit inferred from the text (or null)

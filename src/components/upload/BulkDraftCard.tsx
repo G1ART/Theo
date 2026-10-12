@@ -16,6 +16,7 @@ import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
 import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
+import { composeDimensionSize, readDimensionFields } from "@/lib/size/format";
 
 const OWNERSHIP_OPTIONS = [
   { value: "available", labelKey: "upload.ownershipAvailable" },
@@ -37,21 +38,6 @@ function readMediumPair(
     else en = draft.medium;
   }
   return { ko, en };
-}
-
-/** Width × height × depth when the string actually has two dimensions. "30호" stays a size label. */
-function readDims(size: string | null | undefined): { w: string; h: string; d: string } {
-  const raw = (size ?? "").trim();
-  const dim = raw.match(
-    /(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)(?:\s*[x×*]\s*(\d+(?:\.\d+)?))?/i,
-  );
-  if (!dim) return { w: "", h: "", d: "" };
-  return { w: dim[1] ?? "", h: dim[2] ?? "", d: dim[3] ?? "" };
-}
-
-function writeSize(w: string, h: string, d: string): string | null {
-  const parts = [w, h, d].map((s) => s.trim()).filter(Boolean);
-  return parts.length ? parts.join(" × ") : null;
 }
 
 export function UploadCloudMark({ className }: { className?: string }) {
@@ -150,10 +136,17 @@ export function BulkDraftCard({
     .filter(isUploadGap)
     .map((gap) => t(uploadGapLabelKey(gap)))
     .join(", ");
-  const dims = readDims(draft.size);
+  const dims = readDimensionFields(draft.size);
   const [width, setWidth] = useState(dims.w);
   const [height, setHeight] = useState(dims.h);
   const [depth, setDepth] = useState(dims.d);
+  const dimsRef = useRef(dims);
+  const localeUnit: "cm" | "in" = locale === "ko" ? "cm" : "in";
+  const [unitChoice, setUnitChoice] = useState<"cm" | "in">(
+    draft.size_unit === "in" || draft.size_unit === "cm" ? draft.size_unit : localeUnit,
+  );
+  const unitRef = useRef(unitChoice);
+  const unitTouched = useRef(false);
   const sizeNa = sizeNotApplicable;
   const seededMedium = readMediumPair(draft, locale === "ko" ? "ko" : "en");
   const [mediumKo, setMediumKo] = useState(seededMedium.ko);
@@ -171,10 +164,25 @@ export function BulkDraftCard({
   const [priceCurrency, setPriceCurrency] = useState(draft.price_input_currency || "USD");
 
   useEffect(() => {
-    const next = readDims(draft.size);
-    setWidth(next.w);
-    setHeight(next.h);
-    setDepth(next.d);
+    const next = readDimensionFields(draft.size);
+    const local = dimsRef.current;
+    const filled = (box: { w: string; h: string; d: string }) =>
+      [box.w, box.h, box.d].filter((part) => part.trim()).length;
+    // A save of one box used to echo back before the other box was in
+    // the string, and this effect then cleared the box still being typed.
+    const lone = Boolean(next.w) && !next.h && !next.d;
+    const loneAlreadyTyped =
+      lone && [local.w, local.h, local.d].some((part) => part.trim() === next.w);
+    if (filled(local) <= filled(next) && !loneAlreadyTyped) {
+      dimsRef.current = next;
+      setWidth(next.w);
+      setHeight(next.h);
+      setDepth(next.d);
+    }
+    if (!unitTouched.current && (draft.size_unit === "cm" || draft.size_unit === "in")) {
+      unitRef.current = draft.size_unit;
+      setUnitChoice(draft.size_unit);
+    }
     if (!mediumDirty.current) {
       const nextMedium = readMediumPair(draft, locale === "ko" ? "ko" : "en");
       setMediumKo(nextMedium.ko);
@@ -186,7 +194,7 @@ export function BulkDraftCard({
     setStoryEn(draft.story_en ?? (locale === "ko" ? "" : draft.story ?? ""));
     setPriceAmount(draft.price_input_amount != null ? String(draft.price_input_amount) : "");
     setPriceCurrency(draft.price_input_currency || "USD");
-  }, [draft.id, bulkVersion, draft.size, draft.medium, draft.medium_ko, draft.medium_en, draft.title, draft.title_ko, draft.title_en, draft.story, draft.story_ko, draft.story_en, draft.price_input_amount, draft.price_input_currency, locale]);
+  }, [draft.id, bulkVersion, draft.size, draft.size_unit, draft.medium, draft.medium_ko, draft.medium_en, draft.title, draft.title_ko, draft.title_en, draft.story, draft.story_ko, draft.story_en, draft.price_input_amount, draft.price_input_currency, locale]);
 
   useEffect(() => {
     const patch: UpdateArtworkPayload = {};
@@ -203,24 +211,37 @@ export function BulkDraftCard({
   if (draft.year && !years.includes(String(draft.year))) {
     years.unshift(String(draft.year));
   }
-  const unit = draft.size_unit === "in" ? "in" : "cm";
+  const unit = unitChoice;
+
+  function rememberDim(part: "w" | "h" | "d", value: string) {
+    dimsRef.current = { ...dimsRef.current, [part]: value };
+    if (part === "w") setWidth(value);
+    else if (part === "h") setHeight(value);
+    else setDepth(value);
+  }
 
   function commitSize(next: { w?: string; h?: string; d?: string; na?: boolean; unit?: "cm" | "in" }) {
-    const w = next.w ?? width;
-    const h = next.h ?? height;
-    const d = next.d ?? depth;
+    const w = next.w ?? dimsRef.current.w;
+    const h = next.h ?? dimsRef.current.h;
+    const d = next.d ?? dimsRef.current.d;
+    dimsRef.current = { w, h, d };
     const na = next.na ?? sizeNa;
-    const nextUnit = next.unit ?? (draft.size_unit === "in" ? "in" : "cm");
+    if (next.unit) {
+      unitTouched.current = true;
+      unitRef.current = next.unit;
+      setUnitChoice(next.unit);
+    }
+    const nextUnit = next.unit ?? unitRef.current;
     if (na) {
       onSave({ size: null, size_unit: null });
       return;
     }
-    const written = writeSize(w, h, d);
+    const written = composeDimensionSize(w, h, d);
     if (!written) {
       const existing = (draft.size ?? "").trim();
-      if (existing && !readDims(existing).w) return;
+      if (existing && !readDimensionFields(existing).w) return;
     }
-    onSave({ size: written, size_unit: nextUnit });
+    onSave({ size: written || null, size_unit: written ? nextUnit : null });
   }
 
   function commitCopy(
@@ -479,8 +500,8 @@ export function BulkDraftCard({
                   inputMode="decimal"
                   placeholder={t("bulk.dimHeight")}
                   aria-label={t("bulk.dimHeight")}
-                  onChange={(e) => setHeight(e.target.value)}
-                  onBlur={() => commitSize({ h: height })}
+                  onChange={(e) => rememberDim("h", e.target.value)}
+                  onBlur={(e) => commitSize({ h: e.target.value })}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50 md:w-[4.5rem] md:flex-none"
                 />
                 <span className="text-xs text-zinc-400">×</span>
@@ -490,8 +511,8 @@ export function BulkDraftCard({
                   inputMode="decimal"
                   placeholder={t("bulk.dimWidth")}
                   aria-label={t("bulk.dimWidth")}
-                  onChange={(e) => setWidth(e.target.value)}
-                  onBlur={() => commitSize({ w: width })}
+                  onChange={(e) => rememberDim("w", e.target.value)}
+                  onBlur={(e) => commitSize({ w: e.target.value })}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50 md:w-[4.5rem] md:flex-none"
                 />
                 <span className="text-xs text-zinc-400">×</span>
@@ -501,12 +522,12 @@ export function BulkDraftCard({
                   inputMode="decimal"
                   placeholder={t("bulk.dimDepth")}
                   aria-label={t("bulk.dimDepth")}
-                  onChange={(e) => setDepth(e.target.value)}
-                  onBlur={() => commitSize({ d: depth })}
+                  onChange={(e) => rememberDim("d", e.target.value)}
+                  onBlur={(e) => commitSize({ d: e.target.value })}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50 md:w-[4.5rem] md:flex-none"
                 />
               </div>
-              {draft.size && !readDims(draft.size).w && (
+              {draft.size && !readDimensionFields(draft.size).w && (
                 <p className="mt-1 text-[11px] text-zinc-500">{draft.size}</p>
               )}
             </div>

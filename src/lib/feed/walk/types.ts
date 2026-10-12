@@ -38,6 +38,8 @@ export type WalkWork = {
   artistId: string;
   imagePath: string | null;
   exhibitionIds: string[];
+  size: string | null;
+  sizeUnit: "cm" | "in" | null;
 };
 
 export type WalkExhibition = {
@@ -151,6 +153,8 @@ export type WalkWorkView = {
   artistUsername: string | null;
   artistAvatarUrl: string | null;
   imagePath: string | null;
+  size: string | null;
+  sizeUnit: "cm" | "in" | null;
   curator: WalkCredit | null;
   gallery: WalkCredit | null;
 };

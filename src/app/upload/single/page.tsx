@@ -67,7 +67,7 @@ import { AiTranslationDraftButton } from "@/components/i18n/AiTranslationDraftBu
 import { pickLegacyForSave, pickLocalizedDisplayName, pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { inviteCardKind, sendArtistInviteEmailClient } from "@/lib/email/artistInvite";
 import { findHosuSize } from "@/lib/size/hosu";
-import { convertSizeString, parseSizeWithUnit, type SizeUnit } from "@/lib/size/format";
+import { convertSizeString, parseSizeWithUnit, sizeTextForSave, type SizeUnit } from "@/lib/size/format";
 import { getAndClearPendingExhibitionFiles } from "@/lib/pendingExhibitionUpload";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import {
@@ -511,7 +511,13 @@ function UploadPageContent() {
       return;
     }
 
-    const sizeTrimmed = size.trim();
+    const sizeTrimmed = sizeTextForSave({
+      size,
+      width: dimW,
+      height: dimH,
+      depth: dimD,
+      notApplicable: sizeNa,
+    });
     const isExternal = needsAttribution(intent) && useExternalArtist;
     // QA 2026-07-28 bilingual — legacy 슬롯은 KO 우선. 240004 트리거가 서버
     // 측에서도 KO 우선 sync 하므로 클라이언트 값과 트리거 결과가 일치한다.

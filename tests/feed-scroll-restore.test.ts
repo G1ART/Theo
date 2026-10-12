@@ -8,7 +8,9 @@ import {
   RESTORE_ARMED_KEY,
   arrivalForFeedMount,
   classifyFeedAnchor,
+  feedExitKeepsScroll,
   feedScrollDecision,
+  shouldPreserveFeedScroll,
   shouldReadFeedSessionCache,
   type FeedScrollArrival,
 } from "../src/lib/feed/scrollRestore";
@@ -34,6 +36,14 @@ assert.equal(classifyFeedAnchor("/feed"), "open-feed");
 assert.equal(classifyFeedAnchor("/feed?tab=all&sort=latest"), "open-feed");
 assert.equal(classifyFeedAnchor("/feed?tab=artworks"), "open-feed");
 assert.equal(classifyFeedAnchor("/u/someone"), "leave");
+assert.equal(feedExitKeepsScroll("detail"), true);
+assert.equal(feedExitKeepsScroll("leave"), true);
+assert.equal(feedExitKeepsScroll("open-feed"), false);
+assert.equal(feedExitKeepsScroll("ignore"), false);
+assert.equal(shouldPreserveFeedScroll(0, 840), true, "unmount at 0 must not erase the click snapshot");
+assert.equal(shouldPreserveFeedScroll(840, 840), false);
+assert.equal(shouldPreserveFeedScroll(0, 0), false);
+assert.equal(shouldPreserveFeedScroll(0, null), false);
 assert.equal(classifyFeedAnchor("/explore"), "leave");
 assert.equal(classifyFeedAnchor("https://example.com/feed"), "ignore");
 

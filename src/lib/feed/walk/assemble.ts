@@ -460,6 +460,8 @@ function toWork(work: WalkWork, idx: Indexes): WalkWorkView {
     artistUsername: artist?.username ?? null,
     artistAvatarUrl: artist?.avatarUrl ?? null,
     imagePath: work.imagePath,
+    size: work.size,
+    sizeUnit: work.sizeUnit,
     curator: toCredit(curator, null),
     gallery: exhibition ? toCredit(host, galleryName(exhibition, idx)) : null,
   };

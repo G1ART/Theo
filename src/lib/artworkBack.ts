@@ -71,6 +71,39 @@ export function stampBackFromHref(href: string): void {
   else if (href.startsWith("/e/")) setExhibitionBack();
 }
 
+/** Where a deleted artwork returns when the browser has no in-app history. */
+export const ARTWORK_DELETE_FALLBACK = "/feed?tab=all&sort=latest";
+
+export function readHistoryIdx(): number | null {
+  if (typeof window === "undefined") return null;
+  const state = window.history.state as { idx?: unknown } | null;
+  return typeof state?.idx === "number" ? state.idx : null;
+}
+
+function returnPath(stampedPath: string | null): string {
+  if (!stampedPath || !isSafeAppPath(stampedPath) || stampedPath.startsWith("/artwork/")) {
+    return ARTWORK_DELETE_FALLBACK;
+  }
+  return stampedPath;
+}
+
+/**
+ * Delete should leave the screen the visitor came from.
+ * In-app history uses back so that page keeps its scroll.
+ * Otherwise replace with the stamped path (profile, feed, exhibition, …).
+ * Never the workspace, and never the deleted artwork URL.
+ */
+export function artworkDeleteNavigation(input: {
+  historyIdx: number | null;
+  stampedPath: string | null;
+}): { action: "back" | "replace"; path: string } {
+  const path = returnPath(input.stampedPath);
+  if (input.historyIdx != null && input.historyIdx > 0) {
+    return { action: "back", path };
+  }
+  return { action: "replace", path };
+}
+
 export function getArtworkBack(): { path: string; labelKey: string } {
   const fallback = { path: "/feed?tab=all&sort=latest", labelKey: "nav.feed" };
   if (typeof window === "undefined") return fallback;

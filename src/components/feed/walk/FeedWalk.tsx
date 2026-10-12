@@ -5,12 +5,13 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { EmptyState, FeedGridSkeleton } from "@/components/ds";
 import { keepVisibleModules } from "@/lib/feed/walk/content";
 import type { FeedModule, WalkLane, WalkPage } from "@/lib/feed/walk/types";
-import { saveFeedSnapshot } from "@/lib/feed/scrollSnapshot";
+import { readFeedSnapshot, saveFeedSnapshot } from "@/lib/feed/scrollSnapshot";
 import {
   canWriteFeedSnapshot,
   feedResetRefetches,
   handleFeedSnapshotClick,
   readFeedSnapshotForMount,
+  shouldPreserveFeedScroll,
   subscribeFeedReset,
 } from "@/lib/feed/scrollRestore";
 import { useT } from "@/lib/i18n/useT";
@@ -246,9 +247,12 @@ export function FeedWalk({ userId, lane, sort }: Props) {
       const state = persistStateRef.current;
       if (state.modules.length === 0) return;
       const y = window.scrollY;
-      // A restore mount paints at 0 for a frame. Don't overwrite the
-      // detail-return snapshot before scrollTo lands.
+      // A restore mount paints at 0 for a frame, and leaving the page
+      // also unmounts after the viewport has jumped to 0. Either write
+      // would replace the scroll the click just saved.
       if (y === 0 && restoreY.current != null) return;
+      const existing = readFeedSnapshot<WalkSnap>(snapshotKeyRef.current);
+      if (shouldPreserveFeedScroll(y, existing?.scrollY)) return;
       saveFeedSnapshot(snapshotKeyRef.current, state, y);
     };
 

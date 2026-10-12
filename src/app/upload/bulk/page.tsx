@@ -26,6 +26,7 @@ import {
   type ArtworkWithLikes,
   type UpdateArtworkPayload,
 } from "@/lib/supabase/artworks";
+import { sizeTextForSave } from "@/lib/size/format";
 import { planOnboardedArtistPublish, rememberedArtistId } from "@/lib/upload/artworkOwner";
 import {
   bulkDraftInsertArtistId,
@@ -1978,9 +1979,8 @@ export default function BulkUploadPage() {
       partial.size = null;
       partial.size_unit = null;
     } else if (sharedW.trim() || sharedH.trim() || sharedD.trim()) {
-      const parts = [sharedW, sharedH, sharedD].map((s) => s.trim()).filter(Boolean);
-      partial.size = parts.join(" × ");
-      partial.size_unit = bulkSizeUnit === "" ? "cm" : bulkSizeUnit;
+      partial.size = sizeTextForSave({ width: sharedW, height: sharedH, depth: sharedD });
+      partial.size_unit = bulkSizeUnit === "" ? (locale.startsWith("ko") ? "cm" : "in") : bulkSizeUnit;
     }
     const sameTitle = titleBulkMode === "set" && titleBulkText.trim();
     if (sameTitle) {
