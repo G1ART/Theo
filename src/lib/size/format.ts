@@ -62,10 +62,26 @@ export function convertSizeString(size: string, toUnit: SizeUnit): string {
     wCm = inToCm(widthCm);
     hCm = inToCm(heightCm);
   }
-  if (toUnit === "in") {
-    return `${round1(cmToIn(wCm))} × ${round1(cmToIn(hCm))} in`;
+  // The third number is depth. Rebuilding from the first two used to drop it
+  // when the edit screen toggled cm / in.
+  const depthMatch = raw.match(
+    /(\d+(?:\.\d+)?)\s*[x×*]\s*(?:\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i,
+  );
+  let depthPart = "";
+  if (depthMatch) {
+    const rawDepth = parseFloat(depthMatch[2] ?? "");
+    if (Number.isFinite(rawDepth) && rawDepth > 0) {
+      let dCm = rawDepth;
+      if (parsed.unit === "in" || (parsed.unit == null && toUnit === "cm")) {
+        dCm = inToCm(rawDepth);
+      }
+      depthPart = ` × ${round1(toUnit === "in" ? cmToIn(dCm) : dCm)}`;
+    }
   }
-  return `${round1(wCm)} × ${round1(hCm)} cm`;
+  if (toUnit === "in") {
+    return `${round1(cmToIn(wCm))} × ${round1(cmToIn(hCm))}${depthPart} in`;
+  }
+  return `${round1(wCm)} × ${round1(hCm)}${depthPart} cm`;
 }
 
 export function setSizeUnitSuffix(size: string, unit: SizeUnit): string {
@@ -217,6 +233,48 @@ export function sizeTextForSave(input: {
   if (/^\s*\d+\s*[FPMS]\b/.test(raw)) return raw;
   const composed = composeDimensionSize(input.width ?? "", input.height ?? "", input.depth ?? "");
   return composed || raw;
+}
+
+/**
+ * What one bulk-card save writes after the user leaves a box or picks a unit.
+ * Boxes the user has now win over a previously saved one-number string.
+ * Returns null when the boxes are empty and the saved text is a note
+ * ("30호") that must stay as written.
+ */
+export function sizeCommitPatch(input: {
+  width: string;
+  height: string;
+  depth: string;
+  unit: SizeUnit;
+  notApplicable?: boolean;
+  existingSize?: string | null;
+}): { size: string | null; size_unit: SizeUnit | null } | null {
+  if (input.notApplicable) return { size: null, size_unit: null };
+  const written = composeDimensionSize(input.width, input.height, input.depth);
+  if (!written) {
+    const existing = (input.existingSize ?? "").trim();
+    if (existing && !readDimensionFields(existing).w) return null;
+  }
+  return { size: written || null, size_unit: written ? input.unit : null };
+}
+
+/**
+ * Whether a saved size may replace the boxes on screen.
+ * Identical text can refresh. Anything else — a one-number echo, the
+ * previous pair, or a clear the server has not caught up to — stays
+ * out of the boxes. The empty side is not invented.
+ */
+export function shouldHydrateDimensionBoxes(
+  local: { w: string; h: string; d: string },
+  incoming: { w: string; h: string; d: string },
+): boolean {
+  const w = local.w.trim();
+  const h = local.h.trim();
+  const d = local.d.trim();
+  const iw = incoming.w.trim();
+  const ih = incoming.h.trim();
+  const id = incoming.d.trim();
+  return w === iw && h === ih && d === id;
 }
 
 /**

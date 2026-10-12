@@ -27,6 +27,7 @@ import {
   type UpdateArtworkPayload,
 } from "@/lib/supabase/artworks";
 import { sizeTextForSave } from "@/lib/size/format";
+import { chainAfter } from "@/lib/upload/draftSaveQueue";
 import { planOnboardedArtistPublish, rememberedArtistId } from "@/lib/upload/artworkOwner";
 import {
   bulkDraftInsertArtistId,
@@ -263,6 +264,7 @@ export default function BulkUploadPage() {
   const applyDepthRef = useRef(0);
   const uploadingRef = useRef(false);
   const draftsRef = useRef(drafts);
+  const draftSaveChain = useRef(new Map<string, Promise<unknown>>());
   const placingRef = useRef(placing);
   const scheduleCaptionRef = useRef<() => void>(() => {});
   const [stagedArtworkIds, setStagedArtworkIds] = useState<string[]>([]);
@@ -1913,11 +1915,20 @@ export default function BulkUploadPage() {
   }
 
   async function saveDraftPatch(id: string, partial: UpdateArtworkPayload) {
-    await updateArtwork(id, partial, {
-      actingSubjectProfileId: actingAsProfileId ?? null,
-      auditAction: "bulk.artwork.update",
+    const previous = draftSaveChain.current.get(id) ?? Promise.resolve();
+    const job = chainAfter(previous, async () => {
+      try {
+        await updateArtwork(id, partial, {
+          actingSubjectProfileId: actingAsProfileId ?? null,
+          auditAction: "bulk.artwork.update",
+        });
+        await fetchDrafts({ silent: true });
+      } catch {
+        // A failed blur must not block the commit that already has both sides.
+      }
     });
-    await fetchDrafts({ silent: true });
+    draftSaveChain.current.set(id, job);
+    await job;
   }
 
   async function linkOneExhibition(workId: string, exhibitionId: string) {

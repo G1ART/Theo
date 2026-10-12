@@ -16,7 +16,7 @@ import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
 import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
-import { composeDimensionSize, readDimensionFields } from "@/lib/size/format";
+import { readDimensionFields, shouldHydrateDimensionBoxes, sizeCommitPatch } from "@/lib/size/format";
 
 const OWNERSHIP_OPTIONS = [
   { value: "available", labelKey: "upload.ownershipAvailable" },
@@ -165,15 +165,10 @@ export function BulkDraftCard({
 
   useEffect(() => {
     const next = readDimensionFields(draft.size);
-    const local = dimsRef.current;
-    const filled = (box: { w: string; h: string; d: string }) =>
-      [box.w, box.h, box.d].filter((part) => part.trim()).length;
-    // A save of one box used to echo back before the other box was in
-    // the string, and this effect then cleared the box still being typed.
-    const lone = Boolean(next.w) && !next.h && !next.d;
-    const loneAlreadyTyped =
-      lone && [local.w, local.h, local.d].some((part) => part.trim() === next.w);
-    if (filled(local) <= filled(next) && !loneAlreadyTyped) {
+    // Only an identical saved string may refresh the boxes. A one-number
+    // echo, the previous pair, or a language toggle must not replace
+    // what the user just typed.
+    if (shouldHydrateDimensionBoxes(dimsRef.current, next)) {
       dimsRef.current = next;
       setWidth(next.w);
       setHeight(next.h);
@@ -232,16 +227,16 @@ export function BulkDraftCard({
       setUnitChoice(next.unit);
     }
     const nextUnit = next.unit ?? unitRef.current;
-    if (na) {
-      onSave({ size: null, size_unit: null });
-      return;
-    }
-    const written = composeDimensionSize(w, h, d);
-    if (!written) {
-      const existing = (draft.size ?? "").trim();
-      if (existing && !readDimensionFields(existing).w) return;
-    }
-    onSave({ size: written || null, size_unit: written ? nextUnit : null });
+    const patch = sizeCommitPatch({
+      width: w,
+      height: h,
+      depth: d,
+      unit: nextUnit,
+      notApplicable: na,
+      existingSize: draft.size,
+    });
+    if (!patch) return;
+    onSave(patch);
   }
 
   function commitCopy(
@@ -460,6 +455,14 @@ export function BulkDraftCard({
                     <button
                       key={u}
                       type="button"
+                      onMouseDown={() => {
+                        // Blur of the focused box runs after mouseDown.
+                        // The unit has to be current before that save starts,
+                        // or the older cm write can finish last.
+                        unitTouched.current = true;
+                        unitRef.current = u;
+                        setUnitChoice(u);
+                      }}
                       onClick={() => {
                         onSizeNotApplicable(false);
                         commitSize({ unit: u, na: false });

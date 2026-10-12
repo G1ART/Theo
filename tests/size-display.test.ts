@@ -84,8 +84,14 @@ import assert from "node:assert/strict";
   // Curly inch marks are inches, not a bare pair.
   assert.equal(formatSizeForLocale("36” x 36”", "en"), "36 × 36 in");
 
-  const { composeDimensionSize, readDimensionFields, sizeTextForSave, formatArtworkSizeOverlay } =
-    await import("../src/lib/size/format");
+  const {
+    composeDimensionSize,
+    readDimensionFields,
+    sizeTextForSave,
+    sizeCommitPatch,
+    shouldHydrateDimensionBoxes,
+    formatArtworkSizeOverlay,
+  } = await import("../src/lib/size/format");
   assert.equal(composeDimensionSize("36", "36", ""), "36 × 36");
   assert.equal(composeDimensionSize("130", "", ""), "130");
   assert.equal(composeDimensionSize("", "40", "2"), "40 × 2");
@@ -106,6 +112,49 @@ import assert from "node:assert/strict";
   assert.equal(formatArtworkSizeOverlay("91 × 72", "ko", null), null);
   assert.equal(formatArtworkSizeOverlay("", "ko", "cm"), null);
   assert.equal(formatArtworkSizeOverlay("130 × 90", "en", "cm"), "51.2 × 35.4 in");
+
+  // Both boxes just typed, while the saved string is still the first box.
+  const both = sizeCommitPatch({
+    width: "36",
+    height: "48",
+    depth: "",
+    unit: "in",
+    existingSize: "36",
+  });
+  assert.deepEqual(both, { size: "36 × 48", size_unit: "in" });
+  assert.equal(
+    shouldHydrateDimensionBoxes({ w: "36", h: "48", d: "" }, readDimensionFields(both?.size)),
+    true,
+  );
+  // A one-number echo must not clear the other box or move height into width.
+  assert.equal(
+    shouldHydrateDimensionBoxes({ w: "36", h: "48", d: "" }, readDimensionFields("36")),
+    false,
+  );
+  assert.equal(
+    shouldHydrateDimensionBoxes({ w: "", h: "48", d: "" }, readDimensionFields("48")),
+    false,
+  );
+  // The previous pair must not replace a height the user just changed.
+  assert.equal(
+    shouldHydrateDimensionBoxes({ w: "36", h: "50", d: "" }, readDimensionFields("36 × 48")),
+    false,
+  );
+  // Clearing the boxes must not be undone by the size still on the server.
+  assert.equal(
+    shouldHydrateDimensionBoxes({ w: "", h: "", d: "" }, readDimensionFields("36 × 48")),
+    false,
+  );
+  const oneSide = sizeCommitPatch({ width: "130", height: "", depth: "", unit: "cm" });
+  assert.equal(oneSide?.size, "130");
+  assert.equal(oneSide?.size_unit, "cm");
+  const withDepth = sizeCommitPatch({ width: "10", height: "20", depth: "3", unit: "cm" });
+  assert.equal(withDepth?.size, "10 × 20 × 3");
+  assert.equal(withDepth?.size_unit, "cm");
+  assert.equal(
+    sizeCommitPatch({ width: "", height: "", depth: "", unit: "in", existingSize: "30호" }),
+    null,
+  );
 
   console.log("size-display.test.ts: ok");
 })().catch((err) => {

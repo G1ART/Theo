@@ -41,6 +41,10 @@ import assert from "node:assert/strict";
   const hosuConvert = "30F (90.9 x 72.7 cm)";
   assert.equal(convertSizeString(hosuConvert, "in"), hosuConvert);
   assert.equal(convertSizeString("notes about scale", "in"), "notes about scale");
+  // Depth stays on the edit screen's unit toggle. The empty side is not filled in.
+  assert.equal(convertSizeString("10 × 20 × 3 cm", "in"), "3.9 × 7.9 × 1.2 in");
+  assert.equal(convertSizeString("10 × 20 cm", "in"), "3.9 × 7.9 in");
+  assert.equal(convertSizeString("36", "in"), "36");
 
   console.log("size-unit-toggle.test.ts: ok");
 })().catch((err) => {
