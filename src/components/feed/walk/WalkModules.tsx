@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ArtworkSizeCapsule } from "@/components/artwork/ArtworkSizeCapsule";
 import { FollowButton } from "@/components/FollowButton";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
@@ -384,11 +385,7 @@ function SquareImage({
   return (
     <div className="relative aspect-square overflow-hidden bg-zinc-100">
       {src ? <Image src={src} alt={alt} fill sizes={sizes} className="object-contain" /> : null}
-      {sizeLabel ? (
-        <span className="pointer-events-none absolute bottom-1.5 left-1.5 max-w-[calc(100%-0.75rem)] truncate whitespace-nowrap rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium leading-none tracking-tight text-zinc-800 shadow-sm backdrop-blur-sm sm:bottom-2 sm:left-2 sm:text-[11px]">
-          {sizeLabel}
-        </span>
-      ) : null}
+      <ArtworkSizeCapsule label={sizeLabel} />
     </div>
   );
 }

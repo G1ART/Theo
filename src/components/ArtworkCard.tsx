@@ -10,7 +10,10 @@ import {
   getArtworkArtistLabel,
   getArtworkPriceDisplay,
 } from "@/lib/supabase/artworks";
+import { ArtworkSizeCapsule } from "@/components/artwork/ArtworkSizeCapsule";
 import { NaturalRatioArtworkImage } from "@/components/artwork/NaturalRatioArtworkImage";
+import { formatArtworkSizeOverlay } from "@/lib/size/format";
+import { useSizeUnitPref } from "@/lib/size/preference";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
 import type { ClaimType } from "@/lib/provenance/types";
 import { claimTypeToLabel, claimTypeToByPhrase } from "@/lib/provenance/rpc";
@@ -55,12 +58,16 @@ function listingLabelKey(kind: string | null | undefined): string | null {
 export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUpdate, showDelete = false, onDelete, showEdit = false, disableNavigation = false, dragHandle, viewerId = null, listingKind = null }: Props) {
   const router = useRouter();
   const { t, locale } = useT();
+  const sizePref = useSizeUnitPref();
   const images = artwork.artwork_images ?? [];
   const sortedImages = [...images].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
   );
   const firstImage = sortedImages[0];
   const imageUrl = firstImage ? getArtworkImageUrl(firstImage.storage_path, "thumb") : null;
+  const sizeOverlay = imageUrl
+    ? formatArtworkSizeOverlay(artwork.size, locale, artwork.size_unit ?? null, sizePref)
+    : null;
   const { label: artistLabel, profileUsername } = getArtworkArtistLabel(
     artwork,
     locale,
@@ -116,12 +123,15 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
       )}
       <div className="relative w-full overflow-hidden bg-zinc-100">
           {imageUrl ? (
-            <NaturalRatioArtworkImage
-              src={imageUrl}
-              alt={localizedArtworkTitle ?? "Artwork"}
-              sizes="(max-width: 768px) 100vw, 400px"
-              adjust={readDisplayAdjust(firstImage?.display_adjust)}
-            />
+            <>
+              <NaturalRatioArtworkImage
+                src={imageUrl}
+                alt={localizedArtworkTitle ?? "Artwork"}
+                sizes="(max-width: 768px) 100vw, 400px"
+                adjust={readDisplayAdjust(firstImage?.display_adjust)}
+              />
+              <ArtworkSizeCapsule label={sizeOverlay} />
+            </>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-zinc-400">
               No image
