@@ -428,9 +428,26 @@ function testEmptyWhenNothingReal() {
     pools,
     cursor: null,
   });
-  assert.equal(page.scenario, null);
-  assert.deepEqual(page.modules, []);
+  assert.equal(page.scenario, "public");
+  assert.equal(page.modules.length, 1);
+  assert.equal(page.modules[0]?.type, "artwork_gallery");
+  if (page.modules[0]?.type === "artwork_gallery") {
+    assert.deepEqual(
+      page.modules[0].works.map((row) => row.id),
+      ["W1"]
+    );
+  }
   assert.equal(page.nextCursor, null);
+
+  const none = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools: { ...pools, works: [] },
+    cursor: null,
+  });
+  assert.equal(none.scenario, null);
+  assert.deepEqual(none.modules, []);
+  assert.equal(none.nextCursor, null);
 }
 
 function testCollectorEndsOnExhibition() {
@@ -1018,6 +1035,145 @@ function testGroupShowThumbs() {
   );
 }
 
+function catalogPeople(count = 4): WalkPerson[] {
+  return Array.from({ length: count }, (_, index) =>
+    person({ id: `P${index}`, name: `Artist ${index}` })
+  );
+}
+
+function catalogWorks(count: number): WalkWork[] {
+  return Array.from({ length: count }, (_, index) =>
+    work({
+      id: `W${index}`,
+      artistId: `P${index % 4}`,
+      title: `Piece ${index}`,
+    })
+  );
+}
+
+function drainWalk(pools: WalkPools, lane: "public" | "personalized" = "public") {
+  const seen: string[] = [];
+  let cursor: ReturnType<typeof decodeCursor> = null;
+  let pages = 0;
+  let sawCursor = false;
+  let endedOnNull = false;
+  while (pages < 20) {
+    const page = assembleWalk({
+      lane,
+      viewer: lane === "public" ? anonViewer() : viewer({
+        id: "V",
+        school: null,
+        city: null,
+        medium: null,
+        exhibitionIds: [],
+        followingIds: [],
+        savedArtworkIds: [],
+        inquiredArtworkIds: [],
+        likedArtworkIds: [],
+        artworkIds: [],
+      }),
+      pools,
+      cursor,
+    });
+    pages += 1;
+    if (page.modules.length === 0) {
+      assert.equal(page.nextCursor, null);
+      endedOnNull = true;
+      break;
+    }
+    const ids = idsOf(page.modules).works;
+    assert.ok(ids.length > 0);
+    for (const id of ids) {
+      assert.equal(seen.includes(id), false, `work ${id} repeated`);
+      seen.push(id);
+    }
+    if (page.nextCursor) sawCursor = true;
+    if (!page.nextCursor) break;
+    cursor = decodeCursor(page.nextCursor);
+    assert.ok(cursor);
+  }
+  return { seen, pages, sawCursor, endedOnNull };
+}
+
+function testUnseenWorksKeepACursorUntilThePoolIsEmpty() {
+  const pools: WalkPools = {
+    people: catalogPeople(),
+    works: catalogWorks(30),
+    exhibitions: [],
+    engagements: [],
+    follows: [],
+  };
+  const drained = drainWalk(pools);
+  assert.equal(drained.seen.length, 30);
+  assert.equal(drained.sawCursor, true);
+  assert.equal(drained.endedOnNull, false);
+  assert.ok(drained.pages < 20);
+
+  const again = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools,
+    cursor: decodeCursor(
+      encodeCursor({
+        v: 1,
+        si: 0,
+        off: 2,
+        used: pools.works.map((row) => `w:${row.id}`),
+      })
+    ),
+  });
+  assert.equal(again.modules.length, 0);
+  assert.equal(again.nextCursor, null);
+}
+
+function testOpenCatalogKeepsACursorAfterThisPool() {
+  const pools: WalkPools = {
+    people: catalogPeople(),
+    works: catalogWorks(2),
+    exhibitions: [],
+    engagements: [],
+    follows: [],
+    catalogOpen: true,
+  };
+  const page = assembleWalk({ lane: "public", viewer: anonViewer(), pools, cursor: null });
+  assert.ok(page.modules.length > 0);
+  assert.equal(page.nextCursor == null, false);
+  const ids = idsOf(page.modules).works;
+  assert.deepEqual(ids.sort(), ["W0", "W1"]);
+}
+
+function testWorksContinueAfterShowsCannotFill() {
+  const pools: WalkPools = {
+    people: catalogPeople(),
+    works: catalogWorks(10),
+    exhibitions: [
+      exhibition({
+        id: "Live",
+        title: "North Hall",
+        status: "live",
+        curatorId: "P0",
+        participantIds: ["P1"],
+        workIds: [],
+      }),
+    ],
+    engagements: [],
+    follows: [],
+  };
+  const drained = drainWalk(pools, "personalized");
+  assert.equal(drained.seen.length, 10);
+  assert.equal(drained.sawCursor, true);
+  assert.ok(drained.pages < 20);
+}
+
+function testCursorKeepsShownWorksPastTheOldCap() {
+  const used = Array.from({ length: 500 }, (_, index) => `w:${index}`);
+  const decoded = decodeCursor(encodeCursor({ v: 1, si: 1, off: 3, used }));
+  assert.ok(decoded);
+  assert.equal(decoded.used.length, 500);
+  assert.equal(decoded.used[0], "w:0");
+  assert.equal(decoded.used[499], "w:499");
+}
+
 testExhibitionCardThumbs();
 testGroupShowThumbs();
 testOrderAndCursor();
@@ -1032,5 +1188,9 @@ testNextPageStaysMixed();
 testArtworkOnlyWhenNoExhibitionsLeft();
 testNewPassWhenExhibitionsWereUsed();
 testPlannedExhibitionStaysOffPublicWalk();
+testUnseenWorksKeepACursorUntilThePoolIsEmpty();
+testOpenCatalogKeepsACursorAfterThisPool();
+testWorksContinueAfterShowsCannotFill();
+testCursorKeepsShownWorksPastTheOldCap();
 
 console.log("feed-walk-assemble: ok");

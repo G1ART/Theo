@@ -33,7 +33,8 @@ type WalkSnap = {
 
 function snapshotKeyFor(pathname: string, search: string, lane: WalkLane, sort: string): string {
   const query = search.startsWith("?") ? search.slice(1) : search;
-  return `walk:${pathname || "/feed"}${query ? `?${query}` : ""}:${lane}:${sort}`;
+  // walk2: a saved walk1 snapshot could already have hasMore false.
+  return `walk2:${pathname || "/feed"}${query ? `?${query}` : ""}:${lane}:${sort}`;
 }
 
 function readWalkSnap(key: string, userId: string | null): { modules: FeedModule[]; cursor: string | null; hasMore: boolean; scrollY: number } | null {

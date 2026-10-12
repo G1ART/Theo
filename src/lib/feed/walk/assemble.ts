@@ -1,5 +1,5 @@
 import { keepVisibleModules } from "./content";
-import { encodeCursor } from "./cursor";
+import { encodeCursor, retainUsed } from "./cursor";
 import { pickExhibitionThumbs } from "./exhibitionThumbs";
 import { isFilledSlot } from "./fill";
 import type {
@@ -37,8 +37,10 @@ export const PERSONALIZED_SCENARIOS: readonly WalkScenario[] = [
 
 const TRIO = 3;
 const NETWORK_MAX = 4;
-/** A scroll page stays a short chapter, not a second full feed. */
+/** A scenario page stays a short chapter, not a second full feed. */
 const PAGE_MAX = 6;
+/** After scenarios cannot fill, keep showing unseen public works. */
+const CONTINUATION_MAX = 24;
 /** Exhibitions and people from the previous page stay blocked on a new pass. */
 const IMMEDIATE_EXHIBITIONS = 2;
 const IMMEDIATE_PEOPLE = 4;
@@ -82,6 +84,10 @@ export function assembleWalk(input: AssembleInput): WalkPage {
   const off = start?.off ?? 0;
   const ctx: Ctx = { viewer: input.viewer, pools: input.pools, idx, used };
 
+  if (unseenCatalog(ctx).length === 0 && input.pools.catalogOpen !== true) {
+    return blankPage();
+  }
+
   // Following is its own lane. It does not borrow exhibition scenarios.
   if (rotation.length === 1 && rotation[0] === "following") {
     return walkRotation(ctx, rotation, si0, off, null, "strict") ?? blankPage();
@@ -105,12 +111,20 @@ export function assembleWalk(input: AssembleInput): WalkPage {
     if (againLoose && hasNonArtwork(againLoose.modules)) return againLoose;
   }
 
-  if (unusedShows(ctx).length > 0) return blankPage();
   const worksOnly = publicWorksOnly(ctx, catalogWorks(ctx));
   if (!worksOnly) return blankPage();
   const modules = keepVisibleModules(worksOnly.modules).slice(0, PAGE_MAX);
   if (modules.length === 0) return blankPage();
-  return finishPage("public", modules, worksOnly.touch, used, (si0 + 1) % rotation.length, off);
+  const touch = visibleTouch(ctx, modules, worksOnly.touch);
+  return finishPage(
+    "public",
+    modules,
+    touch,
+    used,
+    (si0 + 1) % rotation.length,
+    off,
+    catalogStillOpen(ctx, touch)
+  );
 }
 
 function rotationFor(lane: WalkLane, viewer: WalkViewer): WalkScenario[] {
@@ -134,7 +148,7 @@ function walkRotation(
     const modules = built ? keepVisibleModules(built.modules).slice(0, PAGE_MAX) : [];
     const followingLane = rotation.length === 1 && rotation[0] === "following";
     if (built && modules.length > 0 && (followingLane || hasNonArtwork(modules))) {
-      return finishPage(name, modules, built.touch, history ?? ctx.used, (si + 1) % rotation.length, off);
+      return finishPage(name, modules, visibleTouch(ctx, modules, built.touch), history ?? ctx.used, (si + 1) % rotation.length, off);
     }
     si = (si + 1) % rotation.length;
   }
@@ -147,7 +161,8 @@ function finishPage(
   touch: readonly string[],
   history: Set<string>,
   nextSi: number,
-  off: number
+  off: number,
+  more = true
 ): WalkPage {
   const committed = new Set(history);
   for (const key of touch) {
@@ -157,12 +172,14 @@ function finishPage(
   return {
     scenario,
     modules,
-    nextCursor: encodeCursor({
-      v: 1,
-      si: nextSi,
-      off: off + 1,
-      used: [...committed].slice(-400),
-    }),
+    nextCursor: more
+      ? encodeCursor({
+          v: 1,
+          si: nextSi,
+          off: off + 1,
+          used: retainUsed([...committed]),
+        })
+      : null,
   };
 }
 
@@ -188,6 +205,36 @@ function unusedShows(ctx: Ctx): WalkExhibition[] {
 
 function catalogWorks(ctx: Ctx): WalkWork[] {
   return ctx.pools.works.filter((work) => ctx.idx.people.has(work.artistId));
+}
+
+function unseenCatalog(ctx: Ctx): WalkWork[] {
+  return catalogWorks(ctx).filter((work) => !ctx.used.has(keyW(work.id)));
+}
+
+function catalogStillOpen(ctx: Ctx, touch: readonly string[]): boolean {
+  const taken = new Set(touch);
+  const left = unseenCatalog(ctx).some((work) => !taken.has(keyW(work.id)));
+  return left || ctx.pools.catalogOpen === true;
+}
+
+/**
+ * A chapter can claim a work and then drop that module. Keep the work
+ * available unless the card itself cannot be shown.
+ */
+function visibleTouch(ctx: Ctx, modules: readonly FeedModule[], touch: readonly string[]): string[] {
+  const shown = new Set<string>();
+  for (const mod of modules) {
+    if ("works" in mod && Array.isArray(mod.works)) {
+      for (const work of mod.works) shown.add(keyW(work.id));
+    }
+  }
+  return touch.filter((key) => {
+    if (!key.startsWith("w:") || shown.has(key)) return true;
+    const work = ctx.idx.works.get(key.slice(2));
+    if (!work) return true;
+    const image = typeof work.imagePath === "string" && work.imagePath.trim().length > 0;
+    return !(image || isFilledSlot(work.title));
+  });
 }
 
 function releaseForNewPass(used: Set<string>): Set<string> {
@@ -1565,10 +1612,10 @@ function buildPublic(ctx: Ctx): Built | null {
   return null;
 }
 
-/** Recent public works still render when every exhibition title is blank or "title". */
+/** Unseen public works still render when no scenario can fill a chapter. */
 function publicWorksOnly(ctx: Ctx, loose: WalkWork[]): Built | null {
   const gate = openGate(ctx);
-  const gallery = gate.takeWorks(loose, TRIO);
+  const gallery = gate.takeSome(loose, 1, CONTINUATION_MAX);
   if (!gallery) return null;
   return {
     touch: gate.touch,

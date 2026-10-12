@@ -6,6 +6,7 @@ import {
   pickLocalizedHostName,
   pickLocalizedMedium,
 } from "@/lib/i18n/pickLocalized";
+import { CATALOG_BATCH, CATALOG_WANT, catalogPageFromBatches, MAIN_FEED_WORK_KINDS } from "./catalog";
 import { normalizeFeedThumbIds, type ExhibitionThumbInput } from "./exhibitionThumbs";
 import type {
   WalkCursor,
@@ -26,7 +27,7 @@ const PROFILE_COLS =
 const WORK_COLS =
   "id, title, title_ko, title_en, year, medium, medium_ko, medium_en, size, size_unit, artist_id, created_at, likes_count, visibility, work_kind, artwork_images(storage_path, sort_order)";
 
-const MAIN_FEED_KINDS = ["artwork", "print_edition"] as const;
+const MAIN_FEED_KINDS = MAIN_FEED_WORK_KINDS;
 
 const WORK_WITH_ARTIST =
   WORK_COLS +
@@ -35,7 +36,8 @@ const WORK_WITH_ARTIST =
 const EXH_COLS =
   "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at";
 
-const WORK_CAP = 36;
+const WORK_CAP = 60;
+const CATALOG_HOPS = 30;
 const EXH_CAP = 10;
 const OPTIONAL_MS = 650;
 
@@ -73,6 +75,7 @@ type WorkRow = {
   created_at: string | null;
   likes_count: number | null;
   visibility: string | null;
+  work_kind?: string | null;
   artwork_images: ImageRow[] | null;
   artist?: ProfileRow | ProfileRow[] | null;
 };
@@ -135,7 +138,7 @@ async function load(
   const lane: WalkLane = opts.lane ?? (userId ? "personalized" : "public");
   const rich = Boolean(userId) && lane === "personalized";
   const followLane = Boolean(userId) && lane === "following";
-  const usedWorks = tailUsed(opts.cursor?.used, "w");
+  const usedWorks = idsWithPrefix(opts.cursor?.used, "w");
   const usedEx = tailUsed(opts.cursor?.used, "e");
   const usedWorkSet = new Set(usedWorks);
 
@@ -163,11 +166,11 @@ async function load(
       });
 
   const catalog = followLane
-    ? Promise.resolve({ latest: [] as ExhRow[], recent: [] as WorkRow[] })
+    ? Promise.resolve({ latest: [] as ExhRow[], recent: [] as WorkRow[], open: false })
     : Promise.all([
         latestExhibitions(supabase, usedEx),
-        recentWorks(supabase, sort, usedWorks),
-      ]).then(([latest, recent]) => ({ latest, recent }));
+        recentWorks(supabase, sort, usedWorkSet),
+      ]).then(([latest, recent]) => ({ latest, recent: recent.rows, open: recent.open }));
 
   const [pack, shelf] = await Promise.all([viewerPack, catalog]);
   mark();
@@ -203,7 +206,7 @@ async function load(
     (rich || followLane) && followingIds.length
       ? withTimeout(
           "followed-works",
-          worksByArtists(supabase, followingIds, usedWorks),
+          worksByArtists(supabase, followingIds, tailUsed(opts.cursor?.used, "w")),
           optionalMs,
           [] as WorkRow[],
           skipped
@@ -272,7 +275,9 @@ async function load(
   const workRows = mergeWorks(
     [...viewerWorks, ...mediumRows, ...followedWorks, ...byId, ...shelf.recent],
     sort
-  ).slice(0, WORK_CAP);
+  )
+    .filter((row) => !usedWorkSet.has(row.id))
+    .slice(0, WORK_CAP);
   const earlyProfiles = dedupeProfiles([...seededProfiles, ...gapProfiles]);
   const embedded = embeddedArtists(workRows);
   const knownProfileIds = new Set([...earlyProfiles, ...embedded].map((row) => row.id));
@@ -431,7 +436,7 @@ async function load(
 
   return {
     viewer,
-    pools: { people, works, exhibitions, engagements, follows: followRows },
+    pools: { people, works, exhibitions, engagements, follows: followRows, catalogOpen: shelf.open },
     timing: { ms: Date.now() - t0, waves, skipped },
   };
 }
@@ -525,6 +530,7 @@ function mergeWorks(rows: WorkRow[], sort: "latest" | "popular"): WorkRow[] {
   for (const row of rows) {
     if (!row?.id || map.has(row.id)) continue;
     if (row.visibility && row.visibility !== "public") continue;
+    if (row.work_kind && row.work_kind !== "artwork" && row.work_kind !== "print_edition") continue;
     map.set(row.id, row);
   }
   const list = [...map.values()];
@@ -567,6 +573,18 @@ function mutualNames(
     byTarget.set(row.followingId, bundle);
   }
   return byTarget;
+}
+
+function idsWithPrefix(used: string[] | undefined, prefix: "w" | "e"): string[] {
+  if (!used?.length) return [];
+  const p = `${prefix}:`;
+  const ids: string[] = [];
+  for (const key of used) {
+    if (!key?.startsWith(p)) continue;
+    const id = key.slice(p.length);
+    if (id) ids.push(id);
+  }
+  return ids;
 }
 
 function tailUsed(used: string[] | undefined, prefix: "w" | "e"): string[] {
@@ -959,22 +977,67 @@ async function worksByIds(supabase: SupabaseClient, ids: string[]): Promise<Work
 async function recentWorks(
   supabase: SupabaseClient,
   sort: "latest" | "popular",
-  exclude: string[] = []
+  exclude: ReadonlySet<string>
+): Promise<{ rows: WorkRow[]; open: boolean }> {
+  const batches: WorkRow[][] = [];
+  let after: { created_at: string; id: string; likes: number } | null = null;
+  for (let hop = 0; hop < CATALOG_HOPS; hop++) {
+    let batch: WorkRow[] = [];
+    try {
+      batch = await catalogBatch(supabase, sort, after);
+    } catch {
+      const page = catalogPageFromBatches(batches, exclude, CATALOG_WANT, CATALOG_BATCH);
+      return { rows: page.rows, open: page.rows.length > 0 };
+    }
+    batches.push(batch);
+    const page = catalogPageFromBatches(batches, exclude, CATALOG_WANT, CATALOG_BATCH);
+    if (page.rows.length >= CATALOG_WANT || !page.open) return page;
+    const last = batch[batch.length - 1];
+    if (!last?.created_at || !last.id) return { rows: page.rows, open: false };
+    const nextAfter = { created_at: last.created_at, id: last.id, likes: last.likes_count ?? 0 };
+    if (after && after.created_at === nextAfter.created_at && after.id === nextAfter.id) {
+      return { rows: page.rows, open: false };
+    }
+    after = nextAfter;
+  }
+  const page = catalogPageFromBatches(batches, exclude, CATALOG_WANT, CATALOG_BATCH);
+  return { rows: page.rows, open: page.rows.length > 0 };
+}
+
+async function catalogBatch(
+  supabase: SupabaseClient,
+  sort: "latest" | "popular",
+  after: { created_at: string; id: string; likes: number } | null
 ): Promise<WorkRow[]> {
-  const run = (skip: boolean) => {
-    let query = supabase.from("artworks").select(WORK_COLS).eq("visibility", "public").in("work_kind", [...MAIN_FEED_KINDS]).limit(20);
-    if (skip && exclude.length) query = query.not("id", "in", `(${exclude.join(",")})`);
-    query =
-      sort === "popular"
-        ? query.order("likes_count", { ascending: false }).order("created_at", { ascending: false })
-        : query.order("created_at", { ascending: false });
-    return query;
-  };
-  const first = await run(true);
-  if (!first.error) return (first.data as WorkRow[] | null) ?? [];
-  if (!exclude.length) return [];
-  const retry = await run(false);
-  return (retry.data as WorkRow[] | null) ?? [];
+  let query = supabase
+    .from("artworks")
+    .select(WORK_WITH_ARTIST.replace("profiles!artist_id(", "profiles!artist_id!inner("))
+    .eq("visibility", "public")
+    .in("work_kind", [...MAIN_FEED_KINDS])
+    .limit(CATALOG_BATCH);
+  if (sort === "popular") {
+    query = query
+      .order("likes_count", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    if (after) {
+      const createdAt = after.created_at.replace(/"/g, '\\"');
+      const id = after.id.replace(/"/g, '\\"');
+      query = query.or(
+        `likes_count.lt.${after.likes},and(likes_count.eq.${after.likes},created_at.lt."${createdAt}"),and(likes_count.eq.${after.likes},created_at.eq."${createdAt}",id.lt."${id}")`
+      );
+    }
+  } else {
+    query = query.order("created_at", { ascending: false }).order("id", { ascending: false });
+    if (after) {
+      const createdAt = after.created_at.replace(/"/g, '\\"');
+      const id = after.id.replace(/"/g, '\\"');
+      query = query.or(`created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt."${id}")`);
+    }
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data as unknown as WorkRow[] | null) ?? [];
 }
 
 async function likesForWorks(

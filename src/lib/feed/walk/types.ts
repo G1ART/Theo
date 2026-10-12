@@ -105,6 +105,11 @@ export type WalkPools = {
   exhibitions: WalkExhibition[];
   engagements: WalkEngagement[];
   follows: WalkFollow[];
+  /**
+   * The catalog query stopped before the table ended.
+   * Older public works may still exist beyond this pool.
+   */
+  catalogOpen?: boolean;
 };
 
 export type WalkCursor = {
