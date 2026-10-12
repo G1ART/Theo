@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-11
 
+## 2026-10-11 — Sienna Ko Wave 두 점을 36인치 정사각형으로 되돌림
+
+> **Supabase SQL 스키마 변경 없음.** 마이그레이션 파일을 만들지 않았다. 아래 두 행만 `UPDATE` 했다. **환경 변수 추가·변경 없음.**
+
+Sienna Ko (`siennamko`) 작품 중 제목에 Wave가 있고, 크기가 숫자 `36` 하나이며 `size_unit`이 `cm`인 행만 고쳤다. `formatSizeForLocale`은 `size`의 두 숫자와 `size_unit`을 읽어 인치 화면에서 `36 × 36 in`으로 그린다. `width_cm`/`height_cm`는 36 × 2.54 = 91.44. 깊이는 원래 없어서 `depth_cm`는 비웠다.
+
+- `8a958859-23ea-4857-ae0d-0261c9b811ff` Wave I. 이전 `size` `36`, `size_unit` `cm`, `width_cm`/`height_cm`/`depth_cm` 없음. 이후 `size` `36 × 36`, `size_unit` `in`, `width_cm` `91.44`, `height_cm` `91.44`, `depth_cm` 없음.
+- `f7e295c7-c45a-49fb-8041-ab2309c462cc` Wave IV. 이전·이후 값은 Wave I과 같다.
+
+건드리지 않은 Sienna Ko Wave: Above the Waves `24 × 24` in, Wave lI `36x36` in, Wave V `36 × 36` in, Wave V digital panorama `Variable size`, 그리고 크기 글이 비어 있는 Wave III·Wave IV(`71ef21e2`)·Wave V(`03abb9b8`). 정은지 작품은 수정하지 않았다. 돌의 정원 `0f494987` (`130` / cm), 돌숨 `8205b6d6` (`72` / cm), 「그것은 겨울부터 시작된 이야기이다」 `5fc3169a` (`100` / cm) 포함.
+
+**Verified:** 적용 후 SELECT. 위 두 행만 `36 × 36` / `in` / `91.44` / `91.44`. 정은지 세 행은 이전 값 그대로.
+
 ## 2026-10-11 — 크기 저장이 가로·세로·단위를 나중에 덮지 않게
 
 > **Supabase SQL 돌려야 할 것은 없음.** 이미 올라간 행의 `size` 글은 나누지 않았고, 빈 세로는 채우지 않았다. **환경 변수 추가·변경 없음.**
