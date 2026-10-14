@@ -1,6 +1,21 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-11
+Last updated: 2026-10-13
+
+## 2026-10-13 — 피드 검색에서 작품 카드와 크기·가격 필터
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+피드 오른쪽 검색은 `eec6b1e`부터 `/people?q=`로만 이어졌다. 크기·가격 자연어 검색은 `docs/UX-AUDIT-2026-02.md` §9.3에 추후로만 적혀 있고, 지워진 구현은 git에 없다. 작품 제목·작가 이름 검색은 `search_artwork_ids`와 내 공간·서재·전시 작품 고르기에 그대로 있다. 작품으로 사람을 찾는 `search_artists_by_artwork`도 그대로다.
+
+- 검색창 문구는 한글 "검색", 영어 "Search". 쿼리가 있으면 `/search`로 간다. 비우면 사람 디렉터리(`/people`)로 간다.
+- 작품 결과는 카드다. 그림·제목을 누르면 작품 상세, 작가 이름과 @핸들을 누르면 `/u/<handle>`이다. 피드와 같은 크기 캡슐을 붙였다.
+- 한 줄에서 제목·매체·설명·작가 이름은 기존 한영·오타 검색을 쓴다. 그 위에 `100cm 이하`, `50cm 이상`, `91.4 × 91.4 cm`, `36 in`, `100만원 이하`, `under $500`, `판매 가능`을 저장된 `width_cm`/`height_cm`/`size`/`size_unit`과 가격 필드로 거른다. 단위가 없는 크기는 숫자로 만들지 않는다.
+- 공개 검색에서는 초안이 빠진다. art_goods와 collected는 검색어가 그 종류를 가리킬 때만 포함하고, 일반 작품·프린트가 앞이다.
+- 내 공간 작품 추가와 전시 작품 고르기도 같은 크기·가격 해석을 쓴다. 네트워크 사람 검색, 초대, 운영진 사람 검색은 사람만 본다.
+- 피드 워크의 스크롤과 크기 캡슐은 바꾸지 않았다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-search-query.test.ts`. `npx tsx tests/search-match.test.ts`. 로컬 `/search?q=Wave`에서 작품 카드와 Sienna Ko `/u/siennamko` 링크, 사람 결과가 같이 보였다. 카드는 `/artwork/303396a0-849e-4417-875e-60a80b224e9e`로 갔다. `/search?q=100cm 이하`는 크기 캡슐이 100cm 이하인 작품만 보여 주었고 사람 섹션은 없었다. `/feed` 검색창 placeholder는 "검색"이고, 워크 크기 캡슐과 작품 링크가 남아 있었다. 레일에서 Wave를 검색하면 `/search?q=Wave`로 갔다.
 
 ## 2026-10-11 — 메인 피드가 공개 작품 풀 앞에서 끊기던 것을 이어서 불러오게
 

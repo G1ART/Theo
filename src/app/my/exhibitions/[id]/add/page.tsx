@@ -28,6 +28,11 @@ import {
 } from "@/lib/upload/artistPublishNotice";
 import { getMyProfile } from "@/lib/supabase/me";
 import { searchPeople } from "@/lib/supabase/artists";
+import {
+  artworkMatchesConstraints,
+  kindAllowed,
+  parseArtworkQuery,
+} from "@/lib/search/artworkQuery";
 import { artworkMatchesSearch } from "@/lib/search/matchText";
 import { logSupabaseError } from "@/lib/supabase/errors";
 import { formatSupabaseError } from "@/lib/errors/supabase";
@@ -170,7 +175,7 @@ export default function AddWorkToExhibitionPage() {
   const [artistNotice, setArtistNotice] = useState<ArtistPublishNotice | null>(null);
   const externalPrimaryLang: "ko" | "en" = locale === "ko" ? "ko" : "en";
 
-  // 작품 검색 (제목/설명/매체/키워드 기반 텍스트 검색; 자연어 검색의 1차 버전)
+  // 작품 검색. 제목·작가·설명은 기존 매칭, 크기·가격·판매는 같은 줄에서 필터.
   const [workQuery, setWorkQuery] = useState("");
 
   // 전시 권한 공유 위자드
@@ -781,7 +786,7 @@ export default function AddWorkToExhibitionPage() {
   }, [artistSearch]);
 
   const filteredArtworks = useMemo(() => {
-    const q = workQuery.trim().toLowerCase();
+    const parsed = parseArtworkQuery(workQuery);
     const hasParticipants = participants.length > 0;
     return artworks.filter((art) => {
       const matchesParticipant = !hasParticipants
@@ -792,9 +797,11 @@ export default function AddWorkToExhibitionPage() {
             return claims.some((c) => c.subject_profile_id === p.id);
           });
       if (!matchesParticipant) return false;
-
-      if (!q) return true;
-      return artworkMatchesSearch(workQuery, art);
+      if (!workQuery.trim()) return true;
+      if (!kindAllowed(art.work_kind, parsed, "pool")) return false;
+      if (!artworkMatchesConstraints(art, parsed)) return false;
+      if (!parsed.text) return true;
+      return artworkMatchesSearch(parsed.text, art);
     });
   }, [artworks, participants, workQuery]);
 

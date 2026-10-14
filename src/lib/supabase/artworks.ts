@@ -742,6 +742,80 @@ export async function listPublicArtworks(
   };
 }
 
+const PUBLIC_FILTER_SELECT = `
+  id,
+  width_cm,
+  height_cm,
+  size,
+  size_unit,
+  work_kind,
+  visibility,
+  pricing_mode,
+  is_price_public,
+  price_usd,
+  price_input_amount,
+  price_input_currency,
+  fx_rate_to_usd,
+  ownership_status
+`;
+
+/** Public cards for a known id list. Drafts and hidden profiles stay out. Order follows `ids`. */
+export async function fetchPublicArtworkCardsByIds(ids: string[]): Promise<ArtworkWithLikes[]> {
+  const unique: string[] = [];
+  for (const id of ids) {
+    if (id && !unique.includes(id)) unique.push(id);
+    if (unique.length >= 80) break;
+  }
+  if (unique.length === 0) return [];
+  const { data, error } = await supabase
+    .from("artworks")
+    .select(FEED_ARTWORK_SELECT)
+    .in("id", unique)
+    .eq("visibility", "public");
+  if (error || !data) return [];
+  const byId = new Map<string, ArtworkWithLikes>();
+  for (const row of data) {
+    const art = normalizeArtworkRow(row as Record<string, unknown>);
+    if (art.visibility !== "public") continue;
+    if (!isPublicSurfaceVisible(art)) continue;
+    byId.set(art.id, art);
+  }
+  return unique.flatMap((id) => {
+    const art = byId.get(id);
+    return art ? [art] : [];
+  });
+}
+
+/**
+ * Lean public rows for size and price filters. Newest first.
+ * `work_kind` null is not included; the main feed does not include it either.
+ */
+export async function scanPublicArtworkLean(
+  kinds: readonly string[],
+  scanLimit = 1000,
+): Promise<Record<string, unknown>[]> {
+  const safeKinds = kinds.filter((kind) => kind.length > 0);
+  if (safeKinds.length === 0) return [];
+  const page = 200;
+  const cap = Math.min(Math.max(scanLimit, 1), 1000);
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; from < cap; from += page) {
+    const to = Math.min(from + page, cap) - 1;
+    const { data, error } = await supabase
+      .from("artworks")
+      .select(PUBLIC_FILTER_SELECT)
+      .eq("visibility", "public")
+      .in("work_kind", [...safeKinds])
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+    if (error || !data) break;
+    rows.push(...(data as Record<string, unknown>[]));
+    if (data.length < to - from + 1) break;
+  }
+  return rows;
+}
+
 /** Extract likes count from raw PostgREST artwork_likes shape. Always returns a number. */
 export function extractLikesCount(row: Record<string, unknown> | null | undefined): number {
   const v = row?.artwork_likes;

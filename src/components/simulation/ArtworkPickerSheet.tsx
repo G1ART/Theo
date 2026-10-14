@@ -7,7 +7,8 @@
  *   • Saved   — artworks pulled from every shortlist the user owns.
  *   • Recent  — recent public artworks (proxy for "recently seen"
  *               because we don't yet persist a per-viewer recent list).
- *   • Search  — title, artist name / @handle, and a light typo.
+ *   • Search  — title, artist name / @handle, a light typo, and a
+ *               size or price phrase ("100cm 이하", "50만원 이하").
  *               Public works, the viewer's own works, and works they
  *               uploaded. Someone else's draft is not returned.
  *
@@ -23,6 +24,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import {
+  artworkMatchesConstraints,
+  kindAllowed,
+  parseArtworkQuery,
+} from "@/lib/search/artworkQuery";
 import { findArtworkIdsForQuery } from "@/lib/search/findArtworkIds";
 import { artworkInPickerScope } from "@/lib/search/matchText";
 import { useT } from "@/lib/i18n/useT";
@@ -54,6 +60,14 @@ const PICKER_SELECT = `
   size_unit,
   visibility,
   created_by,
+  work_kind,
+  pricing_mode,
+  is_price_public,
+  price_usd,
+  price_input_amount,
+  price_input_currency,
+  fx_rate_to_usd,
+  ownership_status,
   artwork_images(storage_path, sort_order, width, height)
 `;
 
@@ -124,6 +138,14 @@ type RawPickerRow = {
   size_unit: "cm" | "in" | null;
   visibility: string | null;
   created_by: string | null;
+  work_kind?: string | null;
+  pricing_mode?: string | null;
+  is_price_public?: boolean | null;
+  price_usd?: number | null;
+  price_input_amount?: number | null;
+  price_input_currency?: string | null;
+  fx_rate_to_usd?: number | null;
+  ownership_status?: string | null;
   artwork_images: PickerImageRow[] | null;
 };
 
@@ -263,7 +285,10 @@ export function ArtworkPickerSheet({
   useEffect(() => {
     if (tab !== "search") return;
     const q = searchQ.trim();
-    if (q.length < 2) {
+    const parsed = parseArtworkQuery(q);
+    const text = parsed.text.trim();
+    const filtering = parsed.hasConstraint || parsed.kindMode !== "default";
+    if (text.length < 2 && !filtering) {
       // Reset the results when the query gets too short — this is a
       // legitimate synchronize-with-external-state pattern (the URL
       // query drives the visible list). See HANDOFF 2026-08-17 (13).
@@ -278,19 +303,24 @@ export function ArtworkPickerSheet({
         data: { session },
       } = await supabase.auth.getSession();
       const viewerId = session?.user?.id ?? null;
-      const ids = await findArtworkIdsForQuery({
-        query: q,
-        mode: "attachable",
-        ownerId: viewerId,
-        limit: 30,
-      });
+      const ids =
+        text.length >= 2
+          ? await findArtworkIdsForQuery({
+              query: text,
+              mode: "attachable",
+              ownerId: viewerId,
+              limit: 40,
+            })
+          : null;
       if (cancelled) return;
-      if (ids.length === 0) {
+      if (ids && ids.length === 0) {
         setSearchResults([]);
         setSearchLoading(false);
         return;
       }
-      let req = supabase.from("artworks").select(PICKER_SELECT).in("id", ids);
+      let req = supabase.from("artworks").select(PICKER_SELECT);
+      if (ids) req = req.in("id", ids);
+      else req = req.order("created_at", { ascending: false }).limit(300);
       if (viewerId) {
         req = req.or(
           `visibility.eq.public,artist_id.eq.${viewerId},created_by.eq.${viewerId}`,
@@ -300,21 +330,24 @@ export function ArtworkPickerSheet({
       }
       const { data } = await req;
       if (cancelled) return;
-      const rows = (data ?? []) as unknown as RawPickerRow[];
-      const allowed = rows.filter((row) =>
-        artworkInPickerScope(
-          {
-            visibility: row.visibility,
-            artistId: row.artist_id,
-            createdBy: row.created_by,
-          },
-          viewerId,
-        ),
+      const rows = ((data ?? []) as unknown as RawPickerRow[]).filter(
+        (row) =>
+          artworkInPickerScope(
+            {
+              visibility: row.visibility,
+              artistId: row.artist_id,
+              createdBy: row.created_by,
+            },
+            viewerId,
+          ) &&
+          kindAllowed(row.work_kind, parsed, "pool") &&
+          artworkMatchesConstraints(row, parsed),
       );
-      const byId = new Map(allowed.map((row) => [row.id, row]));
       const ordered = ids
-        .map((id) => byId.get(id))
-        .filter((row): row is RawPickerRow => Boolean(row));
+        ? ids
+            .map((id) => rows.find((row) => row.id === id))
+            .filter((row): row is RawPickerRow => Boolean(row))
+        : rows;
       setSearchResults(ordered.map((r) => normalizeRow(r, locale)));
       setSearchLoading(false);
     }, 300);

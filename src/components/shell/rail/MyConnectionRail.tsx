@@ -33,9 +33,9 @@ import { CommunityPulseStrip } from "./CommunityPulseStrip";
  *   2. Suggestions — top 2 recs from `getPeopleRecommendations` with
  *      the `follow_graph` lane (parity with the /people default).
  *
- * The header carries a top-of-column search bar that submits to
- * `/people?q=...`, matching the wireframe. "more >" routes to
- * `/my/network` — the single unified relationships hub.
+ * The header carries a top-of-column search bar. A query opens
+ * `/search` (works and people). An empty submit still opens `/people`.
+ * "more >" routes to `/my/network`.
  *
  * All fetches are self-contained (`use client` + `useEffect`); rail
  * data must never depend on main-column state or we'd reintroduce the
@@ -93,7 +93,7 @@ export function MyConnectionRail() {
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
     const query = q.trim();
-    router.push(query ? `/people?q=${encodeURIComponent(query)}` : "/people");
+    router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/people");
   }
 
   async function handleAccept(row: NotificationRow) {
@@ -118,8 +118,8 @@ export function MyConnectionRail() {
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={t("rail.myConnection.searchPlaceholder")}
-          aria-label={t("rail.myConnection.searchPlaceholder")}
+          placeholder={t("shell.searchPlaceholder")}
+          aria-label={t("shell.searchPlaceholder")}
           className="w-full rounded-full border border-zinc-300 bg-white py-2 pl-4 pr-10 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none"
         />
         <button
