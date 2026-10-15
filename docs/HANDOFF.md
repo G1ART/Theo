@@ -1,6 +1,47 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-13
+Last updated: 2026-10-15
+
+## 2026-10-15 — 현혜명 단위 없는 크기 69점을 인치로 고침
+
+> **Supabase SQL 스키마 변경 없음.** 마이그레이션 파일을 만들지 않았다. 아래 69행만 `UPDATE` 했다. **환경 변수 추가·변경 없음.**
+
+프로필 `heimyunghyun` / 현혜명 (`8b4dc6e1-d9f7-4ac9-a626-ef61566af657`) 을 다시 확인했다.
+
+조회 창:
+
+- 미국 서부 2026-10-15 00:00(UTC 07:00)부터 조회 시점: 작품 4점. 숫자 크기에 단위가 빈 행은 없다. `HH 26 157` `16 × 16` / `in`, `HH 26 63` `36 × 48` / `in`, `HH 26 62` `30 × 40` / `in` 은 단위가 이미 `in` 이라 그대로 두었다. `width_cm`/`height_cm` 는 비어 있다. `HH 26 60` 은 크기 글이 비어 있어 단위를 넣지 않았다.
+- 한국 2026-10-15 00:00(UTC 2026-10-14 15:00)부터: 같은 4점뿐이다. 미국 서부 어제(2026-10-14)와 한국 어제(2026-10-15)에 새로 만든 현혜명 작품은 없다.
+- 단위가 비어 있고 크기에 숫자가 있는 현혜명 작품은 69점뿐이다. 만든 시각은 2026-10-14 00:14–00:16 UTC, 즉 미국 서부 2026-10-13 17:14와 한국 2026-10-14 09:14다. 오늘 12:48 PDT 무렵 `updated_at` 이 다시 찍혀 있다. 공개 프로필에 캡슐이 없는 작품이 이 묶음이다. 다른 작가, 정은지, Wave 는 조건 밖이라 건드리지 않았다. Wave I·Wave IV 는 그대로 `36 × 36` / `in` / `91.44` 다.
+
+`formatArtworkSizeOverlay` 는 `size` 와 `size_unit` 이 있어 결과에 `cm` 또는 `in` 이 있을 때만 캡슐을 낸다. 69점 모두 크기 글은 그대로 두고 `size_unit='in'`, 가로·세로는 인치×2.54 를 넣었다. 깊이 숫자는 없어 `depth_cm` 는 비웠다.
+
+이전은 전부 `size_unit` 없음, `width_cm`/`height_cm`/`depth_cm` 없음이다. 이후 `size_unit` 은 `in`, `depth_cm` 는 없음.
+
+- `12x12` → `30.48` × `30.48` (44점): Bird `0261900a-34d2-41dd-90ab-43bf6f35cbd7`, Homebound I-97 `84ac3d21-cc68-4026-b42c-9dc942f80ec2`, HH 26 200 `8417ddff-70ee-4998-9708-ff267e23c5f7`, TBD `e139dd70-380e-422a-9806-5948313622c0`, Homebound `98924087-2c17-442a-93e8-ba46096e8d72`, Trees `7c2cfb30-d14d-4678-9e51-680b1b96e6a3`, Home `b90586f5-d2bf-44a1-9397-e7bec24abd15`, Home II `e15d4176-732e-430b-94e8-416df6f34b54`, Roses 7 `17a0f453-fa67-497a-8b0f-bfec655c583d`, Roses 8 `b5a72f98-c0b0-4500-b34e-4677d092fb71`, Hado 1420 `c887e89e-a447-4246-a6ef-f0e8d06c127e`, Hado 2410 `0bde92b0-1511-4700-9120-c79be147d97d`, Hado 1503 `34a286e1-58dc-45b1-b4ba-47c37c796fae`, Hado 1422 `b9744c71-3bcc-4575-a3e7-a6ae2f014fcf`, Hado 1416 `d370a0b6-fc40-442e-8c22-683117a202a7`, Hado 1430 `3226103a-d2ad-4894-9d48-5eef733ca03e`, Hado 1505 `b1008c71-8776-442e-a24a-3dc97bd196b0`, Hado 15-397 `74fcb304-5d77-4773-a7e0-cc10d22cbd90`, Hado 15-402 `410a4f03-c4bc-43bb-8962-b02329fb20ff`, Hado 1411 `d77fa827-ea24-4c85-a718-d692a672782e`, Hado 2402 `c3595cb9-00a1-4458-b51b-0b05a9e83cb0`, Hado 1516 `59e79909-a598-426a-aafb-07d043c051f8`, Hado 1308 `3444a97b-c2c2-4b6a-bb6d-79e7d23ec097`, Hado 1517 `d103e09f-4a38-4761-a715-e6fa59519083`, Hado 1410 `51805ef4-8745-40d3-a0a7-7b5e1ea5431e`, Hado 2501 `c21bd14a-1e7d-4abc-bce7-8a6eecdc81b8`, Hado 1432 `746bd89e-e868-447d-8933-ea12d233d044`, Hado 24-389 `4a7d6528-5cf4-46df-8f80-1f99816c8b6c`, Hado 24-400 `e320ecc1-c2be-4c06-9f21-9fca1e204ef3`, Hado 2401 `f30b094d-3426-44a3-b3e2-a1446cd89f6e`, Trees, Willow `ed96e730-f4bd-4a9a-8824-208c331d7429`, Hado 1506 `d7b97012-a12d-417f-98c7-620aeea71bfd`, Hado 1508 `dd3aaac4-015d-4c0b-b054-fceab2f13a71`, Hado 2411 `35415ebb-0bd0-4a8c-a4da-9bf239453ae5`, Hado 24-399 `e5fa5eeb-a20e-45d9-a0ff-beb8e6479e52`, Hado 2412 `e6ff5f04-2926-4758-a319-a00c137998be`, Hado 1504 `960d5009-2ba9-4944-912f-9cb2c65940c7`, Hado 1507 `b5ad641f-fda3-49af-b82f-46deb7301e1c`, Hado 1429 `ab0718c2-3cef-4924-8b09-fcb508ded624`, Hado 1423 `ec831c73-f10e-4e6a-b11d-7a0686185ee3`, Willow Tree `9de488fc-85aa-4af2-84c1-b9ad87a104ee`, Hado 24-393 `e7ed28ec-d39a-4589-9b83-8ca7194f353a`, Hado 24-396 `516ca76b-8897-48e5-9668-b2aa8ab532d9`, Hado 15-403 `dbf10bb0-b457-465b-ad6e-f690a3c92ba1`
+- `10x14` → `25.40` × `35.56`: Hado 0823 `98363623-d923-4f72-86f9-923befc058c2`, Hado 0821 `8e97b1f5-e4f1-4398-8265-99541d516c3e`, Hado 0819 `258b93fa-a90f-40c9-a0be-21f485150249`, Hado 0817 `8864a5c0-86cf-4d9d-b77d-a37286c65a93`
+- `14x11` → `35.56` × `27.94`: Hado 0825 `5fc13abe-3ba1-44a4-8e9a-3f7ea8fecdf9`, Hado 0827 `25782ce9-4e89-4be6-8ad8-113b8213750b`
+- `60x84` → `152.40` × `213.36`: Islands VII `4e71fbd1-d7ec-4dc1-8d59-a6daa7372bcc`, Journey 96 `6da2cf4d-d42f-4ee2-8b37-2b4d76ca6ee8`
+- `48x84` → `121.92` × `213.36`: Islands 0102 `c45f5d04-9850-4f88-98f1-0429f5854f95`, Passage 1207 `9063e937-101a-4442-9c11-8e509da961cc`
+- `12x24` → `30.48` × `60.96`: Cherry Blossom 0605 `eac0ca6c-67d7-4fe2-a857-1b947bc55a65`
+- `24x24` → `60.96` × `60.96`: Romance 2017 `40400055-8c4f-4e86-86e8-36f9aa08a1b9`
+- `30x30` → `76.20` × `76.20`: Cherry Blossom 0405 `4b5b2c05-3490-4b6d-bd97-16f491f34c51`
+- `26x26` → `66.04` × `66.04`: Cherry Blossom 0305 `2aecb06f-ca14-42f9-97b5-60185b860b8d`
+- `16x20` → `40.64` × `50.80`: Journey VII-01 `473a0007-b95d-4aa5-9166-c02d9d82bea4`
+- `20x20` → `50.80` × `50.80`: Journey VI-01 `5669dad3-ed3d-447a-b64a-484c06e5b173`
+- `20x16` → `50.80` × `40.64`: Journey IX `d14ed14b-eff4-45c3-a527-0a5de341ff8c`
+- `46x36` → `116.84` × `91.44`: Cherry Blossom 3905 `bccfad58-616f-4a00-8a69-44837e3341e7`
+- `10x8` → `25.40` × `20.32`: Bird 96 `70ecdea6-1d00-4a7e-9cba-5f93edf89833`
+- `16x15` → `40.64` × `38.10`: Flower `7f7fffed-a039-4031-808f-8ce9baf12dd0`
+- `16x16` → `40.64` × `40.64`: Black&White Rose `0a814d40-05d9-4c3d-9f99-1834122f6f45`
+- `12x15` → `30.48` × `38.10`: untitled 1809 `7d7b2ea8-dfb4-4de7-a2df-4ead613d5271`
+- `11x14` → `27.94` × `35.56`: Hado 0829 `55e79bed-8b3e-414f-af7d-cb067989ff96`
+- `45x80` → `114.30` × `203.20`: Untitled_Landscape `3114d48c-45c9-4526-8954-ccea0031a170`
+- `60x72` → `152.40` × `182.88`: Islands II `f0fda10a-bc6b-4f3d-89a0-2d68547c2bca`
+
+크기 글이 `12x12` 처럼 단위 없이 들어간 경로는 CSV 캡션이다. 한 점 등록, 여러 점 카드, 공통 크기는 고른 `cm`/`in` 을 이미 저장한다. 오늘 만든 세 점도 `size_unit='in'` 이다. 캡션 적용만 파일에 단위가 없으면 `size` 숫자만 넣고 `size_unit` 을 빠뜨렸다. 전시 추가도 같은 여러 점 저장을 쓴다. 이제 화면에서 고른 단위를 캡션 패치에 싣는다. 파일에 단위가 있으면 그 단위가 이긴다. 고른 단위를 넘기지 않으면 인치로 채우지 않는다.
+
+**Verified:** 적용 후 SELECT. 69점 모두 `size_unit='in'`, 가로·세로가 인치×2.54, `depth_cm` 없음, 불일치 0. 오늘 만든 4점과 Wave I·IV 는 이전 값 그대로. `npx tsx tests/artwork-csv.test.ts`. `npx tsx tests/size-display.test.ts`. `npx tsx tests/size-unit-toggle.test.ts`.
 
 ## 2026-10-13 — 피드 검색에서 작품 카드와 크기·가격 필터
 

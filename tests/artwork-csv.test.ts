@@ -331,6 +331,39 @@ import { parseCsv } from "../src/lib/csv/parse";
   const oneSide = parseArtworkCsv("title,width,size_unit\nStone,130,cm\n");
   assert.equal(oneSide.rows[0]?.size, "130");
   assert.equal(oneSide.rows[0]?.sizeUnit, "cm");
+
+  const inchPatch = buildCaptionPatch(inches.rows[0]!, "en");
+  assert.equal(inchPatch.patch.size_unit, "in");
+  assert.equal(inchPatch.dims?.widthCm, 91.44);
+  assert.equal(inchPatch.dims?.heightCm, 91.44);
+
+  const bare = parseArtworkCsv("title,size\nHH,12x12\n");
+  const omitted = buildCaptionPatch(bare.rows[0]!, "en");
+  assert.equal(omitted.patch.size, "12x12");
+  assert.equal(omitted.patch.size_unit, undefined);
+  assert.equal(omitted.dims, null);
+
+  const asIn = buildCaptionPatch(bare.rows[0]!, "ko", "in");
+  assert.equal(asIn.patch.size_unit, "in");
+  assert.equal(asIn.dims?.widthCm, 30.48);
+  assert.equal(asIn.dims?.heightCm, 30.48);
+  assert.equal(asIn.dims?.depthCm, undefined);
+
+  const asCm = buildCaptionPatch(bare.rows[0]!, "en", "cm");
+  assert.equal(asCm.patch.size_unit, "cm");
+  assert.equal(asCm.dims?.widthCm, 12);
+  assert.equal(asCm.dims?.heightCm, 12);
+
+  const fileCm = parseArtworkCsv("title,size,size_unit\nHH,12x12,cm\n");
+  const fileWins = buildCaptionPatch(fileCm.rows[0]!, "en", "in");
+  assert.equal(fileWins.patch.size_unit, "cm");
+  assert.equal(fileWins.dims?.widthCm, 12);
+
+  const lone = parseArtworkCsv("title,size\nStone,36\n");
+  const loneIn = buildCaptionPatch(lone.rows[0]!, "en", "in");
+  assert.equal(loneIn.patch.size, "36");
+  assert.equal(loneIn.patch.size_unit, "in");
+  assert.equal(loneIn.dims, null);
 }
 
 console.log("artwork-csv tests: ok");

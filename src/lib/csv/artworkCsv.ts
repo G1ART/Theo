@@ -324,11 +324,17 @@ export function captionRowLabel(row: ArtworkCsvRow, index: number): string {
 export function buildCaptionPatch(
   row: ArtworkCsvRow,
   locale: "ko" | "en",
+  chosenUnit?: "cm" | "in" | null,
 ): { patch: CaptionPatch; dims: ArtworkDimensionsCm | null; issues: string[] } {
   const patch: CaptionPatch = {};
   const issues: string[] = [];
   const label = captionRowLabel(row, row.rowNumber - 1);
   const ko = locale === "ko";
+  const explicit = row.sizeUnit === "cm" || row.sizeUnit === "in" ? row.sizeUnit : null;
+  const chosen = chosenUnit === "cm" || chosenUnit === "in" ? chosenUnit : null;
+  // A unit written in the file wins. The batch toggle is used only when
+  // the file has numbers and no unit. Omitting the toggle does not invent inches.
+  const unit = explicit ?? (row.size && /\d/.test(row.size) ? chosen : null);
 
   if (row.title && row.title !== "Untitled") {
     patch.title = row.title;
@@ -343,7 +349,7 @@ export function buildCaptionPatch(
   }
   if (row.size) {
     patch.size = row.size;
-    if (row.sizeUnit) patch.size_unit = row.sizeUnit;
+    if (unit) patch.size_unit = unit;
   }
   if (row.story) {
     patch.story = row.story;
@@ -374,7 +380,7 @@ export function buildCaptionPatch(
 
   let dims: ArtworkDimensionsCm | null = null;
   if (row.size) {
-    const parsed = parseSizeToDimensionsCm(row.size, row.sizeUnit);
+    const parsed = parseSizeToDimensionsCm(row.size, unit);
     if (parsed && parsed.widthCm > 0 && parsed.heightCm > 0) dims = parsed;
   }
 

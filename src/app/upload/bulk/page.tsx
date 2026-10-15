@@ -1318,7 +1318,8 @@ export default function BulkUploadPage() {
 
   async function writeCaption(id: string, row: ArtworkCsvRow): Promise<string[]> {
     const lang = locale.startsWith("ko") ? "ko" : "en";
-    const { patch, dims, issues } = buildCaptionPatch(row, lang);
+    const chosenUnit = bulkSizeUnit === "cm" || bulkSizeUnit === "in" ? bulkSizeUnit : null;
+    const { patch, dims, issues } = buildCaptionPatch(row, lang, chosenUnit);
     if (Object.keys(patch).length > 0) {
       await updateArtwork(id, patch, {
         actingSubjectProfileId: actingAsProfileId ?? null,
