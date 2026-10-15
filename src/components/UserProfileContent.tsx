@@ -1,10 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
+import {
+  commitProfileScrollReturn,
+  measureProfileHeaderOffset,
+  pinProfileScroll,
+  profileListTopScrollY,
+  profileTabStickOffset,
+  rememberProfileGridScrollFromWindow,
+  takeProfileScrollPlan,
+} from "@/lib/profile/scrollRestore";
 import {
   DndContext,
   closestCenter,
@@ -133,7 +142,16 @@ export function UserProfileContent({
   // flashes for a signed-in viewer during the initial client session read.
   const [sessionChecked, setSessionChecked] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
-  const [active, setActive] = useState<ActiveStudioTab>({ kind: "persona", tab: "all" });
+  const [active, setActive] = useState<ActiveStudioTab>(
+    () => parseActiveTabParam(initialTabParam) ?? { kind: "persona", tab: "all" }
+  );
+  const nameRowRef = useRef<HTMLDivElement>(null);
+  const tabAnchorRef = useRef<HTMLDivElement>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const worksAnchorRef = useRef<HTMLDivElement>(null);
+  const [headerOffset, setHeaderOffset] = useState(0);
+  const [nameRowHeight, setNameRowHeight] = useState(0);
+  const [namePinned, setNamePinned] = useState(false);
   const [localArtworks, setLocalArtworks] = useState<ArtworkWithLikes[]>(artworks);
   const [membershipWorks, setMembershipWorks] = useState<ArtworkWithLikes[]>([]);
   const [saving, setSaving] = useState(false);
@@ -409,6 +427,113 @@ export function UserProfileContent({
     setExhibitionSortMode("registered_desc");
     router.refresh();
   }, [isOwner, profile.id, router]);
+
+  useLayoutEffect(() => {
+    const previous = window.history.scrollRestoration;
+    try {
+      window.history.scrollRestoration = "manual";
+    } catch {
+      // ignore
+    }
+    return () => {
+      try {
+        window.history.scrollRestoration = previous;
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const key = window.location.pathname + window.location.search;
+    const plan = takeProfileScrollPlan(key);
+    if (plan.action !== "restore") return;
+    window.scrollTo(0, plan.scrollY);
+    let cancelled = false;
+    const stop = pinProfileScroll(plan.scrollY, () => {
+      if (!cancelled) commitProfileScrollReturn();
+    });
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [pathname]);
+
+  useLayoutEffect(() => {
+    const measureHeader = () => {
+      const next = measureProfileHeaderOffset();
+      setHeaderOffset((prev) => (prev === next ? prev : next));
+    };
+    const measureName = () => {
+      const next = nameRowRef.current?.offsetHeight ?? 0;
+      setNameRowHeight((prev) => (prev === next ? prev : next));
+    };
+    measureHeader();
+    measureName();
+    window.addEventListener("resize", measureHeader);
+    const nav = document.querySelector("[data-mobile-nav]");
+    const navObserver = nav instanceof HTMLElement ? new ResizeObserver(measureHeader) : null;
+    if (nav instanceof HTMLElement) navObserver?.observe(nav);
+    const nameObserver = nameRowRef.current ? new ResizeObserver(measureName) : null;
+    if (nameRowRef.current) nameObserver?.observe(nameRowRef.current);
+    return () => {
+      window.removeEventListener("resize", measureHeader);
+      navObserver?.disconnect();
+      nameObserver?.disconnect();
+    };
+  }, [isOwner]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const el = nameRowRef.current;
+      if (!el) return;
+      const next = el.getBoundingClientRect().top <= headerOffset + 0.5;
+      setNamePinned((prev) => (prev === next ? prev : next));
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [headerOffset]);
+
+  const scrollTabListToTop = useCallback(() => {
+    const target = tabAnchorRef.current ?? worksAnchorRef.current;
+    if (!target || !target.isConnected) return;
+    const stick = profileTabStickOffset(
+      measureProfileHeaderOffset(),
+      nameRowRef.current?.offsetHeight ?? 0
+    );
+    const top = profileListTopScrollY({
+      tabBarViewportTop: target.getBoundingClientRect().top,
+      windowScrollY: window.scrollY,
+      stickOffset: stick,
+    });
+    if (Math.abs(window.scrollY - top) <= 2) return;
+    window.scrollTo({ top, behavior: "auto" });
+  }, []);
+
+  const handleProfileTab = useCallback(
+    (next: ActiveStudioTab) => {
+      setActive(next);
+      if (typeof window === "undefined") return;
+      const params = new URLSearchParams(window.location.search);
+      params.set("tab", serializeActiveTabParam(next));
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${pathname}?${params.toString()}`,
+      );
+      // replaceState updates the tab in the address bar. Next can follow
+      // that with a scroll to the document top; put the list top back.
+      scrollTabListToTop();
+      window.setTimeout(scrollTabListToTop, 50);
+      window.setTimeout(scrollTabListToTop, 180);
+    },
+    [pathname, scrollTabListToTop]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -729,7 +854,12 @@ export function UserProfileContent({
         coverImagePath={profile.cover_image_url ?? null}
         positionY={profile.cover_image_position_y ?? 50}
       />
-      <div className="mb-8 flex flex-col gap-4">
+        <div
+          ref={nameRowRef}
+          data-profile-freeze="name"
+          className={`sticky ${layer.chrome} bg-white ${namePinned ? "border-b border-zinc-200" : ""}`}
+          style={{ top: headerOffset }}
+        >
         <div className="flex items-start gap-4">
           <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-zinc-200">
             {avatarUrl ? (
@@ -749,12 +879,18 @@ export function UserProfileContent({
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-              {displayName}
-            </h1>
-            {usernameHandle && (
-              <p className="text-sm text-zinc-500">{usernameHandle}</p>
-            )}
+            <button
+              type="button"
+              onClick={scrollTabListToTop}
+              className="block max-w-full border-0 bg-transparent p-0 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
+            >
+              <span className="block text-2xl font-semibold tracking-tight text-zinc-900">
+                {displayName}
+              </span>
+              {usernameHandle && (
+                <span className="block text-sm text-zinc-500">{usernameHandle}</span>
+              )}
+            </button>
             {/*
               QA 2026-07-29 — Layer 3 이중언어 컨텍스트 넛지. 오너 본인이
               자기 프로필을 볼 때, 현재 UI 로케일에 해당하는 이름 슬롯이
@@ -790,6 +926,8 @@ export function UserProfileContent({
             </Link>
           )}
         </div>
+        </div>
+      <div className="mb-8 mt-4 flex flex-col gap-4">
 
         {(() => {
           const localizedBio = pickLocalizedBio(profile, locale);
@@ -984,22 +1122,20 @@ export function UserProfileContent({
       )}
 
       {roleTab === "artist" && (stripPublic.length > 0 || isOwner) && (
+        <>
+        <div ref={tabAnchorRef} data-profile-tab-anchor="" className="h-0" aria-hidden />
+        <div
+          ref={tabBarRef}
+          data-profile-freeze="tabs"
+          className={`sticky ${layer.chrome} bg-white [&>*]:mb-0`}
+          style={{ top: headerOffset + nameRowHeight }}
+        >
         <ProfileTabManager
           isOwner={isOwner}
           stripPublic={stripPublic}
           stripRows={stripRows}
           active={active}
-          onActiveChange={(next) => {
-            setActive(next);
-            if (typeof window === "undefined") return;
-            const params = new URLSearchParams(window.location.search);
-            params.set("tab", serializeActiveTabParam(next));
-            window.history.replaceState(
-              window.history.state,
-              "",
-              `${pathname}?${params.toString()}`,
-            );
-          }}
+          onActiveChange={handleProfileTab}
           portfolio={portfolio}
           defaultTabLabels={defaultTabLabels}
           profileId={profile.id}
@@ -1014,9 +1150,11 @@ export function UserProfileContent({
             setSavedToast(true);
           }}
         />
+        </div>
+        </>
       )}
 
-      <div className="mb-4 flex items-center justify-between">
+      <div ref={worksAnchorRef} className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-zinc-900">{worksHeading}</h2>
         {!isExhibitionsView &&
           !reorderMode &&
@@ -1286,7 +1424,10 @@ export function UserProfileContent({
                 <li key={ex.id}>
                   <Link
                     href={`/e/${ex.id}`}
-                    onClick={() => setExhibitionBack()}
+                    onClick={() => {
+                      rememberProfileGridScrollFromWindow();
+                      setExhibitionBack();
+                    }}
                     className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-2.5 shadow-sm transition hover:border-zinc-300 hover:shadow-md"
                   >
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-zinc-200 bg-zinc-100">

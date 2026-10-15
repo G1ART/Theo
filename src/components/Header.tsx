@@ -35,8 +35,15 @@ import {
 } from "@/components/shell/HamburgerContextPeek";
 import { hitTarget } from "@/components/ds/buttonStyles";
 import { captureFeedDocumentNavigation } from "@/lib/feed/scrollRestore";
+import {
+  captureProfileDocumentNavigation,
+  installProfileScrollPopListener,
+  releaseProfileScrollOutsideCorridor,
+} from "@/lib/profile/scrollRestore";
 
 captureFeedDocumentNavigation();
+captureProfileDocumentNavigation();
+installProfileScrollPopListener();
 
 /**
  * Global top-bar. On desktop AppShell routes (`lg+`) the sidebar takes
@@ -75,6 +82,11 @@ export function Header() {
   // hide the top nav there. Mobile keeps the proven Header + hamburger.
   const shellRoute = isShellRoute(pathname);
   const authFrontDoor = isAuthFrontDoorRoute(pathname);
+
+  useEffect(() => {
+    if (!pathname) return;
+    releaseProfileScrollOutsideCorridor(pathname);
+  }, [pathname]);
   const { t, locale, setLocale } = useT();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);

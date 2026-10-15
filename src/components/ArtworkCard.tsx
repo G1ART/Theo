@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
+import { rememberProfileGridScrollFromWindow } from "@/lib/profile/scrollRestore";
 import {
   type Artwork,
   getArtworkImageUrl,
@@ -96,6 +97,7 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
 
   function handleArticleClick() {
     if (disableNavigation) return;
+    rememberProfileGridScrollFromWindow();
     setArtworkBack();
     router.push(`/artwork/${artwork.id}`);
   }

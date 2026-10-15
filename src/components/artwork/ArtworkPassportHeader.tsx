@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { profileReturnLinkProps } from "@/lib/profile/scrollRestore";
 
 /**
  * `getArtworkBack()` returns `labelKey: string` because it derives from
@@ -42,6 +43,7 @@ export function ArtworkPassportHeader({
 }) {
   const { t } = useT();
   const backKey = backLabelKey as MessageKey;
+  const profileReturn = profileReturnLinkProps(backPath);
   return (
     <div className="mb-6 flex flex-col gap-1.5">
       <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">
@@ -56,14 +58,14 @@ export function ArtworkPassportHeader({
             ← {t("artwork.backToRoom")}
           </Link>
         ) : (
-          <Link href={backPath} className="text-zinc-600 hover:text-zinc-900">
+          <Link href={backPath} {...profileReturn} className="text-zinc-600 hover:text-zinc-900">
             ← {t(backKey)}
           </Link>
         )}
         {fromRoom && (
           <>
             <span className="text-zinc-300">·</span>
-            <Link href={backPath} className="text-zinc-500 hover:text-zinc-800">
+            <Link href={backPath} {...profileReturn} className="text-zinc-500 hover:text-zinc-800">
               {t(backKey)}
             </Link>
           </>
