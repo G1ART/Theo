@@ -270,6 +270,7 @@ export function StudioPortfolioManageModal({
                     ]),
                   )
                 : {},
+              profileId,
             });
             setSaving(false);
             if (!applied.ok) return;

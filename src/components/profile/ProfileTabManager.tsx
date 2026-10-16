@@ -17,7 +17,8 @@ import {
 } from "@/lib/studio/studioPortfolioConfig";
 
 type Props = {
-  isOwner: boolean;
+  /** Profile owner, or an account delegate allowed to manage this profile's tabs. */
+  canManage: boolean;
   stripPublic: StudioStripTab[];
   stripRows: StudioStripTab[];
   active: ActiveStudioTab;
@@ -45,7 +46,7 @@ function isActiveTab(row: StudioStripTab, active: ActiveStudioTab): boolean {
  * `studio_portfolio` payload the old studio panel wrote.
  */
 export function ProfileTabManager({
-  isOwner,
+  canManage,
   stripPublic,
   stripRows,
   active,
@@ -69,7 +70,7 @@ export function ProfileTabManager({
     .map((r) => r.personaTab!);
 
   async function persist(next: StudioPortfolioV1): Promise<boolean> {
-    const { ok } = await persistStudioPortfolio(next);
+    const { ok } = await persistStudioPortfolio(next, profileId);
     if (!ok) {
       onToast(t("common.tryAgain"));
       return false;
@@ -79,7 +80,7 @@ export function ProfileTabManager({
     return true;
   }
 
-  if (stripPublic.length === 0 && !isOwner) return null;
+  if (stripPublic.length === 0 && !canManage) return null;
 
   const stripOptions: LaneOption<string>[] = stripPublic.map((row) => ({
     id: row.key,
@@ -92,7 +93,7 @@ export function ProfileTabManager({
   return (
     <div className="mb-4 border-b border-zinc-200 pb-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        {isOwner && reorderMode ? (
+        {canManage && reorderMode ? (
           <>
             <TabReorderList
               rows={list}
@@ -154,7 +155,7 @@ export function ProfileTabManager({
               />
               </div>
             )}
-            {isOwner && (
+            {canManage && (
               <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:ml-auto sm:w-auto">
                 {stripRows.length > 1 && (
                   <button
@@ -189,7 +190,7 @@ export function ProfileTabManager({
         )}
       </div>
 
-      {isOwner && (
+      {canManage && (
         <>
         <StudioPortfolioManageModal
           open={manageOpen}

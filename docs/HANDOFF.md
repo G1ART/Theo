@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-15
 
+## 2026-10-15 — 위임 계정도 공개 프로필 탭을 관리
+
+> **Supabase SQL:** `supabase/migrations/20261016054717_profile_tab_delegate_manage.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수 네 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
+
+공개 프로필의 탭 추가·이름 수정·순서·삭제는 계정주만 가능했다. 저장 RPC `update_my_profile_details` 가 로그인한 사용자 행만 고치고, 화면의 탭 버튼도 `profile.id === 세션 id` 일 때만 나왔다. `edit_profile_public_content` 는 권한 목록에만 있고 프로필 탭 쓰기에는 쓰이지 않았다.
+
+- 계정주, 또는 활성 계정 위임 중 `manage_artworks`(모든 권한·operations, 작품 관리) 또는 `edit_profile_public_content`(프로필 관리·content) 가 있는 계정만 탭을 만든다. 조회 전용, 문의·클레임만, 프로젝트 단위 위임, 없는 위임, 취소·만료(`status` 또는 `expires_at`) 는 거절한다. 위임이 취소되면 다음 저장부터 막힌다.
+- 저장은 `save_profile_studio_portfolio` 가 `studio_portfolio` 와 기존 `tab_order` 만 갱신한다. 탭 삭제 시 작품 삭제는 그 프로필이 작가이고 커스텀 탭에 들어 있는 작품만, 종류 반영은 `artwork` / `print_edition` / `art_goods` / `collected` 만. 피드 제외 규칙은 그대로다.
+- 위임 없이 연 공개 프로필에는 탭 추가·설정·순서 버튼이 없다. 프로필 수정 링크는 계정주만.
+
+**Verified:** `npx tsx tests/profile-tab-access.test.ts`. `npx tsx tests/profile-tab-kinds.test.ts`. `npx tsx tests/profile-sticky-chrome.test.ts`. 롤백한 SQL 점검에서 operations(`manage_artworks`)·프로필 권한 허용, 만료·취소·문의만·타인 저장/삭제 거절, 계정주 허용. 로컬 `/u/heimyunghyun` 비로그인: 탭 줄은 보이고 탭 설정·탭 추가·탭 순서·프로필 수정은 없음.
+
 ## 2026-10-15 — 프로필 고정 막대 한 덩어리, 목록에서 상세로 나갔다가 그 자리로
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
