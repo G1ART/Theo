@@ -8,7 +8,7 @@ import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { backToLabel } from "@/lib/i18n/back";
 import { getExhibitionBack } from "@/lib/exhibitionBack";
-import { profileReturnLinkProps } from "@/lib/profile/scrollRestore";
+import { entryReturnLinkProps } from "@/lib/nav/entryReturn";
 import { ExhibitionHostCuratorCredits } from "@/lib/exhibitionCredits";
 import { pickLocalizedTitle, pickLocalizedPreface, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
 import {
@@ -240,7 +240,7 @@ export default function PublicExhibitionPage() {
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <Link
           href={back.path}
-          {...profileReturnLinkProps(back.path)}
+          {...entryReturnLinkProps(back.path)}
           className="text-sm text-zinc-600 hover:text-zinc-900"
         >
           ← {backToLabel(t(back.labelKey as MessageKey), locale)}

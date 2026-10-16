@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ds/PageHeader";
 import { PageShell } from "@/components/ds/PageShell";
 import { chipButton, chipButtonPrimary } from "@/components/ds/buttonStyles";
 import { useT } from "@/lib/i18n/useT";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 import {
   LIBRARY_IMPORT_FIELDS,
   mapLibraryColumns,
@@ -238,7 +239,7 @@ function ImportContent() {
 
   return (
     <PageShell variant="library">
-      <Link href="/my/library" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
+      <Link href="/my/library" {...listReturnLinkProps("/my/library")} className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
         ← {t("library.title")}
       </Link>
       <PageHeader variant="plain" title={t("library.import.title")} />
@@ -480,7 +481,7 @@ function ImportContent() {
               ))}
             </ul>
           )}
-          <Link href="/my/library" className={chipButtonPrimary}>
+          <Link href="/my/library" {...listReturnLinkProps("/my/library")} className={chipButtonPrimary}>
             {t("library.import.goToLibrary")}
           </Link>
         </div>

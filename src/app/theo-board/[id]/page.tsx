@@ -12,6 +12,7 @@ import {
   type TheoBoardPost,
 } from "@/lib/supabase/theoBoard";
 import { TheoBoardPlaceholderRows, TheoBoardTypeChip } from "@/components/theo-board/TheoBoardTypeChip";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 
 export default function TheoBoardDetailPage() {
   const params = useParams<{ id: string }>();
@@ -49,6 +50,7 @@ export default function TheoBoardDetailPage() {
     <PageShell variant="narrow">
       <Link
         href="/theo-board"
+        {...listReturnLinkProps("/theo-board")}
         className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
       >
         ← {t("theoBoard.backToBoard")}

@@ -80,9 +80,13 @@ export function profileChromeScrollTarget(_click: ProfileChromeClick): "tab-list
   }
 }
 
-/** Mobile header height plus the frozen name row. Desktop header height is 0. */
-export function profileTabStickOffset(headerHeight: number, nameRowHeight: number): number {
-  return Math.max(0, headerHeight) + Math.max(0, nameRowHeight);
+/**
+ * Distance from the viewport top down to the artwork list.
+ * `headerHeight` is the mobile app header (0 on the desktop shell).
+ * `barHeight` is the one frozen bar that holds the name and the tabs.
+ */
+export function profileTabStickOffset(headerHeight: number, barHeight: number): number {
+  return Math.max(0, headerHeight) + Math.max(0, barHeight);
 }
 
 /** Window scrollY that puts the tab bar (or list anchor) on the stick line. */

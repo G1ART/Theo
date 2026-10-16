@@ -9,6 +9,7 @@ import { backToLabel } from "@/lib/i18n/back";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
 import { NewExhibitionFormShell } from "@/components/exhibitions/NewExhibitionFormShell";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 
 function NewExhibitionPageInner() {
   const searchParams = useSearchParams();
@@ -26,6 +27,7 @@ function NewExhibitionPageInner() {
         <div className="mb-6">
           <Link
             href={backHref}
+            {...listReturnLinkProps(backHref)}
             className="text-sm text-zinc-600 hover:text-zinc-900"
           >
             ← {backLabel}

@@ -8,6 +8,7 @@ import {
   discardFeedSessionForHref,
   isPlainPrimaryClick,
 } from "@/lib/feed/scrollRestore";
+import { disarmListScrollReturn, isListScrollPath } from "@/lib/list/scrollRestore";
 import { onUploadLeaveClick } from "@/lib/shell/leaveUploadNav";
 
 /**
@@ -30,6 +31,14 @@ export function ShellNavLink({
           classifyFeedAnchor(href) === "open-feed"
         ) {
           discardFeedSessionForHref(href);
+        }
+        if (
+          typeof href === "string" &&
+          isPlainPrimaryClick(event) &&
+          isListScrollPath(href)
+        ) {
+          // Opening a list from navigation is a new entry, so it starts at the top.
+          disarmListScrollReturn();
         }
         if (
           typeof href === "string" &&

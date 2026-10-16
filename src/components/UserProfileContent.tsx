@@ -145,13 +145,9 @@ export function UserProfileContent({
   const [active, setActive] = useState<ActiveStudioTab>(
     () => parseActiveTabParam(initialTabParam) ?? { kind: "persona", tab: "all" }
   );
-  const nameRowRef = useRef<HTMLDivElement>(null);
-  const tabAnchorRef = useRef<HTMLDivElement>(null);
-  const tabBarRef = useRef<HTMLDivElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
   const worksAnchorRef = useRef<HTMLDivElement>(null);
   const [headerOffset, setHeaderOffset] = useState(0);
-  const [nameRowHeight, setNameRowHeight] = useState(0);
-  const [namePinned, setNamePinned] = useState(false);
   const [localArtworks, setLocalArtworks] = useState<ArtworkWithLikes[]>(artworks);
   const [membershipWorks, setMembershipWorks] = useState<ArtworkWithLikes[]>([]);
   const [saving, setSaving] = useState(false);
@@ -464,47 +460,23 @@ export function UserProfileContent({
       const next = measureProfileHeaderOffset();
       setHeaderOffset((prev) => (prev === next ? prev : next));
     };
-    const measureName = () => {
-      const next = nameRowRef.current?.offsetHeight ?? 0;
-      setNameRowHeight((prev) => (prev === next ? prev : next));
-    };
     measureHeader();
-    measureName();
     window.addEventListener("resize", measureHeader);
     const nav = document.querySelector("[data-mobile-nav]");
     const navObserver = nav instanceof HTMLElement ? new ResizeObserver(measureHeader) : null;
     if (nav instanceof HTMLElement) navObserver?.observe(nav);
-    const nameObserver = nameRowRef.current ? new ResizeObserver(measureName) : null;
-    if (nameRowRef.current) nameObserver?.observe(nameRowRef.current);
     return () => {
       window.removeEventListener("resize", measureHeader);
       navObserver?.disconnect();
-      nameObserver?.disconnect();
     };
-  }, [isOwner]);
-
-  useEffect(() => {
-    const onScroll = () => {
-      const el = nameRowRef.current;
-      if (!el) return;
-      const next = el.getBoundingClientRect().top <= headerOffset + 0.5;
-      setNamePinned((prev) => (prev === next ? prev : next));
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [headerOffset]);
+  }, []);
 
   const scrollTabListToTop = useCallback(() => {
-    const target = tabAnchorRef.current ?? worksAnchorRef.current;
+    const target = worksAnchorRef.current;
     if (!target || !target.isConnected) return;
     const stick = profileTabStickOffset(
       measureProfileHeaderOffset(),
-      nameRowRef.current?.offsetHeight ?? 0
+      chromeRef.current?.offsetHeight ?? 0,
     );
     const top = profileListTopScrollY({
       tabBarViewportTop: target.getBoundingClientRect().top,
@@ -855,12 +827,16 @@ export function UserProfileContent({
         positionY={profile.cover_image_position_y ?? 50}
       />
         <div
-          ref={nameRowRef}
-          data-profile-freeze="name"
-          className={`sticky ${layer.chrome} bg-white ${namePinned ? "border-b border-zinc-200" : ""}`}
-          style={{ top: headerOffset }}
+          ref={chromeRef}
+          data-profile-freeze="chrome"
+          className={`sticky ${layer.chrome} border-b border-zinc-200 pb-3`}
+          style={{
+            top: headerOffset,
+            backgroundColor: "var(--background)",
+            boxShadow: "0 1px 0 var(--background)",
+          }}
         >
-        <div className="flex items-start gap-4">
+        <div data-profile-freeze="name" className="flex items-start gap-4">
           <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-zinc-200">
             {avatarUrl ? (
               <Image
@@ -926,6 +902,30 @@ export function UserProfileContent({
             </Link>
           )}
         </div>
+        {roleTab === "artist" && (stripPublic.length > 0 || isOwner) && (
+          <div data-profile-freeze="tabs" className="mt-3 [&>*]:mb-0 [&>*]:border-b-0 [&>*]:pb-0">
+            <ProfileTabManager
+              isOwner={isOwner}
+              stripPublic={stripPublic}
+              stripRows={stripRows}
+              active={active}
+              onActiveChange={handleProfileTab}
+              portfolio={portfolio}
+              defaultTabLabels={defaultTabLabels}
+              profileId={profile.id}
+              works={catalog.map((artwork) => ({
+                id: artwork.id,
+                title: pickLocalizedArtworkTitle(artwork, locale) || artwork.title || artwork.id,
+                artistId: artwork.artist_id,
+              }))}
+              onPersisted={() => router.refresh()}
+              onToast={(msg) => {
+                setSavedToastMsg(msg);
+                setSavedToast(true);
+              }}
+            />
+          </div>
+        )}
         </div>
       <div className="mb-8 mt-4 flex flex-col gap-4">
 
@@ -1121,40 +1121,7 @@ export function UserProfileContent({
         </div>
       )}
 
-      {roleTab === "artist" && (stripPublic.length > 0 || isOwner) && (
-        <>
-        <div ref={tabAnchorRef} data-profile-tab-anchor="" className="h-0" aria-hidden />
-        <div
-          ref={tabBarRef}
-          data-profile-freeze="tabs"
-          className={`sticky ${layer.chrome} bg-white [&>*]:mb-0`}
-          style={{ top: headerOffset + nameRowHeight }}
-        >
-        <ProfileTabManager
-          isOwner={isOwner}
-          stripPublic={stripPublic}
-          stripRows={stripRows}
-          active={active}
-          onActiveChange={handleProfileTab}
-          portfolio={portfolio}
-          defaultTabLabels={defaultTabLabels}
-          profileId={profile.id}
-          works={catalog.map((artwork) => ({
-            id: artwork.id,
-            title: pickLocalizedArtworkTitle(artwork, locale) || artwork.title || artwork.id,
-            artistId: artwork.artist_id,
-          }))}
-          onPersisted={() => router.refresh()}
-          onToast={(msg) => {
-            setSavedToastMsg(msg);
-            setSavedToast(true);
-          }}
-        />
-        </div>
-        </>
-      )}
-
-      <div ref={worksAnchorRef} className="mb-4 flex items-center justify-between">
+      <div ref={worksAnchorRef} data-profile-list-top="" className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-zinc-900">{worksHeading}</h2>
         {!isExhibitionsView &&
           !reorderMode &&

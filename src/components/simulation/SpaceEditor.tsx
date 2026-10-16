@@ -34,6 +34,7 @@
  */
 
 import Link from "next/link";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2919,6 +2920,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         <p className="text-sm text-zinc-600">{t("simulation.errors.notFound")}</p>
         <Link
           href="/my/spaces"
+          {...listReturnLinkProps("/my/spaces")}
           className="mt-4 inline-block text-sm text-zinc-500 hover:text-zinc-800"
         >
           ← {t("simulation.editor.back")}
@@ -2947,6 +2949,7 @@ function SpaceEditorContent({ id }: { id: string }) {
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Link
             href="/my/spaces"
+            {...listReturnLinkProps("/my/spaces")}
             className="text-sm text-zinc-500 hover:text-zinc-800"
           >
             ← {t("simulation.editor.back")}

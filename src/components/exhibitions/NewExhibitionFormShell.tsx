@@ -17,6 +17,7 @@ import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { ExhibitionDraftAssist } from "@/components/ai/ExhibitionDraftAssist";
 import { getShortlist, listShortlistItems } from "@/lib/supabase/shortlists";
 import { TourTrigger, TourHelpButton } from "@/components/tour";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 import { TOUR_IDS } from "@/lib/tours/tourRegistry";
 import { ActingAsChip } from "@/components/ActingAsChip";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -709,6 +710,7 @@ export function NewExhibitionFormShell({
           {showCancelLink && (
             <Link
               href={cancelHref}
+              {...listReturnLinkProps(cancelHref)}
               className="inline-flex items-center rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             >
               {t("common.cancel")}

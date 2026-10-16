@@ -13,7 +13,9 @@ import { BackToTopFab } from "@/components/ui/BackToTopFab";
 import { ActingAsProvider } from "@/context/ActingAsContext";
 import { TourProvider } from "@/components/tour";
 import { IrDemoBanner } from "@/components/irDemo/IrDemoBanner";
+import { ListScrollRestorer } from "@/components/list/ListScrollRestorer";
 import { FEED_RELOAD_BOOT_SCRIPT } from "@/lib/feed/feedSessionKeys";
+import { LIST_RELOAD_BOOT_SCRIPT } from "@/lib/list/scrollRestore";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import Script from "next/script";
 import {
@@ -101,6 +103,9 @@ export default async function RootLayout({
         <Script id="feed-reload-scroll" strategy="beforeInteractive">
           {FEED_RELOAD_BOOT_SCRIPT}
         </Script>
+        <Script id="list-reload-scroll" strategy="beforeInteractive">
+          {LIST_RELOAD_BOOT_SCRIPT}
+        </Script>
         <LocaleProvider initialLocale={initialLocale}>
           <HtmlLangSync />
           <AuthBootstrap />
@@ -110,6 +115,7 @@ export default async function RootLayout({
             <TourProvider>
               <IrDemoBanner />
               <Header />
+              <ListScrollRestorer />
               <RandomIdBanner />
               <ExistingUserCompletionBanner />
               {children}

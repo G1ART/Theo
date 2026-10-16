@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { profileReturnLinkProps } from "@/lib/profile/scrollRestore";
+import { entryReturnLinkProps } from "@/lib/nav/entryReturn";
 
 /**
  * `getArtworkBack()` returns `labelKey: string` because it derives from
@@ -43,7 +43,7 @@ export function ArtworkPassportHeader({
 }) {
   const { t } = useT();
   const backKey = backLabelKey as MessageKey;
-  const profileReturn = profileReturnLinkProps(backPath);
+  const profileReturn = entryReturnLinkProps(backPath);
   return (
     <div className="mb-6 flex flex-col gap-1.5">
       <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">

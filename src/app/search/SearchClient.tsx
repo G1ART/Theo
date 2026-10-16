@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -9,6 +9,7 @@ import { SearchArtworkCard } from "@/components/search/SearchArtworkCard";
 import { formatIdentityPair, formatUsername, hasPublicLinkableUsername } from "@/lib/identity/format";
 import { useT } from "@/lib/i18n/useT";
 import { describeArtworkQuery, parseArtworkQuery } from "@/lib/search/artworkQuery";
+import { replayPendingListScroll } from "@/lib/list/scrollRestore";
 import { searchDiscoverArtworks } from "@/lib/search/discoverArtworks";
 import { getArtworkImageUrl, type ArtworkWithLikes } from "@/lib/supabase/artworks";
 import { getPeopleRecommendations } from "@/lib/supabase/recommendations";
@@ -31,6 +32,11 @@ export function SearchClient() {
   useEffect(() => {
     setQ(qFromUrl);
   }, [qFromUrl]);
+
+  useLayoutEffect(() => {
+    if (loading || !searched) return;
+    replayPendingListScroll();
+  }, [loading, searched, artworks.length, people.length]);
 
   useEffect(() => {
     const query = q.trim();

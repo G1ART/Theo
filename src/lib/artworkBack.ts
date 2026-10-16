@@ -5,6 +5,7 @@
 // artwork page reads it to return the visitor to that exact URL —
 // preserving the feed tab, exhibition id, scroll target, etc.
 
+import { rememberListScrollFromWindow } from "@/lib/list/scrollRestore";
 import { setExhibitionBack } from "./exhibitionBack";
 
 const KEY = "ab_artwork_back";
@@ -22,6 +23,7 @@ const KEY = "ab_artwork_back";
  */
 export function setArtworkBack(explicitPath?: string): void {
   if (typeof window === "undefined") return;
+  rememberListScrollFromWindow();
   try {
     const fromLocation = window.location.pathname + window.location.search;
     const target = explicitPath || fromLocation || "/feed?tab=all&sort=latest";

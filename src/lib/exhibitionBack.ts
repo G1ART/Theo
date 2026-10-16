@@ -6,6 +6,8 @@
 // to send the visitor back where they actually came from — instead of always
 // dumping them on the feed regardless of entry point (QA 2026-06-30).
 
+import { rememberListScrollFromWindow } from "@/lib/list/scrollRestore";
+
 const KEY = "theo_exhibition_back";
 
 /**
@@ -23,6 +25,7 @@ const KEY = "theo_exhibition_back";
  */
 export function setExhibitionBack(explicitPath?: string): void {
   if (typeof window === "undefined") return;
+  rememberListScrollFromWindow();
   try {
     const fromLocation = window.location.pathname + window.location.search;
     const target = explicitPath || fromLocation || "/feed";

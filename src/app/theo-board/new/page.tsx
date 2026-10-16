@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 import { useT } from "@/lib/i18n/useT";
 import {
   USER_SUBMIT_TYPES,
@@ -92,6 +93,7 @@ function NewPostForm() {
     <PageShell variant="narrow">
       <Link
         href="/theo-board"
+        {...listReturnLinkProps("/theo-board")}
         className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
       >
         ← {t("theoBoard.backToBoard")}

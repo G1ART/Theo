@@ -19,6 +19,7 @@ import { getPeopleRecommendations } from "@/lib/supabase/recommendations";
 import type { PeopleRec } from "@/lib/supabase/peopleRecs";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
+import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
 import { CommunityPulseStrip } from "./CommunityPulseStrip";
 
 /**
@@ -93,6 +94,8 @@ export function MyConnectionRail() {
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
     const query = q.trim();
+    // A search from the rail is a new entry, not a return from a detail.
+    disarmListScrollReturn();
     router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/people");
   }
 

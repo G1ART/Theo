@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { setArtworkBack } from "@/lib/artworkBack";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 import { AuthGate } from "@/components/AuthGate";
 import { BoardPitchPackPanel } from "@/components/board/BoardPitchPackPanel";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
@@ -178,7 +179,7 @@ function ShortlistDetailContent() {
     <main className="mx-auto max-w-2xl px-4 py-8">
       <TourTrigger tourId={TOUR_IDS.boardDetail} />
       <div className="mb-6 flex items-center justify-between gap-2">
-        <Link href="/my/shortlists" className="inline-block text-sm text-zinc-600 hover:text-zinc-900">
+        <Link href="/my/shortlists" {...listReturnLinkProps("/my/shortlists")} className="inline-block text-sm text-zinc-600 hover:text-zinc-900">
           ← {t("boards.title")}
         </Link>
         <TourHelpButton tourId={TOUR_IDS.boardDetail} />

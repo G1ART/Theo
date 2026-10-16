@@ -18,6 +18,7 @@ import {
   type TheoBoardStatus,
 } from "@/lib/supabase/theoBoard";
 import { TheoBoardTypeChip } from "@/components/theo-board/TheoBoardTypeChip";
+import { listReturnLinkProps } from "@/lib/list/scrollRestore";
 
 function statusOf(post: TheoBoardPost): TheoBoardStatus {
   if (
@@ -75,6 +76,7 @@ function MineContent() {
     <PageShell variant="narrow">
       <Link
         href="/theo-board"
+        {...listReturnLinkProps("/theo-board")}
         className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
       >
         ← {t("theoBoard.backToBoard")}
