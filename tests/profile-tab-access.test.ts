@@ -12,6 +12,7 @@ import {
   delegationGrantsProfileTabManagement,
 } from "../src/lib/studio/profileTabAccess";
 import { principalPublicProfileHref } from "../src/lib/delegation/principalProfileHref";
+import { profileManageGrants } from "../src/lib/studio/profileManageAccess";
 
 const root = path.resolve(__dirname, "..");
 const owner = "00000000-0000-4000-8000-000000000001";
@@ -268,10 +269,13 @@ assert.equal(principalPublicProfileHref("user_abc123"), null);
 assert.equal(principalPublicProfileHref("  "), null);
 
 const profile = readFileSync(path.join(root, "src/components/UserProfileContent.tsx"), "utf8");
-assert.match(profile, /canManage=\{isOwner\}/);
+assert.match(profile, /canManage=\{canManageTabs\}/);
+assert.match(profile, /actingProfileId=\{isOwner \? null : actingAsProfileId\}/);
+assert.match(profile, /canUploadWorks/);
+assert.match(profile, /showManagerChrome \? null : <ProfileActions/);
 assert.equal(profile.includes("probeCanManageProfileTabs"), false);
 assert.equal(profile.includes("delegatedTabManager"), false);
-assert.match(profile, /const showUploadTile =[\s\S]*?isOwner &&/);
+assert.match(profile, /const showUploadTile =[\s\S]*?canUploadWorks &&/);
 assert.match(profile, /viewerIsOwner=\{isOwner\}/);
 assert.match(profile, /href="\/settings"/);
 const manager = readFileSync(path.join(root, "src/components/profile/ProfileTabManager.tsx"), "utf8");
@@ -308,6 +312,7 @@ assert.match(switcher, /profileHref/);
 
 const delegations = readFileSync(path.join(root, "src/lib/supabase/delegations.ts"), "utf8");
 assert.match(delegations, /operations:\s*\[[\s\S]*?"manage_artworks"/);
+assert.match(delegations, /operations:\s*\[[\s\S]*?"edit_profile_public_content"/);
 assert.match(delegations, /content:\s*\[[\s\S]*?"edit_profile_public_content"/);
 assert.match(delegations, /review:\s*\["view"\]/);
 
@@ -317,5 +322,99 @@ assert.match(kinds, /"print_edition"/);
 assert.match(kinds, /"art_goods"/);
 assert.match(kinds, /"collected"/);
 assert.match(kinds, /return kind === "artwork" \|\| kind === "print_edition"/);
+
+const fullOps = {
+  scopeType: "account",
+  status: "active",
+  permissions: [...operations, "edit_profile_public_content"],
+};
+assert.deepEqual(
+  profileManageGrants({
+    viewerId: delegate,
+    profileId: owner,
+    now,
+    delegation: fullOps,
+  }),
+  {
+    editPublicProfile: false,
+    manageTabs: false,
+    manageArtworks: false,
+    manageExhibitions: false,
+  },
+  "a delegation without acting-as stays a visitor",
+);
+assert.equal(
+  profileManageGrants({
+    viewerId: delegate,
+    profileId: owner,
+    now,
+    actingProfileId: owner,
+    delegation: fullOps,
+  }).editPublicProfile,
+  true,
+  "acting-as with public-profile permission can edit the profile",
+);
+assert.equal(
+  profileManageGrants({
+    viewerId: delegate,
+    profileId: owner,
+    now,
+    actingProfileId: owner,
+    delegation: {
+      scopeType: "account",
+      status: "active",
+      permissions: ["view", "manage_artworks"],
+    },
+  }).editPublicProfile,
+  false,
+  "artwork management alone does not edit cover, bio, statement, or CV",
+);
+assert.equal(
+  profileManageGrants({
+    viewerId: delegate,
+    profileId: owner,
+    now,
+    actingProfileId: owner,
+    delegation: {
+      scopeType: "account",
+      status: "active",
+      permissions: ["view", "manage_artworks"],
+    },
+  }).manageArtworks,
+  true,
+);
+assert.equal(
+  profileManageGrants({
+    viewerId: delegate,
+    profileId: owner,
+    now,
+    actingProfileId: owner,
+    delegation: {
+      scopeType: "account",
+      status: "expired",
+      permissions: fullOps.permissions,
+    },
+  }).manageTabs,
+  false,
+  "an expired delegation does not open owner controls",
+);
+assert.equal(
+  profileManageGrants({ viewerId: owner, profileId: owner, now }).editPublicProfile,
+  true,
+  "the account owner keeps every public-profile control",
+);
+
+const sqlEdit = readFileSync(
+  path.join(root, "supabase/migrations/20261017140000_acting_public_profile_edit.sql"),
+  "utf8",
+);
+assert.match(sqlEdit, /has_acting_profile_perm/);
+assert.match(sqlEdit, /save_acting_public_profile/);
+assert.match(sqlEdit, /save_acting_profile_cv/);
+assert.match(sqlEdit, /save_profile_artwork_order/);
+assert.match(sqlEdit, /'edit_profile_public_content'/);
+assert.match(sqlEdit, /-- == SECTION 1 ==/);
+assert.match(sqlEdit, /-- == SECTION 7 ==/);
+assert.equal(sqlEdit.includes("$p_link$"), false);
 
 console.log("profile-tab-access tests ok");

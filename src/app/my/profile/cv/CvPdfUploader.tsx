@@ -35,6 +35,11 @@ import {
   uploadProfileCvPdf,
 } from "@/lib/supabase/storage";
 import { getMyCvPdfPath, updateMyCvPdfPath } from "@/lib/supabase/profileCv";
+import { useActingAs } from "@/context/ActingAsContext";
+import { listMyDelegations } from "@/lib/supabase/delegations";
+import { profileManageGrants } from "@/lib/studio/profileManageAccess";
+import { saveActingCvPdfPath } from "@/lib/supabase/actingProfileWrite";
+import { getProfileById } from "@/lib/supabase/profiles";
 
 type Status =
   | { kind: "idle" }
@@ -45,6 +50,8 @@ type Status =
 
 export function CvPdfUploader() {
   const { t } = useT();
+  const { actingAsProfileId } = useActingAs();
+  const actingSubjectRef = useRef<string | null>(null);
   const [path, setPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -53,7 +60,33 @@ export function CvPdfUploader() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { path: current } = await getMyCvPdfPath();
+      let subjectId: string | null = null;
+      if (actingAsProfileId) {
+        const { data } = await listMyDelegations();
+        const row = (data?.received ?? []).find(
+          (item) =>
+            item.delegator_profile_id === actingAsProfileId && item.scope_type === "account",
+        );
+        const allowed = profileManageGrants({
+          viewerId: "operator",
+          profileId: actingAsProfileId,
+          actingProfileId: actingAsProfileId,
+          delegation: row
+            ? {
+                scopeType: row.scope_type,
+                status: row.status,
+                permissions: row.permissions ?? [],
+                expiresAt: row.expires_at,
+              }
+            : null,
+        }).editPublicProfile;
+        if (allowed) subjectId = actingAsProfileId;
+      }
+      actingSubjectRef.current = subjectId;
+      const current = subjectId
+        ? ((await getProfileById(subjectId)).data as { cv_pdf_path?: string | null } | null)
+            ?.cv_pdf_path ?? null
+        : (await getMyCvPdfPath()).path;
       if (!alive) return;
       setPath(current);
       setLoading(false);
@@ -61,7 +94,7 @@ export function CvPdfUploader() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [actingAsProfileId]);
 
   const flashSuccess = useCallback((message: string) => {
     setStatus({ kind: "success", message });
@@ -77,7 +110,7 @@ export function CvPdfUploader() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const uid = session?.user?.id;
+      const uid = actingSubjectRef.current ?? session?.user?.id;
       if (!uid) {
         setStatus({ kind: "error", message: t("cv.pdf.errorUpload") });
         return;
@@ -103,7 +136,10 @@ export function CvPdfUploader() {
         }
         return;
       }
-      const saved = await updateMyCvPdfPath(uploadedPath);
+      const subjectId = actingSubjectRef.current;
+      const saved = subjectId
+        ? await saveActingCvPdfPath(subjectId, uploadedPath)
+        : await updateMyCvPdfPath(uploadedPath);
       if (!saved.ok) {
         // Roll back the storage object so we don't strand a file the
         // profile can't reach.
@@ -127,7 +163,10 @@ export function CvPdfUploader() {
     if (!path) return;
     const previous = path;
     setStatus({ kind: "removing" });
-    const saved = await updateMyCvPdfPath(null);
+    const subjectId = actingSubjectRef.current;
+    const saved = subjectId
+      ? await saveActingCvPdfPath(subjectId, null)
+      : await updateMyCvPdfPath(null);
     if (!saved.ok) {
       setStatus({ kind: "error", message: t("cv.pdf.errorRemove") });
       return;

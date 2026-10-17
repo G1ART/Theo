@@ -25,8 +25,13 @@
  * residencies). Field labels come from i18n.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
+import { useActingAs } from "@/context/ActingAsContext";
+import { listMyDelegations } from "@/lib/supabase/delegations";
+import { profileManageGrants } from "@/lib/studio/profileManageAccess";
+import { saveActingProfileCv } from "@/lib/supabase/actingProfileWrite";
+import { getProfileById } from "@/lib/supabase/profiles";
 import {
   getMyProfileCv,
   updateMyProfileCv,
@@ -39,6 +44,13 @@ import { CvPdfUploader } from "./CvPdfUploader";
 
 type SectionKind = "education" | "exhibitions" | "awards" | "residencies";
 
+function asCv(value: unknown): CvEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item) => item && typeof item === "object" && !Array.isArray(item),
+  ) as CvEntry[];
+}
+
 const SECTION_ORDER: SectionKind[] = [
   "education",
   "exhibitions",
@@ -50,6 +62,8 @@ const SECTION_ORDER: SectionKind[] = [
 
 export function CvEditorClient() {
   const { t, locale } = useT();
+  const { actingAsProfileId } = useActingAs();
+  const actingSubjectRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<ProfileCvSlice | null>(null);
@@ -67,7 +81,41 @@ export function CvEditorClient() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data, error } = await getMyProfileCv();
+      let subjectId: string | null = null;
+      if (actingAsProfileId) {
+        const { data: listed } = await listMyDelegations();
+        const row = (listed?.received ?? []).find(
+          (item) =>
+            item.delegator_profile_id === actingAsProfileId && item.scope_type === "account",
+        );
+        const allowed = profileManageGrants({
+          viewerId: "operator",
+          profileId: actingAsProfileId,
+          actingProfileId: actingAsProfileId,
+          delegation: row
+            ? {
+                scopeType: row.scope_type,
+                status: row.status,
+                permissions: row.permissions ?? [],
+                expiresAt: row.expires_at,
+              }
+            : null,
+        }).editPublicProfile;
+        if (allowed) subjectId = actingAsProfileId;
+      }
+      actingSubjectRef.current = subjectId;
+      const loaded = subjectId
+        ? await getProfileById(subjectId).then(({ data, error }) => ({
+            data: {
+              education: asCv(data?.education),
+              exhibitions: asCv(data?.exhibitions),
+              awards: asCv(data?.awards),
+              residencies: asCv(data?.residencies),
+            },
+            error,
+          }))
+        : await getMyProfileCv();
+      const { data, error } = loaded;
       if (!alive) return;
       if (error) {
         // Soft failure — still let the user start fresh, but warn.
@@ -85,7 +133,7 @@ export function CvEditorClient() {
     return () => {
       alive = false;
     };
-  }, [t]);
+  }, [t, actingAsProfileId]);
 
   const dirty = useMemo(() => {
     if (!baseline) return false;
@@ -125,7 +173,16 @@ export function CvEditorClient() {
         payload[k] = sanitize(draft[k]);
       }
     }
-    const r = await updateMyProfileCv(payload);
+    const subjectId = actingSubjectRef.current;
+    const r = subjectId
+      ? await saveActingProfileCv({
+          profileId: subjectId,
+          education: payload.education ?? null,
+          exhibitions: payload.exhibitions ?? null,
+          awards: payload.awards ?? null,
+          residencies: payload.residencies ?? null,
+        })
+      : await updateMyProfileCv(payload);
     setSaving(false);
     if (!r.ok) {
       setSaveError(t("cv.editor.error"));

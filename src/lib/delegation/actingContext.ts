@@ -44,6 +44,7 @@ function mutationEventTypeFor(action: string): string | null {
     case "exhibition.publish":   return "delegated_exhibition_published";
     case "exhibition_work.add":  return "delegated_exhibition_work_added";
     case "inquiry.reply":        return "delegated_inquiry_replied";
+    case "profile.update":       return "delegated_profile_updated";
     default:                     return null;
   }
 }

@@ -835,7 +835,12 @@ export async function updateMyProfileExhibitionOrder(
 
   const targetProfileId = profileId ?? session.user.id;
   if (targetProfileId !== session.user.id) {
-    return { error: new Error("Only the profile owner may save manual ordering") };
+    const { error } = await supabase.rpc("save_profile_exhibition_order", {
+      p_profile_id: targetProfileId,
+      p_acting_profile_id: targetProfileId,
+      p_exhibition_ids: orderedIds,
+    });
+    return { error };
   }
 
   const { error: deleteError } = await supabase
@@ -870,7 +875,12 @@ export async function clearMyProfileExhibitionOrder(
 
   const targetProfileId = profileId ?? session.user.id;
   if (targetProfileId !== session.user.id) {
-    return { error: new Error("Only the profile owner may clear manual ordering") };
+    const { error } = await supabase.rpc("save_profile_exhibition_order", {
+      p_profile_id: targetProfileId,
+      p_acting_profile_id: targetProfileId,
+      p_exhibition_ids: [],
+    });
+    return { error };
   }
 
   const { error } = await supabase

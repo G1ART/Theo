@@ -7,7 +7,10 @@ import { AuthGate } from "@/components/AuthGate";
 import { getMyAuthState, signOut } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
 import { formatSupabaseError } from "@/lib/errors/supabase";
-import { checkUsernameExists, getMyProfile, type EducationEntry, type Profile } from "@/lib/supabase/profiles";
+import { checkUsernameExists, getMyProfile, getProfileById, type EducationEntry, type Profile } from "@/lib/supabase/profiles";
+import { listMyDelegations } from "@/lib/supabase/delegations";
+import { profileManageGrants } from "@/lib/studio/profileManageAccess";
+import { saveActingPublicProfile } from "@/lib/supabase/actingProfileWrite";
 import { supabase } from "@/lib/supabase/client";
 import { requireSessionUid } from "@/lib/supabase/requireSessionUid";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
@@ -256,6 +259,8 @@ export default function SettingsPage() {
   // only need to surface a clear notice that the delegated context does
   // not apply here.
   const { actingAsProfileId, actingAsLabel } = useActingAs();
+  const actingSubjectRef = useRef<string | null>(null);
+  const [editingPrincipal, setEditingPrincipal] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const usernameInputRef = useRef<HTMLInputElement>(null);
   const initialUsernameRef = useRef<string>("");
@@ -388,7 +393,35 @@ export default function SettingsPage() {
   }, [maxSelectMessage]);
 
   useEffect(() => {
-    getMyProfile().then((profileRes) => {
+    let cancelled = false;
+    void (async () => {
+      let subjectId: string | null = null;
+      if (actingAsProfileId) {
+        const { data } = await listMyDelegations();
+        const row = (data?.received ?? []).find(
+          (item) =>
+            item.delegator_profile_id === actingAsProfileId && item.scope_type === "account",
+        );
+        const allowed = profileManageGrants({
+          viewerId: "operator",
+          profileId: actingAsProfileId,
+          actingProfileId: actingAsProfileId,
+          delegation: row
+            ? {
+                scopeType: row.scope_type,
+                status: row.status,
+                permissions: row.permissions ?? [],
+                expiresAt: row.expires_at,
+              }
+            : null,
+        }).editPublicProfile;
+        if (allowed) subjectId = actingAsProfileId;
+      }
+      if (cancelled) return;
+      actingSubjectRef.current = subjectId;
+      setEditingPrincipal(Boolean(subjectId));
+      const profileRes = subjectId ? await getProfileById(subjectId) : await getMyProfile();
+      if (cancelled) return;
       setLoading(false);
       const err = profileRes.error;
       if (err) {
@@ -529,8 +562,11 @@ export default function SettingsPage() {
           program_focus: src?.program_focus ?? [],
         };
         initialDetailsRef.current = normalizeProfileDetails(detailsForNorm) as unknown as Record<string, unknown>;
-    });
-  }, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [actingAsProfileId]);
 
   const { score: completeness } = computeProfileCompleteness(
     {
@@ -730,7 +766,11 @@ export default function SettingsPage() {
       artist_statement_hero_image_url: string | null;
     }>) => {
       setIdentityErr(null);
-      const { error: e } = await updateMyProfileBasePatch(patch);
+      const subjectId = actingSubjectRef.current;
+      const saved = subjectId
+        ? await saveActingPublicProfile({ profileId: subjectId, basePatch: patch })
+        : await updateMyProfileBasePatch(patch).then((res) => ({ ok: !res.error, error: res.error }));
+      const e = saved.ok ? null : saved.error;
       if (e) {
         const msg =
           (e as { message?: string } | null)?.message ?? "save failed";
@@ -1028,11 +1068,28 @@ export default function SettingsPage() {
       console.info("[save] patchKeys", { base: Object.keys(basePatch), details: Object.keys(detailsPatch) });
     }
 
-    const res = await saveProfileUnified({
-      basePatch: { ...basePatch, profile_completed_at: "true" },
-      detailsPatch,
-      completeness: computedScore,
-    });
+    const subjectId = actingSubjectRef.current;
+    const res = subjectId
+      ? await saveActingPublicProfile({
+          profileId: subjectId,
+          basePatch,
+          detailsPatch,
+        }).then((saved) =>
+          saved.ok
+            ? { ok: true as const }
+            : {
+                ok: false as const,
+                code: "acting_save",
+                message: saved.error instanceof Error ? saved.error.message : "save failed",
+                details: undefined,
+                hint: undefined,
+              },
+        )
+      : await saveProfileUnified({
+          basePatch: { ...basePatch, profile_completed_at: "true" },
+          detailsPatch,
+          completeness: computedScore,
+        });
     if (!res.ok) {
       setLastError({
         step: "unified_upsert",
@@ -1050,7 +1107,9 @@ export default function SettingsPage() {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("profile-updated"));
       }
-      const { data: refreshed } = await getMyProfile();
+      const { data: refreshed } = actingSubjectRef.current
+        ? await getProfileById(actingSubjectRef.current)
+        : await getMyProfile();
       const ref = refreshed;
       const pc = ref?.profile_completeness;
       if (pc != null) setDbProfileCompleteness(pc);
@@ -1158,9 +1217,14 @@ export default function SettingsPage() {
             role="status"
             className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
           >
-            <p className="font-medium">{t("acting.lock.notice.title")}</p>
+            <p className="font-medium">
+              {editingPrincipal ? t("acting.lock.notice.editingTitle") : t("acting.lock.notice.title")}
+            </p>
             <p className="mt-1 text-xs text-amber-800">
-              {t("acting.lock.notice.body").replace(
+              {(editingPrincipal
+                ? t("acting.lock.notice.editingBody")
+                : t("acting.lock.notice.body")
+              ).replace(
                 "{name}",
                 actingAsLabel ?? t("acting.lock.notice.fallbackName")
               )}

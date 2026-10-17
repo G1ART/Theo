@@ -405,6 +405,10 @@ export const PRESET_PERMISSIONS: Record<DelegationPreset, string[]> = {
     "manage_exhibitions",
     "manage_inquiries",
     "manage_claims",
+    // Studio-manager preset. Public profile editing was omitted from the
+    // original list even though this preset is the full account grant
+    // short of login, billing, and delegation admin.
+    "edit_profile_public_content",
   ],
   content: [
     "view",

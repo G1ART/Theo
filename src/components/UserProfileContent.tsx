@@ -88,6 +88,12 @@ import {
 } from "@/lib/provenance/personaTabs";
 import { persistStudioPortfolio } from "@/lib/studio/persistStudioPortfolio";
 import {
+  EMPTY_PROFILE_MANAGE_GRANTS,
+  profileManageGrants,
+  type ProfileManageGrants,
+} from "@/lib/studio/profileManageAccess";
+import { listMyDelegations } from "@/lib/supabase/delegations";
+import {
   type ActiveStudioTab,
   assignArtworksToCustomTab,
   buildStudioStripTabs,
@@ -138,6 +144,14 @@ export function UserProfileContent({
   const [artistPublishLine, setArtistPublishLine] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
+  const [grants, setGrants] = useState<ProfileManageGrants>(EMPTY_PROFILE_MANAGE_GRANTS);
+  const canEditProfile = isOwner || grants.editPublicProfile;
+  const canManageTabs = isOwner || grants.manageTabs;
+  const canUploadWorks = isOwner || grants.manageArtworks;
+  const canReorderWorks = isOwner || grants.manageArtworks;
+  const canManageShows = isOwner || grants.manageExhibitions;
+  const showManagerChrome =
+    canEditProfile || canManageTabs || canUploadWorks || canManageShows;
   // "Session resolved" latch so the anonymous Statement/CV gate never
   // flashes for a signed-in viewer during the initial client session read.
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -212,7 +226,7 @@ export function UserProfileContent({
   const autoReorderActivatedRef = useRef(false);
   useEffect(() => {
     if (autoReorderActivatedRef.current) return;
-    if (!initialReorderMode || !isOwner) return;
+    if (!initialReorderMode || !(canReorderWorks || canManageShows)) return;
     if (active.kind === "persona" && active.tab === "exhibitions") {
       if (exhibitions.length < 2) return;
       autoReorderActivatedRef.current = true;
@@ -228,7 +242,8 @@ export function UserProfileContent({
     }
   }, [
     initialReorderMode,
-    isOwner,
+    canReorderWorks,
+    canManageShows,
     artworks.length,
     active,
     exhibitions,
@@ -278,6 +293,39 @@ export function UserProfileContent({
       }, 400);
     });
   }, [profile?.id, profile?.username]);
+
+  useEffect(() => {
+    const profileId = profile?.id;
+    if (!profileId || !viewerId || viewerId === profileId || actingAsProfileId !== profileId) {
+      setGrants(EMPTY_PROFILE_MANAGE_GRANTS);
+      return;
+    }
+    let cancelled = false;
+    void listMyDelegations().then(({ data }) => {
+      if (cancelled) return;
+      const row = (data?.received ?? []).find(
+        (item) => item.delegator_profile_id === profileId && item.scope_type === "account",
+      );
+      setGrants(
+        profileManageGrants({
+          viewerId,
+          profileId,
+          actingProfileId: actingAsProfileId,
+          delegation: row
+            ? {
+                scopeType: row.scope_type,
+                status: row.status,
+                permissions: row.permissions ?? [],
+                expiresAt: row.expires_at,
+              }
+            : null,
+        }),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id, viewerId, actingAsProfileId]);
 
   useEffect(() => {
     const ids = artworks.map((a) => a.id);
@@ -387,7 +435,7 @@ export function UserProfileContent({
   }, []);
 
   const handleExhibitionReorderSave = useCallback(async () => {
-    if (!isOwner) return;
+    if (!canManageShows) return;
     setExhibitionSaving(true);
     setExhibitionSaveError(null);
     const orderedIds = exhibitionDraft.map((e) => e.id);
@@ -407,10 +455,10 @@ export function UserProfileContent({
     setSavedToast(true);
     setTimeout(() => setSavedToast(false), 2000);
     router.refresh();
-  }, [exhibitionDraft, isOwner, profile.id, router, t]);
+  }, [exhibitionDraft, canManageShows, profile.id, router, t]);
 
   const handleExhibitionClearManual = useCallback(async () => {
-    if (!isOwner) return;
+    if (!canManageShows) return;
     setExhibitionSaving(true);
     setExhibitionSaveError(null);
     const { error } = await clearMyProfileExhibitionOrder(profile.id);
@@ -422,7 +470,7 @@ export function UserProfileContent({
     setExhibitionOrderMap(new Map());
     setExhibitionSortMode("registered_desc");
     router.refresh();
-  }, [isOwner, profile.id, router]);
+  }, [canManageShows, profile.id, router]);
 
   useLayoutEffect(() => {
     const previous = window.history.scrollRestoration;
@@ -645,7 +693,7 @@ export function UserProfileContent({
       : null;
   const showUploadTile =
     roleTab === "artist" &&
-    isOwner &&
+    canUploadWorks &&
     !isExhibitionsView &&
     (active.kind === "custom" ||
       (active.kind === "persona" && (active.tab === "all" || active.tab === "CREATED")));
@@ -883,17 +931,17 @@ export function UserProfileContent({
                   locale === "ko" ? profile.display_name_ko : profile.display_name_en
                 }
                 uiLocale={locale}
-                viewerIsOwner={isOwner}
+                viewerIsOwner={canEditProfile}
                 editHref="/settings#displayName"
                 scope="profile"
                 sessionScopeHint={profile.id}
               />
             </div>
             <div className="mt-2">
-              <ProfileActions profileId={profile.id} />
+              {showManagerChrome ? null : <ProfileActions profileId={profile.id} />}
             </div>
           </div>
-          {isOwner && (
+          {canEditProfile && (
             <Link
               href="/settings"
               className="inline-flex shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
@@ -902,10 +950,11 @@ export function UserProfileContent({
             </Link>
           )}
         </div>
-        {roleTab === "artist" && (stripPublic.length > 0 || isOwner) && (
+        {roleTab === "artist" && (stripPublic.length > 0 || canManageTabs) && (
           <div data-profile-freeze="tabs" className="mt-3 [&>*]:mb-0 [&>*]:border-b-0 [&>*]:pb-0">
             <ProfileTabManager
-              canManage={isOwner}
+              canManage={canManageTabs}
+              actingProfileId={isOwner ? null : actingAsProfileId}
               stripPublic={stripPublic}
               stripRows={stripRows}
               active={active}
@@ -939,7 +988,7 @@ export function UserProfileContent({
             <div className="space-y-1">
               {localizedBio ? (
                 <p className="whitespace-pre-line text-sm text-zinc-700">{localizedBio}</p>
-              ) : isOwner ? (
+              ) : canEditProfile ? (
                 <Link
                   href="/settings#bio"
                   className="text-sm text-zinc-500 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-800"
@@ -954,7 +1003,7 @@ export function UserProfileContent({
                 sourceValue={bioSourceSlot}
                 currentValue={bioCurrentSlot}
                 uiLocale={locale}
-                viewerIsOwner={isOwner}
+                viewerIsOwner={canEditProfile}
                 editHref="/settings#bio"
                 scope="profile"
                 sessionScopeHint={`${profile.id}:bio`}
@@ -1081,7 +1130,7 @@ export function UserProfileContent({
             awards={profile.awards ?? null}
             residencies={profile.residencies ?? null}
             cvPdfPath={profile.cv_pdf_path ?? null}
-            isOwner={isOwner}
+            isOwner={canEditProfile}
             ownerStatementHref="/settings#statement"
             ownerCvHref="/my/profile/cv"
           />
@@ -1104,7 +1153,7 @@ export function UserProfileContent({
                   : profile.artist_statement_en
               }
               uiLocale={locale}
-              viewerIsOwner={isOwner}
+              viewerIsOwner={canEditProfile}
               editHref="/settings#statement"
               scope="profile"
               sessionScopeHint={`${profile.id}:statement`}
@@ -1114,7 +1163,7 @@ export function UserProfileContent({
         )
       )}
 
-      {isOwner && (
+      {showManagerChrome && (
         <div className="mb-3 flex items-center justify-end gap-2">
           <TourTrigger tourId={TOUR_IDS.publicProfile} />
           <TourHelpButton tourId={TOUR_IDS.publicProfile} />
@@ -1127,9 +1176,9 @@ export function UserProfileContent({
           !reorderMode &&
           downloadMode !== "order" &&
           downloadMode !== "confirm" &&
-          (isOwner || actingAsThisProfile) && (
+          (showManagerChrome || actingAsThisProfile) && (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {isOwner && customTabs.length > 0 && displayedArtworks.length > 0 && (
+            {canManageTabs && customTabs.length > 0 && displayedArtworks.length > 0 && (
               tabAssignMode ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <select
@@ -1172,7 +1221,7 @@ export function UserProfileContent({
                 </button>
               )
             )}
-        {!isExhibitionsView && isOwner && reorderableArtworks.length > 0 && !reorderMode && (
+        {!isExhibitionsView && canReorderWorks && reorderableArtworks.length > 0 && !reorderMode && (
           <button
             type="button"
             onClick={() => { setReorderMode(true); setSaveError(null); setTabAssignMode(false); setTabAssignIds(new Set()); cancelDownload(); }}
@@ -1242,7 +1291,7 @@ export function UserProfileContent({
             )}
           </div>
         )}
-        {!isExhibitionsView && reorderMode && isOwner && reorderableArtworks.length > 0 && (
+        {!isExhibitionsView && reorderMode && canReorderWorks && reorderableArtworks.length > 0 && (
           <div className="flex gap-2">
             <button
               type="button"
@@ -1272,7 +1321,7 @@ export function UserProfileContent({
               onChange={setExhibitionSortMode}
               showManual={exhibitionOrderMap.size > 0}
             />
-            {isOwner && exhibitions.length >= 2 && (
+            {canManageShows && exhibitions.length >= 2 && (
               <button
                 type="button"
                 onClick={handleExhibitionReorderStart}
@@ -1295,7 +1344,7 @@ export function UserProfileContent({
                 {t("exhibition.reorder.start")}
               </button>
             )}
-            {isOwner && exhibitionOrderMap.size > 0 && (
+            {canManageShows && exhibitionOrderMap.size > 0 && (
               <button
                 type="button"
                 onClick={handleExhibitionClearManual}
@@ -1307,7 +1356,7 @@ export function UserProfileContent({
             )}
           </div>
         )}
-        {isExhibitionsView && exhibitionReorderMode && isOwner && (
+        {isExhibitionsView && exhibitionReorderMode && canManageShows && (
           <div className="flex gap-2">
             <button
               type="button"
@@ -1328,15 +1377,15 @@ export function UserProfileContent({
           </div>
         )}
       </div>
-      {!isExhibitionsView && reorderMode && isOwner && (
+      {!isExhibitionsView && reorderMode && canReorderWorks && (
         <p className="mb-4 text-sm text-zinc-500">{t("profile.reorderHint")}</p>
       )}
-      {isExhibitionsView && exhibitionReorderMode && isOwner && (
+      {isExhibitionsView && exhibitionReorderMode && canManageShows && (
         <p className="mb-4 text-sm text-zinc-500">{t("exhibition.reorder.hint")}</p>
       )}
       {isExhibitionsView ? (
         exhibitions.length === 0 ? (
-          isOwner ? (
+          canManageShows ? (
             <Link
               href="/my/exhibitions/new"
               className="flex min-h-[8.5rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-zinc-300 bg-white text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-800"
@@ -1349,7 +1398,7 @@ export function UserProfileContent({
           ) : (
             <EmptyState title={t("exhibition.emptyList")} size="sm" />
           )
-        ) : exhibitionReorderMode && isOwner ? (
+        ) : exhibitionReorderMode && canManageShows ? (
           <>
             <DndContext
               sensors={sensors}
@@ -1442,7 +1491,7 @@ export function UserProfileContent({
           onConfirm={() => void confirmDownload()}
           onCancel={cancelDownload}
         />
-      ) : reorderMode && isOwner && artworks.length > 0 ? (
+      ) : reorderMode && canReorderWorks && artworks.length > 0 ? (
         <>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={reorderableArtworks.map((a) => a.id)} strategy={rectSortingStrategy}>
@@ -1484,7 +1533,7 @@ export function UserProfileContent({
       ) : displayedArtworks.length === 0 ? (
         roleTab === "collector" ? (
           <EmptyState title={t("profile.collectorEmpty")} size="sm" />
-        ) : isOwner && !isExhibitionsView ? (
+        ) : canUploadWorks && !isExhibitionsView ? (
           <div>
             {active.kind === "custom" && (
               <p className="mb-4 text-sm text-zinc-600" role="status">
@@ -1553,7 +1602,7 @@ export function UserProfileContent({
                 showEdit={
                   !tabAssignMode &&
                   downloadMode == null &&
-                  isOwner &&
+                  canUploadWorks &&
                   !!profile?.id &&
                   canEditArtwork(artwork, profile.id)
                 }

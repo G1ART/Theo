@@ -1402,6 +1402,14 @@ export async function updateMyArtworkOrder(
   if (orderedIds.length === 0) return { error: null };
 
   const targetProfileId = profileId ?? session.user.id;
+  if (targetProfileId !== session.user.id) {
+    const { error } = await supabase.rpc("save_profile_artwork_order", {
+      p_profile_id: targetProfileId,
+      p_acting_profile_id: targetProfileId,
+      p_artwork_ids: orderedIds,
+    });
+    return { error };
+  }
 
   // Verify user has permission for all artworks (either artist or has claim)
   // Fetch artworks with claims to check permissions
