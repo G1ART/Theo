@@ -5,6 +5,7 @@ import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { recordActingContextEvent } from "@/lib/delegation/actingContext";
+import { readRenotifyState, type RenotifyState } from "@/lib/inquiry/renotify";
 
 export type InquiryStatus = "new" | "open" | "replied" | "closed";
 export type PipelineStage = "new" | "contacted" | "in_discussion" | "offer_sent" | "closed_won" | "closed_lost";
@@ -70,8 +71,23 @@ export type PriceInquiryRow = {
   source_feed_session_id?: string | null;
   source_feed_item_key?: string | null;
   source_payload?: Record<string, unknown> | null;
-  artwork?: { id: string; title: string | null; artist_id: string } | null;
-  inquirer?: { username: string | null; display_name: string | null } | null;
+  artwork?: InquiryArtwork | null;
+  inquirer?: InquiryPerson | null;
+};
+
+type InquiryArtwork = {
+  id: string;
+  title: string | null;
+  title_ko?: string | null;
+  title_en?: string | null;
+  artist_id: string;
+};
+
+type InquiryPerson = {
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
 };
 
 export type InquiryNoteRow = {
@@ -114,8 +130,8 @@ const INQUIRY_SELECT = `
   source_feed_session_id,
   source_feed_item_key,
   source_payload,
-  artworks!artwork_id(id, title, artist_id),
-  profiles!inquirer_id(username, display_name)
+  artworks!artwork_id(id, title, title_ko, title_en, artist_id),
+  profiles!inquirer_id(username, display_name, display_name_ko, display_name_en)
 `;
 
 /** Artist inbox list: inner join artwork so we can filter by artist_id server-side. */
@@ -161,15 +177,15 @@ export type ListPriceInquiriesForArtistOptions = {
 function normalizeInquiry(row: Record<string, unknown>): PriceInquiryRow {
   const aw = row.artworks;
   const artwork = Array.isArray(aw) && aw.length > 0
-    ? (aw[0] as { id: string; title: string | null; artist_id: string })
+    ? (aw[0] as InquiryArtwork)
     : aw && typeof aw === "object" && !Array.isArray(aw)
-      ? (aw as { id: string; title: string | null; artist_id: string })
+      ? (aw as InquiryArtwork)
       : null;
   const pr = row.profiles;
   const inquirer = Array.isArray(pr) && pr.length > 0
-    ? (pr[0] as { username: string | null; display_name: string | null })
+    ? (pr[0] as InquiryPerson)
     : pr && typeof pr === "object" && !Array.isArray(pr)
-      ? (pr as { username: string | null; display_name: string | null })
+      ? (pr as InquiryPerson)
       : null;
   return {
     id: row.id as string,
@@ -601,18 +617,38 @@ export async function getMyInquiryForArtwork(artworkId: string): Promise<{ data:
   return { data: data ? normalizeInquiry(data as Record<string, unknown>) : null, error: null };
 }
 
-/** Resend price_inquiry notification to artist/delegates for own unanswered inquiry (e.g. pre-patch inquiry that never notified). */
-export async function resendPriceInquiryNotification(inquiryId: string): Promise<{ data: number; error: unknown }> {
+/**
+ * Notify the artist/delegates again about my unanswered inquiry. The server
+ * allows it once per 24 hours, at most 3 times, and returns the new state.
+ */
+export async function resendPriceInquiryNotification(
+  inquiryId: string,
+): Promise<{ data: { sent: number; state: RenotifyState | null }; error: unknown }> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  if (!session?.user?.id) return { data: 0, error: new Error("Not authenticated") };
+  if (!session?.user?.id) return { data: { sent: 0, state: null }, error: new Error("Not authenticated") };
 
-  const { data, error } = await supabase.rpc("resend_price_inquiry_notification", {
+  const { data, error } = await supabase.rpc("renotify_price_inquiry", {
     p_inquiry_id: inquiryId,
   });
-  if (error) return { data: 0, error };
-  return { data: typeof data === "number" ? data : 0, error: null };
+  if (error) return { data: { sent: 0, state: null }, error };
+  const out = (data ?? {}) as { sent?: unknown; state?: unknown };
+  return {
+    data: { sent: typeof out.sent === "number" ? out.sent : 0, state: readRenotifyState(out.state) },
+    error: null,
+  };
+}
+
+/** Whether and when I can notify again (my own inquiry only). */
+export async function getPriceInquiryRenotifyState(
+  inquiryId: string,
+): Promise<{ data: RenotifyState | null; error: unknown }> {
+  const { data, error } = await supabase.rpc("price_inquiry_renotify_state", {
+    p_inquiry_id: inquiryId,
+  });
+  if (error) return { data: null, error };
+  return { data: readRenotifyState(data), error: null };
 }
 
 /**

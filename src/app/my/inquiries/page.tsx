@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { setArtworkBack } from "@/lib/artworkBack";
 import {
   listPriceInquiriesForArtist,
@@ -391,7 +392,8 @@ export default function MyInquiriesPage() {
                       onClick={() => void openThread(row)}
                       className="text-left font-medium text-zinc-900 hover:underline"
                     >
-                      {row.artwork?.title ?? t("common.untitled")}
+                      {(row.artwork ? pickLocalizedArtworkTitle(row.artwork, locale) : "") ||
+                        t("common.untitled")}
                     </button>
                     <Link
                       href={`/artwork/${row.artwork_id}`}

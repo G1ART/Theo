@@ -5,6 +5,7 @@ import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
+import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { setArtworkBack } from "@/lib/artworkBack";
 import {
   listPriceInquiriesForInquirer,
@@ -42,7 +43,7 @@ function SentInquiryStatus({ row }: { row: PriceInquiryRow }) {
 }
 
 function SentInquiriesContent() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [list, setList] = useState<PriceInquiryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -77,7 +78,8 @@ function SentInquiriesContent() {
       ) : (
         <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
           {list.map((row) => {
-            const title = row.artwork?.title || "Untitled";
+            const title =
+              (row.artwork ? pickLocalizedArtworkTitle(row.artwork, locale) : "") || t("common.untitled");
             const date = new Date(
               row.last_message_at ?? row.created_at
             ).toLocaleDateString(undefined, {

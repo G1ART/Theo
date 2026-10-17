@@ -51,10 +51,12 @@ import {
   appendPriceInquiryMessage,
   replyToPriceInquiry,
   resendPriceInquiryNotification,
+  getPriceInquiryRenotifyState,
   canReplyToPriceInquiry,
   type PriceInquiryRow,
   type PriceInquiryMessageRow,
 } from "@/lib/supabase/priceInquiries";
+import { renotifyHint, type RenotifyState } from "@/lib/inquiry/renotify";
 import { getExhibitionHostCuratorLabel, type ExhibitionWithCredits } from "@/lib/exhibitionCredits";
 import { listMyDelegations } from "@/lib/supabase/delegations";
 import { listExhibitionsForWork } from "@/lib/supabase/exhibitions";
@@ -160,6 +162,7 @@ function ArtworkDetailContent() {
   const [canReplyToInquiriesFromBackend, setCanReplyToInquiriesFromBackend] = useState<boolean | null>(null);
   const [replyingInquiryId, setReplyingInquiryId] = useState<string | null>(null);
   const [resendingNotificationInquiryId, setResendingNotificationInquiryId] = useState<string | null>(null);
+  const [renotifyState, setRenotifyState] = useState<RenotifyState | null>(null);
   const [artistReplyText, setArtistReplyText] = useState<Record<string, string>>({});
   const [artistReplyAiEventId, setArtistReplyAiEventId] = useState<Record<string, string>>({});
   const [myInquiryMessages, setMyInquiryMessages] = useState<PriceInquiryMessageRow[]>([]);
@@ -519,6 +522,17 @@ function ArtworkDetailContent() {
   }, [myPriceInquiry?.id]);
 
   useEffect(() => {
+    if (!myPriceInquiry?.id || !userId || myPriceInquiry.inquirer_id !== userId) return;
+    let alive = true;
+    getPriceInquiryRenotifyState(myPriceInquiry.id).then(({ data }) => {
+      if (alive) setRenotifyState(data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [myPriceInquiry?.id, myPriceInquiry?.inquirer_id, userId]);
+
+  useEffect(() => {
     if (!id || !showArtistInquiryBlock) return;
     const t = requestAnimationFrame(() => {
       setArtistInquiriesLoading(true);
@@ -655,7 +669,8 @@ function ArtworkDetailContent() {
       setError(formatSupabaseError(error, t, "priceInquiry.resendFailed"));
       return;
     }
-    if (data > 0) {
+    if (data.state) setRenotifyState(data.state);
+    if (data.sent > 0) {
       setError(null);
       setSuccessMessage(t("priceInquiry.resendSuccess"));
       setTimeout(() => setSuccessMessage(null), 4000);
@@ -1119,16 +1134,17 @@ function ArtworkDetailContent() {
                     ) : (
                       <p className="mb-3 text-zinc-600">{t("priceInquiry.sent")}</p>
                     )}
-                    {!myPriceInquiry.artist_reply && myInquiryMessages.length === 0 && (
+                    {!artistHasRepliedToMyInquiry && renotifyState && renotifyState.reason !== "replied" && (
                       <div className="mb-2">
                         <button
                           type="button"
                           onClick={() => handleResendNotification(myPriceInquiry.id)}
-                          disabled={resendingNotificationInquiryId === myPriceInquiry.id}
-                          className="text-sm font-medium text-zinc-600 underline hover:text-zinc-800 disabled:opacity-50"
+                          disabled={resendingNotificationInquiryId === myPriceInquiry.id || !renotifyState.can}
+                          className="text-sm font-medium text-zinc-600 underline hover:text-zinc-800 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
                         >
                           {resendingNotificationInquiryId === myPriceInquiry.id ? "..." : t("priceInquiry.resendNotification")}
                         </button>
+                        <p className="mt-1 text-xs text-zinc-500">{renotifyHint(renotifyState, t, locale)}</p>
                         {successMessage && <p className="mt-1 text-sm text-green-600">{successMessage}</p>}
                       </div>
                     )}

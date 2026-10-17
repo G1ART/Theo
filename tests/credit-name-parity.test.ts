@@ -159,6 +159,16 @@ for (const rel of ["src/lib/supabase/artworks.ts", "src/lib/provenance/rpc.ts"])
     assert.match(embed, /display_name_en/, `${rel}: ${embed}`);
   }
 }
+// 가격 문의의 문의자(받은 문의함, 작품 상세의 문의 목록)도 같다.
+{
+  const rel = "src/lib/supabase/priceInquiries.ts";
+  const embeds = read(rel).match(/profiles!inquirer_id\([^)]*\)/g) ?? [];
+  assert.ok(embeds.length >= 2, `${rel} embeds the inquirer profile in every inquiry select`);
+  for (const embed of embeds) {
+    assert.match(embed, /display_name_ko/, `${rel}: ${embed}`);
+    assert.match(embed, /display_name_en/, `${rel}: ${embed}`);
+  }
+}
 
 // 5) 이름을 그리는 화면은 모두 지금 로케일을 넘긴다.
 function callArgs(src: string, fn: string): string[] {
@@ -192,6 +202,7 @@ const surfaces = [
   "src/app/people/PeopleResultCard.tsx",
   "src/components/shell/rail/MyConnectionRail.tsx",
   "src/app/my/claims/page.tsx",
+  "src/app/my/inquiries/page.tsx",
 ];
 for (const rel of surfaces) {
   const src = read(rel);
