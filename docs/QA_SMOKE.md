@@ -649,7 +649,7 @@ Current suite is minimal (public shell + login page). Extend `e2e/smoke.spec.ts`
 7. **CSV export:** `/my/library` → click Export CSV → file downloads with correct data.
 8. **Alerts:** `/my/alerts` → toggle new work alerts → change digest → add/remove interest.
 9. **Ops panel:** `/my/ops` → see profile table → filter by random username → filter by no uploads.
-10. **New work trigger:** follow an artist → artist uploads public work → follower gets notification (requires alert_preferences row with `new_work_alerts = true`).
+10. **New work trigger:** follow an artist → the artist publishes 3 drafts from bulk upload → follower gets one notification "○○ 작가가 새 작품 3점을 올렸어요" that opens the artist profile. One work opens that work. Making a work private and public again sends nothing. Followers with `new_work_alerts = false` get nothing. Rolled-back DB check: `supabase/tests/new_work_alert_bundle.sql`.
 
 ## Wave 1.1 reconciliation checks
 

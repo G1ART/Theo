@@ -21,6 +21,20 @@ export type NotificationEntitlements = {
   canSeeBoardPublicActor: boolean;
 };
 
+/**
+ * Works announced by one `new_work` row. Rows written before the
+ * first-publish bundle (2026-10-17) have no count and are one work.
+ */
+export function newWorkCount(row: NotificationRow): number {
+  const count = row.payload?.count;
+  if (typeof count === "number" && Number.isFinite(count) && count >= 1) {
+    return Math.floor(count);
+  }
+  const ids = row.payload?.artwork_ids;
+  if (Array.isArray(ids) && ids.length > 0) return ids.length;
+  return 1;
+}
+
 export function notificationLabel(
   row: NotificationRow,
   t: (k: string) => string,
@@ -49,9 +63,20 @@ export function notificationLabel(
       return t("notifications.priceInquiryReplyText").replace("{name}", name).replace("{title}", title);
     case "new_work": {
       if (row.payload?.source === "interest") {
-        return `New work matching your "${row.payload.interest_type ?? ""}" interest: ${title}`;
+        const interestType = String(row.payload.interest_type ?? "");
+        const interestKey = `alerts.interests.type.${interestType}`;
+        const interest = t(interestKey);
+        return t("notifications.newWorkInterestText")
+          .replace("{interest}", interest === interestKey ? interestType : interest)
+          .replace("{title}", title);
       }
-      return `${name} uploaded a new work: ${title}`;
+      const count = newWorkCount(row);
+      if (count > 1) {
+        return t("notifications.newWorksText")
+          .replace("{name}", name)
+          .replace("{count}", String(count));
+      }
+      return t("notifications.newWorkText").replace("{name}", name).replace("{title}", title);
     }
     case "connection_message":
       return t("notifications.connectionMessageText").replace("{name}", name);
@@ -177,6 +202,10 @@ export function notificationLink(
       return `/my/delegations?openId=${delegationId}&action=update`;
     }
     return "/my/delegations";
+  }
+  if (row.type === "new_work" && newWorkCount(row) > 1) {
+    const u = row.actor?.username;
+    if (u) return `/u/${u}`;
   }
   if (row.artwork_id) return `/artwork/${row.artwork_id}`;
   return null;

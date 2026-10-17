@@ -2,6 +2,25 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 초안에서 공개한 작품도 팔로워 신작 알림, 공개 한 번에 한 건
+
+> **Supabase SQL:** `supabase/migrations/20261017211500_new_work_alert_on_first_publish.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 다섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
+
+신작 알림 트리거 `trg_notify_followers_new_work` 가 `AFTER INSERT` 에만 걸려 있었다. 벌크 업로드는 초안으로 만든 뒤 `publishArtworks`(한 statement로 여러 행) 나 `publishArtworksWithProvenance`(작품마다 update) 로 공개하고, 내 작품의 게시도 update라 알림이 한 번도 가지 않았다. 현혜명 작가가 공개한 69점이 이 경로다. 싱글 업로드는 처음부터 공개로 insert 해서 알림이 갔지만, 그때 `artist_id` 가 올린 계정이고 claim 동기화가 곧바로 작가로 바꾼다. 그래서 큐레이터 업로드는 큐레이터 팔로워에게 갔다.
+
+- `artworks.first_published_at` 을 추가했다. 처음 공개될 때 트리거가 찍고 그 뒤로 바뀌지 않는다. 이미 공개된 702점은 `created_at` 으로 채웠다(`updated_at` 은 그대로). 초안 58점은 비어 있고, 그중 예전에 신작 알림이나 좋아요가 있던 작품은 없었다.
+- 처음 공개될 때(공개로 insert, 또는 초안·비공개·unlisted → 공개) 작가(`artist_id`)의 팔로워에게 보낸다. 수락된 팔로우만 받고, 신작 알림을 끈 사람, 작가 본인, 올린 계정(`created_by`), 지금 게시한 계정은 뺀다. 큐레이터·위임 대리 업로드도 주체는 작가다.
+- 묶음: 받는 사람에게 같은 작가의 읽지 않은 신작 알림이 만든 지 10분 안이면 거기에 작품을 더한다. `payload` 에 `artwork_ids` 와 `count` 가 쌓이고 `artwork_id` 는 첫 작품이다. 작품마다 update 하는 벌크도 한 건이 된다. 그 알림을 읽었거나 10분이 지나면 다음 작품은 새 알림이다.
+- 같은 작품은 한 사람에게 두 번 가지 않는다. 비공개로 돌렸다가 다시 공개해도 `first_published_at` 이 있어 보내지 않는다. 과거 작품에 소급해 보낸 것은 없다.
+- 공개 뒤 10분 안에 `artist_id` 가 바뀌면(싱글 업로드의 claim 동기화) 이전 작가 팔로워의 알림에서 빼고 새 작가 팔로워에게 보낸다. 10분 안에 지워지면(업로드 롤백) 알림에서 빼고, 빈 알림은 지운다.
+- 알림 type은 `new_work` 그대로라 `notifications_type_check` 는 건드리지 않았다. digest_events 는 알림 한 건에 하나이고 같은 `artwork_ids`/`count` 를 갖는다.
+- 문구: ko "○○ 작가가 새 작품 N점을 올렸어요", 1점이면 "○○ 작가가 새 작품 〈제목〉을(를) 올렸어요". en "{name} posted N new works" / "{name} posted a new work “title”". 누르면 1점은 그 작품, 여러 점은 작가 프로필(`/u/<username>`). 개수가 없는 이전 알림은 1점으로 읽는다. 영어로만 박혀 있던 관심사 알림 문구도 한/영으로 바꿨다.
+- 관심사(`saved_interests`, 지금 0건) 알림은 이전처럼 공개로 insert 할 때만 작품마다 간다.
+- 알림을 만들다 실패해도 게시는 막지 않고 warning만 남긴다. `new_work_alert_add` / `new_work_alert_remove` 는 클라이언트 키로 호출할 수 없다.
+- `20261017221500_artwork_price_column_lock.sql` 의 열 SELECT 목록에는 `first_published_at` 이 없다. 클라이언트는 이 열을 읽지 않고 트리거만 쓰므로 그대로 둬도 된다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/new-work-alert.test.ts`. `npx tsx tests/publish-with-provenance-no-project.test.ts`. `npx tsx tests/gallery-publish-lands-on-artist.test.ts`. `npx tsx src/lib/supabase/__tests__/bulkUpload.regression.test.ts`. `supabase/tests/new_work_alert_bundle.sql` 을 적용 전(마이그레이션과 한 트랜잭션)과 적용 후에 돌려 10개 시나리오가 통과했다. 합성 계정만 쓰고 마지막 예외로 롤백해 남은 행은 0이다. 적용 뒤 SELECT: 새 트리거 네 개와 바꾼 insert 트리거, 공개 702점 백필, `updated_at` 변경 0, CHECK 조건 그대로. 로그인한 브라우저로 벌크 게시를 눌러 보지는 않았다.
+
 ## 2026-10-17 — 가격·소장 상태 노출 차단, 공개 규칙을 서버 하나로
 
 > **Supabase SQL:** `supabase/migrations/20261017221000_artwork_viewer_fields.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 섹션 1–8 과 섹션 9 를 두 번에). 함수가 여럿이라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017221500_artwork_price_column_lock.sql`(직접 조회 권한 회수)은 이 커밋이 프로덕션에 배포된 것을 확인한 뒤 적용한다.** **환경 변수 추가·변경 없음.**
