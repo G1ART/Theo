@@ -51,6 +51,11 @@ export type StudioPortfolioV1 = {
   /** When omitted or key missing, tab is public on profile */
   tab_public?: Partial<Record<PersonaTab, boolean>>;
   custom_tabs?: StudioCustomTabV1[];
+  /**
+   * Custom tabs as this screen read them. Saves send it so the server
+   * keeps works and tabs that arrived after the screen loaded. Not stored.
+   */
+  loaded_tabs?: { id: string; artwork_ids: string[] }[];
 };
 
 export type StudioStripTab = {
@@ -191,16 +196,19 @@ export function parseStudioPortfolio(
       tab_labels: {},
       tab_public: {},
       custom_tabs: [],
+      loaded_tabs: [],
     };
   }
   const o = raw as Record<string, unknown>;
   const version = o.version === 1 ? 1 : 1;
+  const custom_tabs = normalizeCustomTabs(o.custom_tabs);
   return {
     version,
     tab_strip_order: normalizeStripOrder(o.tab_strip_order),
     tab_labels: normalizeTabLabels(o.tab_labels),
     tab_public: normalizeTabPublic(o.tab_public),
-    custom_tabs: normalizeCustomTabs(o.custom_tabs),
+    custom_tabs,
+    loaded_tabs: custom_tabs.map((tab) => ({ id: tab.id, artwork_ids: [...tab.artwork_ids] })),
   };
 }
 

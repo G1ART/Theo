@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 오래 열어 둔 탭 설정 화면을 저장해도 새 작품이 탭에 남는다
+
+> **Supabase SQL:** `supabase/migrations/20261017224618_stale_tab_save_merge.sql` 을 abstract-mvp 프로젝트에 적용했다(schema_migrations version 과 같은 번호). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
+
+`save_profile_studio_portfolio` 가 화면이 보낸 `studio_portfolio` 로 통째로 덮어썼다. 업로드 전에 열어 둔 탭 설정·작품 탭 지정·탭 순서·탭 만들기·탭 삭제 화면에서 저장하면, 그 사이 업로드로 탭에 들어간 작품은 뒤로 밀리는 게 아니라 탭에서 빠졌다. 다른 기기에서 만든 탭도 같이 사라졌다. 본인과 대리(위임 작업) 저장이 같은 함수다.
+
+- 화면은 탭을 읽을 때(`parseStudioPortfolio`) 그 구성을 `loaded_tabs` 로 들고 있고, 수정본은 그것을 그대로 물려받는다. `persistStudioPortfolio` 가 이를 `p_loaded_tabs` 로 보낸다. 저장 payload 에는 들어가지 않는다. 프로필 id 가 없을 때도 같은 RPC 로 본인 프로필에 저장한다.
+- 서버(`studio_tabs_merge`)는 화면이 알던 작품·탭에는 화면의 구성·순서·삭제를 그대로 적용한다. 화면이 몰랐던 작품(지금 탭에는 있고 화면이 읽은 탭과 보낸 탭 어디에도 없는 것)은 지금 자리(앞쪽 이웃 바로 뒤, 없으면 맨 앞)에 남기고, 몰랐던 탭은 화면의 탭 뒤에 남긴다. `p_loaded_tabs` 없이 부르면 예전처럼 통째로 바꾼다.
+- 작품 순서(`profile_artwork_orders`, 본인·갤러리·큐레이터·소장자·대리 `save_profile_artwork_order`)와 전시 순서(`profile_exhibition_orders`)는 화면이 보낸 행만 지우고 다시 쓴다. 화면이 몰랐던 새 작품은 맨 앞(음수 순서)을 지키고, 화면을 연 뒤 생긴 전시는 빠지지 않고 원래 자리(직접 정한 전시 뒤, 최신순)에 있다. 그래서 고치지 않았다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/stale-tab-save.test.ts`(신규), `tests/studio-portfolio-config.test.ts`, `tests/profile-tab-kinds.test.ts`, `tests/profile-tab-upload.test.ts`, `tests/profile-tab-access.test.ts`, `tests/new-work-credit-order.test.ts`. `supabase/tests/stale_save_merge.sql`(8개 경우: 본인·대리·갤러리 탭, 본인·대리·갤러리 작품 순서, 본인·대리 전시 순서, 기준 없는 예전 저장)을 적용 전(마이그레이션과 한 트랜잭션)·적용 후 통과. 합성 계정만, 팔로우 없음, 롤백. 로그인한 브라우저로 탭 설정을 저장해 보지는 않았다.
+
 ## 2026-10-17 — 가격 잠금 뒤 경로 전수 점검, 공유 룸이 열리지 않던 버그
 
 > **Supabase SQL:** `supabase/migrations/20261017224527_room_rpc_image_order.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
