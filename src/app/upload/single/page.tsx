@@ -41,6 +41,7 @@ import { claimPeriodForExhibition } from "@/lib/upload/exhibitionPeriodLookup";
 import { externalArtistInviteEmailState } from "@/lib/provenance/externalArtists";
 import type { ClaimType } from "@/lib/provenance/types";
 import { setArtworkBack } from "@/lib/artworkBack";
+import { leaveFormTo } from "@/lib/nav/entryTrail";
 import { persistUploadFiling } from "@/lib/studio/profileTabUpload";
 import { UploadTabFiling, type UploadTabSelection } from "@/components/upload/UploadTabFiling";
 import { planFromUploadSelection } from "@/lib/studio/profileContentKind";
@@ -858,13 +859,16 @@ function UploadPageContent() {
           // sessionStorage disabled (Safari private mode etc.) — silent.
         }
       }
+      // Finishing replaces the upload screen, so Back from where it lands
+      // is the screen the upload started from. Started on the exhibition's
+      // add page, it simply goes back there.
       const go = () => {
         if (exhibitionReturnUrl) {
-          router.push(exhibitionReturnUrl);
+          leaveFormTo({ router, pathname: window.location.pathname, target: exhibitionReturnUrl });
           return;
         }
         if (artistPath) {
-          router.push(artistPath);
+          router.replace(artistPath);
           return;
         }
         if (username) {
@@ -874,13 +878,13 @@ function UploadPageContent() {
           const returnTab = ownMembership
             ? `custom-${ownMembership.tabId}`
             : searchParams.get("tab");
-          router.push(
+          router.replace(
             filedToTab ? profileReturnPath(username, returnTab) : `/u/${username}`,
           );
           return;
         }
         setArtworkBack("/upload");
-        router.push(`/artwork/${artworkId}`);
+        router.replace(`/artwork/${artworkId}`);
       };
       if (inviteKind) {
         setInviteToast(inviteKind);

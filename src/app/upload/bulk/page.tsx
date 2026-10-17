@@ -28,6 +28,7 @@ import {
 } from "@/lib/supabase/artworks";
 import { sizeTextForSave } from "@/lib/size/format";
 import { chainAfter } from "@/lib/upload/draftSaveQueue";
+import { leaveFormTo } from "@/lib/nav/entryTrail";
 import { planOnboardedArtistPublish, rememberedArtistId } from "@/lib/upload/artworkOwner";
 import {
   bulkDraftInsertArtistId,
@@ -1799,12 +1800,18 @@ export default function BulkUploadPage() {
           const qs = new URLSearchParams();
           if (preservedFromBoard) qs.set("fromBoard", preservedFromBoard);
           const suffix = qs.toString() ? `?${qs.toString()}` : "";
-          router.push(`/my/exhibitions/${addToExhibitionId}/add${suffix}`);
+          // Started on the exhibition's add page: back there. Every other
+          // finish replaces the upload screen (Back = where upload started).
+          leaveFormTo({
+            router,
+            pathname: window.location.pathname,
+            target: `/my/exhibitions/${addToExhibitionId}/add${suffix}`,
+          });
           return;
         }
         const artistPath = artistProfilePath(notice?.artistUsername);
         if (artistPath) {
-          router.push(artistPath);
+          router.replace(artistPath);
           return;
         }
         if (notice) {
@@ -1820,7 +1827,7 @@ export default function BulkUploadPage() {
           : await getMyProfile();
         const username = (profile as { username?: string | null } | null)?.username?.trim();
         if (username) {
-          router.push(
+          router.replace(
             filedToTab ? profileReturnPath(username, searchParams.get("tab")) : `/u/${username}`,
           );
           return;

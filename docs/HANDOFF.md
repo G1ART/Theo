@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 업로드를 마친 뒤 뒤로가기는 업로드를 시작한 화면
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+진입·진출 경로 정리의 다섯 번째 묶음(대표님 결정 2)이다.
+
+- 싱글·벌크 업로드를 마친 뒤 가는 곳은 그대로다. 올린 계정의 공개 프로필(넣은 탭), 다른 작가 몫이면 그 작가 프로필, 핸들이 없으면 작품 상세, 전시에서 시작했으면 그 전시의 작품 추가 화면이다. 이동을 push 에서 replace 로 바꿔서, 거기서 뒤로가기를 누르면 끝난 업로드 화면이 아니라 업로드를 시작한 화면으로 간다.
+- 전시의 작품 추가 화면에서 시작한 업로드는 그 화면으로 history back 한다(`leaveFormTo`). 공개 프로필은 서버 렌더라 뒤로 돌아가면 새 작품이 빠진 화면이 나올 수 있어, 프로필로는 replace 로 새로 연다.
+- 업로드의 작품/전시, 단일/여러 점 탭과 초안 바로가기는 한 화면 안의 모드 전환이라 replace 다. 탭을 오가도 히스토리가 쌓이지 않는다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/upload-finish-history.test.ts`(신규). `tests/gallery-publish-lands-on-artist.test.ts`, `tests/profile-tab-upload.test.ts`, `tests/upload-nav-always-clickable.test.ts`, `tests/bulk-no-auto-detail.test.ts`, `tests/project-delegate-artwork-upload.test.ts`, `tests/bulk-other-artist-session.test.ts`, `tests/entry-trail.test.ts`. 바꾼 파일의 eslint 는 HEAD 와 같다. 업로드는 로그인이 필요해 브라우저로 끝까지 올려 보지 못했다.
+
 ## 2026-10-17 — 프로필 편집 저장은 들어온 화면으로, 수정 폼은 히스토리에 안 남김, 메시지 알림은 그 대화
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**

@@ -45,7 +45,7 @@ export default function UploadLayout({
       document.getElementById("upload-drafts")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    router.push("/upload#upload-drafts");
+    router.replace("/upload#upload-drafts");
   }
 
   const tabClass = (active: boolean) =>
@@ -77,11 +77,14 @@ export default function UploadLayout({
           aria-label={t("upload.title")}
           className="mt-4 grid grid-cols-2 border-b border-zinc-200 pb-2 text-center"
         >
-          <Link href={hrefWithQuery("/upload")} className={tabClass(onArtworks)}>
+          {/* Upload tabs switch modes of one screen: replace, so Back
+              (and finishing an upload) returns to where upload started. */}
+          <Link href={hrefWithQuery("/upload")} replace className={tabClass(onArtworks)}>
             {t("upload.tabArtworks")}
           </Link>
           <Link
             href={hrefWithQuery("/upload/exhibition")}
+            replace
             data-tour="upload-tab-exhibition"
             className={tabClass(onExhibition)}
           >
@@ -93,6 +96,7 @@ export default function UploadLayout({
           <div className="relative mt-6 mb-6 grid grid-cols-2 text-center">
             <Link
               href={hrefWithQuery("/upload/single")}
+              replace
               data-tour="upload-tab-single"
               className={modeClass(onSingle)}
             >
@@ -101,6 +105,7 @@ export default function UploadLayout({
             <div className="relative inline-flex items-center justify-center gap-1">
               <Link
                 href={hrefWithQuery(pathname.startsWith("/upload/bulk") ? "/upload/bulk" : "/upload")}
+                replace
                 data-tour="upload-tab-bulk"
                 className={modeClass(!onSingle)}
               >
