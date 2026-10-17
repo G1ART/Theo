@@ -56,6 +56,13 @@ function AlertsContent() {
     setSaving(false);
   }, [prefs, refresh]);
 
+  const handleToggleLikedAlerts = useCallback(async () => {
+    setSaving(true);
+    await upsertAlertPreferences({ liked_work_alerts: !(prefs?.liked_work_alerts ?? true) });
+    await refresh();
+    setSaving(false);
+  }, [prefs, refresh]);
+
   const handleDigest = useCallback(async (freq: DigestFrequency) => {
     setSaving(true);
     await upsertAlertPreferences({ digest_frequency: freq });
@@ -109,6 +116,21 @@ function AlertsContent() {
                 className="h-4 w-4 rounded border-zinc-300"
               />
               {t("alerts.newWork.enable")}
+            </label>
+          </section>
+
+          <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <h2 className="mb-2 font-medium text-zinc-800">{t("alerts.likedWork.title")}</h2>
+            <p className="mb-3 text-sm text-zinc-600">{t("alerts.likedWork.hint")}</p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={prefs?.liked_work_alerts ?? true}
+                onChange={() => void handleToggleLikedAlerts()}
+                disabled={saving}
+                className="h-4 w-4 rounded border-zinc-300"
+              />
+              {t("alerts.likedWork.enable")}
             </label>
           </section>
 

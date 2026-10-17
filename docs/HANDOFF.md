@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 알림 설정에 '좋아요한 작품 소식' 스위치
+
+> **Supabase SQL:** `supabase/migrations/20261017230007_liked_work_alerts_switch.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
+
+대표님 결정(likes_alert_switch = one_switch).
+
+- `alert_preferences.liked_work_alerts`(not null, 기본 켜짐)를 `new_work_alerts` 와 같은 방식으로 저장한다. 행이 없거나 켜져 있으면 받는다.
+- 전시에 걸림·가격 공개·판매 완료 세 알림을 한 번에 끈다. 앱이 아니라 두 트리거(`notify_likers_on_state_event`, `notify_likers_on_exhibition_link`)가 꺼 둔 사람을 받는 사람에서 뺀다. 나머지 조건(작가·업로더·바꾼 사람 제외, 가격은 볼 수 있는 사람만, 같은 전시 묶음)은 그대로다.
+- 알림 설정(`/my/alerts`)의 '새 작품 알림' 아래에 '좋아요한 작품 소식' 체크박스와 설명(한/영).
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/liked-work-alerts.test.ts`(스위치: 두 트리거의 마지막 정의가 읽음, 기본 켜짐, 화면·문구). `tests/liked-works-sql-contract.test.ts`, `tests/new-work-alert.test.ts`. 바꾼 파일 eslint 0건. 되돌리는 트랜잭션에서 합성 계정으로: 사용자가 자기 행에 끄기 저장(신작 알림 설정은 그대로), 판매 완료·전시 연결 때 끈 사람 0건·켠 사람 1건(전시는 2점 묶음), 다시 켜면 받음, 남은 행 0. 로그인한 브라우저로 설정을 눌러 보지는 못했다.
+
 ## 2026-10-17 — 가격 문의 다시 알리기는 하루 한 번·최대 3번, 문의함 이름·제목은 화면 언어로
 
 > **Supabase SQL:** `supabase/migrations/20261017225332_price_inquiry_renotify_limit.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 네 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**

@@ -2,7 +2,7 @@
 // liked-works-sql-contract.test.ts) and the wording / links.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { messages } from "../src/lib/i18n/messages";
 import {
@@ -157,5 +157,42 @@ assert.equal(notificationLink(bundled, ent, "u1"), "/e/e1");
 assert.equal(notificationLink(row({ type: "liked_work_sold" }), ent, "u1"), "/artwork/w1");
 assert.equal(notificationLink(row({ type: "liked_work_price_listed" }), ent, "u1"), "/artwork/w1");
 assert.equal(likedWorkAlertLink(row({ type: "liked_work_exhibited", payload: {} })), "/artwork/w1");
+
+// 9. One switch (on by default) turns all three off, and the latest
+//    trigger definitions read it.
+const switchSql = strip(read("supabase/migrations/20261017230007_liked_work_alerts_switch.sql"));
+assert.ok(/add column if not exists liked_work_alerts boolean not null default true/.test(switchSql));
+const migrationFiles = readdirSync(path.join(ROOT, "supabase/migrations"))
+  .filter((name) => /^\d{14}_.*\.sql$/.test(name))
+  .sort();
+function latestBody(fn: string): { file: string; body: string } {
+  let found: { file: string; body: string } | null = null;
+  for (const file of migrationFiles) {
+    const text = strip(read(`supabase/migrations/${file}`));
+    const start = text.indexOf(`create or replace function public.${fn}(`);
+    if (start < 0) continue;
+    const rest = text.slice(start);
+    const tag = /\bas\s+(\$[A-Za-z]*\$)/.exec(rest)?.[1];
+    assert.ok(tag, `${file}: ${fn} has a dollar-quoted body`);
+    const open = rest.indexOf(tag);
+    found = { file, body: rest.slice(open, rest.indexOf(tag, open + tag.length)) };
+  }
+  assert.ok(found, `${fn} is defined`);
+  return found;
+}
+for (const fn of ["notify_likers_on_state_event", "notify_likers_on_exhibition_link"]) {
+  const { file, body } = latestBody(fn);
+  assert.ok(/ap\.user_id = l\.user_id and ap\.liked_work_alerts = false/.test(body), `${file}: ${fn} skips switched-off likers`);
+  assert.ok(/l\.user_id is distinct from v_actor/.test(body), `${file}: ${fn} still skips the actor`);
+}
+assert.ok(read("src/lib/supabase/alerts.ts").includes("liked_work_alerts?: boolean"));
+const alertsPage = read("src/app/my/alerts/page.tsx");
+assert.ok(alertsPage.includes("liked_work_alerts: !(prefs?.liked_work_alerts ?? true)"), "toggle defaults to on");
+for (const locale of ["en", "ko"] as const) {
+  for (const key of ["alerts.likedWork.title", "alerts.likedWork.hint", "alerts.likedWork.enable"]) {
+    assert.ok((messages[locale] as Record<string, string>)[key], `${locale}: ${key}`);
+    assert.ok(alertsPage.includes(`t("${key}")`), `page shows ${key}`);
+  }
+}
 
 console.log("liked-work-alerts: ok");

@@ -16,6 +16,8 @@ export type AlertPreferences = {
   user_id: string;
   digest_frequency: DigestFrequency;
   new_work_alerts: boolean;
+  /** Liked works: exhibited, price listed, sold. The triggers read it. */
+  liked_work_alerts: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -46,7 +48,7 @@ export async function getAlertPreferences(): Promise<{
 }
 
 export async function upsertAlertPreferences(
-  fields: { digest_frequency?: DigestFrequency; new_work_alerts?: boolean }
+  fields: { digest_frequency?: DigestFrequency; new_work_alerts?: boolean; liked_work_alerts?: boolean }
 ): Promise<{ error: unknown }> {
   const {
     data: { session },
