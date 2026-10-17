@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 작품 상세 소속 전시는 공개 전시로, 뒤로 라벨 하나로, 피드 폴백은 For you
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+진입·진출 경로 정리의 여섯 번째(마지막) 묶음이다. 좋아요 탭 커밋(`37cdafa`)이 작품 상세와 `artworkBack.ts` 를 비운 뒤 했다.
+
+- 작품 상세의 "전시" 목록은 내 전시든 남의 전시든 공개 전시(`/e/<id>`)를 연다(진입 스탬프 포함). 내 전시를 관리 화면(`/my/exhibitions/<id>`)으로 바로 보내던 것을 없앴다. 계정주는 공개 전시의 "전시 관리"로 들어간다. 남의 전시는 글자만 있던 것이 링크가 됐다.
+- 클레임이 프로필 미완성으로 막히면 `/onboarding` 대신 `/onboarding/identity?next=<이 작품>` 으로 가서, 끝내고 이 작품으로 돌아온다.
+- 작품·전시·워크스페이스 뒤로 라벨이 `backLabelKeyForPath` 하나다. `artworkBack.ts` 의 `labelKeyForArtworkBack` 과 `getExhibitionBack` 의 표를 지웠다. 좋아요 탭(`?tab=likes`) 규칙은 그 함수로 옮겼다. 라벨이 실제 목적지 이름을 말한다: 보드는 "보드", 가격 문의는 "가격 문의", Theo Board 는 "Theo Board", 룸은 이름 키가 없어 "뒤로", 이름 없는 `/my/*` 는 "워크스페이스" 대신 "뒤로". 영어 "Back to Back to room" 도 없어졌다.
+- 스탬프가 없을 때 작품 뒤로·삭제의 피드 폴백은 For you(`DEFAULT_DESTINATION`)다. `tab=all` 이 진짜 전체가 된 뒤에도 전과 같은 피드로 간다.
+- `readHistoryIdx()` 는 Next 16 앱 라우터 히스토리에 `idx` 가 없어 항상 null 이다. 작품 삭제는 replace 경로로 가고, 잡아 둔 스크롤 arm 이 프로필·목록을 복원한다. 동작은 바꾸지 않고 주석만 남겼다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/entry-trail.test.ts`, `tests/exhibition-back-context.test.ts`(라벨 표 대신 공용 매핑을 고정), `tests/artwork-delete-navigation.test.ts`(폴백 For you), `tests/liked-works-view.test.ts`, `tests/list-scroll-restore.test.ts`, `tests/profile-scroll-restore.test.ts`, `tests/feed-scroll-restore.test.ts`, `tests/artwork-viewer-fields.test.ts`. 바꾼 파일의 eslint 는 HEAD 와 같다. 로컬 dev(3100, 비로그인)에서 작품을 바로 열면 "← 피드"가 `/feed?tab=foryou&sort=latest` 였고, 소속 전시는 `/e/888449ec…` 링크였다. 눌러 연 공개 전시의 뒤로는 "← 작품"으로 그 작품이었다. 내 전시(계정주) 쪽과 클레임 막힘은 로그인이 필요해 눌러 보지 못했다.
+
 ## 2026-10-17 — 내 프로필의 '좋아요' 탭 (1단계, 알림 제외)
 
 > **Supabase SQL:** `supabase/migrations/20261017223000_liked_works.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수가 다섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017223500_artwork_likes_private.sql`(좋아요 행은 본인만 읽기)은 이 커밋이 프로덕션에 배포된 것을 확인한 뒤 적용한다.** **환경 변수 추가·변경 없음.**
