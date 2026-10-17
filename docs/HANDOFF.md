@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 프로필 편집 저장은 들어온 화면으로, 수정 폼은 히스토리에 안 남김, 메시지 알림은 그 대화
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+진입·진출 경로 정리의 네 번째 묶음이다.
+
+- 프로필 편집(설정) 저장은 설정을 연 화면으로 replace 한다. 공개 프로필에서 왔으면 보던 자리로 돌아간다(그 링크를 누를 때 적어 둔 스크롤). 연 화면이 없으면 편집한 계정의 공개 프로필이다(대리 편집이면 위임 계정, `e2eb358` 의 불러오기·저장은 그대로). replace 라서 거기서 뒤로가기를 눌러도 설정 폼이 다시 나오지 않는다. 사용자 이름 고치기에서 온 `ab_username_fix_next_path` 도 replace 다.
+- 작품 수정의 저장·취소·뒤로는 상세에서 열었으면 history back, 아니면 replace 다. 상세가 히스토리에 두 번 쌓이지 않고, 뒤로가기로 수정 폼에 다시 들어가지 않는다.
+- 메시지 알림은 보낸 사람과의 대화(`/my/messages/<handle>`, 핸들이 없으면 id)를 연다. 알림 데이터에는 따로 스레드 id 가 없고, 1:1 대화라서 보낸 사람이 곧 대화 키다. 받은 메시지함 행도 같은 키를 쓴다. 보낸 사람이 없는 행만 받은 메시지함이다. 대화 화면의 뒤로는 들어온 화면이다(알림에서 왔으면 "← 알림").
+- 요청함의 "대상 보기"가 전시일 때도 진입 스탬프를 남긴다(`stampBackFromHref`). 전시의 "←" 가 이전에 남은 스탬프나 피드로 가지 않는다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/save-exit-destination.test.ts`(신규). `tests/new-work-alert.test.ts`, `tests/entry-trail.test.ts`, `tests/acting-exit-destination.test.ts`, `tests/profile-tab-access.test.ts`, `tests/artwork-delete-navigation.test.ts`, `tests/relationship-desk.test.ts`, `tests/access-request.test.ts`. `tests/sprint6-2-network-hub.test.ts` 는 이 작업과 무관하게 실패한다(`src/app/my/page.tsx` 데스크 RPC 검사, 그 파일의 마지막 변경은 `e9638fb`). 바꾼 파일의 eslint 는 HEAD 와 같다. 설정 저장·작품 수정은 로그인이 필요해 브라우저로 눌러 보지 못했다.
+
 ## 2026-10-17 — 알림은 DB만 쓴다
 
 > **Supabase SQL:** `supabase/migrations/20261017214917_notifications_insert_lockdown.sql` 을 abstract-mvp 프로젝트에 적용했다. plpgsql 함수가 없어 한 번에 Run 해도 된다. **환경 변수 추가·변경 없음.**

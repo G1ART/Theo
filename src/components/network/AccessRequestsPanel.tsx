@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { setArtworkBack } from "@/lib/artworkBack";
+import { stampBackFromHref } from "@/lib/artworkBack";
 import { exhibitionIdFromPackField } from "@/lib/download/access";
 import { FloorPanel } from "@/components/ds/FloorPanel";
 import { LaneChips, type LaneOption } from "@/components/ds/LaneChips";
@@ -322,9 +322,7 @@ export function AccessRequestsPanel() {
                         {subjectHref ? (
                           <Link
                             href={subjectHref}
-                            onClick={() => {
-                              if (!packExhibitionId) setArtworkBack();
-                            }}
+                            onClick={() => stampBackFromHref(subjectHref)}
                             className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
                           >
                             {t("accessRequestInbox.viewSubject")}

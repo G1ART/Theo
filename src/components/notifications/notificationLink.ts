@@ -160,7 +160,10 @@ export function notificationLink(
     return row.type === "price_inquiry_reply" ? "/my/inquiries/sent" : "/my/inquiries";
   }
   if (row.type === "connection_message") {
-    return "/my/messages";
+    // A thread is one pair, keyed by the other person like the inbox
+    // rows (handle, else id). No sender on the row: the inbox.
+    const peer = row.actor?.username?.trim() || row.actor_id;
+    return peer ? `/my/messages/${encodeURIComponent(peer)}` : "/my/messages";
   }
   if (
     (row.type === "follow" || row.type === "follow_request_accepted") &&

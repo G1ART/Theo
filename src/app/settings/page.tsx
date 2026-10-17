@@ -11,6 +11,7 @@ import { checkUsernameExists, getMyProfile, getProfileById, type EducationEntry,
 import { listMyDelegations } from "@/lib/supabase/delegations";
 import { profileManageGrants } from "@/lib/studio/profileManageAccess";
 import { saveActingPublicProfile } from "@/lib/supabase/actingProfileWrite";
+import { replaceWithEntry } from "@/lib/nav/entryTrail";
 import { supabase } from "@/lib/supabase/client";
 import { requireSessionUid } from "@/lib/supabase/requireSessionUid";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
@@ -252,6 +253,12 @@ function TaxonomyChipSelect({
 export default function SettingsPage() {
   const router = useRouter();
   const { t, locale } = useT();
+  // A save ends the edit: back to the screen that opened settings (the
+  // profile at its scroll), else the edited account's public profile.
+  // Replace, so Back from there does not reopen this form.
+  const leaveSettingsAfterSave = (profileHref: string) => {
+    replaceWithEntry({ router, pathname: "/settings", fallback: profileHref });
+  };
   // Settings is operator-locked by product decision (account / security /
   // billing / personal). When acting-as is active we still want the user
   // to be able to manage their own settings without surprise — the
@@ -728,11 +735,11 @@ export default function SettingsPage() {
           const nextPath = window.sessionStorage.getItem("ab_username_fix_next_path");
           if (nextPath) {
             window.sessionStorage.removeItem("ab_username_fix_next_path");
-            router.push(nextPath);
+            router.replace(nextPath);
             return;
           }
         }
-        router.push(`/u/${profileUsername}`);
+        leaveSettingsAfterSave(`/u/${profileUsername}`);
       } else {
         setSaved(true);
       }
@@ -1165,11 +1172,11 @@ export default function SettingsPage() {
           const nextPath = window.sessionStorage.getItem("ab_username_fix_next_path");
           if (nextPath) {
             window.sessionStorage.removeItem("ab_username_fix_next_path");
-            router.push(nextPath);
+            router.replace(nextPath);
             return;
           }
         }
-        router.push(`/u/${profileUsername}`);
+        leaveSettingsAfterSave(`/u/${profileUsername}`);
       } else {
         setSaved(true);
       }

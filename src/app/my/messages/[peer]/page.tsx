@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
@@ -257,12 +257,10 @@ export default function MessageThreadPage() {
     return (
       <AuthGate>
         <main className="mx-auto max-w-2xl px-4 py-8">
-          <Link
-            href="/my/messages"
+          <EntryBackLink
+            fallback="/my/messages"
             className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-          >
-            ← {t("connection.thread.backToInbox")}
-          </Link>
+          />
           <p className="text-zinc-600">{peerError}</p>
         </main>
       </AuthGate>
@@ -272,12 +270,10 @@ export default function MessageThreadPage() {
   return (
     <AuthGate>
       <main className="mx-auto flex h-[calc(100vh-4rem)] max-w-2xl flex-col px-4 py-6">
-        <Link
-          href="/my/messages"
+        <EntryBackLink
+          fallback="/my/messages"
           className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-        >
-          ← {t("connection.thread.backToInbox")}
-        </Link>
+        />
 
         <header className="mb-4 flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3">
           {peerAvatarSrc ? (

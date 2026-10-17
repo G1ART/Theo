@@ -2,7 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
+import { formExitLinkProps, leaveFormTo } from "@/lib/nav/entryTrail";
 import { getSession } from "@/lib/supabase/auth";
 import {
   type ArtworkWithLikes,
@@ -84,9 +85,12 @@ type ArtistOption = {
 function EditArtworkContent() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname() ?? "";
   const { t, locale } = useT();
   const id = typeof params.id === "string" ? params.id : "";
   const { actingAsProfileId } = useActingAs();
+  const detailHref = `/artwork/${id}`;
+  const exitProps = formExitLinkProps({ back: () => router.back(), pathname, target: detailHref });
 
   const [artwork, setArtwork] = useState<ArtworkWithLikes | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -502,11 +506,12 @@ function EditArtworkContent() {
       }
     }
 
+    const leave = () => leaveFormTo({ router, pathname, target: detailHref });
     if (inviteKind) {
       setInviteToast(inviteKind);
-      setTimeout(() => router.push(`/artwork/${id}`), 2000);
+      setTimeout(leave, 2000);
     } else {
-      router.push(`/artwork/${id}`);
+      leave();
     }
   }
 
@@ -551,7 +556,8 @@ function EditArtworkContent() {
         </BodyPortal>
       )}
       <Link
-        href={`/artwork/${id}`}
+        href={detailHref}
+        {...exitProps}
         className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
       >
         ← {t("artwork.backToArtwork")}
@@ -1037,7 +1043,8 @@ function EditArtworkContent() {
         )}
         <div className="flex gap-3">
           <Link
-            href={`/artwork/${id}`}
+            href={detailHref}
+            {...exitProps}
             className="rounded border border-zinc-300 px-4 py-2 text-sm"
           >
             {t("common.cancel")}
