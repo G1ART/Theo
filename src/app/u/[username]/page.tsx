@@ -92,17 +92,18 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     }
   }
 
-  // Apply profile-specific ordering
   const artworkIds = artworks.map((a) => a.id);
-  const { data: profileOrderMap } = await getProfileArtworkOrders(p.id, artworkIds);
-  const orderedArtworks = applyProfileOrdering(artworks, profileOrderMap ?? new Map());
-
-  // Profile-specific manual exhibition order (used as the default sort
-  // when the owner has saved one; otherwise the toggle hides "Custom order").
   const exList = (exhibitions ?? []) as ExhibitionWithCredits[];
-  const exhibitionOrderResult = await getProfileExhibitionOrders(
-    p.id,
-    exList.map((e) => e.id)
+  const [profileOrderResult, exhibitionOrderResult] = await Promise.all([
+    getProfileArtworkOrders(p.id, artworkIds),
+    getProfileExhibitionOrders(
+      p.id,
+      exList.map((e) => e.id),
+    ),
+  ]);
+  const orderedArtworks = applyProfileOrdering(
+    artworks,
+    profileOrderResult.data ?? new Map(),
   );
   const exhibitionOrderEntries = Array.from(
     (exhibitionOrderResult.data ?? new Map<string, number>()).entries()

@@ -80,6 +80,7 @@ export function TheoBoardRail() {
     };
   }, []);
 
+  const loading = posts === null;
   const showReal = posts !== null && posts.length > 0;
 
   return (
@@ -95,9 +96,11 @@ export function TheoBoardRail() {
           {t("rail.theoBoard.more")} ›
         </Link>
       </div>
-      {showReal ? (
+      {loading ? (
+        <TheoBoardPlaceholderRows />
+      ) : showReal ? (
         <ul className="rounded-lg border border-zinc-200 bg-white">
-          {posts.map((post, idx) => (
+          {(posts ?? []).map((post, idx) => (
             <li
               key={post.id}
               className={idx > 0 ? "border-t border-zinc-100" : ""}
@@ -106,9 +109,7 @@ export function TheoBoardRail() {
             </li>
           ))}
         </ul>
-      ) : (
-        <TheoBoardPlaceholderRows />
-      )}
+      ) : null}
     </section>
   );
 }

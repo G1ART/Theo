@@ -1252,7 +1252,7 @@ export async function countDraftArtworksForProfile(
 
 type ByArtistOptions = { limit?: number | null };
 
-const PROFILE_ARTWORK_PAGE = 100;
+const PROFILE_ARTWORK_PAGE = 500;
 const PROFILE_ARTWORK_MAX = 5000;
 
 function visiblePublicArtworks(rows: unknown[] | null): ArtworkWithLikes[] {
@@ -1270,7 +1270,7 @@ export async function listPublicArtworksByArtistId(
   const build = () =>
     supabase
       .from("artworks")
-      .select(ARTWORK_SELECT)
+      .select(FEED_ARTWORK_SELECT)
       .eq("artist_id", artistId)
       .eq("visibility", "public")
       .order("artist_sort_order", { ascending: true, nullsFirst: false })
@@ -1335,7 +1335,7 @@ export async function listPublicArtworksListedByProfileId(
     for (let i = 0; i < workIds.length; i += CLAIM_ID_CHUNK) {
       const { data, error } = await supabase
         .from("artworks")
-        .select(ARTWORK_SELECT)
+        .select(FEED_ARTWORK_SELECT)
         .in("id", workIds.slice(i, i + CLAIM_ID_CHUNK))
         .eq("visibility", "public");
       if (error) return { data: [], error };
@@ -1350,7 +1350,7 @@ export async function listPublicArtworksListedByProfileId(
 
   const { data, error } = await supabase
     .from("artworks")
-    .select(ARTWORK_SELECT)
+    .select(FEED_ARTWORK_SELECT)
     .in("id", workIds)
     .eq("visibility", "public")
     .order("created_at", { ascending: false })

@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 위임 대리 중 공개 프로필 편집, 프로필 진입을 가볍게
+
+> **Supabase SQL:** `supabase/migrations/20261017140000_acting_public_profile_edit.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 여섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 7번은 운영 파트너 위임에 `edit_profile_public_content` 를 보태는 UPDATE다. **환경 변수 추가·변경 없음.**
+
+`e9638fb` 는 위임 작업 설정을 워크스페이스로만 읽어서, 계정 전환으로 대리 중인 공개 프로필까지 방문자 화면으로 막았다. 대리 모드가 아니면 그 방문자 화면은 그대로다.
+
+- 대리 모드이고 권한이 있으면 그 공개 프로필은 계정주 화면이다. 프로필 편집, 탭, 작품 업로드, 순서 변경, 가이드가 열린다. 팔로잉·메시지는 숨긴다.
+- 공개 프로필 편집(배경, 사진, 소개, 작가의 말)은 설정 화면이 대리 중인 프로필을 불러 `save_acting_public_profile` 에 저장한다. CV와 CV PDF도 같은 권한으로 그 계정에 저장한다. 로그인·비밀번호·계정 삭제는 본인 계정만이다.
+- 대표님(@g1art_founder) → 현혜명 위임은 `operations` / active / 만료 없음이었다. 권한은 view, edit_metadata, manage_works, manage_artworks, manage_exhibitions, manage_inquiries, manage_claims 뿐이고 `edit_profile_public_content` 가 없었다. 운영 파트너가 스튜디오 매니저용 전체 계정 권한인데 공개 프로필 편집만 빠져 있던 것이다. 활성 operations 행에 그 기존 권한을 보탰다. 조회 전용이나 작품 관리만 있는 위임은 그 범위만 열린다.
+- 작품 순서와 전시 순서는 `profile_artwork_orders` / `profile_exhibition_orders` 가 `auth.uid() = profile_id` 라 대리가 직접 쓰지 못했다. 대리 요청은 `save_profile_artwork_order`, `save_profile_exhibition_order` 로 저장한다. 스토리지 경로는 이미 활성 계정 위임이 본인 폴더에 올릴 수 있다.
+- 공개 프로필이 느린 쪽은 쿼리 계획이 아니라 옮기는 양과 왕복이다. 현혜명 공개 작품 255점의 id 조회는 6.0ms, 이미지까지 붙이면 실행 1.0ms지만 한 줄 폭이 이야기·보정 JSON을 포함해 2269바이트, 보정 JSON만 236장에 약 300KB다. 목록은 100점씩 세 번 오고, 작품 순서와 전시 순서는 그 다음에 차례로 기다렸다. 카드에 쓰는 열만 고르면 같은 조인 폭이 241바이트(실행 0.9ms)다. 이제 공개 프로필 목록은 그 가벼운 열을 한 번에 500점까지 가져오고, 두 순서 조회는 같이 보낸다.
+- 오른쪽 Theo Board 스켈레톤은 느린 로딩이 아니다. 게시글 1건이 `pending` 이고 `published_at` 이 비어 있어 레일이 계속 자리 표시를 그렸다. 불러온 뒤 글이 없으면 자리 표시를 내린다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/profile-tab-access.test.ts`. `npx tsx tests/profile-tab-kinds.test.ts`. `npx tsx tests/profile-tab-upload.test.ts`. `npx tsx tests/profile-sticky-chrome.test.ts`. `npx tsx tests/profile-scroll-restore.test.ts`. 위임 행 SELECT 로 `edit_profile_public_content` 가 들어 있는 것을 확인했다. 로그인된 브라우저로 현혜명 프로필을 눌러 보지는 못했다.
+
 ## 2026-10-17 — 위임 중 공개 프로필은 방문 화면, 탭 관리는 워크스페이스
 
 > **Supabase SQL:** `supabase/migrations/20261017000000_profile_tab_delegation_work_path.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 네 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
