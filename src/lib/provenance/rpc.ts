@@ -233,6 +233,13 @@ export async function revokeMyClaim(claimId: string): Promise<{ error: unknown }
   return { error: null };
 }
 
+type PendingClaimProfile = {
+  username: string | null;
+  display_name: string | null;
+  display_name_ko?: string | null;
+  display_name_en?: string | null;
+};
+
 export type PendingClaimRow = {
   id: string;
   claim_type: string;
@@ -242,8 +249,11 @@ export type PendingClaimRow = {
   period_status: "past" | "current" | "future" | null;
   start_date: string | null;
   end_date: string | null;
-  profiles: { username: string | null; display_name: string | null } | null;
+  profiles: PendingClaimProfile | null;
 };
+
+const PENDING_CLAIM_SELECT =
+  "id, claim_type, subject_profile_id, work_id, created_at, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en)";
 
 /** List all pending claims on my works (for /my/claims). Optional profileId for acting-as account delegate. */
 export async function listMyPendingClaims(profileId?: string): Promise<{ data: PendingClaimRow[]; error: unknown }> {
@@ -260,9 +270,7 @@ export async function listMyPendingClaims(profileId?: string): Promise<{ data: P
   if (workIds.length === 0) return { data: [], error: null };
   const { data, error } = await supabase
     .from("claims")
-    .select(
-      "id, claim_type, subject_profile_id, work_id, created_at, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name)"
-    )
+    .select(PENDING_CLAIM_SELECT)
     .in("work_id", workIds)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
@@ -272,9 +280,9 @@ export async function listMyPendingClaims(profileId?: string): Promise<{ data: P
     const profiles = r.profiles;
     const profileObj =
       Array.isArray(profiles) && profiles.length > 0
-        ? (profiles[0] as { username: string | null; display_name: string | null })
+        ? (profiles[0] as PendingClaimProfile)
         : profiles && typeof profiles === "object" && !Array.isArray(profiles)
-          ? (profiles as { username: string | null; display_name: string | null })
+          ? (profiles as PendingClaimProfile)
           : null;
     return {
       id: r.id,
@@ -297,9 +305,7 @@ export async function listPendingClaimsForWork(
 ): Promise<{ data: PendingClaimRow[]; error: unknown }> {
   const { data, error } = await supabase
     .from("claims")
-    .select(
-      "id, claim_type, subject_profile_id, work_id, created_at, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name)"
-    )
+    .select(PENDING_CLAIM_SELECT)
     .eq("work_id", workId)
     .eq("status", "pending");
   if (error) return { data: [], error };
@@ -308,9 +314,9 @@ export async function listPendingClaimsForWork(
     const profiles = r.profiles;
     const profileObj =
       Array.isArray(profiles) && profiles.length > 0
-        ? (profiles[0] as { username: string | null; display_name: string | null })
+        ? (profiles[0] as PendingClaimProfile)
         : profiles && typeof profiles === "object" && !Array.isArray(profiles)
-          ? (profiles as { username: string | null; display_name: string | null })
+          ? (profiles as PendingClaimProfile)
           : null;
     return {
       id: r.id,

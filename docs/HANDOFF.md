@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 전시 기획 이름이 둘로 보인 이유, 영어 화면 이름 칸 보강
+
+> **Supabase SQL:** `supabase/migrations/20261017224000_search_artists_by_artwork_name_slots.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수 하나라 섹션 나눔은 없다. **환경 변수 추가·변경 없음.** 데이터는 바꾸지 않았다.
+
+대표님 질문: 피드 전시 탭에서 'Three by Three'는 "기획 Hyunmin Kim", '빛의 순간을 기억하는 정원'은 "기획 김현민"으로 나온다.
+
+- 두 전시의 기획은 서로 다른 계정이다. 'Three by Three'(`46eb432b…`)의 `projects.curator_id` 는 @henrykimceo(이름 "Hyunmin Kim", 한글 이름 칸 비어 있음)다. 2026-09-17 주최 @g1artkorea 가 만들면서 고른 값이다. '빛의 순간을 기억하는 정원'(`888449ec…`)은 @g1art_founder(김현민 / Henry Kim)다. @thegreen_oc 가 @siennamko 를 기획으로 만들었고, 나중에 @g1art_founder 로 바뀌었다(마지막 수정 2026-09-19).
+- 이름을 고르는 코드는 화면마다 같다. 피드 전시 카드, 전시 상세, 프로필 전시 탭, 작품 상세의 전시 목록은 `getExhibitionHostCuratorLabel` / `ExhibitionHostCuratorCredits` 다. 작품 카드의 클레임 줄과 사람 검색·추천은 `formatDisplayName` / `formatIdentityPair` 다. 모두 지금 로케일로 `pickLocalizedDisplayName`(한국어 화면은 한글 → 영문 → 옛 `display_name`)을 쓴다. 전시는 이름을 복사해 두지 않고 프로필을 조인한다.
+- 영어 화면에서만 어긋나던 두 곳을 고쳤다. 사람 검색에서 작품으로만 걸린 사람(`search_artists_by_artwork`)과 대기 중 클레임 요청자(작품 상세, `/my/claims` — `listPendingClaimsForWork`, `listMyPendingClaims`)는 옛 `display_name`(한글 우선)만 받아 영어 화면에서 한글 이름이 나왔다. 이제 한/영 이름을 함께 받는다. 검색에서 해당하는 작가 계정은 6개(현혜명 등)다. 검색 매칭·순서·권한은 그대로다.
+- `20261007160000_search_artist_name_and_typo.sql` 은 적용되지 않은 상태다. 섹션 5는 같은 이름 키에 더 넓은 매칭을 더한 정의라, 나중에 적용하면 이번 정의를 덮는다. 섹션 7(`search_works_for_dedup`, 작품 행 전체 반환)은 오늘 `20261017221000` 섹션 8이 제목만 돌려주게 바꾼 함수와 반환형이 달라, 파일을 통째로 돌리면 거기서 멈춘다. 섹션 7은 돌리지 않는다.
+- 데이터는 대표님 결정을 기다린다. 'Three by Three' 기획을 @g1art_founder 로 옮길지, @henrykimceo·@henry_thegreen 이 대표님 계정인지다. @thegreen_oc 가 기획한 전시 8개는 주최가 계정에 연결되지 않은 글자("The Green Gallery" 등)라, 카드에 "전시 The Green Gallery · 기획 The GREEN"처럼 같은 갤러리가 두 이름으로 나온다.
+- 같은 종류로 남은 것: 가격 문의함의 문의자 이름(`priceInquiries.ts`)도 옛 `display_name` 만 가져온다. 가격 작업 영역이라 이번에는 두었다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/credit-name-parity.test.ts`(신규: 같은 계정이면 전시 크레딧·클레임 줄·사람 카드가 한/영 화면마다 같은 이름, 스크린샷 두 카드 문구, 이름을 그리는 12개 화면의 로케일 전달, 클레임 조인과 사람 RPC 최신 정의의 한/영 키). `locale-field-pick`, `search-match`, `feed-living-salon`, `external-artist-name-everywhere`, `claim-revoke-does-not-delete-artwork`, `exhibition-back-context`, `people-reason`. `external-artist-dedupe-phase1`, `external-artist-link-phase2` 는 이 작업 전부터 실패한다(HEAD 의 `rpc.ts` 와 마이그레이션에 찾는 문자열이 없다). 적용 뒤 SELECT: 검색어 6개의 결과 id 지문이 적용 전과 같고, 모든 행에 `display_name_ko` / `display_name_en` 키가 있고, 권한은 그대로다. 로그인한 영어 화면으로 눌러 보지는 못했다.
+
 ## 2026-10-17 — 로그인 next 보존, 피드 "전체" 탭과 로고
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
