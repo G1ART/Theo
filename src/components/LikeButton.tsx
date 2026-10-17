@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { BodyPortal } from "@/components/ui/BodyPortal";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
+import { principalPublicProfileHref } from "@/lib/delegation/principalProfileHref";
 import { logFeedEvent, type FeedSort, type FeedTab } from "@/lib/feed/telemetry";
+import { useT } from "@/lib/i18n/useT";
+import { claimFirstLikeToast } from "@/lib/likes/firstLikeToast";
+import { likesTabHref } from "@/lib/likes/likedWorksView";
 import { like, unlike } from "@/lib/supabase/likes";
+import { getMyProfile } from "@/lib/supabase/profiles";
+import { layer } from "@/lib/ui/layers";
 
 /**
  * Surface attribution for telemetry. When set to `feed`, a successful like
@@ -42,9 +49,17 @@ export function LikeButton({
   surface,
   feedContext,
 }: Props) {
+  const { t } = useT();
   const [liked, setLiked] = useState(initialLiked);
   const [count, setCount] = useState(initialCount);
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState<{ href: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const handleClick = useCallback(
     async (e: React.MouseEvent) => {
@@ -66,6 +81,15 @@ export function LikeButton({
         return;
       }
       if (nextLiked) {
+        if (claimFirstLikeToast()) {
+          setToast({ href: null });
+          void getMyProfile().then(({ data }) => {
+            const profileHref = principalPublicProfileHref(
+              (data as { username?: string | null } | null)?.username ?? null,
+            );
+            setToast((current) => (current ? { href: profileHref ? likesTabHref(profileHref) : null } : current));
+          });
+        }
         logBetaEventSync("artwork_liked", {
           artwork_id: artworkId,
           surface: surface ?? "other",
@@ -103,16 +127,36 @@ export function LikeButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={loading}
-      className={`inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-900 disabled:opacity-70 ${
-        size === "sm" ? "text-sm" : "text-base"
-      }`}
-    >
-      <span aria-hidden>{liked ? "❤️" : "♡"}</span>
-      <span>{count > 0 ? count : ""}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={loading}
+        className={`inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-900 disabled:opacity-70 ${
+          size === "sm" ? "text-sm" : "text-base"
+        }`}
+      >
+        <span aria-hidden>{liked ? "❤️" : "♡"}</span>
+        <span>{count > 0 ? count : ""}</span>
+      </button>
+      {toast ? (
+        <BodyPortal>
+          {/* Portal events still bubble through React to the card; keep them here. */}
+          <div
+            role="status"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            className={`fixed bottom-6 left-1/2 ${layer.toast} flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg`}
+          >
+            <span>{t("likes.toast")}</span>
+            {toast.href ? (
+              <Link href={toast.href} onClick={() => setToast(null)} className="underline underline-offset-2">
+                {t("likes.toastView")}
+              </Link>
+            ) : null}
+          </div>
+        </BodyPortal>
+      ) : null}
+    </>
   );
 }

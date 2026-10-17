@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 내 프로필의 '좋아요' 탭 (1단계, 알림 제외)
+
+> **Supabase SQL:** `supabase/migrations/20261017223000_liked_works.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수가 다섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017223500_artwork_likes_private.sql`(좋아요 행은 본인만 읽기)은 이 커밋이 프로덕션에 배포된 것을 확인한 뒤 적용한다.** **환경 변수 추가·변경 없음.**
+
+- 내 공개 프로필 고정 막대의 탭 줄 오른쪽에 '좋아요 N · 나만 보기' 칩. 로그인한 본인 프로필에서만 보이고, 방문자와 위임 대리 중인 관리 대상 프로필에는 없다. 공개 탭 관리(`ProfileTabManager`, 탭 종류)에는 넣지 않았다. 딥링크는 `?tab=likes`.
+- 목록: `list_my_liked_artworks()` 가 좋아요 시각·진행 중/예정 전시·좋아요 이후 바뀐 점·내 문의/보드 여부·작가의 볼 수 있는 소장 가능 작품 수를 주고, 카드는 `artwork_cards`(가격·소장 판정 그대로)에서 받는다. 요약 칩(전체·소장 가능·전시 중·예정·바뀐 작품), 검색(기존 파서, 판정값만), 작가·상태·가격대·크기·종류 필터, 8가지 정렬. 판매 완료·개인 소장·판매하지 않음은 어느 정렬이든 맨 뒤이고 '이 작가의 다른 작품'을 붙인다.
+- 가려진 가격은 가격대·가격 정렬·소장 가능 개수에 들어가지 않는다(가격 정렬에서는 좋아요 순으로 뒤). 크기 단위가 없는 작품은 '크기 정보 없음'.
+- 바뀐 점: `artwork_state_events`(소장 상태·가격 공개 상태의 이름만, 금액 없음, 트리거 기록)와 전시 연결 시각으로 계산한다. 판매 완료는 누구에게나, 가격 공개·다시 소장 가능·판매하지 않음은 지금 그 값을 볼 수 있는 사람에게만 한 줄로 보인다. 기록은 오늘부터 쌓인다.
+- 버튼은 카드마다 하나: 가격 문의/문의하기(`/artwork/[id]?ask=1&from=likes` → 상세 문의 폼이 열리고 `source_payload.entry = "likes"`), 문의 이어 보기/답장 보기, 이 작가의 다른 작품. '⋯'에 내 공간에 걸어 보기(`?see_in_space=1`)와 보드에 담기. ♥ 해제는 6초 뒤 반영되고 되돌리기가 있다. 볼 수 없게 된 작품은 맨 아래 '정리하기'.
+- 처음 두 번 좋아요할 때 "좋아요한 작품에 모았어요 · 보기" 토스트(좋아요 탭으로).
+- 상세 뒤로 라벨은 '좋아요한 작품'. 프로필 스크롤 복원 키에 `?tab=likes` 가 들어가고, 목록은 세션 동안 기억해 돌아오자마자 그린다.
+- 좋아요 잠금 준비: 피드 '작가가 좋아한 작품'은 `get_like_edges_for_works`(공개 작가·큐레이터의 좋아요만)로 읽는다. 카드 조회의 `artwork_likes(count)` 임베드는 빼고 `likes_count` 열만 쓴다. 상세 하트 수는 상세 RPC 집계를 쓴다(전에는 늘 0에서 시작했다).
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/liked-works-view.test.ts`(신규). `npx tsx tests/liked-works-sql-contract.test.ts`(신규). `artwork-viewer-fields`, `artwork-search-query`, `profile-sticky-chrome`, `profile-scroll-restore`, `profile-tab-access`, `profile-tab-kinds`, `profile-tab-upload`, `list-scroll-restore`, `feed-walk-assemble`, `artwork-delete-navigation`, `exhibition-back-context`, `visibility-copy`, `inquiry-source`. 좋아요 66점 사용자로 `list_my_liked_artworks` 0.3초. 되돌리는 트랜잭션 안에서 판매 완료·가격 공개를 만들어 맞팔로우 사용자는 둘 다, 아닌 사용자는 판매 완료만 받는 것을 확인했다. 로그인된 브라우저 화면은 보지 못했다.
+
 ## 2026-10-17 — 업로드를 마친 뒤 뒤로가기는 업로드를 시작한 화면
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**

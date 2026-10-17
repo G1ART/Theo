@@ -62,7 +62,9 @@ import {
   sortExhibitions,
   type ExhibitionSortMode,
 } from "@/lib/exhibitions/sort";
-import { getLikedArtworkIds } from "@/lib/supabase/likes";
+import { countMyLikes, getLikedArtworkIds } from "@/lib/supabase/likes";
+import { LIKES_TAB_PARAM } from "@/lib/likes/likedWorksView";
+import { LikedWorksPanel } from "@/components/likes/LikedWorksPanel";
 import { ProfileActions } from "./ProfileActions";
 import { ProfileViewTracker } from "./ProfileViewTracker";
 import { ArtworkCard } from "./ArtworkCard";
@@ -105,6 +107,9 @@ import {
   uploadHrefForActiveTab,
 } from "@/lib/studio/studioPortfolioConfig";
 
+// Strip state while the likes tab is open: no public tab is highlighted.
+const NO_STRIP_TAB: ActiveStudioTab = { kind: "custom", id: "" };
+
 type Props = {
   profile: ProfilePublic;
   artworks: ArtworkWithLikes[];
@@ -135,7 +140,7 @@ export function UserProfileContent({
   initialTabParam = null,
 }: Props) {
   const { t, locale } = useT();
-  const { actingAsProfileId } = useActingAs();
+  const { actingAsProfileId, actingAsLabel } = useActingAs();
   const downloadPreset = useDownloadPreset();
   const sizePref = useSizeUnitPref();
   const router = useRouter();
@@ -181,6 +186,10 @@ export function UserProfileContent({
   const [active, setActive] = useState<ActiveStudioTab>(
     () => parseActiveTabParam(initialTabParam) ?? { kind: "persona", tab: "all" }
   );
+  // The likes tab is the login's own list: only on their own profile,
+  // never on a profile they manage, and outside the public tab system.
+  const [likesOpen, setLikesOpen] = useState(() => initialTabParam === LIKES_TAB_PARAM);
+  const [likesCount, setLikesCount] = useState<number | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   const worksAnchorRef = useRef<HTMLDivElement>(null);
   const [headerOffset, setHeaderOffset] = useState(0);
@@ -577,6 +586,48 @@ export function UserProfileContent({
     [pathname, scrollTabListToTop]
   );
 
+  const showLikesTab = isOwner && viewerId != null && viewerId === profile.id;
+  const showLikes = showLikesTab && likesOpen;
+
+  useEffect(() => {
+    if (initialTabParam === LIKES_TAB_PARAM) setLikesOpen(true);
+  }, [initialTabParam]);
+
+  useEffect(() => {
+    if (!showLikesTab) return;
+    let cancelled = false;
+    void countMyLikes().then((n) => {
+      if (!cancelled && n != null) setLikesCount(n);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showLikesTab]);
+
+  const openLikes = useCallback(() => {
+    setLikesOpen(true);
+    setReorderMode(false);
+    setTabAssignMode(false);
+    setTabAssignIds(new Set());
+    setDownloadMode(null);
+    setDownloadIds([]);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", LIKES_TAB_PARAM);
+    window.history.replaceState(window.history.state, "", `${pathname}?${params.toString()}`);
+    scrollTabListToTop();
+    window.setTimeout(scrollTabListToTop, 50);
+    window.setTimeout(scrollTabListToTop, 180);
+  }, [pathname, scrollTabListToTop]);
+
+  const handleStripTab = useCallback(
+    (next: ActiveStudioTab) => {
+      setLikesOpen(false);
+      handleProfileTab(next);
+    },
+    [handleProfileTab],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.sessionStorage.getItem(PROFILE_UPDATED_KEY) === "true") {
@@ -857,13 +908,14 @@ export function UserProfileContent({
   }, [profile.id, t]);
 
   const worksHeading = useMemo(() => {
+    if (showLikes) return t("likes.title");
     if (isExhibitionsView) return t("exhibition.myExhibitions");
     if (active.kind === "custom") {
       const row = stripPublic.find((r) => r.kind === "custom" && r.customId === active.id);
       return row?.label ?? t("profile.works");
     }
     return t("profile.works");
-  }, [active, isExhibitionsView, stripPublic, t]);
+  }, [active, isExhibitionsView, showLikes, stripPublic, t]);
 
   return (
     <>
@@ -972,15 +1024,19 @@ export function UserProfileContent({
             </Link>
           )}
         </div>
-        {roleTab === "artist" && (stripPublic.length > 0 || canManageTabs) && (
-          <div data-profile-freeze="tabs" className="mt-3 [&>*]:mb-0 [&>*]:border-b-0 [&>*]:pb-0">
+        {((roleTab === "artist" && (stripPublic.length > 0 || canManageTabs)) || showLikesTab) && (
+          <div
+            data-profile-freeze="tabs"
+            className="mt-3 flex items-start gap-2 [&>*]:mb-0 [&>*]:border-b-0 [&>*]:pb-0 [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1"
+          >
+            {roleTab === "artist" && (stripPublic.length > 0 || canManageTabs) ? (
             <ProfileTabManager
               canManage={canManageTabs}
               actingProfileId={isOwner ? null : actingAsProfileId}
               stripPublic={stripPublic}
               stripRows={stripRows}
-              active={active}
-              onActiveChange={handleProfileTab}
+              active={showLikes ? NO_STRIP_TAB : active}
+              onActiveChange={handleStripTab}
               portfolio={portfolio}
               defaultTabLabels={defaultTabLabels}
               profileId={profile.id}
@@ -995,6 +1051,31 @@ export function UserProfileContent({
                 setSavedToast(true);
               }}
             />
+            ) : (
+              <div />
+            )}
+            {showLikesTab ? (
+              <button
+                type="button"
+                onClick={openLikes}
+                aria-pressed={showLikes}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium tracking-tight transition-colors ${
+                  showLikes ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                <span>{t("likes.tab")}</span>
+                {likesCount != null ? <span className="tabular-nums">{likesCount}</span> : null}
+                <span
+                  className={`inline-flex items-center gap-0.5 text-[11px] font-normal ${showLikes ? "text-zinc-300" : "text-zinc-400"}`}
+                >
+                  <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.3">
+                    <rect x="2.5" y="5.5" width="7" height="5" rx="1" />
+                    <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" />
+                  </svg>
+                  {t("likes.onlyMe")}
+                </span>
+              </button>
+            ) : null}
           </div>
         )}
         </div>
@@ -1082,7 +1163,7 @@ export function UserProfileContent({
           <div className="mb-6 flex items-center gap-6 border-b border-zinc-200 text-sm">
             <button
               type="button"
-              onClick={() => setRoleTab("artist")}
+              onClick={() => { setLikesOpen(false); setRoleTab("artist"); }}
               aria-pressed={roleTab === "artist"}
               className={`-mb-px border-b-2 pb-2 transition-colors ${
                 roleTab === "artist"
@@ -1099,7 +1180,7 @@ export function UserProfileContent({
             </button>
             <button
               type="button"
-              onClick={() => setRoleTab("collector")}
+              onClick={() => { setLikesOpen(false); setRoleTab("collector"); }}
               aria-pressed={roleTab === "collector"}
               className={`-mb-px border-b-2 pb-2 transition-colors ${
                 roleTab === "collector"
@@ -1194,6 +1275,7 @@ export function UserProfileContent({
 
       <div ref={worksAnchorRef} data-profile-list-top="" className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-zinc-900">{worksHeading}</h2>
+        {!showLikes && (<>
         {!isExhibitionsView &&
           !reorderMode &&
           downloadMode !== "order" &&
@@ -1398,14 +1480,21 @@ export function UserProfileContent({
             </button>
           </div>
         )}
+        </>)}
       </div>
-      {!isExhibitionsView && reorderMode && canReorderWorks && (
+      {!showLikes && !isExhibitionsView && reorderMode && canReorderWorks && (
         <p className="mb-4 text-sm text-zinc-500">{t("profile.reorderHint")}</p>
       )}
-      {isExhibitionsView && exhibitionReorderMode && canManageShows && (
+      {!showLikes && isExhibitionsView && exhibitionReorderMode && canManageShows && (
         <p className="mb-4 text-sm text-zinc-500">{t("exhibition.reorder.hint")}</p>
       )}
-      {isExhibitionsView ? (
+      {showLikes && viewerId ? (
+        <LikedWorksPanel
+          viewerId={viewerId}
+          actingLabel={actingAsProfileId && actingAsProfileId !== viewerId ? actingAsLabel ?? null : null}
+          onCountChange={setLikesCount}
+        />
+      ) : isExhibitionsView ? (
         exhibitions.length === 0 ? (
           canManageShows ? (
             <Link

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useParams } from "next/navigation";
 import { artworkDeleteNavigation, getArtworkBack, readHistoryIdx } from "@/lib/artworkBack";
 import { armFeedRestore } from "@/lib/feed/scrollRestore";
-import { getArtworkArtistLabel, getArtworkPriceDisplay, isExternalArtistArtwork } from "@/lib/supabase/artworks";
+import { extractLikesCount, getArtworkArtistLabel, getArtworkPriceDisplay, isExternalArtistArtwork } from "@/lib/supabase/artworks";
 import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
 import { compareArtworkImageOrder } from "@/lib/artworks/primaryImage";
 import { ArtworkArtistName } from "@/components/artwork/ArtworkArtistName";
@@ -109,6 +109,11 @@ function ArtworkDetailContent() {
   const sizePref = useSizeUnitPref();
   const id = typeof params.id === "string" ? params.id : "";
   const fromRoom = searchParams.get("fromRoom");
+  // `?ask=1` (e.g. from the likes tab) opens the inquiry form once.
+  const askOnOpen = searchParams.get("ask") === "1";
+  const fromLikes = searchParams.get("from") === "likes";
+  const askOpenedRef = useRef(false);
+  const inquiryCheckedRef = useRef(false);
   const { actingAsProfileId } = useActingAs();
   const [artwork, setArtwork] = useState<ArtworkWithLikes | null>(null);
   const [loading, setLoading] = useState(true);
@@ -469,10 +474,22 @@ function ArtworkDetailContent() {
     // out of the audience) refreshes the form state to match.
     setPriceInquiryLoading(true);
     getMyInquiryForArtwork(id).then(({ data }) => {
+      inquiryCheckedRef.current = true;
       setMyPriceInquiry(data ?? null);
       setPriceInquiryLoading(false);
     });
   }, [id, showPriceInquiryBlock]);
+
+  useEffect(() => {
+    if (!askOnOpen || askOpenedRef.current) return;
+    if (!showPriceInquiryBlock || priceInquiryLoading || !inquiryCheckedRef.current) return;
+    askOpenedRef.current = true;
+    const openForm = !myPriceInquiry;
+    window.requestAnimationFrame(() => {
+      if (openForm) setShowInquiryForm(true);
+      document.getElementById("price-inquiry")?.scrollIntoView({ block: "center" });
+    });
+  }, [askOnOpen, showPriceInquiryBlock, priceInquiryLoading, myPriceInquiry]);
 
   useEffect(() => {
     if (!id || !userId || !artwork) return;
@@ -551,6 +568,7 @@ function ArtworkDetailContent() {
     return {
       surface: "artwork",
       artworkId: id,
+      ...(fromLikes ? { payload: { entry: "likes" } } : {}),
     };
   }
 
@@ -1071,7 +1089,7 @@ function ArtworkDetailContent() {
               );
             })()}
             {showPriceInquiryBlock && (
-              <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
+              <div id="price-inquiry" className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
                 {priceInquiryLoading ? (
                   <p className="text-sm text-zinc-500">{t("common.loading")}</p>
                 ) : myPriceInquiry ? (
@@ -1293,7 +1311,10 @@ function ArtworkDetailContent() {
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <LikeButton
                 artworkId={artwork.id}
-                likesCount={Number(artwork.likes_count) || 0}
+                likesCount={
+                  Number(artwork.likes_count) ||
+                  extractLikesCount(artwork as unknown as Record<string, unknown>)
+                }
                 isLiked={liked}
                 onUpdate={(newLiked, newCount) => {
                   setLiked(newLiked);

@@ -601,7 +601,6 @@ const ARTWORK_SELECT = `
   likes_count,
   artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
   profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles, is_public),
-  artwork_likes(count),
   claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
 `;
 
@@ -651,7 +650,6 @@ const FEED_ARTWORK_SELECT = `
   likes_count,
   artwork_images(storage_path, sort_order, view_type, display_adjust),
   profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public),
-  artwork_likes(count),
   claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
 `;
 
@@ -781,6 +779,32 @@ export async function fetchPublicArtworkCardsByIds(ids: string[]): Promise<Artwo
     const art = byId.get(id);
     return art ? [art] : [];
   });
+}
+
+/** Public cards for many ids, keyed by id (80 per request). Drafts and hidden profiles stay out. */
+export async function fetchPublicArtworkCardMap(ids: string[]): Promise<Map<string, ArtworkWithLikes>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += 80) chunks.push(unique.slice(i, i + 80));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      supabase
+        .from(ARTWORK_CARDS_VIEW)
+        .select(FEED_ARTWORK_SELECT)
+        .in("id", chunk)
+        .eq("visibility", "public"),
+    ),
+  );
+  const out = new Map<string, ArtworkWithLikes>();
+  for (const { data, error } of pages) {
+    if (error || !data) continue;
+    for (const row of data) {
+      const art = normalizeArtworkRow(row as Record<string, unknown>);
+      if (art.visibility !== "public" || !isPublicSurfaceVisible(art)) continue;
+      out.set(art.id, art);
+    }
+  }
+  return out;
 }
 
 /**
@@ -1703,7 +1727,6 @@ export async function getArtworkById(
       provenance_visible,
       artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
-      artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
     `
     )
@@ -1752,7 +1775,6 @@ export async function getArtworksByIds(
       provenance_visible,
       artwork_images(storage_path, sort_order, view_type, display_adjust, enhancement_meta, original_storage_path),
       profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, bio, bio_ko, bio_en, main_role, roles),
-      artwork_likes(count),
       claims(id, claim_type, subject_profile_id, artist_profile_id, external_artist_id, created_at, status, period_status, start_date, end_date, profiles!subject_profile_id(username, display_name, display_name_ko, display_name_en), external_artists(display_name, display_name_ko, display_name_en), artist_profile:profiles!artist_profile_id(id, username, display_name, display_name_ko, display_name_en, main_role, roles))
     `
     )

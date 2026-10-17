@@ -43,6 +43,20 @@ export async function unlike(artworkId: string) {
     .eq("user_id", session.user.id);
 }
 
+/** How many works the signed-in user has liked (own rows only). */
+export async function countMyLikes(): Promise<number | null> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user?.id) return null;
+  const { count, error } = await supabase
+    .from("artwork_likes")
+    .select("artwork_id", { count: "exact", head: true })
+    .eq("user_id", session.user.id);
+  if (error) return null;
+  return count ?? 0;
+}
+
 export async function getLikedArtworkIds(
   artworkIds: string[]
 ): Promise<Set<string>> {

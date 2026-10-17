@@ -6,6 +6,7 @@
 // preserving the feed tab, exhibition id, scroll target, etc.
 
 import { rememberListScrollFromWindow } from "@/lib/list/scrollRestore";
+import { isLikesTabPath } from "@/lib/likes/likedWorksView";
 import { setExhibitionBack } from "./exhibitionBack";
 
 const KEY = "ab_artwork_back";
@@ -57,6 +58,7 @@ function labelKeyForArtworkBack(path: string): string {
   if (path.startsWith("/my/shortlists")) return "nav.saved";
   if (path.startsWith("/people")) return "nav.people";
   if (path.startsWith("/upload")) return "nav.upload";
+  if (isLikesTabPath(path)) return "likes.backLabel";
   if (path.startsWith("/u/")) return "nav.profile";
   if (path.startsWith("/notifications")) return "nav.notifications";
   if (path.startsWith("/my/inquiries")) return "nav.messages";

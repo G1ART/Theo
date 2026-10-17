@@ -1045,11 +1045,11 @@ async function likesForWorks(
   artworkIds: string[]
 ): Promise<{ user_id: string; artwork_id: string }[]> {
   if (artworkIds.length === 0) return [];
-  const { data } = await supabase
-    .from("artwork_likes")
-    .select("user_id, artwork_id")
-    .in("artwork_id", artworkIds.slice(0, 36))
-    .limit(80);
+  // Other people's likes are not readable from the table; this RPC returns
+  // only public artist / curator likers on public works.
+  const { data } = await supabase.rpc("get_like_edges_for_works", {
+    p_artwork_ids: artworkIds.slice(0, 36),
+  });
   return ((data as { user_id: string | null; artwork_id: string | null }[] | null) ?? []).flatMap((row) =>
     row.user_id && row.artwork_id ? [{ user_id: row.user_id, artwork_id: row.artwork_id }] : []
   );
