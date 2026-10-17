@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 공개 프로필: 로그인한 사람에게 가격 안내 한 줄이 잠깐 보이던 깜빡임
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+- 원인: 공개 프로필 목록은 서버가 세션 없이(세션은 브라우저 localStorage 에만 있다) 방문자 기준으로 그리고, 로그인한 사람은 `artwork_viewer_fields_for` 한 번으로 자기 기준 값을 덮는다. 그 사이 맞팔로우에게도 "가격과 소장 여부는 맞팔로우에게 공개"가 보였다가 가격으로 바뀌었다.
+- 루트 레이아웃의 첫 페인트 전 스크립트(`VIEWER_PENDING_BOOT_SCRIPT`)가 저장된 supabase 세션(`sb-…-auth-token`)이 있을 때만 숨김 규칙 하나를 넣는다. 프로필은 세션 확인과 자기 기준 값이 올 때까지 `data-trade-pending` 이고, 그동안 카드의 가격·상태 줄(`data-card-trade`)은 자리만 지키고 비어 있다(높이 그대로라 밀림 없음).
+- 비로그인 방문자는 스크립트가 아무것도 넣지 않아 지금처럼 서버가 그린 안내 줄이 바로 보인다. 요청 수, 목록 한 번 왕복, 500점 페이지는 그대로다. 저장된 세션이 만료돼 실제로는 방문자이면 세션 확인 뒤 바로 안내 줄이 보인다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-viewer-fields.test.ts`(첫 페인트 스크립트가 세션 키가 있을 때만 숨김 규칙을 넣음, 레이아웃·카드·프로필 연결). `profile-scroll-restore`, `profile-sticky-chrome`, `artwork-size-capsule`, `list-scroll-restore`, `profile-tab-access`, `liked-works-view`, `credit-name-parity`. 바꾼 파일 eslint 오류 0(경고는 HEAD 와 같은 기존 줄). 로컬 dev(3210)에서 `/u/joanne_lee`: 서버 HTML 에 스크립트·대기 표시·카드 23개 표시가 있고, 비로그인은 안내 줄이 그대로 보인다. 세션 키를 흉내 내면 숨김 규칙이 들어가 대기 중 `hidden`, 대기가 풀리면 `visible`. 진짜 로그인(맞팔로우) 상태로 깜빡임이 없어졌는지는 보지 못했다.
+
 ## 2026-10-17 — 검색 한 글자 오타(pg_trgm)를 지금 함수 위에 얹고, 10/07 파일은 잠근다
 
 > **Supabase SQL:** `supabase/migrations/20261017230024_search_name_and_typo_live.sql`, `supabase/migrations/20261017230340_search_typo_numbers_dedup_order.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 여러 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. `20261007160000_search_artist_name_and_typo.sql` 은 **적용하지 않는다**(모든 줄을 주석으로 바꿨다). **환경 변수 추가·변경 없음.**

@@ -76,6 +76,22 @@ export function applyViewerFields<T extends Record<string, unknown>>(row: T): T 
   return { ...rest, ...readViewerFields(vf) } as unknown as T;
 }
 
+/**
+ * Server-rendered lists (public profile) are judged for a visitor because
+ * the session lives only in localStorage. The list carries
+ * TRADE_PENDING_ATTR until the signed-in viewer's own values arrive, and
+ * cards mark their price/availability lines with CARD_TRADE_ATTR.
+ */
+export const TRADE_PENDING_ATTR = "data-trade-pending";
+export const CARD_TRADE_ATTR = "data-card-trade";
+
+/**
+ * Runs before first paint (root layout). With a stored supabase-js session
+ * (`sb-<ref>-auth-token`), visitor-judged lines inside a pending list stay
+ * blank instead of flashing the gate line; visitors see them at once.
+ */
+export const VIEWER_PENDING_BOOT_SCRIPT = `try{var s=window.localStorage;for(var i=0;i<s.length;i++){var k=s.key(i);if(k&&k.indexOf("sb-")===0&&k.slice(-11)==="-auth-token"){var el=document.createElement("style");el.id="viewer-pending-style";el.textContent="[${TRADE_PENDING_ATTR}] [${CARD_TRADE_ATTR}]{visibility:hidden}";document.head.appendChild(el);break;}}}catch(err){}`;
+
 /** Replace judged fields on rows that already exist (e.g. server-rendered lists refreshed for the signed-in viewer). */
 export function mergeViewerFields<T extends { id: string }>(
   rows: T[],

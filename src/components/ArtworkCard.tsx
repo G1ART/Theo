@@ -158,7 +158,7 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
             const trade = cardTradeView(artwork);
             const label = trade.showStatus ? ownershipStatusLabel(artwork.ownership_status, t) : null;
             return (
-              <>
+              <div data-card-trade="">
                 {label ? (
                   <p className="mt-1 text-sm font-medium text-zinc-700">{label}</p>
                 ) : null}
@@ -176,7 +176,7 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
                     })}
                   </p>
                 ) : null}
-              </>
+              </div>
             );
           })()}
           {(artistLabel || (listerLabel && byPhrase)) && (

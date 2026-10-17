@@ -17,6 +17,7 @@ import { ListScrollRestorer } from "@/components/list/ListScrollRestorer";
 import { EntryTrailTracker } from "@/components/nav/EntryTrailTracker";
 import { FEED_RELOAD_BOOT_SCRIPT } from "@/lib/feed/feedSessionKeys";
 import { LIST_RELOAD_BOOT_SCRIPT } from "@/lib/list/scrollRestore";
+import { VIEWER_PENDING_BOOT_SCRIPT } from "@/lib/artworks/viewerFields";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import Script from "next/script";
 import {
@@ -106,6 +107,9 @@ export default async function RootLayout({
         </Script>
         <Script id="list-reload-scroll" strategy="beforeInteractive">
           {LIST_RELOAD_BOOT_SCRIPT}
+        </Script>
+        <Script id="viewer-pending" strategy="beforeInteractive">
+          {VIEWER_PENDING_BOOT_SCRIPT}
         </Script>
         <LocaleProvider initialLocale={initialLocale}>
           <HtmlLangSync />

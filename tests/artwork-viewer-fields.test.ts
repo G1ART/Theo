@@ -7,8 +7,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   applyViewerFields,
+  CARD_TRADE_ATTR,
   mergeViewerFields,
   readViewerFields,
+  TRADE_PENDING_ATTR,
+  VIEWER_PENDING_BOOT_SCRIPT,
 } from "../src/lib/artworks/viewerFields";
 import { cardTradeView } from "../src/lib/artworks/cardTrade";
 import { copyContainsForbidden, getCardGateCopy } from "../src/lib/visibility/copy";
@@ -151,5 +154,36 @@ const view = sql.slice(sql.indexOf("create or replace view public.artwork_cards"
 assert.equal(SENSITIVE.test(view.replace(/viewer_fields/g, "")), false, "the view must not expose stored price/status columns");
 assert.ok(!/\$[a-z]*_[a-z_]*\$/i.test(sql), "dollar tags are letters only");
 assert.ok(/-- == SECTION 9 ==/.test(sql), "functions are split into sections");
+
+// No flash of the visitor gate line for signed-in viewers on the public
+// profile: the boot script hides card trade lines inside a pending list only
+// when a supabase-js session is stored; the profile ends pending once the
+// viewer's own values arrive (or the visitor is known).
+function bootHides(keys: string[]): string | null {
+  const appended: string[] = [];
+  const storage = { length: keys.length, key: (i: number) => keys[i] ?? null };
+  const doc = {
+    createElement: () => ({ id: "", textContent: "" }),
+    head: { appendChild: (el: { textContent: string }) => appended.push(el.textContent) },
+  };
+  new Function("window", "document", VIEWER_PENDING_BOOT_SCRIPT)({ localStorage: storage }, doc);
+  return appended[0] ?? null;
+}
+assert.equal(bootHides([]), null, "visitors see the gate line at once");
+assert.equal(bootHides(["theme", "sb-other-thing"]), null);
+assert.equal(
+  bootHides(["theme", "sb-sgufonscldvdwfgzltfw-auth-token"]),
+  `[${TRADE_PENDING_ATTR}] [${CARD_TRADE_ATTR}]{visibility:hidden}`,
+);
+const layoutSrc = readFileSync(path.join(ROOT, "src/app/layout.tsx"), "utf8");
+assert.ok(/<Script id="viewer-pending" strategy="beforeInteractive">\s*\{VIEWER_PENDING_BOOT_SCRIPT\}/.test(layoutSrc));
+const cardSrc = readFileSync(path.join(ROOT, "src/components/ArtworkCard.tsx"), "utf8");
+assert.ok(cardSrc.includes(`<div ${CARD_TRADE_ATTR}="">`), "card trade lines are marked");
+const profileSrc = readFileSync(path.join(ROOT, "src/components/UserProfileContent.tsx"), "utf8");
+assert.ok(profileSrc.includes(`${TRADE_PENDING_ATTR}={tradePending ? "" : undefined}`));
+assert.ok(
+  /const tradePending =\s*!sessionChecked \|\| \(viewerId != null && initialArtworks\.length > 0 && viewerFieldsFor !== viewerId\);/.test(profileSrc),
+);
+assert.ok(/setViewerFields\(byId\);\s*setViewerFieldsFor\(viewerId\);/.test(profileSrc));
 
 console.log("artwork-viewer-fields.test.ts: ok");

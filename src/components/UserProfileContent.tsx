@@ -154,6 +154,7 @@ export function UserProfileContent({
   // availability are judged for a visitor. A signed-in viewer (owner,
   // mutual follow, delegate) refreshes them once here.
   const [viewerFields, setViewerFields] = useState<Map<string, ViewerFields>>(() => new Map());
+  const [viewerFieldsFor, setViewerFieldsFor] = useState<string | null>(null);
   const artworks = useMemo(
     () => mergeViewerFields(initialArtworks, viewerFields),
     [initialArtworks, viewerFields],
@@ -165,7 +166,9 @@ export function UserProfileContent({
     }
     let cancelled = false;
     void fetchArtworkViewerFields(initialArtworks.map((a) => a.id)).then((byId) => {
-      if (!cancelled) setViewerFields(byId);
+      if (cancelled) return;
+      setViewerFields(byId);
+      setViewerFieldsFor(viewerId);
     });
     return () => {
       cancelled = true;
@@ -182,6 +185,10 @@ export function UserProfileContent({
   // "Session resolved" latch so the anonymous Statement/CV gate never
   // flashes for a signed-in viewer during the initial client session read.
   const [sessionChecked, setSessionChecked] = useState(false);
+  // While pending, a stored session keeps visitor-judged price lines blank
+  // (VIEWER_PENDING_BOOT_SCRIPT); visitors see them as rendered.
+  const tradePending =
+    !sessionChecked || (viewerId != null && initialArtworks.length > 0 && viewerFieldsFor !== viewerId);
   const [reorderMode, setReorderMode] = useState(false);
   const [active, setActive] = useState<ActiveStudioTab>(
     () => parseActiveTabParam(initialTabParam) ?? { kind: "persona", tab: "all" }
@@ -920,6 +927,7 @@ export function UserProfileContent({
   return (
     <>
       <ProfileViewTracker profileId={profile.id} />
+      <div data-trade-pending={tradePending ? "" : undefined} className="contents">
       <PageShell variant="default">
         {artistPublishLine && (
           <div
@@ -1739,6 +1747,7 @@ export function UserProfileContent({
         </BodyPortal>
       )}
       </PageShell>
+      </div>
     </>
   );
 }
