@@ -17,6 +17,7 @@ import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import { ownAccountProfileHref } from "@/lib/delegation/principalProfileHref";
+import { returnToOwnAccount } from "@/lib/delegation/returnToOwnAccount";
 import {
   listMyDelegations,
   type DelegationWithDetails,
@@ -107,6 +108,7 @@ export function Header() {
   const mobilePanelHeadingId = useId();
 
   const {
+    actingAsProfileId,
     actingAsLabel,
     clearActingAs,
     staleCleared,
@@ -358,17 +360,28 @@ export function Header() {
   }, [mobileOpen]);
 
   /**
-   * Leave acting-as and open the operator's own public profile.
-   * Same destination as the account icon. A missing handle goes to
-   * identity onboarding, not the workspace.
+   * Banner "return to my account". Same function as the switcher's own
+   * row: the operator's public profile (identity onboarding when the
+   * handle is missing), never the workspace.
    */
   function handleSwitchToOperator() {
-    clearActingAs();
     setAvatarOpen(false);
     setMobileOpen(false);
-    router.push(ownAccountProfileHref(profileUsername));
-    router.refresh();
+    returnToOwnAccount({
+      username: profileUsername,
+      pathname: pathname ?? "",
+      clearActingAs,
+      router,
+    });
   }
+
+  // "View permissions" opens the delegation in use, not just the list.
+  const actingDelegationId = activeAccountDelegations.find(
+    (d) => d.delegator_profile_id === actingAsProfileId,
+  )?.id;
+  const viewPermissionsHref = actingDelegationId
+    ? `/my/delegations?openId=${encodeURIComponent(actingDelegationId)}`
+    : "/my/delegations";
 
   // Auto-dismiss the stale-cleared notice after a few seconds so it
   // doesn't linger as visual debt. The provider keeps the flag until
@@ -475,7 +488,7 @@ export function Header() {
           </span>
           <span className="ml-auto flex flex-wrap items-center gap-3">
             <ShellNavLink
-              href="/my/delegations"
+              href={viewPermissionsHref}
               className="font-medium hover:underline"
             >
               {t("delegation.banner.viewPermissions")}

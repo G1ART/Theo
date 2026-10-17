@@ -16,3 +16,12 @@ export function principalPublicProfileHref(
 export function ownAccountProfileHref(username: string | null | undefined): string {
   return principalPublicProfileHref(username) ?? "/onboarding/identity";
 }
+
+/**
+ * Where entering acting-as lands: the account's public profile, which
+ * shows the owner view while acting. An account without a public handle
+ * only has its acting workspace.
+ */
+export function principalEntryHref(username: string | null | undefined): string {
+  return principalPublicProfileHref(username) ?? "/my";
+}

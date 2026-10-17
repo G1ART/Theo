@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 진입·진출 경로 정리 (대리 종료·뒤로·로그인·편집 저장)
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+대표님 전수조사(이동 지점 약 370곳 중 어색한 곳 48곳)에서 확정한 13묶음과 결정 6건을 묶음별로 커밋한다.
+
+**계정·위임**
+- 대리 배너 "내 계정으로 돌아가기", 계정 전환의 본인 계정 행(사이드바·햄버거·아바타 메뉴), 지금 대리 중인 위임의 "위임 그만두기"가 모두 `returnToOwnAccount` 하나를 쓴다. 대리를 끝내고 본인 공개 프로필(`/u/<username>`, 핸들이 없으면 `/onboarding/identity`)로 간다. 업로드 화면에서는 전체 페이지 이동으로 나간다(배너에만 빠져 있었다).
+- 대리 모드 진입은 계정 전환과 위임 페이지 "관리하기"(계정 위임) 둘 다 그 계정의 공개 프로필이다(`principalEntryHref`, 대리 중에는 계정주 화면). 공개 핸들이 없는 계정만 `/my`. 전시 단위 위임은 그대로 그 전시 관리 화면이다.
+- 로그아웃(계정 전환·설정)은 대리 상태를 먼저 비운다. 다른 탭이나 토큰 만료로 로그아웃돼도 `ActingAsProvider` 가 SIGNED_OUT 에서 비운다. 같은 탭에서 다시 로그인해도 노란 배너가 되살아나지 않는다.
+- 배너 "권한 보기"는 지금 대리 중인 위임 상세(`/my/delegations?openId=`)를 연다. 닫은 뒤 다시 눌러도 열린다.
+- 대리 중 워크스페이스의 위임 브리프에서 "프로필 완성도"는 없는 `/profile/edit` 대신 `/settings`, "미공개 작품"은 제자리 `/my` 대신 `/my/library?visibility=draft` 로 간다. 링크는 `sanitizeActionHref` 를 거친다.
+- 위임 초대 화면의 로그인·가입 링크는 `loginUrlWithNext` / `onboardingUrlWithNext` 라 가입 v2 에서도 초대로 돌아온다.
+- `/me` 는 로그인 확인 뒤 본인 공개 프로필로 replace 한다. 세션이 브라우저에만 있어 서버 리다이렉트로는 핸들을 모른다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/acting-exit-destination.test.ts`(신규). `npx tsx tests/delegation-manage-destination.test.ts`. `npx tsx tests/profile-tab-access.test.ts`. 바꾼 파일의 eslint 는 HEAD 와 같은 기존 오류만 남았다. 로그인된 브라우저로 대리 배너·위임 그만두기를 눌러 보지는 못했다.
+
 ## 2026-10-17 — 운영 파트너 신규 위임, 내 프로필로 돌아가기
 
 > **Supabase SQL:** `supabase/migrations/20261017153000_operations_preset_profile_edit.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수 하나라 섹션 나눔은 없다. **환경 변수 추가·변경 없음.**

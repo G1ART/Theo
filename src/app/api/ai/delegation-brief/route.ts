@@ -69,7 +69,7 @@ function buildDelegationBriefFallback(
       reason: isKo
         ? "이미지·메타데이터를 다듬어 공개 후보로 옮길 수 있어요."
         : "Each can be moved to public after image and metadata cleanup.",
-      href: "/my",
+      href: "/my/library?visibility=draft",
     });
   }
 
@@ -95,7 +95,7 @@ function buildDelegationBriefFallback(
       reason: isKo
         ? "공개 프로필의 짧은 소개·작가의 말·테마/매체를 보완하면 도움이 됩니다."
         : "A tighter bio, statement, and themes/mediums help discoverability.",
-      href: "/profile/edit",
+      href: "/settings",
     });
   }
 

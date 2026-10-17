@@ -16,6 +16,11 @@
  * This helper centralises the routing decision so the hub page,
  * notification deep-links, and any future entry points stay consistent.
  *
+ * Account scope lands on the account's public profile, the same place
+ * the account switcher opens. While acting it shows the owner view.
+ * Only an account without a public handle falls back to the acting
+ * workspace (`/my`).
+ *
  * Returns:
  *   - `kind: "navigate"`: the caller should activate acting-as (when
  *     `activateActingAs=true`) and navigate to `href`.
@@ -28,6 +33,7 @@ import type {
   DelegationPreset,
   DelegationWithDetails,
 } from "@/lib/supabase/delegations";
+import { principalEntryHref } from "@/lib/delegation/principalProfileHref";
 
 export type ManageDestination =
   | { kind: "navigate"; href: string; activateActingAs: boolean }
@@ -54,7 +60,9 @@ export function presetHasMutationRights(
 }
 
 export function resolveManageDestination(
-  d: Pick<DelegationWithDetails, "scope_type" | "project_id" | "preset">
+  d: Pick<DelegationWithDetails, "scope_type" | "project_id" | "preset"> & {
+    delegator_profile?: { username?: string | null } | null;
+  }
 ): ManageDestination {
   if (d.scope_type === "project") {
     if (!d.project_id) {
@@ -83,16 +91,14 @@ export function resolveManageDestination(
     }
   }
 
-  // account scope
-  switch (d.preset) {
-    case "review":
-      return { kind: "stay", messageKey: "delegation.manage.reviewOnly" };
-    case "operations":
-    case "content":
-      return { kind: "navigate", href: "/my", activateActingAs: true };
-    default:
-      // Legacy account delegation: keep prior behaviour (acting-as on,
-      // land in My Studio). Permission-aware RLS now guards mutations.
-      return { kind: "navigate", href: "/my", activateActingAs: true };
+  // account scope — legacy presets (null) act like the writer presets.
+  // Permission-aware RLS guards every mutation wherever they land.
+  if (d.preset === "review") {
+    return { kind: "stay", messageKey: "delegation.manage.reviewOnly" };
   }
+  return {
+    kind: "navigate",
+    href: principalEntryHref(d.delegator_profile?.username),
+    activateActingAs: true,
+  };
 }

@@ -66,16 +66,50 @@ import assert from "node:assert/strict";
   });
   assert.equal(noProject.kind, "stay");
 
-  // Account scope unchanged (regression guard).
+  // Account scope lands where the account switcher does: the account's
+  // public profile (owner view while acting), never the workspace.
   const account = resolveManageDestination({
     scope_type: "account",
     project_id: null,
     preset: "operations",
+    delegator_profile: { username: "heimyunghyun" },
   });
   assert.equal(account.kind, "navigate");
   if (account.kind === "navigate") {
-    assert.equal(account.href, "/my");
+    assert.equal(account.href, "/u/heimyunghyun");
+    assert.equal(account.activateActingAs, true);
   }
+
+  for (const preset of ["content", null] as const) {
+    const dest = resolveManageDestination({
+      scope_type: "account",
+      project_id: null,
+      preset,
+      delegator_profile: { username: "g1art_founder" },
+    });
+    assert.equal(dest.kind, "navigate");
+    if (dest.kind === "navigate") assert.equal(dest.href, "/u/g1art_founder");
+  }
+
+  // No public handle yet → the acting workspace is the only screen.
+  for (const delegator_profile of [null, { username: "user_abc123" }, { username: " " }]) {
+    const dest = resolveManageDestination({
+      scope_type: "account",
+      project_id: null,
+      preset: "operations",
+      delegator_profile,
+    });
+    assert.equal(dest.kind, "navigate");
+    if (dest.kind === "navigate") assert.equal(dest.href, "/my");
+  }
+
+  const reviewAccount = resolveManageDestination({
+    scope_type: "account",
+    project_id: null,
+    preset: "review",
+    delegator_profile: { username: "heimyunghyun" },
+  });
+  assert.equal(reviewAccount.kind, "stay");
 
   // presetHasMutationRights sanity.
   assert.equal(presetHasMutationRights("project_co_edit"), true);

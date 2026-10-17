@@ -15,12 +15,12 @@
  * layout (avatar disc vs. dot indicator, own-row link vs. radio button,
  * etc.).
  *
- * "View my public profile →" secondary affordance under the self-row is
- * intentionally sidebar-only. On dropdown/hamburger the own row is a
- * pure "switch back to my persona" selector and takes the user back to
- * `/my`; the public profile is reached by tapping the mobile avatar
- * (which now navigates to `/u/{username}` directly) or the sidebar
- * self-row.
+ * Every account row opens that account's public profile, the same place
+ * as its account icon. The own row leaves acting-as first through
+ * `returnToOwnAccount`, the function the acting-as banner uses too. A
+ * delegated row enters acting-as and opens that account's profile, which
+ * shows the owner view while acting. "View my public profile →" under the
+ * self-row is sidebar-only copy for the same destination.
  */
 
 import { usePathname, useRouter } from "next/navigation";
@@ -30,8 +30,9 @@ import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
 import {
   ownAccountProfileHref,
-  principalPublicProfileHref,
+  principalEntryHref,
 } from "@/lib/delegation/principalProfileHref";
+import { returnToOwnAccount } from "@/lib/delegation/returnToOwnAccount";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import {
   formatDisplayName,
@@ -125,12 +126,8 @@ export function AccountSwitcher({
     (accountsLoaded && accounts.length > 0) || !!actingAsProfileId;
 
   function switchToOwn() {
-    clearActingAs();
     onNavigate?.();
-    const href = ownAccountProfileHref(username);
-    if (leaveUploadOrAssign(pathname, href)) return;
-    router.push(href);
-    router.refresh();
+    returnToOwnAccount({ username, pathname, clearActingAs, router });
   }
 
   function switchToPrincipal(d: DelegationWithDetails) {
@@ -141,7 +138,7 @@ export function AccountSwitcher({
       formatDisplayName(p as IdentityInput, t, locale) || formatUsername(p),
     );
     onNavigate?.();
-    const href = principalPublicProfileHref(p.username) ?? "/my";
+    const href = principalEntryHref(p.username);
     if (leaveUploadOrAssign(pathname, href)) return;
     router.push(href);
     router.refresh();
@@ -149,6 +146,7 @@ export function AccountSwitcher({
 
   async function handleLogout() {
     onNavigate?.();
+    clearActingAs();
     await signOut();
     if (leaveUploadOrAssign(pathname, "/login")) return;
     router.replace("/login");

@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useT } from "@/lib/i18n/useT";
+import { useActingAs } from "@/context/ActingAsContext";
+import { returnToOwnAccount } from "@/lib/delegation/returnToOwnAccount";
+import { getMyProfile } from "@/lib/supabase/profiles";
 import { formatDisplayName } from "@/lib/identity/format";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import type { Locale } from "@/lib/i18n/locale";
@@ -86,6 +90,9 @@ export function DelegationDetailDrawer({
   proposedPermissions = null,
 }: DelegationDetailDrawerProps) {
   const { t, locale } = useT();
+  const router = useRouter();
+  const pathname = usePathname() ?? "";
+  const { actingAsProfileId, clearActingAs } = useActingAs();
   const [detail, setDetail] = useState<DelegationDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,7 +231,17 @@ export function DelegationDetailDrawer({
     }
     onChanged?.();
     onClose();
-  }, [detail, onChanged, onClose, t]);
+    // Resigning the delegation in use ends acting-as like the banner does.
+    if (actingAsProfileId && actingAsProfileId === detail.delegation.delegator_profile_id) {
+      const { data: me } = await getMyProfile();
+      returnToOwnAccount({
+        username: me?.username ?? null,
+        pathname,
+        clearActingAs,
+        router,
+      });
+    }
+  }, [detail, onChanged, onClose, t, actingAsProfileId, clearActingAs, pathname, router]);
 
   const currentPermissions = useMemo<string[]>(() => {
     if (!detail) return [];

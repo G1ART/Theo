@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n/useT";
 import { aiApi } from "@/lib/ai/browser";
+import { sanitizeActionHref } from "@/lib/ai/sanitizeActionHref";
 import {
   AiSurfaceFrame,
   AiStateBlock,
@@ -111,31 +112,34 @@ export function DelegationBriefPanel({
           {priorities.length > 0 && (
             <AiResultSection title={t("delegation.brief.prioritiesLabel")}>
               <ul className="space-y-2">
-                {priorities.slice(0, 4).map((p) => (
-                  <li
-                    key={p.id}
-                    className="rounded border border-zinc-200 bg-white p-3 text-sm leading-relaxed text-zinc-800"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium">{p.title}</p>
-                        {p.reason && (
-                          <p className="mt-0.5 text-xs text-zinc-600">
-                            {p.reason}
-                          </p>
+                {priorities.slice(0, 4).map((p) => {
+                  const href = sanitizeActionHref(p.href);
+                  return (
+                    <li
+                      key={p.id}
+                      className="rounded border border-zinc-200 bg-white p-3 text-sm leading-relaxed text-zinc-800"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{p.title}</p>
+                          {p.reason && (
+                            <p className="mt-0.5 text-xs text-zinc-600">
+                              {p.reason}
+                            </p>
+                          )}
+                        </div>
+                        {href && (
+                          <Link
+                            href={href}
+                            className="shrink-0 rounded border border-zinc-300 px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100"
+                          >
+                            {t("delegation.brief.open")}
+                          </Link>
                         )}
                       </div>
-                      {p.href && (
-                        <Link
-                          href={p.href}
-                          className="shrink-0 rounded border border-zinc-300 px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100"
-                        >
-                          {t("delegation.brief.open")}
-                        </Link>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </AiResultSection>
           )}

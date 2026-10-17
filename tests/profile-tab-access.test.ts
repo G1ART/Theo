@@ -314,14 +314,14 @@ const switcher = readFileSync(
   path.join(root, "src/components/shell/AccountSwitcher.tsx"),
   "utf8",
 );
-assert.match(switcher, /principalPublicProfileHref\(p\.username\)/);
+assert.match(switcher, /principalEntryHref\(p\.username\)/);
 assert.match(switcher, /ownAccountProfileHref\(username\)/);
-assert.match(switcher, /function switchToOwn\(\) \{[\s\S]*?ownAccountProfileHref\(username\)/);
+assert.match(switcher, /function switchToOwn\(\) \{[\s\S]*?returnToOwnAccount\(\{ username,/);
 const header = readFileSync(path.join(root, "src/components/Header.tsx"), "utf8");
 assert.match(header, /ownAccountProfileHref\(profileUsername\)/);
 assert.match(
   header,
-  /function handleSwitchToOperator\(\) \{[\s\S]*?ownAccountProfileHref\(profileUsername\)/,
+  /function handleSwitchToOperator\(\) \{[\s\S]*?returnToOwnAccount\(\{\s*username: profileUsername,/,
 );
 const artworksSrc = readFileSync(path.join(root, "src/lib/supabase/artworks.ts"), "utf8");
 assert.match(artworksSrc, /const PROFILE_ARTWORK_PAGE = 500/);

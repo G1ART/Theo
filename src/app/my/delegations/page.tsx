@@ -251,7 +251,13 @@ export default function MyDelegationsPage() {
    */
   useEffect(() => {
     const openId = searchParams?.get("openId");
-    if (!openId || !data) return;
+    if (!openId) {
+      // Closing strips the param. A later link to the same id (the
+      // acting-as banner's "view permissions") must open it again.
+      consumedDeepLinkRef.current = null;
+      return;
+    }
+    if (!data) return;
     if (detailId === openId) return;
     // QA 2026-06-26 (#9) — only honour the deep-link the FIRST time we
     // see it. Once the user closes the drawer (which strips the URL

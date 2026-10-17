@@ -13,6 +13,7 @@ import {
 import { logActingScopeChange } from "@/lib/delegation/actingContext";
 import { isActiveDelegateOf } from "@/lib/supabase/delegations";
 import { getSession } from "@/lib/supabase/auth";
+import { supabase } from "@/lib/supabase/client";
 
 const STORAGE_KEY = "abstract_acting_as";
 
@@ -102,6 +103,21 @@ export function ActingAsProvider({ children }: { children: ReactNode }) {
 
   const acknowledgeStaleCleared = useCallback(() => {
     setStaleCleared(false);
+  }, []);
+
+  // Acting-as belongs to the session. Any sign-out (button, another tab,
+  // expired refresh token) drops it so the next sign-in on this tab does
+  // not reopen the banner. The logout buttons clear it first, while the
+  // exit can still be logged.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== "SIGNED_OUT") return;
+      setState({ profileId: null, label: null });
+      saveStored({ profileId: null, label: null });
+      previousProfileIdRef.current = null;
+      lastVerifiedRef.current = null;
+    });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   // Stale-state liveness probe.

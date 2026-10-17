@@ -258,7 +258,7 @@ export default function SettingsPage() {
   // existing save flow already keys on the operator's session uid, so we
   // only need to surface a clear notice that the delegated context does
   // not apply here.
-  const { actingAsProfileId, actingAsLabel } = useActingAs();
+  const { actingAsProfileId, actingAsLabel, clearActingAs } = useActingAs();
   const actingSubjectRef = useRef<string | null>(null);
   const [editingPrincipal, setEditingPrincipal] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
@@ -2075,6 +2075,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={async () => {
+                clearActingAs();
                 await signOut();
                 router.replace("/login");
               }}

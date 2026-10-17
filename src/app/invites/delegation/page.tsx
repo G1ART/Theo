@@ -17,6 +17,7 @@ import {
 } from "@/lib/supabase/delegations";
 import { permissionLabel } from "@/lib/delegation/permissionLabel";
 import { backToLabel } from "@/lib/i18n/back";
+import { loginUrlWithNext, onboardingUrlWithNext } from "@/lib/identity/routing";
 
 const DENIES_SHARED = [
   "delegation.deniesShared.login",
@@ -206,9 +207,9 @@ function InvitesDelegationInner() {
       : null;
 
   if (!hasSession) {
-    const nextTarget = `/invites/delegation?token=${token}`;
-    const loginUrl = `/login?next=${encodeURIComponent(nextTarget)}`;
-    const signUpUrl = `/onboarding?next=${encodeURIComponent(nextTarget)}`;
+    const nextTarget = `/invites/delegation?token=${encodeURIComponent(token ?? "")}`;
+    const loginUrl = loginUrlWithNext({ nextPath: nextTarget });
+    const signUpUrl = onboardingUrlWithNext({ nextPath: nextTarget });
     return (
       <div className="mx-auto max-w-md px-4 py-12">
         <h1 className="mb-4 text-xl font-semibold">{t("delegation.inviteTitle")}</h1>
