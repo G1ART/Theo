@@ -7,6 +7,8 @@
  * `edit_profile_public_content` is the profile-management permission on
  * the content preset. Either one is enough. View-only, project-scope,
  * and inquiry-only delegations are not.
+ * A delegate still has to be inside delegation work for that profile.
+ * Opening the public profile does not count.
  */
 export const PROFILE_TAB_DELEGATION_PERMISSIONS = [
   "manage_artworks",
@@ -36,16 +38,23 @@ export function delegationGrantsProfileTabManagement(
   );
 }
 
-/** Owner, or an active unexpired account delegate with a tab permission. */
+/**
+ * Owner always. A delegate only after they have entered delegation work
+ * for this profile (`actingProfileId` is that profile, not their own login).
+ * Holding the permission is not enough on its own.
+ */
 export function canManageProfileTabs(input: {
   viewerId: string | null | undefined;
   profileId: string | null | undefined;
   delegation?: ProfileTabDelegation | null;
   now?: Date;
+  actingProfileId?: string | null;
 }): boolean {
   const viewer = input.viewerId?.trim() ?? "";
   const profile = input.profileId?.trim() ?? "";
   if (!viewer || !profile) return false;
   if (viewer === profile) return true;
+  const acting = input.actingProfileId?.trim() ?? "";
+  if (!acting || acting !== profile || acting === viewer) return false;
   return delegationGrantsProfileTabManagement(input.delegation, input.now);
 }

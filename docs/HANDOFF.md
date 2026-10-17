@@ -1,6 +1,19 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-15
+Last updated: 2026-10-17
+
+## 2026-10-17 — 위임 중 공개 프로필은 방문 화면, 탭 관리는 워크스페이스
+
+> **Supabase SQL:** `supabase/migrations/20261017000000_profile_tab_delegation_work_path.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 네 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
+
+공개 프로필에 위임 탭 관리가 열려 있던 것은, 활성 위임만 있으면 `/u/[handle]`에서 탭 버튼을 켜도록 해 둔 탓이다. 위임 작업(계정 전환 뒤 워크스페이스)과 공개 프로필 열람을 나누지 않았다.
+
+- 계정 전환에서 위임 계정 아이콘을 누르면 그 계정의 공개 프로필로 간다. 현혜명 관리 중이면 `/u/heimyunghyun`. 본인 계정 아이콘은 위임 중이 아니면 본인 공개 프로필로 간다. 왼쪽 워크스페이스 메뉴와 워크스페이스 오른쪽 위 공개 프로필 캡슐은 그대로다.
+- 공개 프로필의 탭 추가·설정·순서, 프로필 수정, 작품 업로드는 로그인 사용자가 그 프로필의 계정주일 때만 보인다. 위임자가 그 주소에 들어온 것만으로는 그 버튼이 없다.
+- 위임 중 탭 관리는 워크스페이스에서만 열린다. 저장은 계정주이거나, 그 프로필을 위임 작업 대상으로 넘긴 활성 계정 위임일 때만 된다. 권한은 기존 `manage_artworks`(operations·content) 또는 `edit_profile_public_content`(content)다. 위임이 없거나 만료·취소·조회 전용·프로젝트 위임은 거절한다. 새 권한 이름은 없다.
+- 작품 업로드는 공개 프로필에서 위임자에게 새로 열지 않았다. 업로드는 왼쪽 업로드와 기존 업로드 화면이 위임 작업의 계정 전환을 따른다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/profile-tab-access.test.ts`. `npx tsx tests/profile-tab-kinds.test.ts`. `npx tsx tests/profile-tab-upload.test.ts`. 적용된 함수는 `p_acting_profile_id` 를 받는 서명만 남아 있다.
 
 ## 2026-10-15 — 위임 계정도 공개 프로필 탭을 관리
 

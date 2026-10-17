@@ -17,8 +17,13 @@ import {
 } from "@/lib/studio/studioPortfolioConfig";
 
 type Props = {
-  /** Profile owner, or an account delegate allowed to manage this profile's tabs. */
+  /** Profile owner, or a delegate inside delegation work for this profile. */
   canManage: boolean;
+  /**
+   * Set only on the delegation-work surface. Public profile leaves this
+   * empty so a delegate visit cannot save tabs.
+   */
+  actingProfileId?: string | null;
   stripPublic: StudioStripTab[];
   stripRows: StudioStripTab[];
   active: ActiveStudioTab;
@@ -47,6 +52,7 @@ function isActiveTab(row: StudioStripTab, active: ActiveStudioTab): boolean {
  */
 export function ProfileTabManager({
   canManage,
+  actingProfileId = null,
   stripPublic,
   stripRows,
   active,
@@ -70,7 +76,7 @@ export function ProfileTabManager({
     .map((r) => r.personaTab!);
 
   async function persist(next: StudioPortfolioV1): Promise<boolean> {
-    const { ok } = await persistStudioPortfolio(next, profileId);
+    const { ok } = await persistStudioPortfolio(next, profileId, { actingProfileId });
     if (!ok) {
       onToast(t("common.tryAgain"));
       return false;
@@ -200,6 +206,7 @@ export function ProfileTabManager({
           defaultTabLabels={defaultTabLabels}
           works={works}
           profileId={profileId}
+          actingProfileId={actingProfileId}
           onSave={persist}
         />
         <ProfileTabCreateDialog

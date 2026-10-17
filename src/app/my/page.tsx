@@ -23,6 +23,7 @@ import { listMyExternalArtists } from "@/lib/provenance/externalArtists";
 import { listMySpaces } from "@/lib/supabase/spaces";
 import { OrphanInvitesBanner } from "@/components/onboarding/OrphanInvitesBanner";
 import { DelegationBriefPanel } from "@/components/delegation/DelegationBriefPanel";
+import { ActingProfileTabs } from "@/components/studio/ActingProfileTabs";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { chipButton } from "@/components/ds/buttonStyles";
@@ -355,6 +356,8 @@ function WorkspaceContent() {
           </Link>
         </p>
       </div>
+
+      {actingAsProfileId && <ActingProfileTabs profileId={actingAsProfileId} />}
 
       {isStaff && (
         <Link

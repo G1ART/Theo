@@ -86,10 +86,7 @@ import {
   filterArtworksByPersona,
   type PersonaTab,
 } from "@/lib/provenance/personaTabs";
-import {
-  persistStudioPortfolio,
-  probeCanManageProfileTabs,
-} from "@/lib/studio/persistStudioPortfolio";
+import { persistStudioPortfolio } from "@/lib/studio/persistStudioPortfolio";
 import {
   type ActiveStudioTab,
   assignArtworksToCustomTab,
@@ -140,7 +137,6 @@ export function UserProfileContent({
   const [showUpdatedBanner, setShowUpdatedBanner] = useState(false);
   const [artistPublishLine, setArtistPublishLine] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
-  const [delegatedTabManager, setDelegatedTabManager] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
   // "Session resolved" latch so the anonymous Statement/CV gate never
   // flashes for a signed-in viewer during the initial client session read.
@@ -282,34 +278,6 @@ export function UserProfileContent({
       }, 400);
     });
   }, [profile?.id, profile?.username]);
-
-  const canManageTabs = isOwner || delegatedTabManager;
-
-  useEffect(() => {
-    const profileId = profile?.id;
-    if (!profileId || !viewerId || isOwner || viewerId === profileId) {
-      setDelegatedTabManager(false);
-      return;
-    }
-    const id = profileId;
-    let cancelled = false;
-    async function refresh() {
-      if (document.visibilityState === "hidden") return;
-      const allowed = await probeCanManageProfileTabs(id);
-      if (!cancelled) setDelegatedTabManager(allowed);
-    }
-    void refresh();
-    const onFocus = () => {
-      void refresh();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
-    };
-  }, [profile?.id, viewerId, isOwner]);
 
   useEffect(() => {
     const ids = artworks.map((a) => a.id);
@@ -934,10 +902,10 @@ export function UserProfileContent({
             </Link>
           )}
         </div>
-        {roleTab === "artist" && (stripPublic.length > 0 || canManageTabs) && (
+        {roleTab === "artist" && (stripPublic.length > 0 || isOwner) && (
           <div data-profile-freeze="tabs" className="mt-3 [&>*]:mb-0 [&>*]:border-b-0 [&>*]:pb-0">
             <ProfileTabManager
-              canManage={canManageTabs}
+              canManage={isOwner}
               stripPublic={stripPublic}
               stripRows={stripRows}
               active={active}
@@ -1159,9 +1127,9 @@ export function UserProfileContent({
           !reorderMode &&
           downloadMode !== "order" &&
           downloadMode !== "confirm" &&
-          (isOwner || actingAsThisProfile || canManageTabs) && (
+          (isOwner || actingAsThisProfile) && (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {canManageTabs && customTabs.length > 0 && displayedArtworks.length > 0 && (
+            {isOwner && customTabs.length > 0 && displayedArtworks.length > 0 && (
               tabAssignMode ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <select

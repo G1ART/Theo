@@ -27,6 +27,8 @@ type Props = {
   defaultTabLabels: Record<PersonaTab, string>;
   works?: { id: string; title: string; artistId: string }[];
   profileId?: string;
+  /** Delegation work only. Public-profile tab edits leave this empty. */
+  actingProfileId?: string | null;
   onSave: (next: StudioPortfolioV1) => Promise<boolean>;
 };
 
@@ -38,6 +40,7 @@ export function StudioPortfolioManageModal({
   defaultTabLabels,
   works = [],
   profileId = "",
+  actingProfileId = null,
   onSave,
 }: Props) {
   const { t } = useT();
@@ -271,6 +274,7 @@ export function StudioPortfolioManageModal({
                   )
                 : {},
               profileId,
+              actingProfileId,
             });
             setSaving(false);
             if (!applied.ok) return;

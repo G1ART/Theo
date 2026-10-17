@@ -28,6 +28,7 @@ import { leaveUploadOrAssign } from "@/lib/shell/leaveUploadNav";
 import { signOut } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
+import { principalPublicProfileHref } from "@/lib/delegation/principalProfileHref";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import {
   formatDisplayName,
@@ -137,8 +138,9 @@ export function AccountSwitcher({
       formatDisplayName(p as IdentityInput, t, locale) || formatUsername(p),
     );
     onNavigate?.();
-    if (leaveUploadOrAssign(pathname, "/my")) return;
-    router.push("/my");
+    const href = principalPublicProfileHref(p.username) ?? "/my";
+    if (leaveUploadOrAssign(pathname, href)) return;
+    router.push(href);
     router.refresh();
   }
 

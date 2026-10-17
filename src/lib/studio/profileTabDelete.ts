@@ -13,6 +13,7 @@ import {
 async function deleteListedWorks(
   ids: string[],
   profileId: string,
+  actingProfileId: string | null,
 ): Promise<{ deleted: string[]; failed: string[] }> {
   const deleted: string[] = [];
   const needsRpc: string[] = [];
@@ -34,6 +35,7 @@ async function deleteListedWorks(
   const { data, error } = await supabase.rpc("delete_profile_tab_artworks", {
     p_profile_id: profileId,
     p_artwork_ids: needsRpc,
+    p_acting_profile_id: actingProfileId,
   });
   if (error || !Array.isArray(data)) {
     return { deleted, failed: needsRpc };
@@ -52,6 +54,7 @@ async function writeMovedWorkKinds(
   profileId: string,
   kind: ProfileContentKind,
   ids: string[],
+  actingProfileId: string | null,
 ): Promise<{ ok: boolean; error: unknown }> {
   if (!profileId) {
     const { error } = await supabase.from("artworks").update({ work_kind: kind }).in("id", ids);
@@ -61,6 +64,7 @@ async function writeMovedWorkKinds(
     p_profile_id: profileId,
     p_artwork_ids: ids,
     p_kind: kind,
+    p_acting_profile_id: actingProfileId,
   });
   return { ok: !error, error };
 }
@@ -73,9 +77,16 @@ export async function applyCustomTabDelete(params: {
   destinationTabId: string | null;
   kindByArtworkId: Record<string, ProfileContentKind | null>;
   profileId?: string;
+  /** Set only from delegation work. Public-profile saves leave this empty. */
+  actingProfileId?: string | null;
 }): Promise<{ ok: boolean; error: unknown; portfolio: StudioPortfolioV1 }> {
   const profileId = params.profileId?.trim() ?? "";
-  const { deleted, failed } = await deleteListedWorks(params.deleteArtworkIds, profileId);
+  const actingProfileId = params.actingProfileId?.trim() || null;
+  const { deleted, failed } = await deleteListedWorks(
+    params.deleteArtworkIds,
+    profileId,
+    actingProfileId,
+  );
   let portfolio = params.portfolio;
   if (deleted.length > 0) {
     portfolio = assignArtworksToCustomTab({
@@ -85,7 +96,7 @@ export async function applyCustomTabDelete(params: {
     });
   }
   if (failed.length > 0) {
-    const saved = await persistStudioPortfolio(portfolio, profileId);
+    const saved = await persistStudioPortfolio(portfolio, profileId, { actingProfileId });
     return { ok: false, error: saved.error ?? new Error("delete_failed"), portfolio };
   }
   if (params.moveIds.length > 0 && params.destinationTabId) {
@@ -96,7 +107,7 @@ export async function applyCustomTabDelete(params: {
     });
   }
   portfolio = removeCustomTab(portfolio, params.sourceTabId);
-  const saved = await persistStudioPortfolio(portfolio, profileId);
+  const saved = await persistStudioPortfolio(portfolio, profileId, { actingProfileId });
   if (!saved.ok) return { ok: false, error: saved.error, portfolio };
   const byKind = new Map<ProfileContentKind, string[]>();
   for (const [id, kind] of Object.entries(params.kindByArtworkId)) {
@@ -106,7 +117,7 @@ export async function applyCustomTabDelete(params: {
     byKind.set(kind, list);
   }
   for (const [kind, ids] of byKind) {
-    const written = await writeMovedWorkKinds(profileId, kind, ids);
+    const written = await writeMovedWorkKinds(profileId, kind, ids, actingProfileId);
     if (!written.ok) return { ok: false, error: written.error, portfolio };
   }
   return { ok: true, error: null, portfolio };
