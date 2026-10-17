@@ -14,7 +14,10 @@
 import type { NotificationRow } from "@/lib/supabase/notifications";
 import { formatDisplayName } from "@/lib/identity/format";
 import type { Locale } from "@/lib/i18n/locale";
-import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
+import {
+  pickLocalizedArtworkTitle,
+  pickLocalizedDisplayName,
+} from "@/lib/i18n/pickLocalized";
 
 export type NotificationEntitlements = {
   canSeeBoardSaver: boolean;
@@ -33,6 +36,31 @@ export function newWorkCount(row: NotificationRow): number {
   const ids = row.payload?.artwork_ids;
   if (Array.isArray(ids) && ids.length > 0) return ids.length;
   return 1;
+}
+
+/**
+ * Works in a `new_work` row that the actor listed for an artist without
+ * an account, so the actor is not their artist. Rows without the field
+ * have none.
+ */
+export function newWorkListedCount(row: NotificationRow): number {
+  const ids = row.payload?.listed_ids;
+  return Array.isArray(ids) ? ids.length : 0;
+}
+
+function newWorkExternalArtistName(row: NotificationRow, locale: Locale): string {
+  const artist = row.payload?.external_artist;
+  if (!artist || typeof artist !== "object") return "";
+  const field = (value: unknown) => (typeof value === "string" ? value : null);
+  const a = artist as Record<string, unknown>;
+  return pickLocalizedDisplayName(
+    {
+      display_name: field(a.display_name),
+      display_name_ko: field(a.display_name_ko),
+      display_name_en: field(a.display_name_en),
+    },
+    locale,
+  ).trim();
 }
 
 export function notificationLabel(
@@ -71,6 +99,19 @@ export function notificationLabel(
           .replace("{title}", title);
       }
       const count = newWorkCount(row);
+      if (newWorkListedCount(row) > 0) {
+        const artist =
+          newWorkListedCount(row) === count ? newWorkExternalArtistName(row, locale ?? "en") : "";
+        const many = count > 1;
+        const key = artist
+          ? (many ? "notifications.newWorksByArtistText" : "notifications.newWorkByArtistText")
+          : (many ? "notifications.newWorksFromText" : "notifications.newWorkFromText");
+        return t(key)
+          .replace("{name}", name)
+          .replace("{artist}", artist)
+          .replace("{count}", String(count))
+          .replace("{title}", title);
+      }
       if (count > 1) {
         return t("notifications.newWorksText")
           .replace("{name}", name)

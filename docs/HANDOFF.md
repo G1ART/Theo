@@ -2,6 +2,26 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 외부 작가 작품의 신작 알림 문구, 새 작품은 직접 정한 순서 맨 앞
+
+> **Supabase SQL:** `supabase/migrations/20261017215517_new_work_credit_and_order_first.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 여덟 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 같은 날 알림 insert 잠금(`20261017214917`, 아래 "알림은 DB만 쓴다")도 적용했다. **환경 변수 추가·변경 없음.**
+
+문구. 가입하지 않은 외부 작가의 작품을 갤러리·큐레이터·소장자가 올리면 `artist_id` 가 올린 계정이라 팔로워에게 "갤러리명 작가가 새 작품…"으로 갔다.
+
+- 신작 알림 payload 에 외부 작가 작품 목록(`listed_ids`)과, 모든 작품이 한 외부 작가일 때 그 작가(`external_artist`, 한/영 이름)를 적는다. 대기 중인 digest 기록도 같은 값을 갖는다.
+- 알림 화면과 서랍이 같이 쓰는 `notificationLabel`: 외부 작가 이름을 알면 "○○에 △△ 작가의 새 작품 N점이 올라왔어요" / "N new works by △△ from ○○", 여러 외부 작가가 섞이거나 갤러리 자체 작품과 섞이면 "○○에 새 작품 N점이 올라왔어요" / "N new works from ○○". 1점이면 제목을 넣는다. 외부 작가 작품이 없으면 그대로 "○○ 작가가 …".
+- 싱글 업로드는 공개로 넣은 직후 외부 작가 claim 을 만든다. 공개 10분 안에 생긴 claim 이 그 작품이 든 알림을 다시 계산한다.
+- 기존 신작 알림 중 외부 작가 작품 알림 130건과 그 digest 130건에 같은 값을 한 번 채웠다. 새로 보낸 알림은 없다.
+
+새 작품 순서(대표님 결정: 직접 정한 순서의 맨 앞, 작가가 나중에 옮긴다). 최초 공개 때, 공개 10분 안에 작가가 바뀔 때(싱글 업로드의 claim 동기화), 공개 10분 안에 claim 이 생길 때 실행한다.
+
+- 프로필 순서(`profile_artwork_orders`): 작가 프로필과 그 작품에 공개 claim 이 있는 프로필(갤러리·큐레이터·소장자) 중 이미 순서가 있는 곳에 `min(sort_order) - 1` 로 넣는다. 전체·내 작품 같은 기본 탭이 이 순서를 같이 쓴다. 작가 프로필은 예전 방식 순서(`artworks.artist_sort_order`)만 있어도 직접 정한 순서로 본다(3곳).
+- 커스텀 탭(`studio_portfolio.custom_tabs[].artwork_ids` 배열 순서): 그 작품이 들어 있는 탭에서 맨 앞으로 옮긴다. `file_artworks_into_existing_tab` 은 공개 10분 안의 작품을 끝이 아니라 앞에 넣는다(벌크는 초안 때 탭에 넣고 게시 후 다시 넣는다).
+- 순서를 정하지 않은 프로필은 기본 정렬 그대로다. 이미 공개된 작품은 옮기지 않았다(순서 행 90개 그대로).
+- 오늘(2026-10-17, KST·PDT 모두, 최근 24시간) 공개된 작품이 순서 맨 뒤에 붙은 프로필은 0곳이다. 직접 정한 순서가 있는 11곳 중 7곳에 순서 밖 작품이 332점 있지만 모두 2026-10-16 이전 것이다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/new-work-credit-order.test.ts`(신규), `tests/new-work-alert.test.ts`, `tests/notifications-lockdown.test.ts`, `tests/gallery-publish-lands-on-artist.test.ts`, `tests/profile-tab-upload.test.ts`, `tests/profile-tab-kinds.test.ts`. `supabase/tests/new_work_credit_order.sql`(6개 시나리오)을 적용 전(마이그레이션과 한 트랜잭션)·적용 후 통과했고, `new_work_alert_bundle.sql`·`notifications_insert_lockdown.sql` 도 적용 후 다시 통과했다. 합성 계정만 쓰고 롤백. 로그인한 브라우저로 알림과 프로필을 눌러 보지는 않았다.
+
 ## 2026-10-17 — 작품 상세 소속 전시는 공개 전시로, 뒤로 라벨 하나로, 피드 폴백은 For you
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
