@@ -21,9 +21,9 @@
 //      (transient RPC blip)              → default destination, never
 //                                          loops back to /login
 //
-// Runs with: `node --experimental-strip-types --no-warnings
-//             tests/onboarding-routing-runtime.mjs` (wired via npm
-// script `test:onboarding-runtime`).
+// Runs with: `tsx tests/onboarding-routing-runtime.mjs` (wired via npm
+// script `test:onboarding-runtime`). routing.ts imports through the `@/`
+// path alias, which plain `node --experimental-strip-types` cannot resolve.
 
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

@@ -54,7 +54,7 @@ assert.match(m2, /create or replace function public\.tg_set_updated_at/);
 const rpc = read("src/lib/provenance/rpc.ts");
 assert.match(
   rpc,
-  /supabase\.rpc\("get_or_create_external_artist"/,
+  /supabase\.rpc\(\s*"get_or_create_external_artist"/,
   "createExternalArtist must route through the dedupe RPC",
 );
 assert.doesNotMatch(

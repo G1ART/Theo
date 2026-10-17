@@ -44,16 +44,17 @@ function sliceGate(src: string): string {
     "LaneChips (tabs) must not wait on AuthGate ready",
   );
   assert.match(gated, /\{children\}/, "AuthGate wraps only the form slot");
-  assert.match(
-    layout.slice(0, layout.indexOf("<AuthGate>")),
-    /PageHeader/,
-    "title chrome paints before AuthGate",
-  );
-  assert.match(
-    layout.slice(0, layout.indexOf("<AuthGate>")),
-    /LaneChips/,
-    "tabs paint before AuthGate",
-  );
+  // Since the 2026-10-03 upload redesign the title and tabs are inline
+  // markup (not PageHeader / LaneChips), found by their copy and tour anchors.
+  const beforeGate = layout.slice(0, layout.indexOf("<AuthGate>"));
+  for (const [marker, what] of [
+    ['t("upload.title")', "title chrome"],
+    ['data-tour="upload-tabs"', "artwork / exhibition tabs"],
+    ['data-tour="upload-tab-single"', "single / bulk tabs"],
+  ]) {
+    assert.ok(beforeGate.includes(marker), `${what} paints before AuthGate`);
+    assert.equal(gated.includes(marker), false, `${what} must not wait on AuthGate ready`);
+  }
 
   const bootstrap = read("src/components/AuthBootstrap.tsx");
   const bootstrapCode = bootstrap

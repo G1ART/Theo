@@ -53,7 +53,13 @@ assert.doesNotMatch(
   /external_artists\(display_name,\s*invite_email\)/,
   "public artwork embeds must drop invite_email",
 );
-assert.match(artworksSrc, /external_artists\(display_name\)/);
+// Since 2026-07-28 (KO/EN names) the embed also carries display_name_ko/en.
+const externalEmbeds = artworksSrc.match(/external_artists\([^)]*\)/g) ?? [];
+assert.ok(externalEmbeds.length > 0, "artwork embeds still read the external artist name");
+for (const embed of externalEmbeds) {
+  assert.match(embed, /\bdisplay_name\b/, `${embed} must read display_name`);
+  assert.doesNotMatch(embed, /invite_email/, `${embed} must not read invite_email`);
+}
 
 // 5) Editor must read invite_email via the owner-only RPC, not the embed.
 const editSrc = readFileSync(

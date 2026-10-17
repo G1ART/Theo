@@ -9,8 +9,8 @@
 //   1. `/onboarding` is account-creation-only (no username/display_name/
 //      role/is_public inputs, no profile save, no username availability
 //      check).
-//   2. `/onboarding/identity` is the only caller of
-//      `checkUsernameAvailability` and the only surface that reads the
+//   2. `/onboarding/identity` (and signup v2 step 3) are the only callers
+//      of `checkUsernameAvailability` and the only surfaces that read the
 //      `check_username_availability` RPC.
 //   3. Every `routeByAuthState` call that happens *after* the caller
 //      has confirmed a live session passes `sessionPresent: true`. This
@@ -98,12 +98,15 @@ function fail(msg) {
   const rpcRe = /check_username_availability/;
   // Files that are allowed to reference availability checks:
   //   - the identity-finish page
+  //   - signup v2 step 3, which edits the suggested @username
+  //     (docs/SIGNUP_REDESIGN_SPEC.md decision #10, §11.3)
   //   - the reusable <UsernameField /> that implements the UX
   //   - the thin wrapper that calls the RPC
   //   - this smoke file's own string (not scanned because it lives
   //     under `tests/`, not `src/`)
   const allowed = new Set([
     "src/app/onboarding/identity/page.tsx",
+    "src/components/auth/steps/SignupStep3Profile.tsx",
     "src/components/onboarding/UsernameField.tsx",
     "src/lib/identity/suggestions.ts",
     "src/lib/supabase/profiles.ts",

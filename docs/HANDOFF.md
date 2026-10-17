@@ -2,6 +2,26 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 전부터 실패하던 테스트 정리 (낡은 테스트 7건 고침, 제품 규칙 1건 보고)
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.** `src` 코드는 바꾸지 않았다. `package.json` 은 `test:onboarding-runtime` 실행기만 `tsx` 로 바꿨다.
+
+모두 의도적으로 바뀐 코드를 테스트가 못 따라간 경우였고, 코드 퇴행은 없었다. 검사는 지금 코드가 지키는 같은 약속으로 옮겼고, 옛 화면이 돌아오면 옛 검사를 다시 요구한다.
+
+- `external-artist-dedupe-phase1`: `b3e35b0`(07-28 한/영 이름)이 `get_or_create_external_artist` 호출을 두 줄로 나눠 한 줄 정규식이 놓쳤다. 줄바꿈을 허용해 같은 RPC 경유를 본다.
+- `external-artist-link-phase2`: 이름에 `external_artist_link` 가 든 07-29 마이그레이션이 생겨 다른 파일을 읽었다. 함수마다 마지막으로 정의한 마이그레이션을 본다. `/my` → `/my/artists` 직접 링크는 08-03 워크스페이스 허브(`eec6b1e`)에서 '출처' 타일 → `/my/orphan-invites` → `/my/artists` 로 바뀌어 그 경로를 본다.
+- `external-artist-public-credit`: `ac555f4`(07-28)로 임베드가 `external_artists(display_name, display_name_ko, display_name_en)` 가 됐다. 모든 임베드가 이름을 읽고 `invite_email` 은 읽지 않는지 본다.
+- `sprint6-2-network-hub`: 08-03 허브가 `/my` 에서 StudioHero 를 뺐고, 08-14(`52a9045`) 스튜디오 투어가 허브 투어로 바뀌었다. 지금은 허브 타일·`/my/network` 링크·투어 앵커를 보고, StudioHero 가 `/my` 에 다시 붙으면 데스크 RPC 숫자와 studio-network 투어 단계를 그대로 요구한다.
+- `upload-refresh-not-blank`: 10-03 업로드 개편(`9ffe75c`, `f6f885e`)이 `PageHeader`·`LaneChips` 를 인라인 제목·탭으로 바꿨다. 제목과 탭 두 줄이 AuthGate 앞에 있고 안에는 없는지 본다.
+- `onboarding-smoke` 의 `SignupStep3Profile`: 가입 v2(`3527df9`, 08-19)는 3단계에서 `@username` 중복을 확인한다(`docs/SIGNUP_REDESIGN_SPEC.md` 결정 #10). 허용 목록에 넣었고 다른 파일은 여전히 막힌다.
+- `test:onboarding-runtime`: 가입 v2(`6b4c008`)부터 `routing.ts` 가 `@/` 별칭으로 모듈을 불러, 맨 `node --experimental-strip-types` 는 찾지 못한다. 다른 테스트 스크립트처럼 `tsx` 로 돌린다.
+
+남은 것(고치지 않음, 대표님 결정 필요): `external-artist-onboarding-merge` 의 마지막 검사 "초대 OTP 사전 생성(`sendMagicLink`) 유지". 09-10(`aa5f22d`)에 "고스트 계정을 안 만드는 쪽으로 고치지 않는다"며 정한 규칙인데, 09-29(`a035609`)에 "Supabase 매직링크는 더 이상 초대에 쓰지 않음"으로 초대를 SendGrid 메일로 바꿨고 그 기록에는 09-10 규칙 언급이 없다. 지금 병합 함수는 프로필이 없으면 직접 만들고 auth INSERT·UPDATE·profiles 트리거 셋이 부르므로, 병합 자체는 OTP 없이도 깨지지 않는다. 09-29 결정이 09-10 규칙을 대체한 것이 맞다면 이 검사를 지금 초대 경로(SendGrid 초대 메일, 초대에 OTP 없음)로 바꾸면 된다.
+
+참고(바꾸지 않음): 워크스페이스 '출처' 타일의 숫자는 내가 초대한 작가 수인데, 누르면 '나에게 온 초대장'(`/my/orphan-invites`)이 열린다. 08-03 허브 설계 주석 그대로다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx` 로 `external-artist-dedupe-phase1`, `external-artist-link-phase2`, `external-artist-public-credit`, `sprint6-2-network-hub`, `upload-refresh-not-blank`, `external-artist-dedupe`, `external-artist-name-everywhere` 통과. `npm run test:onboarding-smoke`, `npm run test:onboarding-runtime` 통과. `external-artist-onboarding-merge` 는 위 OTP 검사에서만 실패한다(앞의 SQL 계약 검사는 통과).
+
 ## 2026-10-17 — 중복 전시 2쌍 합침: '동同, 심沁, 원源.', '소비 이후, 남겨진 것들이 묻다'
 
 > **Supabase SQL 스키마 변경 없음.** 마이그레이션 파일을 만들지 않았다. 아래 행만 한 트랜잭션으로 바꿨다(MCP). 사진 파일 4개는 저장소에서 복사를 확인한 뒤 원본을 지웠다. **환경 변수 추가·변경 없음.**

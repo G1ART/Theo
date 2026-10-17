@@ -9,8 +9,9 @@
 //      pages that funnel into /my/network?tab=... — neither route is
 //      allowed to ship its own desk / inbox body again.
 //   3. The Studio Hero exposes the calm `studio-network` pill (single
-//      button + presence dot) and /my/page.tsx feeds it
-//      `pendingNetworkActivityCount`, sourced from the desk RPC.
+//      button + presence dot). Whenever /my/page.tsx mounts the hero it
+//      feeds it `pendingNetworkActivityCount`, sourced from the desk RPC;
+//      the Workspace hub (/my since 2026-08-03) links to /my/network.
 //   4. Tour registry covers the new tabs (relationships + requests +
 //      activity-dot steps), and bumped its version.
 
@@ -125,25 +126,40 @@ function read(rel: string): string {
   );
 
   const my = read("src/app/my/page.tsx");
-  assert.ok(
-    /getRelationshipDeskForOwner\(/.test(my),
-    "/my/page.tsx must call the desk RPC to compute pendingNetworkActivityCount"
-  );
-  assert.ok(
-    /pendingNetworkActivityCount=\{pendingNetworkActivityCount\}/.test(my),
-    "/my/page.tsx must forward the count into StudioHero"
-  );
-  assert.ok(
-    /pending_access_request_count[\s\S]{0,80}open_inquiry_count/.test(my),
-    "/my/page.tsx must sum pending_access_request_count + open_inquiry_count for the dot signal"
-  );
-  // The legacy text-link strip is acting-as only after Sprint 6.2.
-  assert.ok(
-    /profile\s*&&\s*actingAsProfileId\s*&&[\s\S]{0,400}\/my\/network\?tab=requests/.test(
-      my
-    ),
-    "/my/page.tsx legacy strip must be acting-as only and point at /my/network?tab=requests"
-  );
+  // Since the 2026-08-03 redesign (eec6b1e) /my is the Workspace hub and
+  // does not mount StudioHero. If the hero comes back here, it must get
+  // the desk count again.
+  const heroOnMy = /<StudioHero\b/.test(my);
+  if (heroOnMy) {
+    assert.ok(
+      /getRelationshipDeskForOwner\(/.test(my),
+      "/my/page.tsx must call the desk RPC to compute pendingNetworkActivityCount"
+    );
+    assert.ok(
+      /pendingNetworkActivityCount=\{pendingNetworkActivityCount\}/.test(my),
+      "/my/page.tsx must forward the count into StudioHero"
+    );
+    assert.ok(
+      /pending_access_request_count[\s\S]{0,80}open_inquiry_count/.test(my),
+      "/my/page.tsx must sum pending_access_request_count + open_inquiry_count for the dot signal"
+    );
+    // The legacy text-link strip is acting-as only after Sprint 6.2.
+    assert.ok(
+      /profile\s*&&\s*actingAsProfileId\s*&&[\s\S]{0,400}\/my\/network\?tab=requests/.test(
+        my
+      ),
+      "/my/page.tsx legacy strip must be acting-as only and point at /my/network?tab=requests"
+    );
+  } else {
+    assert.ok(
+      /<WorkspaceOperationGrid\b/.test(my),
+      "/my/page.tsx renders the Workspace hub tiles"
+    );
+    assert.ok(
+      /href="\/my\/network"/.test(my),
+      "/my/page.tsx must link to the network hub"
+    );
+  }
 
   // 4. Tour registry covers the new steps and bumped its version.
   const tours = read("src/lib/tours/tourRegistry.ts");
@@ -184,10 +200,25 @@ function read(rel: string): string {
     /version:\s*(1[0-9]|[2-9]\d|\d{3,})/.test(studioTourBlock),
     "studio tour version must be bumped to >=10 in Sprint 6.2"
   );
-  assert.ok(
-    /target:\s*"studio-network"/.test(studioTourBlock),
-    "studio tour must include a step anchored at studio-network"
-  );
+  if (heroOnMy) {
+    assert.ok(
+      /target:\s*"studio-network"/.test(studioTourBlock),
+      "studio tour must include a step anchored at studio-network"
+    );
+  } else {
+    // v11 (2026-08-14, 52a9045) rewrote the studio tour for the Workspace hub.
+    for (const anchor of ["workspace-hub", "workspace-tiles"]) {
+      assert.ok(
+        new RegExp(`target:\\s*"${anchor}"`).test(studioTourBlock),
+        `studio tour must include a step anchored at ${anchor}`
+      );
+    }
+    assert.ok(
+      /data-tour="workspace-hub"/.test(my) &&
+        /data-tour="workspace-tiles"/.test(read("src/components/studio/WorkspaceOperationGrid.tsx")),
+      "the Workspace hub must render the studio tour anchors"
+    );
+  }
 
   console.log("sprint6-2-network-hub.test.ts: ok");
 })().catch((err) => {

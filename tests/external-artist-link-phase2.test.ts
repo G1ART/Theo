@@ -16,15 +16,29 @@ const readMig = (needle: string) => {
   assert.ok(f, `expected migration containing ${needle}`);
   return readFileSync(join(migDir, f!), "utf8");
 };
+// Later migrations redefine these RPCs (20260729110000 link, 20260818050000
+// list), so check the newest migration that defines each one.
+const latestDefinition = (fn: string) => {
+  const re = new RegExp(`create or replace function public\\.${fn}\\b`);
+  const f = readdirSync(migDir)
+    .filter((n) => /^\d{14}_.*\.sql$/.test(n))
+    .sort()
+    .filter((n) => re.test(readFileSync(join(migDir, n), "utf8")))
+    .pop();
+  assert.ok(f, `expected a migration defining ${fn}`);
+  return readFileSync(join(migDir, f!), "utf8");
+};
 
 // 1) link/list RPC -----------------------------------------------------------
-const link = readMig("external_artist_link");
-assert.match(link, /create or replace function public\.link_external_artist_to_profile/);
+const link = latestDefinition("link_external_artist_to_profile");
 assert.match(link, /set claimed_profile_id = p_target_profile_id, status = 'claimed'/);
 assert.match(link, /set artist_profile_id = p_target_profile_id, external_artist_id = null/);
 assert.match(link, /update public\.artworks\s+set artist_id = p_target_profile_id/);
 assert.match(link, /is_active_writer_for\(v_inviter\)/, "must allow inviter or their account delegate");
-assert.match(link, /create or replace function public\.list_my_external_artists/);
+assert.match(
+  latestDefinition("list_my_external_artists"),
+  /create or replace function public\.list_my_external_artists/,
+);
 
 // 2) storage Shape 5 ---------------------------------------------------------
 const storage = readMig("artwork_storage_current_owner");
@@ -51,7 +65,13 @@ const page = read("src/app/my/artists/page.tsx");
 assert.match(page, /linkExternalArtistToProfile/);
 assert.match(page, /ConfirmActionDialog/);
 const myPage = read("src/app/my/page.tsx");
-assert.match(myPage, /href="\/my\/artists"/, "/my must link to invited-artists page");
+// Since the 2026-08-03 Workspace hub (eec6b1e) the Provenance tile opens
+// /my/orphan-invites, which links on to /my/artists.
+const directArtistsLink = /href[=:]\s*"\/my\/artists"/.test(myPage);
+const viaInvitations =
+  /href:\s*"\/my\/orphan-invites"/.test(myPage) &&
+  /href="\/my\/artists"/.test(read("src/app/my/orphan-invites/page.tsx"));
+assert.ok(directArtistsLink || viaInvitations, "/my must reach the invited-artists page");
 
 // rpc.ts edit path uses the dedupe RPC (carried from Phase 1)
 assert.match(read("src/lib/provenance/rpc.ts"), /get_or_create_external_artist/);
