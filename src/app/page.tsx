@@ -3,7 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getSession, getMyAuthState } from "@/lib/supabase/auth";
-import { routeByAuthState, DEFAULT_DESTINATION } from "@/lib/identity/routing";
+import {
+  routeByAuthState,
+  DEFAULT_DESTINATION,
+  PUBLIC_FEED_DESTINATION,
+} from "@/lib/identity/routing";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 
 export default function Home() {
@@ -29,7 +33,7 @@ export default function Home() {
         if (!session) {
           // REVOCABLE DECISION (2026-08-07): feed-first cold front door.
           // A visitor with no session hitting `/` now lands on the PUBLIC
-          // feed (DEFAULT_DESTINATION) instead of being walled behind
+          // feed (PUBLIC_FEED_DESTINATION) instead of being walled behind
           // /onboarding. Browsing is the landing experience; login/sign-up
           // is surfaced *naturally* by deeper actions — the app shell's
           // "로그인 / 시작하기" affordance + the inline auth gate on gated
@@ -38,7 +42,7 @@ export default function Home() {
           // onboardingUrlWithNext / loginUrlWithNext so the user round-trips
           // back. To restore the old signup-first wall, flip this back to
           // ONBOARDING_PATH (and update tests/onboarding-smoke.mjs invariant 6a).
-          router.replace(DEFAULT_DESTINATION);
+          router.replace(PUBLIC_FEED_DESTINATION);
           return;
         }
         const state = await getMyAuthState();

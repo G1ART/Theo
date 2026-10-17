@@ -34,6 +34,8 @@ assert.equal(classifyFeedAnchor("/artwork/abc"), "detail");
 assert.equal(classifyFeedAnchor("/e/show?from=feed"), "detail");
 assert.equal(classifyFeedAnchor("/feed"), "open-feed");
 assert.equal(classifyFeedAnchor("/feed?tab=all&sort=latest"), "open-feed");
+// Logo and Explore open For you when signed in; still a fresh feed at the top.
+assert.equal(classifyFeedAnchor("/feed?tab=foryou&sort=latest"), "open-feed");
 assert.equal(classifyFeedAnchor("/feed?tab=artworks"), "open-feed");
 assert.equal(classifyFeedAnchor("/u/someone"), "leave");
 assert.equal(feedExitKeepsScroll("detail"), true);

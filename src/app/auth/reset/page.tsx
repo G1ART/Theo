@@ -22,6 +22,7 @@ import { useT } from "@/lib/i18n/useT";
 // `passwordPolicy.ts`. Reset flow reads the SSOT so a future bump
 // won't leave this page behind.
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/passwordPolicy";
+import { DEFAULT_DESTINATION } from "@/lib/identity/routing";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -81,7 +82,7 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    router.replace("/feed?tab=all&sort=latest");
+    router.replace(DEFAULT_DESTINATION);
   }
 
   if (hasSession === null) {

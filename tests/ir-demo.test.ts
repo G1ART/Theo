@@ -49,7 +49,8 @@ assert.match(asset, /irDemoCookieIsValid/);
 assert.match(asset, /IR_DEMO_ASSET_ORIGIN/);
 assert.match(asset, /storage\/v1\/object\/public/);
 
-assert.match(authGate, /isIrDemo\(\) \? IR_PATH : LOGIN_PATH/);
+// No session → login with the page kept as `next`; loginUrlWithNext is /ir in the demo.
+assert.match(authGate, /router\.replace\(loginUrlWithNext\(\{ nextPath: currentPathWithQuery\(\) \}\)\)/);
 assert.match(authGate, /if \(isIrDemo\(\)\) \{\s*setReady\(true\)/);
 
 assert.match(routing, /if \(isIrDemo\(\)\) return IR_PATH/);

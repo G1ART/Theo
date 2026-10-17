@@ -9,27 +9,7 @@ import { PageShell } from "@/components/ds/PageShell";
 import { FeedHeader, type ExploreTab } from "@/components/feed/FeedHeader";
 import { BilingualDiscoveryBanner } from "@/components/bilingual/BilingualDiscoveryBanner";
 import { discardFeedSession, discardFeedSessionForHref } from "@/lib/feed/scrollRestore";
-
-const NEW_TABS: readonly ExploreTab[] = [
-  "foryou",
-  "artworks",
-  "artists",
-  "exhibitions",
-  "all",
-] as const;
-
-function normalizeTab(raw: string | null, isSignedIn: boolean): ExploreTab {
-  const lowered = (raw ?? "").trim().toLowerCase();
-  // Back-compat: pre-redesign the URL used `tab=all|following`. Map the
-  // old `all` to the new signed-in default ("foryou") so returning users
-  // still land on the personalized surface; keep `all` explicit when the
-  // visitor is anonymous. `following` is folded into `foryou` because the
-  // Living Salon already respects follow signals.
-  if (lowered === "following") return isSignedIn ? "foryou" : "all";
-  if (lowered === "" || lowered === "all") return isSignedIn ? "foryou" : "all";
-  if ((NEW_TABS as readonly string[]).includes(lowered)) return lowered as ExploreTab;
-  return isSignedIn ? "foryou" : "all";
-}
+import { feedWalkLane, normalizeFeedTab } from "@/lib/feed/feedTab";
 
 export function FeedClient() {
   const router = useRouter();
@@ -50,7 +30,7 @@ export function FeedClient() {
   }, []);
 
   const rawTab = searchParams.get("tab");
-  const tab = normalizeTab(rawTab, !!userId);
+  const tab = normalizeFeedTab(rawTab, !!userId, sessionReady);
   const sortValue =
     (searchParams.get("sort") === "popular" ? "popular" : "latest") as
       | "latest"
@@ -107,16 +87,10 @@ export function FeedClient() {
       */}
       {sessionReady && userId && <BilingualDiscoveryBanner />}
 
-      {!sessionReady ? null : tab === "foryou" || (!userId && tab === "all") ? (
+      {!sessionReady ? null : tab === "foryou" || tab === "all" ? (
         <FeedWalk
           userId={userId}
-          lane={
-            userId && (rawTab ?? "").trim().toLowerCase() === "following"
-              ? "following"
-              : userId
-                ? "personalized"
-                : "public"
-          }
+          lane={feedWalkLane(tab, rawTab, !!userId)}
           sort={sortValue}
         />
       ) : (

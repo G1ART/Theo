@@ -14,12 +14,17 @@ import {
   listMyDelegations,
   type DelegationWithDetails,
 } from "@/lib/supabase/delegations";
-import { onboardingUrlWithNext } from "@/lib/identity/routing";
+import {
+  feedHomeHref,
+  loginUrlWithNext,
+  onboardingUrlWithNext,
+} from "@/lib/identity/routing";
 import {
   PRIMARY_NAV,
   SECONDARY_NAV,
   type NavItem,
   isNavItemActive,
+  navItemHref,
 } from "@/lib/shell/navConfig";
 import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
 
@@ -178,10 +183,7 @@ export function AppSidebar({
     // (Explore) directly, but account-gated rows route to sign-up with
     // the destination preserved as `next` so tapping never dead-ends on
     // a bare /login bounce that loses where they were headed.
-    const href =
-      loggedIn || !item.gated
-        ? item.href
-        : onboardingUrlWithNext({ nextPath: item.href });
+    const href = navItemHref(item, loggedIn);
     const badgeCount = resolveBadge(item);
     return (
       <ShellNavLink
@@ -220,7 +222,7 @@ export function AppSidebar({
       className="flex h-full min-h-screen flex-col gap-6 py-8 pr-6 text-[15px]"
     >
       <ShellNavLink
-        href="/feed?tab=all&sort=latest"
+        href={feedHomeHref(loggedIn)}
         aria-label="Theo"
         className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
       >
@@ -309,7 +311,7 @@ export function AppSidebar({
               {t("nav.getStarted")}
             </ShellNavLink>
             <ShellNavLink
-              href="/login"
+              href={loginUrlWithNext({ nextPath: pathname || null })}
               className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
             >
               {t("nav.login")}

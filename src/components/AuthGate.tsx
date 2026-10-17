@@ -9,11 +9,11 @@ import {
   IDENTITY_FINISH_PATH,
   ONBOARDING_PATH,
   SET_PASSWORD_PATH,
-  LOGIN_PATH,
+  loginUrlWithNext,
 } from "@/lib/identity/routing";
 import { TheoLoadingMark } from "@/components/brand/TheoLoadingMark";
 import { useT } from "@/lib/i18n/useT";
-import { IR_PATH, isIrDemo } from "@/lib/irDemo/config";
+import { isIrDemo } from "@/lib/irDemo/config";
 
 /**
  * Client-side gate that guards protected product surfaces. It only
@@ -23,7 +23,7 @@ import { IR_PATH, isIrDemo } from "@/lib/irDemo/config";
  * `/artwork/123` sticky instead of bouncing them through the router.
  *
  * Precedence (Onboarding Identity Overhaul, Track D):
- *   1. no session            → /login
+ *   1. no session            → /login?next=<current> (IR demo: /ir)
  *   2. needs_identity_setup  → /onboarding/identity?next=<current>
  *   3. needs_onboarding      → /onboarding
  *   4. !has_password         → /set-password
@@ -108,7 +108,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     ): Promise<void> {
       if (cancelled) return;
       if (!session) {
-        router.replace(isIrDemo() ? IR_PATH : LOGIN_PATH);
+        router.replace(loginUrlWithNext({ nextPath: currentPathWithQuery() }));
         return;
       }
       if (isIrDemo()) {

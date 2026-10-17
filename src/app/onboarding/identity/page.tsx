@@ -28,7 +28,12 @@ import { ensureFreeEntitlement } from "@/lib/entitlements";
 import { getMyProfile, updateMyProfileBase } from "@/lib/supabase/profiles";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
 import { useT } from "@/lib/i18n/useT";
-import { routeByAuthState, safeNextPath, LOGIN_PATH } from "@/lib/identity/routing";
+import {
+  DEFAULT_DESTINATION,
+  loginUrlWithNext,
+  routeByAuthState,
+  safeNextPath,
+} from "@/lib/identity/routing";
 import { isRoleKey } from "@/lib/identity/roles";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import { UsernameField } from "@/components/onboarding/UsernameField";
@@ -95,7 +100,7 @@ function IdentityInner() {
       } = await getSession();
       if (cancelled) return;
       if (!session) {
-        router.replace(LOGIN_PATH);
+        router.replace(loginUrlWithNext({ nextPath }));
         return;
       }
       const state = await getMyAuthState();
@@ -137,7 +142,7 @@ function IdentityInner() {
           !!pn.main_role?.trim();
         if (completeNow) {
           setLoadState("redirecting");
-          router.replace(nextPath ?? "/feed?tab=all&sort=latest");
+          router.replace(nextPath ?? DEFAULT_DESTINATION);
           return;
         }
       }
@@ -258,7 +263,7 @@ function IdentityInner() {
     } = await getSession();
     if (!session?.user?.id) {
       setSaving(false);
-      router.replace(LOGIN_PATH);
+      router.replace(loginUrlWithNext({ nextPath }));
       return;
     }
 
@@ -324,7 +329,7 @@ function IdentityInner() {
         pn.roles.length > 0 &&
         !!pn.main_role?.trim();
       if (completeNow) {
-        router.replace(nextPath ?? "/feed?tab=all&sort=latest");
+        router.replace(nextPath ?? DEFAULT_DESTINATION);
         return;
       }
     }

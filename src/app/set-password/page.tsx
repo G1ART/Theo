@@ -8,6 +8,7 @@ import { useT } from "@/lib/i18n/useT";
 // Signup v2 Phase 5 (2026-08-19): shared 12-char floor via
 // `passwordPolicy.ts`. See docs/SIGNUP_REDESIGN_SPEC.md §5 #8.
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/passwordPolicy";
+import { DEFAULT_DESTINATION } from "@/lib/identity/routing";
 
 export default function SetPasswordPage() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function SetPasswordPage() {
       return;
     }
 
-    router.replace("/feed?tab=all&sort=latest");
+    router.replace(DEFAULT_DESTINATION);
   }
 
   return (

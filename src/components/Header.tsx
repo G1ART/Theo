@@ -22,12 +22,17 @@ import {
   listMyDelegations,
   type DelegationWithDetails,
 } from "@/lib/supabase/delegations";
-import { onboardingUrlWithNext } from "@/lib/identity/routing";
+import {
+  feedHomeHref,
+  loginUrlWithNext,
+  onboardingUrlWithNext,
+} from "@/lib/identity/routing";
 import {
   PRIMARY_NAV,
   SECONDARY_NAV,
   type NavItem,
   isNavItemActive,
+  navItemHref,
 } from "@/lib/shell/navConfig";
 import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
 import { layer } from "@/lib/ui/layers";
@@ -400,10 +405,7 @@ export function Header() {
   }
 
   function renderMobileRow(item: NavItem) {
-    const href =
-      loggedIn || !item.gated
-        ? item.href
-        : onboardingUrlWithNext({ nextPath: item.href });
+    const href = navItemHref(item, loggedIn);
     const badgeCount = resolveBadge(item);
     const active = isNavItemActive(item, pathname ?? "");
     return (
@@ -510,7 +512,7 @@ export function Header() {
       >
         <div className="flex items-center gap-6">
           <ShellNavLink
-            href="/feed?tab=all&sort=latest"
+            href={feedHomeHref(loggedIn)}
             aria-label="Theo"
             className="inline-flex items-center text-zinc-900 hover:opacity-80"
             onClick={closeMobile}
@@ -671,7 +673,7 @@ export function Header() {
                 </button>
               </span>
               <ShellNavLink
-                href="/login"
+                href={loginUrlWithNext({ nextPath: pathname || null })}
                 className="hidden lg:inline-flex rounded px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
               >
                 {t("nav.login")}
@@ -788,7 +790,7 @@ export function Header() {
                     {t("nav.getStarted")}
                   </ShellNavLink>
                   <ShellNavLink
-                    href="/login"
+                    href={loginUrlWithNext({ nextPath: pathname || null })}
                     onClick={closeMobile}
                     className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
                   >

@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 로그인 next 보존, 피드 "전체" 탭과 로고
+
+> **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
+
+진입·진출 경로 정리의 두 번째 묶음이다(첫 묶음은 아래 "진입·진출 경로 정리" 섹션).
+
+- 로그인 상태에서 피드 "전체" 탭을 누르면 For you 가 열리던 하위호환(`tab=all` → For you)을 없앴다. "전체"는 로그인 여부와 상관없이 공개 전체 피드(공개 걷기)다. 탭 판정은 `src/lib/feed/feedTab.ts` 에 있다.
+- 로고와 둘러보기는 로그인 상태면 For you(`/feed?tab=foryou&sort=latest`), 비로그인이면 전체(`/feed?tab=all&sort=latest`)로 간다(`feedHomeHref`, `navItemHref`). 맨 위로 가는 규칙(로고, For you, 전체, 새로고침)은 그대로다.
+- `DEFAULT_DESTINATION` 은 이제 For you 다. 로그인·가입·identity·비밀번호 재설정 뒤 `next` 가 있으면 그쪽, 없으면 For you 로 간다. 비로그인의 첫 화면(`/`)은 `PUBLIC_FEED_DESTINATION`(전체)이다. IR 데모 수집가 홈도 For you 주소로 바꿔 지금 화면을 유지했다.
+- 세션 없이 보호된 화면에 들어오면 `AuthGate` 가 `/login?next=<그 화면>` 으로 보낸다. 메일이나 알림 링크로 연 화면으로 로그인 뒤 돌아온다. 비로그인 헤더·사이드바의 "로그인" 링크와, 세션 없는 identity 화면도 `next` 를 넘긴다.
+- 비로그인이 `tab=foryou` 주소로 오면 세션을 확인한 뒤 전체를 연다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/feed-tab-entry.test.ts`(신규). `npx tsx tests/onboarding-routing-runtime.mjs`(npm 스크립트의 node strip-types 는 이 작업 전부터 `@/` 경로를 못 찾아 tsx 로 돌렸다). `node tests/onboarding-smoke.mjs` 는 첫 묶음에서 깨진 초대 불변식을 헬퍼 기준으로 고쳤다. 남은 1건 `[identity-singleton] SignupStep3Profile` 은 이 작업 전부터 있던 실패다. `npx tsx tests/feed-scroll-restore.test.ts`, `tests/ir-demo.test.ts`, `tests/list-scroll-restore.test.ts`, `tests/upload-nav-always-clickable.test.ts`, `tests/auth-password-recovery.test.ts`, `tests/onboarding-banner-refresh.test.ts`, `tests/first-value-paths.test.ts`. 로그인 화면과 피드 탭은 브라우저로 눌러 보지 못했다.
+
 ## 2026-10-17 — 초안에서 공개한 작품도 팔로워 신작 알림, 공개 한 번에 한 건
 
 > **Supabase SQL:** `supabase/migrations/20261017211500_new_work_alert_on_first_publish.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 다섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**

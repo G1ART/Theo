@@ -41,6 +41,9 @@ const {
   SET_PASSWORD_PATH,
   LOGIN_PATH,
   DEFAULT_DESTINATION,
+  PUBLIC_FEED_DESTINATION,
+  feedHomeHref,
+  loginUrlWithNext,
 } = await import(routingUrl);
 
 const failures = [];
@@ -194,6 +197,19 @@ function makeState(overrides) {
   const { to } = routeByAuthState(state, { sessionPresent: true });
   expect("8-needs-onboarding", to, ONBOARDING_PATH);
 }
+
+// --- 10. Feed homes ---------------------------------------------------
+// Signed-in default (login, onboarding, password flows without `next`)
+// is For you. `tab=all` is the whole public feed for everyone.
+expect("10a-default-for-you", DEFAULT_DESTINATION, "/feed?tab=foryou&sort=latest");
+expect("10b-public-feed-all", PUBLIC_FEED_DESTINATION, "/feed?tab=all&sort=latest");
+expect("10c-logo-signed-in", feedHomeHref(true), DEFAULT_DESTINATION);
+expect("10d-logo-visitor", feedHomeHref(false), PUBLIC_FEED_DESTINATION);
+expect(
+  "10e-gate-keeps-page",
+  loginUrlWithNext({ nextPath: "/my/messages/ada?x=1" }),
+  `${LOGIN_PATH}?next=${encodeURIComponent("/my/messages/ada?x=1")}`,
+);
 
 // --- 9. Open-redirect safety -----------------------------------------
 // `next` sanitizer must reject protocol-relative and absolute URLs.

@@ -17,7 +17,10 @@ import type { MyAuthState } from "@/lib/supabase/auth";
 import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
 import { isIrDemo, IR_PATH } from "@/lib/irDemo/config";
 
-export const DEFAULT_DESTINATION = "/feed?tab=all&sort=latest";
+/** Signed-in feed home (For you). Login and onboarding land here without `next`. */
+export const DEFAULT_DESTINATION = "/feed?tab=foryou&sort=latest";
+/** The whole public feed: a visitor's front door and the "all" tab for everyone. */
+export const PUBLIC_FEED_DESTINATION = "/feed?tab=all&sort=latest";
 export const IDENTITY_FINISH_PATH = "/onboarding/identity";
 export const ONBOARDING_PATH = "/onboarding";
 /** Signup v2 (2026-08-20): the new wizard front door. When
@@ -26,6 +29,11 @@ export const ONBOARDING_PATH = "/onboarding";
 export const SIGNUP_V2_PATH = "/signup";
 export const SET_PASSWORD_PATH = "/set-password";
 export const LOGIN_PATH = "/login";
+
+/** Logo and Explore: For you when signed in, the public feed for a visitor. */
+export function feedHomeHref(signedIn: boolean): string {
+  return signedIn ? DEFAULT_DESTINATION : PUBLIC_FEED_DESTINATION;
+}
 
 export type RouteOpts = {
   nextPath?: string | null;

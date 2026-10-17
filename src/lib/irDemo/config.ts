@@ -29,7 +29,7 @@ export const IR_PERSONAS = [
     profileId: "d4b84e70-3b10-4da9-a6da-ad7830fc7519",
     username: "g1art_founder",
     email: "ir-collector@theo.demo",
-    home: "/feed?tab=all&sort=latest",
+    home: "/feed?tab=foryou&sort=latest",
   },
 ] as const;
 

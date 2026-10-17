@@ -23,11 +23,19 @@
  *   - `"unread"`          → notification unread count
  *   - `"delegationsPending"` → pending inbound delegations count
  */
+import {
+  DEFAULT_DESTINATION,
+  PUBLIC_FEED_DESTINATION,
+  onboardingUrlWithNext,
+} from "@/lib/identity/routing";
+
 export type NavBadge = "delegationsPending" | "unread" | null;
 
 export type NavItem = {
   key: string;
   href: string;
+  /** Destination when signed in, if it differs (Explore opens For you). */
+  signedInHref?: string;
   labelKey: string;
   /** URL prefixes for active-state highlighting. */
   matchPatterns?: string[];
@@ -41,7 +49,8 @@ export type NavItem = {
 export const PRIMARY_NAV: NavItem[] = [
   {
     key: "explore",
-    href: "/feed?tab=all&sort=latest",
+    href: PUBLIC_FEED_DESTINATION,
+    signedInHref: DEFAULT_DESTINATION,
     labelKey: "nav.explore",
     matchPatterns: ["/feed"],
   },
@@ -120,6 +129,12 @@ export const SECONDARY_NAV: NavItem[] = [
     gated: true,
   },
 ];
+
+/** Where a nav row goes. Gated rows send visitors through sign-up with `next`. */
+export function navItemHref(item: NavItem, signedIn: boolean): string {
+  if (signedIn) return item.signedInHref ?? item.href;
+  return item.gated ? onboardingUrlWithNext({ nextPath: item.href }) : item.href;
+}
 
 /** Test a pathname against a nav item's active-state rules. */
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
