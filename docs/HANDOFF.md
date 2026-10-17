@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 가격 잠금 뒤 경로 전수 점검, 공유 룸이 열리지 않던 버그
+
+> **Supabase SQL:** `supabase/migrations/20261017224527_room_rpc_image_order.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
+
+가격·소장 열 잠금(`20261017221500`) 뒤 로그인 화면이 깨졌는지 전수 점검했다. 잠금 때문에 깨진 곳은 없었다.
+
+- 앱 코드: `artworks` 를 직접 읽거나 쓰는 57곳, 다른 표에서 `artworks` 를 임베드하는 select 7곳, API 라우트(사용자 토큰)와 스크립트. 잠근 열을 select·필터·반환에 쓰는 곳은 없다(쓰기의 SET 은 열 권한과 무관하고 반환은 `id` 뿐). OG 이미지·sitemap 라우트는 없다.
+- DB: 잠근 열을 쓰는 함수 6개는 모두 SECURITY DEFINER. 호출자 권한으로 `artworks` 를 읽는 함수는 `exhibition_feed_thumb_sources` 하나이고 잠그지 않은 열만 쓴다. 잠근 열을 쓰는 뷰·정책은 없고, `artworks` 를 하위 조회하는 정책은 `id`·`artist_id`·`created_by`·`visibility` 만 쓴다. 쓰기 경로의 트리거에 외부 호출은 없다.
+- 되돌리는 트랜잭션에서 합성 계정 다섯(작가·갤러리·컬렉터·계정 위임·기획자)으로 실제 역할 권한을 써서 돌렸다: 싱글 업로드와 이미지, 초안·가격 수정·게시·초안 삭제·순서, 라이브러리·상세·개수, 가격 문의 보내기·답장·상태·읽음·목록, 보드·항목·룸 토큰, 전시 만들기·작품 추가·썸네일, 클레임 요청·확인·보유자 수정, 위임 수정·대리 업로드·감사 기록, 판매 완료 전환, 좋아요·좋아요 탭, 비로그인 카드·상세. 원가격 직접 조회는 여전히 42501 이다. 남은 행 0, 알림 0.
+- 잠금과 무관한 기존 버그 두 개를 찾아 고쳤다.
+  - 공유 룸·보드: `get_room_for_viewer_by_token`·`get_shortlist_items_by_token` 이 없는 열 `artwork_images."position"` 으로 정렬해 공개 룸 5개가 모두 42703 으로 열리지 않았다(3월부터, 10-09 에 다시 만들 때도 그대로). `sort_order` 로 바꿨고, 고친 뒤 5개 모두 비로그인으로 열려 항목 9개에 이미지가 나온다.
+  - AI 보드 피치: 보드 항목 조회가 없는 열 `artworks.keywords` 를 요청해 조용히 실패했고, 작품·전시·메모 없이 문안을 만들었다. 그 열을 뺐다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/room-rpc-image-order.test.ts`(신규: 두 함수의 마지막 정의가 `sort_order` 로 정렬, 피치 select 에 없는 열 없음). `tests/visibility-sql-contract.test.ts`. 바꾼 파일 eslint 0건. 로그인한 브라우저로 룸과 피치를 열어 보지는 못했다.
+
 ## 2026-10-17 — 'Three by Three' 기획을 대표님 계정으로, The GREEN 전시 7개 주최를 계정에 연결
 
 > **Supabase SQL 스키마 변경 없음.** 마이그레이션 파일을 만들지 않았다. 아래 `projects` 8행만 한 트랜잭션으로 `UPDATE` 했다(MCP). **환경 변수 추가·변경 없음.**

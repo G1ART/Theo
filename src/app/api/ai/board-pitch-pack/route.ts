@@ -117,7 +117,7 @@ export async function POST(req: Request) {
         .from("shortlist_items")
         .select(
           "id, artwork_id, exhibition_id, note, " +
-            "artworks!artwork_id(id, title, year, medium, keywords), " +
+            "artworks!artwork_id(id, title, year, medium), " +
             "projects!exhibition_id(id, title, start_date)",
         )
         .eq("shortlist_id", body.boardId)
@@ -138,7 +138,6 @@ export async function POST(req: Request) {
               title: string | null;
               year: string | number | null;
               medium: string | null;
-              keywords: string[] | null;
             }
           | null;
         if (aw && typeof aw === "object" && !Array.isArray(aw)) {
@@ -147,7 +146,7 @@ export async function POST(req: Request) {
             title: aw.title,
             year: aw.year,
             medium: aw.medium,
-            themes: Array.isArray(aw.keywords) ? aw.keywords : null,
+            themes: null,
           });
         }
         const ex = row.projects as
