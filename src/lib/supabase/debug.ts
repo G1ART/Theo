@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { ARTWORK_CARDS_VIEW } from "@/lib/artworks/viewerFields";
 
 /**
  * Query column names from information_schema. Requires DB function:
@@ -24,10 +25,10 @@ export async function getTableColumnsFromInformationSchema(
     : [];
 }
 
-/** Fallback: infer columns from select * limit 1 */
+/** Fallback: infer columns from select * limit 1. Stored price columns are not readable by clients; the card view stands in. */
 export async function debugArtworksColumns(): Promise<string[]> {
   const { data, error } = await supabase
-    .from("artworks")
+    .from(ARTWORK_CARDS_VIEW)
     .select("*")
     .limit(1);
 

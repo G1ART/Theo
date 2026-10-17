@@ -29,6 +29,8 @@ import {
   pickLocalizedMedium,
 } from "@/lib/i18n/pickLocalized";
 import { ownershipStatusLabel } from "@/lib/artworks/labels";
+import { cardTradeView } from "@/lib/artworks/cardTrade";
+import { getCardGateCopy } from "@/lib/visibility/copy";
 import { LikeButton } from "./LikeButton";
 import { ArtworkProvenanceBlock } from "./ArtworkProvenanceBlock";
 
@@ -153,14 +155,30 @@ export function ArtworkCard({ artwork, likesCount = 0, isLiked = false, onLikeUp
             {[artwork.year, localizedMedium].filter(Boolean).join(" · ")}
           </p>
           {(() => {
-            const label = ownershipStatusLabel(artwork.ownership_status, t);
-            return label ? (
-              <p className="mt-1 text-sm font-medium text-zinc-700">{label}</p>
-            ) : null;
+            const trade = cardTradeView(artwork);
+            const label = trade.showStatus ? ownershipStatusLabel(artwork.ownership_status, t) : null;
+            return (
+              <>
+                {label ? (
+                  <p className="mt-1 text-sm font-medium text-zinc-700">{label}</p>
+                ) : null}
+                {trade.showPrice ? (
+                  <p className="mt-1 text-sm text-zinc-600">
+                    {getArtworkPriceDisplay(artwork, t)}
+                  </p>
+                ) : null}
+                {trade.gate ? (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {getCardGateCopy({
+                      fieldKey: trade.gate.fieldKey,
+                      requiredAudience: trade.gate.audience,
+                      locale: locale === "ko" ? "ko" : "en",
+                    })}
+                  </p>
+                ) : null}
+              </>
+            );
           })()}
-          <p className="mt-1 text-sm text-zinc-600">
-            {getArtworkPriceDisplay(artwork, t)}
-          </p>
           {(artistLabel || (listerLabel && byPhrase)) && (
             <p className="mt-1 text-sm text-zinc-500">
               {artistLabel && <span>by {artistLabel}</span>}

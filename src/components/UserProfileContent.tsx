@@ -44,7 +44,8 @@ import { getSession } from "@/lib/supabase/auth";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import type { ProfilePublic } from "@/lib/supabase/profiles";
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
-import { canEditArtwork, getArtworkImageUrl, getArtworksByIds, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import { canEditArtwork, fetchArtworkViewerFields, getArtworkImageUrl, getArtworksByIds, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import { mergeViewerFields, type ViewerFields } from "@/lib/artworks/viewerFields";
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { isCollectedMembershipOnly } from "@/lib/studio/profileContentKind";
 import {
@@ -127,7 +128,7 @@ function getAvatarUrl(avatarUrl: string | null): string | null {
 
 export function UserProfileContent({
   profile,
-  artworks,
+  artworks: initialArtworks,
   exhibitions = [],
   exhibitionOrderEntries,
   initialReorderMode = false,
@@ -144,6 +145,27 @@ export function UserProfileContent({
   const [artistPublishLine, setArtistPublishLine] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
+  // The list is rendered on the server without a session, so price and
+  // availability are judged for a visitor. A signed-in viewer (owner,
+  // mutual follow, delegate) refreshes them once here.
+  const [viewerFields, setViewerFields] = useState<Map<string, ViewerFields>>(() => new Map());
+  const artworks = useMemo(
+    () => mergeViewerFields(initialArtworks, viewerFields),
+    [initialArtworks, viewerFields],
+  );
+  useEffect(() => {
+    if (!viewerId || initialArtworks.length === 0) {
+      setViewerFields((prev) => (prev.size === 0 ? prev : new Map()));
+      return;
+    }
+    let cancelled = false;
+    void fetchArtworkViewerFields(initialArtworks.map((a) => a.id)).then((byId) => {
+      if (!cancelled) setViewerFields(byId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialArtworks, viewerId]);
   const [grants, setGrants] = useState<ProfileManageGrants>(EMPTY_PROFILE_MANAGE_GRANTS);
   const canEditProfile = isOwner || grants.editPublicProfile;
   const canManageTabs = isOwner || grants.manageTabs;

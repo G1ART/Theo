@@ -26,6 +26,13 @@ import {
   personUnderArtworkTitle,
 } from "@/lib/upload/artworkOwner";
 import { canDeleteArtwork as canDeleteArtworkRole } from "@/lib/artworks/claimMenu";
+import {
+  ARTWORK_CARDS_VIEW,
+  applyViewerFields,
+  readViewerFields,
+  type ArtworkVisibilityGate,
+  type ViewerFields,
+} from "@/lib/artworks/viewerFields";
 
 const BUCKET = "artworks";
 
@@ -252,6 +259,10 @@ export type Artwork = {
   provenance_visible?: boolean | null;
   /** Filled when user applied website-assisted import metadata (audit / trust UI). */
   website_import_provenance?: Record<string, unknown> | null;
+  /** Set when the viewer may not see the price; price fields are then null. */
+  price_gate?: ArtworkVisibilityGate | null;
+  /** Set when the viewer may not see availability; `ownership_status` is then null. */
+  availability_gate?: ArtworkVisibilityGate | null;
 };
 
 /**
@@ -553,6 +564,12 @@ type ListOptions = {
   cursor?: ArtworkCursor | null;
 };
 
+/**
+ * Card and list reads go through `public.artwork_cards` (see
+ * `@/lib/artworks/viewerFields`). Stored price and availability columns
+ * are not selected; `viewer_fields` carries what this viewer may see and
+ * `normalizeArtworkRow` copies it onto the usual keys.
+ */
 const ARTWORK_SELECT = `
   id,
   title,
@@ -575,14 +592,7 @@ const ARTWORK_SELECT = `
   visibility,
   work_kind,
   created_by,
-  pricing_mode,
-  is_price_public,
-  price_usd,
-  price_input_amount,
-  price_input_currency,
-  fx_rate_to_usd,
-  fx_date,
-  ownership_status,
+  viewer_fields,
   artist_id,
   artist_sort_order,
   created_at,
@@ -632,14 +642,7 @@ const FEED_ARTWORK_SELECT = `
   visibility,
   work_kind,
   created_by,
-  pricing_mode,
-  is_price_public,
-  price_usd,
-  price_input_amount,
-  price_input_currency,
-  fx_rate_to_usd,
-  fx_date,
-  ownership_status,
+  viewer_fields,
   artist_id,
   artist_sort_order,
   created_at,
@@ -669,7 +672,7 @@ export async function listPublicArtworks(
   const isPopular = sort === "popular";
 
   let query = supabase
-    .from("artworks")
+    .from(ARTWORK_CARDS_VIEW)
     .select(FEED_ARTWORK_SELECT)
     .eq("visibility", "public")
     .in("work_kind", ["artwork", "print_edition"])
@@ -750,13 +753,7 @@ const PUBLIC_FILTER_SELECT = `
   size_unit,
   work_kind,
   visibility,
-  pricing_mode,
-  is_price_public,
-  price_usd,
-  price_input_amount,
-  price_input_currency,
-  fx_rate_to_usd,
-  ownership_status
+  viewer_fields
 `;
 
 /** Public cards for a known id list. Drafts and hidden profiles stay out. Order follows `ids`. */
@@ -768,7 +765,7 @@ export async function fetchPublicArtworkCardsByIds(ids: string[]): Promise<Artwo
   }
   if (unique.length === 0) return [];
   const { data, error } = await supabase
-    .from("artworks")
+    .from(ARTWORK_CARDS_VIEW)
     .select(FEED_ARTWORK_SELECT)
     .in("id", unique)
     .eq("visibility", "public");
@@ -802,7 +799,7 @@ export async function scanPublicArtworkLean(
   for (let from = 0; from < cap; from += page) {
     const to = Math.min(from + page, cap) - 1;
     const { data, error } = await supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(PUBLIC_FILTER_SELECT)
       .eq("visibility", "public")
       .in("work_kind", [...safeKinds])
@@ -810,7 +807,7 @@ export async function scanPublicArtworkLean(
       .order("id", { ascending: false })
       .range(from, to);
     if (error || !data) break;
-    rows.push(...(data as Record<string, unknown>[]));
+    rows.push(...(data as Record<string, unknown>[]).map((row) => applyViewerFields(row)));
     if (data.length < to - from + 1) break;
   }
   return rows;
@@ -833,12 +830,32 @@ export function extractLikesCount(row: Record<string, unknown> | null | undefine
 }
 
 function normalizeArtworkRow(r: Record<string, unknown>): ArtworkWithLikes {
+  const row = applyViewerFields(r);
   const fromColumn =
-    r.likes_count != null && Number.isFinite(Number(r.likes_count))
-      ? Number(r.likes_count)
+    row.likes_count != null && Number.isFinite(Number(row.likes_count))
+      ? Number(row.likes_count)
       : null;
-  const likes_count = fromColumn ?? extractLikesCount(r);
-  return { ...r, likes_count } as ArtworkWithLikes;
+  const likes_count = fromColumn ?? extractLikesCount(row);
+  return { ...row, likes_count } as ArtworkWithLikes;
+}
+
+/**
+ * Judged price/availability for rows already on screen. Used when a list
+ * was rendered on the server (no session) and the signed-in viewer may
+ * see more than a visitor.
+ */
+export async function fetchArtworkViewerFields(
+  ids: string[],
+): Promise<Map<string, ViewerFields>> {
+  const unique = [...new Set(ids.filter(Boolean))].slice(0, 1000);
+  const out = new Map<string, ViewerFields>();
+  if (unique.length === 0) return out;
+  const { data, error } = await supabase.rpc("artwork_viewer_fields_for", { p_ids: unique });
+  if (error || !Array.isArray(data)) return out;
+  for (const row of data as Array<{ id?: string; viewer_fields?: unknown }>) {
+    if (typeof row.id === "string") out.set(row.id, readViewerFields(row.viewer_fields));
+  }
+  return out;
 }
 
 /**
@@ -914,7 +931,7 @@ export async function listFollowingArtworks(
 
   if (hasFollowing) {
     let query = supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(FEED_ARTWORK_SELECT)
       .eq("visibility", "public")
       .in("work_kind", ["artwork", "print_edition"])
@@ -949,7 +966,7 @@ export async function listFollowingArtworks(
     const idsToFetch = [...myWorkIds].filter((id) => !list.some((a) => a.id === id)).slice(0, pageSize);
     if (idsToFetch.length > 0) {
       const { data, error } = await supabase
-        .from("artworks")
+        .from(ARTWORK_CARDS_VIEW)
         .select(FEED_ARTWORK_SELECT)
         .eq("visibility", "public")
         .in("work_kind", ["artwork", "print_edition"])
@@ -1000,7 +1017,7 @@ export async function listMyArtworks(
   const artistId = forProfileId ?? session.user.id;
   const build = () => {
     let query = supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(ARTWORK_SELECT)
       .eq("artist_id", artistId)
       .order("created_at", { ascending: false })
@@ -1126,7 +1143,7 @@ export async function listMyArtworksForLibrary(
     data: ArtworkWithLikes[];
     error: unknown;
   }> {
-    let query = supabase.from("artworks").select(ARTWORK_SELECT);
+    let query = supabase.from(ARTWORK_CARDS_VIEW).select(ARTWORK_SELECT);
     if (scope.claimedChunk) {
       query = query.in("id", scope.claimedChunk).neq("artist_id", artistId);
     } else if (claimedIds.length > 0 && claimedIds.length <= CLAIM_ID_CHUNK) {
@@ -1140,8 +1157,8 @@ export async function listMyArtworksForLibrary(
     if (visibility === "public") query = query.eq("visibility", "public");
     else if (visibility === "draft") query = query.eq("visibility", "draft");
 
-    if (ownershipStatus) query = query.eq("ownership_status", ownershipStatus);
-    if (pricingMode) query = query.eq("pricing_mode", pricingMode);
+    if (ownershipStatus) query = query.eq("viewer_fields->>ownership_status", ownershipStatus);
+    if (pricingMode) query = query.eq("viewer_fields->>pricing_mode", pricingMode);
     if (createdBy) query = query.eq("created_by", createdBy);
     if (searchIds && searchIds.length > 0) query = query.in("id", searchIds);
     if (dateFrom) query = query.gte("created_at", dateFrom);
@@ -1269,7 +1286,7 @@ export async function listPublicArtworksByArtistId(
 
   const build = () =>
     supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(FEED_ARTWORK_SELECT)
       .eq("artist_id", artistId)
       .eq("visibility", "public")
@@ -1334,7 +1351,7 @@ export async function listPublicArtworksListedByProfileId(
     const rows: ArtworkWithLikes[] = [];
     for (let i = 0; i < workIds.length; i += CLAIM_ID_CHUNK) {
       const { data, error } = await supabase
-        .from("artworks")
+        .from(ARTWORK_CARDS_VIEW)
         .select(FEED_ARTWORK_SELECT)
         .in("id", workIds.slice(i, i + CLAIM_ID_CHUNK))
         .eq("visibility", "public");
@@ -1349,7 +1366,7 @@ export async function listPublicArtworksListedByProfileId(
   }
 
   const { data, error } = await supabase
-    .from("artworks")
+    .from(ARTWORK_CARDS_VIEW)
     .select(FEED_ARTWORK_SELECT)
     .in("id", workIds)
     .eq("visibility", "public")
@@ -1654,7 +1671,7 @@ export async function getArtworkById(
   id: string
 ): Promise<{ data: ArtworkWithLikes | null; error: unknown }> {
   const { data, error } = await supabase
-    .from("artworks")
+    .from(ARTWORK_CARDS_VIEW)
     .select(
       `
       id,
@@ -1678,14 +1695,8 @@ export async function getArtworkById(
       visibility,
       work_kind,
       created_by,
-      pricing_mode,
-      is_price_public,
-      price_usd,
-      price_input_amount,
-      price_input_currency,
-      fx_rate_to_usd,
-      fx_date,
-      ownership_status,
+      viewer_fields,
+      likes_count,
       artist_id,
       artist_sort_order,
       created_at,
@@ -1712,7 +1723,7 @@ export async function getArtworksByIds(
 ): Promise<{ data: ArtworkWithLikes[]; error: unknown }> {
   if (ids.length === 0) return { data: [], error: null };
   const { data, error } = await supabase
-    .from("artworks")
+    .from(ARTWORK_CARDS_VIEW)
     .select(
       `
       id,
@@ -1733,14 +1744,8 @@ export async function getArtworksByIds(
       visibility,
       work_kind,
       created_by,
-      pricing_mode,
-      is_price_public,
-      price_usd,
-      price_input_amount,
-      price_input_currency,
-      fx_rate_to_usd,
-      fx_date,
-      ownership_status,
+      viewer_fields,
+      likes_count,
       artist_id,
       artist_sort_order,
       created_at,
@@ -2532,7 +2537,7 @@ export async function listMyDraftArtworks(
 
   const [owned, uploaded, claimedIds] = await Promise.all([
     supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(ARTWORK_SELECT)
       .eq("artist_id", artistFilter)
       .eq("visibility", "draft")
@@ -2540,7 +2545,7 @@ export async function listMyDraftArtworks(
       .order("id", { ascending: false })
       .limit(limit),
     supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(ARTWORK_SELECT)
       .eq("created_by", artistFilter)
       .neq("artist_id", artistFilter)
@@ -2557,7 +2562,7 @@ export async function listMyDraftArtworks(
   const claimedDrafts: ArtworkWithLikes[] = [];
   for (let i = 0; i < claimedIds.length; i += CLAIM_ID_CHUNK) {
     const res = await supabase
-      .from("artworks")
+      .from(ARTWORK_CARDS_VIEW)
       .select(ARTWORK_SELECT)
       .in("id", claimedIds.slice(i, i + CLAIM_ID_CHUNK))
       .neq("artist_id", artistFilter)

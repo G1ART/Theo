@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 가격·소장 상태 노출 차단, 공개 규칙을 서버 하나로
+
+> **Supabase SQL:** `supabase/migrations/20261017221000_artwork_viewer_fields.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 섹션 1–8 과 섹션 9 를 두 번에). 함수가 여럿이라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017221500_artwork_price_column_lock.sql`(직접 조회 권한 회수)은 이 커밋이 프로덕션에 배포된 것을 확인한 뒤 적용한다.** **환경 변수 추가·변경 없음.**
+
+- 규칙: 판매 완료(sold)는 누구에게나 보인다. 가격과 그 밖의 소장 상태(소장 가능·개인 소장·판매하지 않음)는 작가 공개 설정을 따르고 기본은 맞팔로우다. 작품을 고칠 수 있는 사람(작가, 업로더, 클레임 보유자, `manage_artworks` 계정 위임, 전시 작품 위임)은 저장값을 본다. artworks UPDATE 정책과 같은 범위다.
+- 판정은 서버 한 곳이다. `resolve_visibility_for_viewer`·`resolve_visibility_for_preview` 가 판매 완료 규칙을 갖고, `artwork_viewer_fields(id)` 가 보는 사람 기준 값과 가림 정보(`price_gate`, `availability_gate`)를 만든다. 상세 `get_artwork_passport_for_viewer` 도 같은 판정에 편집 권한자 규칙을 더했다.
+- `public.artwork_cards` 뷰(security invoker, artworks RLS 그대로)는 가격·상태 8개 열을 빼고 `viewer_fields` 를 붙인다. 피드·검색·프로필·라이브러리·편집·초안·피커·디버그 조회가 이 뷰를 읽는다. 이미지·프로필·클레임·좋아요 수 임베드는 뷰에서도 된다. `normalizeArtworkRow` 가 판정값을 기존 키에 펼치므로 카드·가격 표시 코드는 그대로다.
+- 검색: 가격 조건은 이 사람에게 표시되는 고정가만, 판매 조건은 판정된 상태만 본다. 가려진 값은 null 이라 걸리지 않는다. `search_works_for_dedup` 은 행 전체 대신 제목 열만 돌려준다(전에는 비로그인도 원가격을 받았다).
+- 공개 프로필 목록은 서버가 세션 없이 그리므로 방문자 기준 판정이다. 로그인한 사람은 `artwork_viewer_fields_for` 한 번으로 자기 기준 값을 덮는다. 목록 쿼리는 그대로 한 번 왕복·500점 페이지·이어받기다.
+- 맞팔로우가 아닌 방문자의 카드: 전에는 "판매 가능" + "가격 문의" 두 줄, 이제 "가격과 소장 여부는 맞팔로우에게 공개" 한 줄. 판매 완료 작품은 "판매 완료"만. 상세도 판매 완료면 가격 가림 상자를 내린다.
+- 측정: 255점 프로필 목록을 맞팔로우 로그인 기준으로 DB에서 158ms(판정은 정렬·LIMIT 뒤 행마다 한 번). 비로그인 REST 왕복은 표 직접 조회와 같은 0.6–0.8초.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-viewer-fields.test.ts`(신규, 클라이언트가 artworks 에서 원값을 select 하는 곳 0건 검사 포함). `npx tsx tests/artwork-search-query.test.ts`. `visibility-copy`, `visibility-sql-contract`, `sprint6-trust-floor`, `relationship-card-privacy`, `sprint7-passport-owner-minimization`, `relationship-access`, `access-enforcement`, `artwork-size-capsule`, `list-scroll-restore`, `profile-scroll-restore`, `feed-walk-assemble`, `feed-personalization`, `feed-living-salon`, `profile-tab-access`, `profile-tab-kinds`, `search-match`, `studio-inventory`, `size-display`, `own-artist-works`, `external-artist-name-everywhere`. 비로그인 REST 로 뷰를 읽어 가격 원값 0건, 판매 완료 20점 표시를 확인했다. 트랜잭션 안에서 비로그인·무관한 사용자는 가림, 맞팔로우·클레임 보유자·작가는 보임을 확인했다. 로그인된 브라우저 화면은 보지 못했다.
+
 ## 2026-10-17 — 진입·진출 경로 정리 (대리 종료·뒤로·로그인·편집 저장)
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**

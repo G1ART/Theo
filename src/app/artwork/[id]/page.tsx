@@ -984,6 +984,7 @@ function ArtworkDetailContent() {
               const availHasValue = !!fieldPresence?.availability;
               const availGated = !availEff.canView && availHasValue;
               const priceGated = !priceEff.canView;
+              const soldShown = availEff.canView && artwork.ownership_status === "sold";
 
               const availableNode =
                 availEff.canView && ownershipLabel ? (
@@ -1048,7 +1049,7 @@ function ArtworkDetailContent() {
                       )}
                   {priceEff.canView ? (
                     priceNode
-                  ) : (
+                  ) : soldShown ? null : (
                     <div className="mt-2">
                       <GatedField
                         ownerProfileId={artwork.artist_id}

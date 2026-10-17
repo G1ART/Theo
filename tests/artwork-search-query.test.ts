@@ -128,6 +128,23 @@ assert.equal(
 
 assert.equal(artworkMatchesDiscover({ ...square, is_price_public: false }, price), false);
 
+// Values the server held back for this viewer arrive as null and never match.
+const gated = {
+  ...square,
+  pricing_mode: null,
+  is_price_public: null,
+  price_input_amount: null,
+  price_input_currency: null,
+  price_usd: null,
+  ownership_status: null,
+};
+assert.equal(artworkMatchesDiscover(gated, price), false);
+assert.equal(artworkMatchesDiscover(gated, parseArtworkQuery("판매 가능")), false);
+assert.equal(artworkMatchesDiscover(gated, parseArtworkQuery("가격 문의")), false);
+assert.equal(artworkMatchesDiscover({ ...gated, ownership_status: "sold" }, parseArtworkQuery("판매 완료")), true);
+// A stale amount on an inquire work is not a shown price.
+assert.equal(artworkMatchesDiscover({ ...square, pricing_mode: "inquire" }, price), false);
+
 const sale = parseArtworkQuery("판매 가능");
 assert.equal(sale.sale, "available");
 assert.equal(sale.text, "");

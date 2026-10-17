@@ -138,6 +138,72 @@ export function getVisibilityGateCopy(input: GateCopyInput): string {
   return text;
 }
 
+export type CardGateField = "price" | "availability" | "price_availability";
+
+const CARD_NOUN_KO: Record<CardGateField, string> = {
+  price: "가격은",
+  availability: "소장 여부는",
+  price_availability: "가격과 소장 여부는",
+};
+
+const CARD_NOUN_EN: Record<CardGateField, string> = {
+  price: "Price",
+  availability: "Availability",
+  price_availability: "Price and availability",
+};
+
+function cardAudienceKo(audience: RelationshipAudience): string {
+  switch (audience) {
+    case "public":
+      return "누구에게나 공개";
+    case "signed_in":
+      return "로그인하면 보여요";
+    case "followers":
+      return "팔로워에게 공개";
+    case "following":
+      return "작가가 팔로우하는 분께 공개";
+    case "mutuals":
+      return "맞팔로우에게 공개";
+    case "approved":
+      return "승인된 관람자에게 공개";
+    case "delegates":
+    case "owner_only":
+      return "비공개";
+  }
+}
+
+function cardAudienceEn(audience: RelationshipAudience): string {
+  switch (audience) {
+    case "public":
+      return "shared openly";
+    case "signed_in":
+      return "shown to signed-in visitors";
+    case "followers":
+      return "shared with followers";
+    case "following":
+      return "shared with people the artist follows";
+    case "mutuals":
+      return "shared with mutual connections";
+    case "approved":
+      return "shared with approved viewers";
+    case "delegates":
+    case "owner_only":
+      return "kept private";
+  }
+}
+
+/** One short line for artwork cards. Same audience as the detail gate, without the owner name. */
+export function getCardGateCopy(input: {
+  fieldKey: CardGateField;
+  requiredAudience: RelationshipAudience;
+  locale?: GateCopyLocale;
+}): string {
+  if (input.locale === "ko") {
+    return `${CARD_NOUN_KO[input.fieldKey]} ${cardAudienceKo(input.requiredAudience)}`;
+  }
+  return `${CARD_NOUN_EN[input.fieldKey]} ${cardAudienceEn(input.requiredAudience)}`;
+}
+
 // Exposed for tests.
 export function copyContainsForbidden(text: string): string | null {
   const lower = text.toLowerCase();

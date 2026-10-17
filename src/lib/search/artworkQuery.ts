@@ -6,7 +6,9 @@
  * pulls size, price, sale, and goods/collected hints out of the same
  * line so those tokens are not required to appear in the title.
  * Numbers come from the query and from stored `width_cm` / `height_cm`
- * / `size` / `size_unit` / price columns. A missing dimension is not filled in.
+ * / `size` / `size_unit`. Price and sale use the values the server judged
+ * for this viewer (`artwork_cards.viewer_fields`): a hidden price or
+ * availability is null and never matches. A missing dimension is not filled in.
  */
 
 import { hasPublicLinkableUsername } from "@/lib/identity/format";
@@ -436,7 +438,7 @@ function priceCandidates(work: ArtworkConstraintSource, currency: PriceCurrency 
 
 function priceOk(work: ArtworkConstraintSource, parsed: ParsedArtworkQuery): boolean {
   if (parsed.priceBounds.length === 0) return true;
-  if (work.is_price_public === false) return false;
+  if (work.pricing_mode !== "fixed" || work.is_price_public !== true) return false;
   for (const bound of parsed.priceBounds) {
     const candidates = priceCandidates(work, bound.currency);
     if (candidates.length === 0) return false;

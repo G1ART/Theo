@@ -45,6 +45,7 @@ import type { Locale } from "@/lib/i18n/locale";
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
+import { ARTWORK_CARDS_VIEW, applyViewerFields } from "@/lib/artworks/viewerFields";
 
 const PICKER_SELECT = `
   id,
@@ -61,15 +62,15 @@ const PICKER_SELECT = `
   visibility,
   created_by,
   work_kind,
-  pricing_mode,
-  is_price_public,
-  price_usd,
-  price_input_amount,
-  price_input_currency,
-  fx_rate_to_usd,
-  ownership_status,
+  viewer_fields,
   artwork_images(storage_path, sort_order, width, height)
 `;
+
+function pickerRows(data: unknown): RawPickerRow[] {
+  return ((data ?? []) as Record<string, unknown>[]).map(
+    (row) => applyViewerFields(row) as unknown as RawPickerRow,
+  );
+}
 
 type PickerArtwork = {
   id: string;
@@ -233,11 +234,11 @@ export function ArtworkPickerSheet({
         return;
       }
       const { data } = await supabase
-        .from("artworks")
+        .from(ARTWORK_CARDS_VIEW)
         .select(PICKER_SELECT)
         .in("id", Array.from(artworkIds));
       if (cancelled) return;
-      const rows = (data ?? []) as unknown as RawPickerRow[];
+      const rows = pickerRows(data);
       setSaved(rows.map((r) => normalizeRow(r, locale)));
       setSavedLoading(false);
     })();
@@ -264,11 +265,11 @@ export function ArtworkPickerSheet({
         return;
       }
       const { data: enriched } = await supabase
-        .from("artworks")
+        .from(ARTWORK_CARDS_VIEW)
         .select(PICKER_SELECT)
         .in("id", ids);
       if (cancelled) return;
-      const rows = (enriched ?? []) as unknown as RawPickerRow[];
+      const rows = pickerRows(enriched);
       // Preserve the `listPublicArtworks` ordering.
       const byId = new Map(rows.map((r) => [r.id, r]));
       const ordered = ids
@@ -318,7 +319,7 @@ export function ArtworkPickerSheet({
         setSearchLoading(false);
         return;
       }
-      let req = supabase.from("artworks").select(PICKER_SELECT);
+      let req = supabase.from(ARTWORK_CARDS_VIEW).select(PICKER_SELECT);
       if (ids) req = req.in("id", ids);
       else req = req.order("created_at", { ascending: false }).limit(300);
       if (viewerId) {
@@ -330,7 +331,7 @@ export function ArtworkPickerSheet({
       }
       const { data } = await req;
       if (cancelled) return;
-      const rows = ((data ?? []) as unknown as RawPickerRow[]).filter(
+      const rows = pickerRows(data).filter(
         (row) =>
           artworkInPickerScope(
             {
