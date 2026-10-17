@@ -2,6 +2,35 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 오늘 마이그레이션 번호를 DB 기록과 1:1 로 맞춤 (schema_migrations 메타데이터만)
+
+> **Supabase SQL:** 스키마 변경 없음. `supabase_migrations.schema_migrations` 의 오늘 기록만 한 트랜잭션으로 고쳤다(MCP): version 11행을 로컬 파일 번호로 바꾸고, 두 번에 나눠 적용한 `artwork_viewer_fields` 기록 2행을 1행으로 합쳤다(statements 를 이어 붙임). **환경 변수 추가·변경 없음.**
+
+방법은 06-26 정리와 같다. 로컬 파일 번호를 기준으로 DB 기록의 version 을 맞춘다. 로컬끼리 번호가 겹친 파일 하나만 이름을 DB 기록 번호로 바꿨다(나중에 생긴 쪽).
+
+| 로컬 파일 | DB version 이전 → 이후 |
+|---|---|
+| `20261017000000_profile_tab_delegation_work_path` | 20261017202713 → 20261017000000 |
+| `20261017140000_acting_public_profile_edit` | 20261017204920 → 20261017140000 |
+| `20261017153000_operations_preset_profile_edit` | 20261017205630 → 20261017153000 |
+| `20261017211500_new_work_alert_on_first_publish` | 20261017213533 → 20261017211500 |
+| `20261017214917_notifications_insert_lockdown` | 20261017220200 → 20261017214917 (이 번호를 쓰던 liked_works 기록을 먼저 옮김) |
+| `20261017215517_new_work_credit_and_order_first` | 20261017221424 → 20261017215517 |
+| `20261017221000_artwork_viewer_fields` | 20261017212820 + 20261017212852(섹션 9) → 20261017221000 한 행 |
+| `20261017221500_artwork_price_column_lock` | 20261017214625 → 20261017221500 |
+| `20261017223000_liked_works` | 20261017214917 → 20261017223000 |
+| `20261017223500_artwork_likes_private` | 20261017221744 → 20261017223500 |
+| `20261017224000_search_artists_by_artwork_name_slots` | 20261017215048 → 20261017224000 |
+| `20261017224500_liked_work_alerts` | 20261017221428 → 20261017224500 |
+| `20261017224000_artworks_first_published_select` → 파일 이름 `20261017221304_artworks_first_published_select.sql` | 20261017221304 그대로 |
+| `224527`, `224618`, `225332`, `230007`, `230024`, `230340`, `231347` 7개 | 이미 같음 |
+
+- 결과: 오늘 로컬 20개 ↔ DB 20행, 번호와 이름이 모두 짝이 맞는다. 로컬 번호 중복은 0이다. 아래 예전 섹션과 `20261017231347_artworks_anon_write_revoke.sql` 주석에 나오는 `20261017224000_artworks_first_published_select` 는 새 이름 `20261017221304_…` 을 가리킨다.
+- 남은 것(손대지 않음): 06-29 ~ 10-16 에도 같은 어긋남이 쌓여 있다. MCP 가 적용 시각으로 기록했고, 섹션별로 나눠 기록했거나, 대시보드로 돌려 기록이 없다. 로컬에만 있는 파일 80개, DB 에만 있는 기록 100행이다(04-23 CLI 기록 10행은 05-08 에 일부러 남겼다). 9/11 ~ 10/16 만 봐도 로컬 12개 ↔ DB 20행, 번호가 같은 것이 없다. 맞추려면 행마다 어느 파일의 어느 섹션인지 읽고, 기록이 없는 파일은 실제로 적용됐는지 확인한 뒤 등록해야 해서 이번 범위에서 뺐다.
+- GitHub 체크: main 최근 60커밋에서 'Supabase Preview' 가 실제로 돈 적이 없다(skipped, "This git branch is not associated with any Supabase Branch"). 최근 커밋의 Vercel 은 success 다. 실패 중인 Supabase 체크는 없다. main 이 Supabase 브랜치와 연결돼 있지 않아 비교 자체가 돌지 않는다. 연결을 다시 켜면 위 남은 어긋남 때문에 예전 "Remote migration versions not found in local migrations directory" 가 다시 날 수 있다.
+
+**Verified:** 적용 뒤 오늘 기록 20행과 로컬 파일 20개를 version·name 으로 대조해 20쌍이 맞았다. 오늘 파일을 읽는 테스트 `notifications-lockdown`, `liked-works-sql-contract`, `liked-work-alerts`, `new-work-alert`, `new-work-credit-order`, `artwork-viewer-fields`, `profile-tab-access`, `credit-name-parity`, `search-typo-sql-contract`, `room-rpc-image-order`, `stale-tab-save` 통과. `npx tsc --noEmit`.
+
 ## 2026-10-17 — 전부터 실패하던 테스트 정리 (낡은 테스트 7건 고침, 제품 규칙 1건 보고)
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.** `src` 코드는 바꾸지 않았다. `package.json` 은 `test:onboarding-runtime` 실행기만 `tsx` 로 바꿨다.
