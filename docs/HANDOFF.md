@@ -2,6 +2,26 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 검색 한 글자 오타(pg_trgm)를 지금 함수 위에 얹고, 10/07 파일은 잠근다
+
+> **Supabase SQL:** `supabase/migrations/20261017230024_search_name_and_typo_live.sql`, `supabase/migrations/20261017230340_search_typo_numbers_dedup_order.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 여러 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. `20261007160000_search_artist_name_and_typo.sql` 은 **적용하지 않는다**(모든 줄을 주석으로 바꿨다). **환경 변수 추가·변경 없음.**
+
+- 10/07 파일은 프로덕션에 들어간 적이 없다. 그 뒤 바뀐 함수(가격 잠금 뒤 제목만 돌려주는 `search_works_for_dedup`, 한/영 이름 키를 돌려주는 `search_artists_by_artwork`)를 덮지 않도록, 적용 직전 `pg_get_functiondef` 로 읽은 라이브 정의에 10/07 의 매칭만 더했다. 반환 열, security definer/invoker, search_path, grant 는 그대로다(`search_works_for_dedup` 은 anon·authenticated 만, public 없음). 잠근 가격·소장 열은 어느 함수도 읽지 않는다.
+- 새 `search_artwork_ids`(security invoker, id 만): 제목·재료·설명·작가/업로더 이름·핸들·볼 수 있는 전시 제목에서 찾는다. 친 그대로 맞은 작품이 먼저, 관련어(벚꽃↔blossom)·다른 문자 표기가 다음, 오타가 마지막(유사도 순)이다. 오타는 친 낱말에만, 글자가 든 4자 이상(한글 2~3자는 작가 이름·제목)에만 본다. 숫자만 있는 토큰("1423", "15-403")은 그대로만 맞춘다.
+- 사람 검색(`search_people`, `search_people_with_external`): 한/영 이름 칸, `@핸들`, 한 글자 오타. 정확한 일치(사용자 이름 → 이름 → 앞부분 → 포함)가 오타보다 위다. `search_artists_by_artwork`: 한/영 제목·재료·설명과 제목 오타, 정확히 맞은 작가가 먼저다.
+- `search_works_for_dedup`(중복 작품 고르기): 한/영 제목과 오타. 정확한 제목이 먼저, 오타는 유사도 순이라 가장 가까운 제목이 개수 제한에 잘리지 않는다.
+- pg_trgm 1.6 은 이미 public 스키마에 있었다. 제목 3칸과 한/영 이름 2칸의 trigram 인덱스 5개를 더했다(이름·핸들 인덱스 2개는 원래 있었다).
+- 10/07 파일은 맨 위에 "적용하지 말 것, 위 두 파일로 대체"를 적고 나머지 모든 줄을 주석으로 바꿨다. 통째로 돌려도, 섹션을 골라 돌려도 아무것도 실행하지 않는다. 원문은 커밋 0cc7ca3 에 있다.
+
+적용 전후(비로그인, 앱의 `findArtworkIdsForQuery`·`searchPeople`·`searchWorksForDedup` 실제 코드):
+- 작품: `Cheery Blossom` 2 → 2(Cheerry Blossom 0911·0910, 전에는 앱 대체 경로가 찾았다), `Cheerry Blossom` 2 → 46(Cheerry 2점 먼저, Cherry Blossom 44점 뒤), `Blosom` 0 → 47, `Wilow` 0 → 2. `Cherry Blossom` 48 → 48 이고 정확한 Cherry Blossom 44점이 맨 위다(전에는 순서가 섞였다). `현혜명 벚꽃` 47 → 47, `Hado 1423` 2 → 2, `the green` 80 → 80.
+- 사람: `Hei Myung Hyun` 은 영문 이름 정확 일치가 오타 단계(4)에서 이름 일치(1)로, `@heimyunghyun` 은 4 → 0. `heimyunghyn`, `Hei Myng Hyun`, `thegren` 은 전후 모두 찾는다.
+- 작품으로 사람 찾기 `Cheery Blossom`·`Blosom` 0명 → 현혜명. 중복 고르기 `Cheery` 0 → 2, `Cheery Blossom` 0 → 20(Cheerry 가 맨 위).
+- 초안: 무관한 로그인 사용자로 public·attachable·library 모두(남의 id 를 owner 로 넘겨도) 초안 0. 작가 본인 library 에는 자기 초안, 업로더(@thegreen_oc) attachable 에는 자기가 올린 초안만 나온다.
+- 속도: RPC 한 번 약 0.08~0.1초, 가장 넓은 `h kim`(대안 43개) 약 0.3초.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/search-typo-sql-contract.test.ts`(신규: 최신 정의가 잠근 열을 읽지 않음, dedup 은 제목만, 작품 검색은 invoker, 10/07 파일은 실행할 줄 0). `tests/credit-name-parity.test.ts`, `tests/search-match.test.ts`, `tests/artwork-viewer-fields.test.ts`, `tests/artwork-search-query.test.ts`. 적용 뒤 DB 함수 본문 md5 가 파일과 같다. 롤백 트랜잭션에서 세 계정 역할로 초안 노출을 봤다. 로그인한 브라우저 화면은 보지 못했다.
+
 ## 2026-10-17 — 알림 설정에 '좋아요한 작품 소식' 스위치
 
 > **Supabase SQL:** `supabase/migrations/20261017230007_liked_work_alerts_switch.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**
