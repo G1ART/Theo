@@ -2,6 +2,26 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — For you 산책 갤러리 이름은 연결된 계정 이름 먼저, 중복 전시 합치기는 보류
+
+> **Supabase SQL 돌려야 할 것은 없음.** 이번에는 데이터를 바꾸지 않았다. **환경 변수 추가·변경 없음.**
+
+- For you 산책의 갤러리 이름(`galleryName`, `src/lib/feed/walk/assemble.ts`)은 주최가 계정에 연결돼 있으면 그 계정 이름을 먼저 쓰고, 연결이 없을 때만 `host_name` 글자를 쓴다. 계정 이름은 산책 사람 목록이 `pickLocalizedDisplayName` 으로 만든 값이다. 바뀌는 곳은 동네 시나리오의 "{gallery}에서 보인 다른 작품" 문구와 작가 카드 문구다. 산책 전시 카드와 작품 카드의 갤러리 크레딧은 원래 계정 이름이 먼저라 그대로다.
+- 실제 데이터: The GREEN 전시 7개와 '빛의 순간을 기억하는 정원'·'남겨진 흔적'의 산책 갤러리 이름은 한/영 모두 'The Green Gallery…' 글자에서 'The GREEN' 으로 바뀌어, 카드의 주최 이름과 같다.
+- 중복 전시 2쌍 합치기(대표님 결정 `keep_g1artkorea_founder_curator`, `keep_green_founder_curator`)는 데이터를 바꾸기 전에 멈췄다. 두 가지가 결정과 다르게 동작한다.
+  1. 없앨 두 전시(`2ca2ac1f…` 동, 심, 원 / `635b87a7…` 소비 이후, 작품 0)를 지우면 취소된 이메일 초대 5건(①3·②2)이 연쇄로 지워진다. 그 초대를 `delegation_id`(NOT NULL, `ON DELETE CASCADE`)로 가리키는 '초대 취소' 위임 활동 기록 5건도 같이 지워진다. 지난 보고의 "기록은 남고 전시 id만 비워진다"는 틀렸다. 전시 id 연결만 `ON DELETE SET NULL` 이다. 기록 id는 `1b489cc2…`·`ba9be654…`·`e1dc30fc…`(①), `dd0f80d2…`·`b2a08051…`(②)이고 모두 2026-04-28 것이다.
+  2. ①의 대표님 CURATED 클레임 `427c7952…`(작가 프로필 `c56a966b…`)은 남길 전시 `d89cf405…` 로 옮길 수 없다. 거기에 같은 작가의 CURATED 클레임 `8d8ba8d8…`(@g1artkorea)이 이미 있기 때문이다(`uq_claims_project_curated_prof`, 전시·작가·종류당 1건). 없앨 쪽의 @g1artkorea 클레임 `b022e121…`(작가 `3827cde1…`)도 남길 쪽 `b5784e1f…` 와 겹친다. 전시를 지우면 이 두 클레임은 연쇄로 지워진다.
+- 알림 경로(라이브 정의): 작품 연결을 옮기는 UPDATE 는 `trg_notify_likers_on_exhibition_link`(AFTER INSERT 만)를 부르지 않는다. 클레임 알림 트리거 둘(AFTER UPDATE 확정, AFTER DELETE 거절)은 대기 상태에서 바뀔 때만 알림을 쓰는데, 이 클레임들은 이미 확정이다. 위임, 위임 활동 기록, 프로필 순서 테이블에는 트리거가 없다. 사진 행 삭제 트리거는 대표 이미지 경로만 정리한다.
+- 바꾸기 전 값(그대로 둠):
+  - `d89cf405…` 동同, 심沁, 원源.: 기획 @g1artkorea, 주최 계정 없음(글자 `하나은행 하트원`), 장소 칸 비어 있음, 2024-12-06 ~ 2025-01-23, 작품 33, 사진 9.
+  - `2ca2ac1f…` 동, 심, 원: 기획 대표님, 주최 글자 `하나은행 을지로 하트원`, 작품 5, 사진 4(IMG_1173·1151·1149·1093, 원본 백업 없음).
+  - `bc133847…` 소비 이후: 기획·주최 @thegreen_oc, 2026-01-09 ~ `2025-02-21`, 작품 9.
+  - `635b87a7…` 소비 이후: 기획 대표님, 2026-01-09 ~ 2026-02-21, 작품 0, 사진 0.
+  - 대표님 프로필 고정 순서는 `635b87a7…`=0, `2ca2ac1f…`=1.
+- 사진 파일 복사(저장소 `exhibition-media/<전시 id>/` 경로가 관리 권한을 정한다)는 합치기를 진행할 때 한다. 이번에는 복사하지 않았다. 없앨 쪽 `/e/[id]` 주소를 남길 쪽으로 넘기는 기능은 없어서, 지우면 그 주소는 '찾을 수 없음'이 된다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/feed-walk-assemble.test.ts`(신규 경우: 연결된 주최는 계정 이름 'North Host', 연결이 없으면 글자 'Gallery North'). `credit-name-parity`, `feed-living-salon`, `feed-personalization`, `feed-telemetry`, `exhibition-cover-enrichment`. 비로그인 REST 로 9개 전시의 주최 계정 이름(한/영)과 카드 라벨을 비교했다. eslint 는 `assemble.ts` 의 기존 경고 1건(`unusedShows`)만 남았다. 로그인한 브라우저로 For you 산책을 보지는 못했다.
+
 ## 2026-10-17 — 오래 열어 둔 탭 설정 화면을 저장해도 새 작품이 탭에 남는다
 
 > **Supabase SQL:** `supabase/migrations/20261017224618_stale_tab_save_merge.sql` 을 abstract-mvp 프로젝트에 적용했다(schema_migrations version 과 같은 번호). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **환경 변수 추가·변경 없음.**

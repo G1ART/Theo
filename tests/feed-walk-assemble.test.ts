@@ -531,6 +531,33 @@ function testBadCursorRestarts() {
   assert.equal(page.scenario, "exhibition_network");
 }
 
+function galleryParams(modules: FeedModule[]): string[] {
+  return modules
+    .map((mod) => mod.reason.params.gallery)
+    .filter((value): value is string => typeof value === "string");
+}
+
+function testLocalGalleryUsesLinkedAccountName() {
+  const { viewer: me, pools } = world();
+  const cursor = { v: 1 as const, si: PERSONALIZED_SCENARIOS.indexOf("local"), off: 0, used: [] };
+
+  const linked = assembleWalk({ lane: "personalized", viewer: me, pools, cursor });
+  assert.equal(linked.scenario, "local");
+  const linkedNames = galleryParams(linked.modules);
+  assert.ok(linkedNames.length > 0);
+  assert.deepEqual([...new Set(linkedNames)], ["North Host"]);
+
+  const textOnly: WalkPools = {
+    ...pools,
+    exhibitions: pools.exhibitions.map((row) =>
+      row.hostProfileId === "Host" ? { ...row, hostProfileId: null } : row
+    ),
+  };
+  const unlinked = assembleWalk({ lane: "personalized", viewer: me, pools: textOnly, cursor });
+  assert.equal(unlinked.scenario, "local");
+  assert.deepEqual([...new Set(galleryParams(unlinked.modules))], ["Gallery North"]);
+}
+
 function anonViewer(): WalkViewer {
   return viewer({
     id: null,
@@ -1183,6 +1210,7 @@ testCollectorEndsOnExhibition();
 testLoggedOutIsPublic();
 testFollowingGroupsRealFollows();
 testBadCursorRestarts();
+testLocalGalleryUsesLinkedAccountName();
 testPlaceholderExhibitionOmitsShells();
 testNextPageStaysMixed();
 testArtworkOnlyWhenNoExhibitionsLeft();

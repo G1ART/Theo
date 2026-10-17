@@ -446,10 +446,8 @@ function toCredit(person: WalkPerson | undefined, fallbackName: string | null): 
 }
 
 function galleryName(exhibition: WalkExhibition, idx: Indexes): string | null {
-  if (exhibition.hostName && exhibition.hostName.trim()) return exhibition.hostName.trim();
-  if (!exhibition.hostProfileId) return null;
-  const host = idx.people.get(exhibition.hostProfileId);
-  return host?.name?.trim() || null;
+  const host = exhibition.hostProfileId ? idx.people.get(exhibition.hostProfileId) : undefined;
+  return host?.name?.trim() || exhibition.hostName?.trim() || null;
 }
 
 function toExhibition(exhibition: WalkExhibition, idx: Indexes): WalkExhibitionView {
@@ -956,7 +954,7 @@ function storyLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | null 
     1
   );
   if (!room) return null;
-  const gallery = galleryName(seed, ctx.idx) ?? seed.hostName ?? "";
+  const gallery = galleryName(seed, ctx.idx) ?? "";
   if (!gallery) return null;
 
   return {
@@ -1399,7 +1397,7 @@ function looseStoryLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | 
       })
     );
   }
-  const galleryLabel = galleryName(seed, ctx.idx) ?? seed.hostName ?? "";
+  const galleryLabel = galleryName(seed, ctx.idx) ?? "";
   if (isFilledSlot(galleryLabel)) {
     const galleryWorks = ctx.pools.works.filter((work) =>
       work.exhibitionIds.some((id) => {
