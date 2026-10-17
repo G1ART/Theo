@@ -2,6 +2,22 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 좋아요한 작품 알림(전시·가격 공개·판매 완료), 좋아요 목록 잠금 적용
+
+> **Supabase SQL:** `supabase/migrations/20261017224500_liked_work_alerts.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수가 세 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 같이 적용: `20261017224000_artworks_first_published_select.sql`(한 줄), `20261017223500_artwork_likes_private.sql`(좋아요 탭 커밋 37cdafa 의 프로덕션 배포 성공을 확인한 뒤). **환경 변수 추가·변경 없음.**
+
+- 좋아요한 사람에게 바로 가는 앱 알림 세 가지.
+  - 전시: 좋아요한 작품이 진행 중·예정인 공개 전시에 연결되면(`exhibition_works` insert). 같은 전시에 6시간 안에 여러 점이 걸리면 사람당 읽지 않은 1건으로 묶어 "좋아요한 작품 N점이 〈전시〉 전시에 걸렸어요". 누르면 그 전시(`/e/<id>`).
+  - 가격 공개: 가격이 '보임'으로 바뀌면(`artwork_state_events` 의 listed). 소장 가능 작품만, 지금 그 가격을 볼 수 있는 사람에게만 간다(카드와 같은 `artwork_viewer_fields` 판정을 받는 사람 기준으로). 금액은 넣지 않는다.
+  - 판매 완료: 좋아요한 사람 모두(판매 완료는 공개).
+- 작가·업로더·바꾼 사람 본인에게는 가지 않고, 공개 작품만 보낸다. 같은 작품의 같은 알림은 하루 안에 다시 보내지 않는다.
+- 기존 알림 끄기 설정은 `alert_preferences.new_work_alerts`(팔로우한 작가의 신작) 하나라 이 알림에는 해당하지 않는다. 이메일 다이제스트(5종)에도 넣지 않았다.
+- 알림 타입 CHECK 는 DB 현재 정의(23종)를 읽고 세 종류를 더했다.
+- 좋아요 목록 잠금: 로그인한 사람은 자기 좋아요 행만 읽고 비로그인은 0행이다. 작품별 좋아요 수(`likes_count`), 피드 RPC, 좋아요 탭 RPC, 작가에게 가는 좋아요 알림은 그대로다.
+- `artworks.first_published_at` 은 가격 열 잠금 뒤에 생긴 열이라 클라이언트가 읽을 수 없었다. 민감한 열이 아니라 다른 열과 같게 SELECT 를 허용했다. 앞으로 artworks 에 열을 더하면 `grant select (<열>) on public.artworks to anon, authenticated` 가 필요하다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/liked-work-alerts.test.ts`(신규: CHECK 23종 보존, 금액 없음, 제외 대상, 묶음, 문구·링크). `liked-works-sql-contract`, `liked-works-view`, `artwork-viewer-fields`, `new-work-alert`, `new-work-credit-order`, `notifications-lockdown`. 바꾼 파일 eslint 0건. 실제 알림은 보내지 않았다. 되돌리는 트랜잭션 안에서 판매 완료는 좋아요한 5명(작가 제외)에게 5건, 가격 공개는 맞팔로우로 만든 1명에게만 1건(나머지 4명 0건, payload 에 가격 키 0개), 같은 전시에 두 점을 걸면 한 사람에게 1건·count 2 였다. 판정 뒤 `auth.uid()` 는 원래대로였고 남은 알림·전시·상태 기록은 0이다. 잠금 뒤 로그인 사용자는 184행 중 자기 66행만, 비로그인은 0행, 피드 RPC 52행, 좋아요 탭 66행, `likes_count` 합 184, 비로그인 REST `artwork_likes` 는 `[]`. 로그인된 브라우저로 알림 화면을 보지는 못했다.
+
 ## 2026-10-17 — 외부 작가 작품의 신작 알림 문구, 새 작품은 직접 정한 순서 맨 앞
 
 > **Supabase SQL:** `supabase/migrations/20261017215517_new_work_credit_and_order_first.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 여덟 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 같은 날 알림 insert 잠금(`20261017214917`, 아래 "알림은 DB만 쓴다")도 적용했다. **환경 변수 추가·변경 없음.**
@@ -38,7 +54,7 @@ Last updated: 2026-10-17
 
 ## 2026-10-17 — 내 프로필의 '좋아요' 탭 (1단계, 알림 제외)
 
-> **Supabase SQL:** `supabase/migrations/20261017223000_liked_works.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수가 다섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017223500_artwork_likes_private.sql`(좋아요 행은 본인만 읽기)은 이 커밋이 프로덕션에 배포된 것을 확인한 뒤 적용한다.** **환경 변수 추가·변경 없음.**
+> **Supabase SQL:** `supabase/migrations/20261017223000_liked_works.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수가 다섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017223500_artwork_likes_private.sql`(좋아요 행은 본인만 읽기)은 이 커밋의 프로덕션 배포 성공을 확인한 뒤 적용했다(위 '좋아요한 작품 알림' 섹션).** **환경 변수 추가·변경 없음.**
 
 - 내 공개 프로필 고정 막대의 탭 줄 오른쪽에 '좋아요 N · 나만 보기' 칩. 로그인한 본인 프로필에서만 보이고, 방문자와 위임 대리 중인 관리 대상 프로필에는 없다. 공개 탭 관리(`ProfileTabManager`, 탭 종류)에는 넣지 않았다. 딥링크는 `?tab=likes`.
 - 목록: `list_my_liked_artworks()` 가 좋아요 시각·진행 중/예정 전시·좋아요 이후 바뀐 점·내 문의/보드 여부·작가의 볼 수 있는 소장 가능 작품 수를 주고, 카드는 `artwork_cards`(가격·소장 판정 그대로)에서 받는다. 요약 칩(전체·소장 가능·전시 중·예정·바뀐 작품), 검색(기존 파서, 판정값만), 작가·상태·가격대·크기·종류 필터, 8가지 정렬. 판매 완료·개인 소장·판매하지 않음은 어느 정렬이든 맨 뒤이고 '이 작가의 다른 작품'을 붙인다.
@@ -153,7 +169,7 @@ Last updated: 2026-10-17
 
 ## 2026-10-17 — 가격·소장 상태 노출 차단, 공개 규칙을 서버 하나로
 
-> **Supabase SQL:** `supabase/migrations/20261017221000_artwork_viewer_fields.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 섹션 1–8 과 섹션 9 를 두 번에). 함수가 여럿이라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017221500_artwork_price_column_lock.sql`(직접 조회 권한 회수)은 이 커밋이 프로덕션에 배포된 것을 확인한 뒤 적용한다.** **환경 변수 추가·변경 없음.**
+> **Supabase SQL:** `supabase/migrations/20261017221000_artwork_viewer_fields.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 섹션 1–8 과 섹션 9 를 두 번에). 함수가 여럿이라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. **`20261017221500_artwork_price_column_lock.sql`(직접 조회 권한 회수)은 이 커밋(178274f)과 그 뒤 커밋의 프로덕션 배포 성공을 확인한 뒤 적용했다. 비로그인 REST 로 원가격 열·`select=*` 는 42501, 일반 열·뷰·임베드는 그대로였다.** **환경 변수 추가·변경 없음.**
 
 - 규칙: 판매 완료(sold)는 누구에게나 보인다. 가격과 그 밖의 소장 상태(소장 가능·개인 소장·판매하지 않음)는 작가 공개 설정을 따르고 기본은 맞팔로우다. 작품을 고칠 수 있는 사람(작가, 업로더, 클레임 보유자, `manage_artworks` 계정 위임, 전시 작품 위임)은 저장값을 본다. artworks UPDATE 정책과 같은 범위다.
 - 판정은 서버 한 곳이다. `resolve_visibility_for_viewer`·`resolve_visibility_for_preview` 가 판매 완료 규칙을 갖고, `artwork_viewer_fields(id)` 가 보는 사람 기준 값과 가림 정보(`price_gate`, `availability_gate`)를 만든다. 상세 `get_artwork_passport_for_viewer` 도 같은 판정에 편집 권한자 규칙을 더했다.

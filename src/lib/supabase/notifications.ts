@@ -22,7 +22,10 @@ export type NotificationType =
   | "delegation_permission_change_requested"
   | "delegation_permission_change_dismissed"
   | "follow_request"
-  | "follow_request_accepted";
+  | "follow_request_accepted"
+  | "liked_work_exhibited"
+  | "liked_work_price_listed"
+  | "liked_work_sold";
 
 export type NotificationRow = {
   id: string;

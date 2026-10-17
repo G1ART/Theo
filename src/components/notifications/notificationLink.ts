@@ -18,6 +18,11 @@ import {
   pickLocalizedArtworkTitle,
   pickLocalizedDisplayName,
 } from "@/lib/i18n/pickLocalized";
+import {
+  isLikedWorkAlert,
+  likedWorkAlertLabel,
+  likedWorkAlertLink,
+} from "@/lib/likes/likedWorkAlerts";
 
 export type NotificationEntitlements = {
   canSeeBoardSaver: boolean;
@@ -179,6 +184,10 @@ export function notificationLabel(
       return t("notifications.followRequest.body").replace("{name}", name);
     case "follow_request_accepted":
       return t("notifications.followRequestAccepted.body").replace("{name}", name);
+    case "liked_work_exhibited":
+    case "liked_work_price_listed":
+    case "liked_work_sold":
+      return likedWorkAlertLabel(row, t, title, locale ?? "en");
     default:
       return "";
   }
@@ -247,6 +256,7 @@ export function notificationLink(
     }
     return "/my/delegations";
   }
+  if (isLikedWorkAlert(row.type)) return likedWorkAlertLink(row);
   if (row.type === "new_work" && newWorkCount(row) > 1) {
     const u = row.actor?.username;
     if (u) return `/u/${u}`;
