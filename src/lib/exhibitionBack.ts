@@ -7,6 +7,7 @@
 // dumping them on the feed regardless of entry point (QA 2026-06-30).
 
 import { rememberListScrollFromWindow } from "@/lib/list/scrollRestore";
+import { backLabelKeyForPath, isSafeAppPath } from "@/lib/nav/entryTrail";
 
 const KEY = "theo_exhibition_back";
 
@@ -40,21 +41,9 @@ export function getExhibitionBack(): { path: string; labelKey: string } {
   if (typeof window === "undefined") return fallback;
   try {
     const path = window.sessionStorage.getItem(KEY);
-    if (!path) return fallback;
-    if (path.startsWith("/feed")) return { path, labelKey: "nav.feed" };
-    if (path === "/me" || path.startsWith("/me?")) return { path: "/me", labelKey: "nav.myProfile" };
-    if (path.startsWith("/u/")) return { path, labelKey: "nav.profile" };
-    if (path.startsWith("/my/shortlists")) return { path, labelKey: "boards.title" };
-    if (path.startsWith("/my/exhibitions")) return { path, labelKey: "exhibition.myExhibitions" };
-    if (path.startsWith("/people")) return { path, labelKey: "nav.people" };
-    if (path.startsWith("/room/")) return { path, labelKey: "common.back" };
-    if (path.startsWith("/artwork/")) return { path, labelKey: "artwork.backLabel" };
-    if (path.startsWith("/notifications")) return { path, labelKey: "nav.notifications" };
-    if (path.startsWith("/my")) return { path, labelKey: "nav.workspace" };
-    if (path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/e/")) {
-      return { path, labelKey: "common.back" };
-    }
-    return fallback;
+    // Another exhibition is not a useful "back" target.
+    if (!isSafeAppPath(path) || path.startsWith("/e/")) return fallback;
+    return { path, labelKey: backLabelKeyForPath(path) };
   } catch {
     return fallback;
   }

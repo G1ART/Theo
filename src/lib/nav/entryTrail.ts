@@ -16,6 +16,7 @@
 
 import type { MessageKey } from "@/lib/i18n/messages";
 import { armFeedRestore, isFeedDocumentPath } from "@/lib/feed/scrollRestore";
+import { isLikesTabPath } from "@/lib/likes/likedWorksView";
 import {
   armListScrollReturn,
   isListScrollPath,
@@ -160,7 +161,8 @@ export function isExhibitionScreen(path: string, exhibitionId: string, withPubli
 export function backLabelKeyForPath(path: string): MessageKey {
   const p = entryPathname(path);
   if (p === "/feed" || p.startsWith("/feed/")) return "nav.feed";
-  if (p.startsWith("/u/")) return "nav.profile";
+  if (isLikesTabPath(path)) return "likes.backLabel";
+  if (p.startsWith("/u/") || p === "/me") return "nav.profile";
   if (p.startsWith("/e/")) return "exhibition.backLabel";
   if (p.startsWith("/artwork/")) return "artwork.backLabel";
   if (p === "/my") return "nav.workspace";

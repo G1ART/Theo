@@ -57,5 +57,7 @@ assert.notEqual(
   artworkDeleteNavigation({ historyIdx: null, stampedPath: null }).path,
   "/workspace"
 );
+// Signed-in feed home is For you; "all" is the whole public feed now.
+assert.equal(ARTWORK_DELETE_FALLBACK, "/feed?tab=foryou&sort=latest");
 
 console.log("artwork-delete-navigation.test.ts: ok");

@@ -89,6 +89,16 @@ assert.equal(backLabelKeyForPath("/notifications"), "notifications.title");
 assert.equal(backLabelKeyForPath("/settings#cv"), "settings.title");
 assert.equal(backLabelKeyForPath("/room/abc"), "common.back");
 assert.equal(backLabelKeyForPath("/my/unknown-screen"), "common.back", "an unnamed screen is just 'back'");
+assert.equal(backLabelKeyForPath("/u/ada?tab=likes"), "likes.backLabel");
+assert.equal(backLabelKeyForPath("/me"), "nav.profile");
+
+// The artwork record links its exhibitions to their public page, and a
+// blocked claim finishes identity and comes back to this artwork.
+const artwork = read("src/app/artwork/[id]/page.tsx");
+assert.match(artwork, /href=\{`\/e\/\$\{ex\.id\}`\}\s*onClick=\{\(\) => setExhibitionBack\(\)\}/);
+assert.equal(artwork.includes("href={`/my/exhibitions/${ex.id}`}"), false);
+assert.match(artwork, /router\.push\(`\$\{IDENTITY_FINISH_PATH\}\?next=\$\{encodeURIComponent\(here\)\}`\)/);
+assert.equal(artwork.includes('router.push("/onboarding")'), false);
 
 // Workspace sub-pages: back to the entry, the workspace only without one.
 for (const rel of [

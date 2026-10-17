@@ -14,10 +14,11 @@ const read = (rel: string) => readFileSync(join(root, rel), "utf8");
 const lib = read("src/lib/exhibitionBack.ts");
 assert.match(lib, /export function setExhibitionBack/);
 assert.match(lib, /export function getExhibitionBack/);
-// 진입 경로별 라벨 매핑(피드/프로필/내스튜디오/보드)
+// 진입 경로별 라벨은 작품·전시·워크스페이스 뒤로가 같은 매핑 하나를 쓴다
+// (실제 목적지 이름: 피드/프로필/보드/전시 관리…, 이름 없는 화면은 "뒤로").
 assert.match(lib, /labelKey: "nav\.feed"/);
-assert.match(lib, /labelKey: "nav\.profile"/);
-assert.match(lib, /labelKey: "nav\.myProfile"/);
+assert.match(lib, /labelKey: backLabelKeyForPath\(path\)/);
+assert.match(read("src/lib/artworkBack.ts"), /labelKey: backLabelKeyForPath\(path\)/);
 
 // 2) 전시 페이지가 컨텍스트 기반 백 링크 사용 ---------------------------
 const page = read("src/app/e/[id]/page.tsx");

@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useParams } from "next/navigation";
-import { artworkDeleteNavigation, getArtworkBack, readHistoryIdx } from "@/lib/artworkBack";
+import {
+  ARTWORK_BACK_FALLBACK,
+  artworkDeleteNavigation,
+  getArtworkBack,
+  readHistoryIdx,
+} from "@/lib/artworkBack";
+import { setExhibitionBack } from "@/lib/exhibitionBack";
+import { IDENTITY_FINISH_PATH } from "@/lib/identity/routing";
 import { armFeedRestore } from "@/lib/feed/scrollRestore";
 import { extractLikesCount, getArtworkArtistLabel, getArtworkPriceDisplay, isExternalArtistArtwork } from "@/lib/supabase/artworks";
 import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
@@ -163,7 +170,7 @@ function ArtworkDetailContent() {
   const [delegatedProjectIds, setDelegatedProjectIds] = useState<Set<string>>(new Set());
   const [shortlistOpen, setShortlistOpen] = useState(false);
   const [back, setBack] = useState<{ path: string; labelKey: string }>({
-    path: "/feed?tab=all&sort=latest",
+    path: ARTWORK_BACK_FALLBACK,
     labelKey: "nav.feed",
   });
   // Sprint 5 — viewer-side relationship/visibility state. The page calls
@@ -735,7 +742,11 @@ function ArtworkDetailContent() {
           : "";
       if (msg.includes("profile_incomplete")) {
         setError(t("errors.claimProfileIncomplete"));
-        setTimeout(() => router.push("/onboarding"), 1200);
+        const here = window.location.pathname + window.location.search;
+        setTimeout(
+          () => router.push(`${IDENTITY_FINISH_PATH}?next=${encodeURIComponent(here)}`),
+          1200,
+        );
         return;
       }
       setError(formatSupabaseError(error, t, "errors.failedRequestClaim"));
@@ -1435,23 +1446,27 @@ function ArtworkDetailContent() {
                       (ex.curator_id === userId ||
                         ex.host_profile_id === userId ||
                         delegatedProjectIds.has(ex.id));
+                    // Every exhibition opens its public page; an owner manages
+                    // it from there ("전시 관리"), not from this record.
                     return (
                       <li key={ex.id}>
-                        {isMyExhibition ? (
-                          <Link
-                            href={`/my/exhibitions/${ex.id}`}
-                            className="font-medium text-zinc-900 underline hover:text-zinc-700"
-                          >
-                            {pickLocalizedTitle(ex, locale) || ex.title}
-                            {dates && ` · ${dates}`}
-                          </Link>
-                        ) : (
-                          <span>
-                            {pickLocalizedTitle(ex, locale) || ex.title}
-                            {dates && ` · ${dates}`}
+                        <Link
+                          href={`/e/${ex.id}`}
+                          onClick={() => setExhibitionBack()}
+                          className={
+                            isMyExhibition
+                              ? "font-medium text-zinc-900 underline hover:text-zinc-700"
+                              : "hover:text-zinc-900 hover:underline"
+                          }
+                        >
+                          {pickLocalizedTitle(ex, locale) || ex.title}
+                          {dates && ` · ${dates}`}
+                        </Link>
+                        {!isMyExhibition && (
+                          <>
                             {" · "}
                             {getExhibitionHostCuratorLabel(ex, t, locale)}
-                          </span>
+                          </>
                         )}
                       </li>
                     );

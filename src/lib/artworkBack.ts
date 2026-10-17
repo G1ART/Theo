@@ -5,11 +5,15 @@
 // artwork page reads it to return the visitor to that exact URL —
 // preserving the feed tab, exhibition id, scroll target, etc.
 
+import { DEFAULT_DESTINATION } from "@/lib/identity/routing";
 import { rememberListScrollFromWindow } from "@/lib/list/scrollRestore";
-import { isLikesTabPath } from "@/lib/likes/likedWorksView";
+import { backLabelKeyForPath, isSafeAppPath } from "@/lib/nav/entryTrail";
 import { setExhibitionBack } from "./exhibitionBack";
 
 const KEY = "ab_artwork_back";
+
+/** Back target of an artwork with no entry (opened by a link): the feed home. */
+export const ARTWORK_BACK_FALLBACK = DEFAULT_DESTINATION;
 
 /**
  * Stamp the caller's current location as the "return to" target for the
@@ -27,15 +31,11 @@ export function setArtworkBack(explicitPath?: string): void {
   rememberListScrollFromWindow();
   try {
     const fromLocation = window.location.pathname + window.location.search;
-    const target = explicitPath || fromLocation || "/feed?tab=all&sort=latest";
+    const target = explicitPath || fromLocation || ARTWORK_BACK_FALLBACK;
     window.sessionStorage.setItem(KEY, target);
   } catch {
     // ignore (private mode / disabled storage)
   }
-}
-
-function isSafeAppPath(path: string): boolean {
-  return path.startsWith("/") && !path.startsWith("//") && !path.includes("://");
 }
 
 function referrerAppPath(): string | null {
@@ -50,34 +50,20 @@ function referrerAppPath(): string | null {
   }
 }
 
-function labelKeyForArtworkBack(path: string): string {
-  if (path.startsWith("/feed")) return "nav.feed";
-  if (path.startsWith("/e/")) return "exhibition.backLabel";
-  if (path.startsWith("/my/exhibitions")) return "exhibition.myExhibitions";
-  if (path.startsWith("/my/library")) return "library.title";
-  if (path.startsWith("/my/shortlists")) return "nav.saved";
-  if (path.startsWith("/people")) return "nav.people";
-  if (path.startsWith("/upload")) return "nav.upload";
-  if (isLikesTabPath(path)) return "likes.backLabel";
-  if (path.startsWith("/u/")) return "nav.profile";
-  if (path.startsWith("/notifications")) return "nav.notifications";
-  if (path.startsWith("/my/inquiries")) return "nav.messages";
-  if (path.startsWith("/room/")) return "artwork.backToRoom";
-  if (path.startsWith("/theo-board")) return "nav.theoBoard";
-  if (path.startsWith("/explore")) return "nav.explore";
-  if (path.startsWith("/my")) return "nav.workspace";
-  return "common.back";
-}
-
 /** Stamp the matching back target before a Link to /artwork or /e/. */
 export function stampBackFromHref(href: string): void {
   if (href.startsWith("/artwork/")) setArtworkBack();
   else if (href.startsWith("/e/")) setExhibitionBack();
 }
 
-/** Where a deleted artwork returns when the browser has no in-app history. */
-export const ARTWORK_DELETE_FALLBACK = "/feed?tab=all&sort=latest";
+/** Where a deleted artwork returns when it has no entry. */
+export const ARTWORK_DELETE_FALLBACK = ARTWORK_BACK_FALLBACK;
 
+/**
+ * Next 16's app router keeps no `idx` in history state, so this is null
+ * there and a delete takes the replace path (the held scroll arm still
+ * restores a profile or list).
+ */
 export function readHistoryIdx(): number | null {
   if (typeof window === "undefined") return null;
   const state = window.history.state as { idx?: unknown } | null;
@@ -109,7 +95,7 @@ export function artworkDeleteNavigation(input: {
 }
 
 export function getArtworkBack(): { path: string; labelKey: string } {
-  const fallback = { path: "/feed?tab=all&sort=latest", labelKey: "nav.feed" };
+  const fallback = { path: ARTWORK_BACK_FALLBACK, labelKey: "nav.feed" };
   if (typeof window === "undefined") return fallback;
   try {
     const stored = window.sessionStorage.getItem(KEY);
@@ -117,7 +103,7 @@ export function getArtworkBack(): { path: string; labelKey: string } {
     if (!path || !isSafeAppPath(path)) return fallback;
     // Another artwork record is not a useful "back" target.
     if (path.startsWith("/artwork/")) return fallback;
-    return { path, labelKey: labelKeyForArtworkBack(path) };
+    return { path, labelKey: backLabelKeyForPath(path) };
   } catch {
     return fallback;
   }
