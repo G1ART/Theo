@@ -28,7 +28,10 @@ import { leaveUploadOrAssign } from "@/lib/shell/leaveUploadNav";
 import { signOut } from "@/lib/supabase/auth";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
-import { principalPublicProfileHref } from "@/lib/delegation/principalProfileHref";
+import {
+  ownAccountProfileHref,
+  principalPublicProfileHref,
+} from "@/lib/delegation/principalProfileHref";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
 import {
   formatDisplayName,
@@ -114,8 +117,7 @@ export function AccountSwitcher({
   } = useActingAs();
 
   const isPlaceholder = isPlaceholderUsername(username);
-  const profileHref =
-    !username || isPlaceholder ? "/onboarding/identity" : `/u/${username}`;
+  const profileHref = ownAccountProfileHref(username);
   const ownName =
     displayName || (username ? `@${username}` : t("acting.switcher.myAccount"));
 
@@ -125,8 +127,9 @@ export function AccountSwitcher({
   function switchToOwn() {
     clearActingAs();
     onNavigate?.();
-    if (leaveUploadOrAssign(pathname, "/my")) return;
-    router.push("/my");
+    const href = ownAccountProfileHref(username);
+    if (leaveUploadOrAssign(pathname, href)) return;
+    router.push(href);
     router.refresh();
   }
 

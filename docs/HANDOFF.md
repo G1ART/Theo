@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 운영 파트너 신규 위임, 내 프로필로 돌아가기
+
+> **Supabase SQL:** `supabase/migrations/20261017153000_operations_preset_profile_edit.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수 하나라 섹션 나눔은 없다. **환경 변수 추가·변경 없음.**
+
+- 새 운영 파트너 위임은 `create_delegation_invite` 가 `delegation_preset_permissions('operations')` 로 권한을 채운다. 그 함수에 `edit_profile_public_content` 가 없었다. 클라이언트 `PRESET_PERMISSIONS.operations` 와 권한 보기 문구는 이미 그 권한을 포함한다. 함수를 그 목록과 같게 고쳤다.
+- 20261017140000 이 같은 시각에 고친 활성 operations 행은 5개다. 현혜명 → @g1art_founder, @thegreen_oc, @sol_kang, @siennamko, 그리고 lililili → @jihye_g1. 취소된 행은 그대로다.
+- 대리 배너의 "내 계정으로 돌아가기"와 계정 전환에서 본인 계정을 눌러 대리를 끝내는 경로는 본인 공개 프로필(`/u/<username>`)로 간다. 핸들이 없으면 `/onboarding/identity`다. `/my` 는 워크스페이스이고, 쓰이지 않는 문구 "내 스튜디오"만 남아 있다.
+- 공개 프로필 500은 한 페이지 크기다. 다음 페이지가 500점보다 짧을 때까지 이어서 읽고, 상한은 5000점이다. 공개 작품이 가장 많은 프로필은 @heimyunghyun 255점이라 지금은 한 페이지에 들어간다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/profile-tab-access.test.ts`. `delegation_preset_permissions('operations')` SELECT.
+
 ## 2026-10-17 — 위임 대리 중 공개 프로필 편집, 프로필 진입을 가볍게
 
 > **Supabase SQL:** `supabase/migrations/20261017140000_acting_public_profile_edit.sql` 을 abstract-mvp 프로젝트에 적용했다. 함수가 여섯 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 7번은 운영 파트너 위임에 `edit_profile_public_content` 를 보태는 UPDATE다. **환경 변수 추가·변경 없음.**

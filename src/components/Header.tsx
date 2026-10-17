@@ -16,6 +16,7 @@ import { getUnreadCount } from "@/lib/supabase/notifications";
 import { useT } from "@/lib/i18n/useT";
 import { useActingAs } from "@/context/ActingAsContext";
 import { isPlaceholderUsername } from "@/lib/identity/placeholder";
+import { ownAccountProfileHref } from "@/lib/delegation/principalProfileHref";
 import {
   listMyDelegations,
   type DelegationWithDetails,
@@ -92,10 +93,7 @@ export function Header() {
   const [session, setSession] = useState<Session | null>(null);
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const isPlaceholderProfile = isPlaceholderUsername(profileUsername);
-  const mobileProfileHref =
-    !profileUsername || isPlaceholderProfile
-      ? "/onboarding/identity"
-      : `/u/${profileUsername}`;
+  const mobileProfileHref = ownAccountProfileHref(profileUsername);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pageBlocked, setPageBlocked] = useState(false);
@@ -360,19 +358,15 @@ export function Header() {
   }, [mobileOpen]);
 
   /**
-   * Safe operator return, called from the acting-as banner and
-   * dropdown/hamburger "return to my account" affordances. Mirrors the
-   * AccountSwitcher's own switch-to-own semantics so the entry points
-   * cannot drift: `clearActingAs()` alone leaves the user on whatever
-   * page they were on, which may be a *principal-only* surface, so we
-   * always route to `/my` (a safe operator workspace) before refreshing
-   * layout caches.
+   * Leave acting-as and open the operator's own public profile.
+   * Same destination as the account icon. A missing handle goes to
+   * identity onboarding, not the workspace.
    */
   function handleSwitchToOperator() {
     clearActingAs();
     setAvatarOpen(false);
     setMobileOpen(false);
-    router.push("/my");
+    router.push(ownAccountProfileHref(profileUsername));
     router.refresh();
   }
 

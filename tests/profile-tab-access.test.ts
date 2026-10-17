@@ -11,7 +11,10 @@ import {
   canManageProfileTabs,
   delegationGrantsProfileTabManagement,
 } from "../src/lib/studio/profileTabAccess";
-import { principalPublicProfileHref } from "../src/lib/delegation/principalProfileHref";
+import {
+  ownAccountProfileHref,
+  principalPublicProfileHref,
+} from "../src/lib/delegation/principalProfileHref";
 import { profileManageGrants } from "../src/lib/studio/profileManageAccess";
 
 const root = path.resolve(__dirname, "..");
@@ -267,6 +270,10 @@ assert.equal(principalPublicProfileHref("heimyunghyun"), "/u/heimyunghyun");
 assert.equal(principalPublicProfileHref("g1art_founder"), "/u/g1art_founder");
 assert.equal(principalPublicProfileHref("user_abc123"), null);
 assert.equal(principalPublicProfileHref("  "), null);
+assert.equal(ownAccountProfileHref("g1art_founder"), "/u/g1art_founder");
+assert.equal(ownAccountProfileHref("heimyunghyun"), "/u/heimyunghyun");
+assert.equal(ownAccountProfileHref(""), "/onboarding/identity");
+assert.equal(ownAccountProfileHref("user_abc123"), "/onboarding/identity");
 
 const profile = readFileSync(path.join(root, "src/components/UserProfileContent.tsx"), "utf8");
 assert.match(profile, /canManage=\{canManageTabs\}/);
@@ -308,7 +315,28 @@ const switcher = readFileSync(
   "utf8",
 );
 assert.match(switcher, /principalPublicProfileHref\(p\.username\)/);
-assert.match(switcher, /profileHref/);
+assert.match(switcher, /ownAccountProfileHref\(username\)/);
+assert.match(switcher, /function switchToOwn\(\) \{[\s\S]*?ownAccountProfileHref\(username\)/);
+const header = readFileSync(path.join(root, "src/components/Header.tsx"), "utf8");
+assert.match(header, /ownAccountProfileHref\(profileUsername\)/);
+assert.match(
+  header,
+  /function handleSwitchToOperator\(\) \{[\s\S]*?ownAccountProfileHref\(profileUsername\)/,
+);
+const artworksSrc = readFileSync(path.join(root, "src/lib/supabase/artworks.ts"), "utf8");
+assert.match(artworksSrc, /const PROFILE_ARTWORK_PAGE = 500/);
+assert.match(artworksSrc, /const PROFILE_ARTWORK_MAX = 5000/);
+assert.match(
+  artworksSrc,
+  /for \(let from = 0; from < PROFILE_ARTWORK_MAX; from \+= PROFILE_ARTWORK_PAGE\)/,
+);
+assert.match(artworksSrc, /if \(page\.length < PROFILE_ARTWORK_PAGE\) break/);
+const presetSql = readFileSync(
+  path.join(root, "supabase/migrations/20261017153000_operations_preset_profile_edit.sql"),
+  "utf8",
+);
+assert.match(presetSql, /when 'operations' then array\[[\s\S]*'edit_profile_public_content'/);
+assert.equal(presetSql.includes("$p_link$"), false);
 
 const delegations = readFileSync(path.join(root, "src/lib/supabase/delegations.ts"), "utf8");
 assert.match(delegations, /operations:\s*\[[\s\S]*?"manage_artworks"/);
