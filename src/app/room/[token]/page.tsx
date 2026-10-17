@@ -268,6 +268,20 @@ export default function RoomPage() {
       ) : roomResolution?.canView ? (
         <ul className="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => {
+            if (item.artwork_id && item.artwork_visible === false) {
+              return (
+                <li key={item.item_id}>
+                  <article className="flex flex-col">
+                    <div className="flex aspect-[4/5] w-full items-center justify-center bg-zinc-100 px-6 text-center text-xs text-zinc-400">
+                      {t("boards.unavailableWorkHint")}
+                    </div>
+                    <p className="mt-3 truncate text-[15px] font-medium text-zinc-500">
+                      {t("boards.unavailableWork")}
+                    </p>
+                  </article>
+                </li>
+              );
+            }
             if (item.artwork_id) {
               const href = `/artwork/${item.artwork_id}?fromRoom=${encodeURIComponent(token)}`;
               const artworkTitle =

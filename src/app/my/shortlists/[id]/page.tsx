@@ -397,6 +397,13 @@ function ShortlistDetailContent() {
                 >
                   <p className="text-sm font-medium text-zinc-800">{exhibitionTitle ?? "Exhibition"}</p>
                 </Link>
+              ) : item.artwork_id ? (
+                <div>
+                  <div className="flex aspect-square items-center justify-center rounded bg-zinc-100 px-3 text-center text-xs text-zinc-400">
+                    {t("boards.unavailableWorkHint")}
+                  </div>
+                  <p className="mt-1 truncate text-sm font-medium text-zinc-500">{t("boards.unavailableWork")}</p>
+                </div>
               ) : null}
               {item.note && <p className="mt-0.5 text-xs text-zinc-500">{item.note}</p>}
               <button type="button" onClick={() => setPendingRemoveItemId(item.id)} className="absolute right-1 top-1 hidden rounded bg-white/80 px-1.5 py-0.5 text-xs text-red-500 hover:bg-red-50 group-hover:block">×</button>

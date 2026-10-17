@@ -261,6 +261,8 @@ export type ArtworkPassportForViewer = {
 export type RoomItemForViewer = {
   item_id: string;
   artwork_id: string | null;
+  /** False when this viewer may not see the work (private account, hidden work). */
+  artwork_visible?: boolean | null;
   exhibition_id: string | null;
   note: string | null;
   position: number;

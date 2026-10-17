@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 비공개 계정 작가의 '공개' 작품은 작가·편집 권한자·승인된 팔로워만 (followers_only)
+
+> **Supabase SQL:** `supabase/migrations/20261017234802_private_account_works_followers_only.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 여덟 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 파일의 `search_works_for_dedup` 머리는 적용본의 `timestamp with time zone` / `set search_path to 'public'` 을 같은 뜻의 `timestamptz` / `= public` 으로 썼다(검색 계약 테스트 형식). **환경 변수 추가·변경 없음.**
+
+대표님 결정(followers_only). 해당은 비공개 계정 2곳의 공개 작품 3점이다.
+
+- 정책: `artworks_public_read`(공개 작품이면 누구나)를 지웠다. 남은 읽기 정책은 `artworks_select_public`(공개 계정 작가의 공개 작품)과 `artworks_select_follower_accepted`(승인된 팔로워), 작가·업로더·클레임 보유자 정책이다. 위임받은 사람은 자기 읽기 정책 없이 지운 정책에 기대고 있어서 `artworks_select_delegate`(활성 위임자, 그 작가의 공개 작품만, 초안은 전처럼 못 봄)를 더했다. 실제로 한 계정에 `manage_artworks` 없는 활성 위임이 하나 있다.
+- RLS 를 건너뛰는 정의자 RPC 에도 같은 규칙(`artwork_account_visible_to_viewer`)을 넣었다. 대상은 카드 판정 `artwork_viewer_fields`(그래서 `_for`·`_as`·좋아요 탭도), 상세 `get_artwork_passport_for_viewer`, 룸 `get_room_for_viewer_by_token`·`get_shortlist_items_by_token`, 업로드 중복 확인 `search_works_for_dedup`, 좋아요 알림 트리거 두 개다. 작품 검색(`search_artwork_ids`)은 호출자 권한이라 정책을 그대로 따른다.
+- 화면: 룸 항목은 지우지 않고 `artwork_visible=false` 로 남겨 "볼 수 없는 작품" 칸으로 그린다(보드 주인 화면도). 좋아요 탭은 이미 "볼 수 없게 된 작품"으로 모은다. 팔로워가 아닌 문의자는 상세가 "이 작품은 더 이상 열람할 수 없습니다"로 닫히고 문의 기록은 남는다.
+- 지금 데이터에서는 그 보드(룸 열림)와 좋아요 1건이 모두 작가 본인 것이라 본인은 그대로 보고, 그 룸을 비로그인·비팔로워가 열면 항목이 "볼 수 없는 작품"이다. 가격 문의 1건의 문의자는 팔로워가 아니라 상세가 닫힌다.
+- 피드·둘러보기·프로필 목록은 이미 빼고 있어 동작이 같다. 공개 작품은 비로그인 기준 702 → 699(3점만).
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/private-account-works.test.ts`(신규). `room-rpc-image-order`, `liked-work-alerts`, `liked-works-sql-contract`, `artwork-viewer-fields`, `relationship-card-privacy`, `search-typo-sql-contract`, `sprint6-trust-floor`, `sprint7-passport-owner-minimization`, `visibility-sql-contract`, `liked-works-view`, `credit-name-parity`. 바꾼 화면 파일 eslint 는 HEAD 와 같다. 적용 전 같은 SQL 을 되돌리는 트랜잭션에서 실행해 확인했다: 비로그인·합성 비팔로워는 3점이 표·뷰·이미지·상세·카드 판정·중복 확인 모두 0, 공개 작품 샘플 5점은 그대로, 합성 승인 팔로워와 작가는 보임, 실제 위임자는 그 작가의 공개 작품 1점을 봄. 로그인 비팔로워의 255점 프로필 목록 177 → 183ms, 피드 60점 49 → 50ms. 적용 뒤 공개 API: 비로그인 공개 카드·표 699, 3점의 카드·이미지·상세 비어 있음, 공개 계정 작품 상세 그대로, 중복 확인 100행에 3점 없음. 합성 비공개 작가로 판매 완료·전시 연결 알림이 팔로워 1건·비팔로워 0건, 남은 행 0. 로그인한 브라우저로 룸·보드 화면을 보지는 못했다.
+
 ## 2026-10-17 — 오늘 마이그레이션 번호를 DB 기록과 1:1 로 맞춤 (schema_migrations 메타데이터만)
 
 > **Supabase SQL:** 스키마 변경 없음. `supabase_migrations.schema_migrations` 의 오늘 기록만 한 트랜잭션으로 고쳤다(MCP): version 11행을 로컬 파일 번호로 바꾸고, 두 번에 나눠 적용한 `artwork_viewer_fields` 기록 2행을 1행으로 합쳤다(statements 를 이어 붙임). **환경 변수 추가·변경 없음.**
