@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — artworks: 비로그인 역할의 쓰기 권한 회수, 비공개 계정 작품의 API 노출은 결정 대기
+
+> **Supabase SQL:** `supabase/migrations/20261017231347_artworks_anon_write_revoke.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). **환경 변수 추가·변경 없음.**
+
+- 비로그인(anon)에 남아 있던 artworks 표 단위 INSERT·UPDATE·DELETE·TRUNCATE·REFERENCES·TRIGGER 를 거뒀다(Supabase 기본 권한, TRUNCATE 는 RLS 도 거치지 않는다). 근거: 쓰기 정책은 모두 `auth.uid()` 가 있어야 통과하고(public 역할에 열린 `artworks_owner_write` 도 `auth.uid() = artist_id`), 앱의 쓰기는 세션 확인 뒤, 웹사이트 가져오기 라우트는 사용자 토큰, 스크립트는 서비스 롤, 호출자 권한으로 artworks 에 쓰는 DB 함수는 없다. 읽기용 열 SELECT 권한(30개)은 그대로다.
+- 비공개 계정 작가의 '공개' 작품: 화면은 피드·둘러보기·프로필 목록·좋아요 탭 카드에서 빼고(`isPublicSurfaceVisible`) 프로필은 비공개 화면만 보인다. RLS 에도 의도된 정책(`artworks_select_public` = 공개 계정 작가만, `artworks_select_follower_accepted` = 승인된 팔로워)이 있지만, 예전 `artworks_public_read`(공개 작품이면 누구나)가 함께 있어 API·카드 뷰·상세 RPC·룸 RPC 로는 누구나 읽힌다. 지금 비공개 계정 8곳 중 2곳에 공개 작품 3점(보드 1개·활성 룸 1개에 1점, 좋아요 1건, 가격 문의 1건, 전시 0). RLS 는 바꾸지 않았고 고치는 방법은 대표님 결정 대기.
+- 그대로 둔 것(참고): 로그인 사용자의 artworks INSERT 정책 `artworks_insert_authenticated` 는 조건 없이(`true`) 열려 있어 다른 작가 id 로도 넣을 수 있다(대신 올리기 흐름 때문으로 보임). authenticated 의 TRUNCATE·REFERENCES·TRIGGER 도 남아 있다.
+
+**Verified:** 되돌리는 트랜잭션에서 비로그인 insert·update·delete 는 42501, 비로그인 읽기(카드 뷰·허용 열)와 합성 작가 계정의 insert·update·delete 는 그대로. 비로그인 REST `PATCH /artworks` 는 401(42501), 허용 열 GET 은 200. 남은 anon 표 단위 권한 없음.
+
 ## 2026-10-17 — 공개 프로필: 로그인한 사람에게 가격 안내 한 줄이 잠깐 보이던 깜빡임
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
