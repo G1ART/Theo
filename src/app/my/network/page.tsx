@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -311,12 +312,10 @@ export default function MyNetworkPage() {
           is scoped to /my/network where density is highest. */}
       <main className="mx-auto max-w-4xl px-4 py-8">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <Link
-            href="/my"
+          <EntryBackLink
+            fallback="/my"
             className="min-w-0 flex-1 truncate text-sm text-zinc-600 hover:text-zinc-900"
-          >
-            ← {t("network.backToStudio")}
-          </Link>
+          />
           <TourHelpButton tourId={TOUR_IDS.network} />
         </div>
 

@@ -14,6 +14,7 @@ import { ActingAsProvider } from "@/context/ActingAsContext";
 import { TourProvider } from "@/components/tour";
 import { IrDemoBanner } from "@/components/irDemo/IrDemoBanner";
 import { ListScrollRestorer } from "@/components/list/ListScrollRestorer";
+import { EntryTrailTracker } from "@/components/nav/EntryTrailTracker";
 import { FEED_RELOAD_BOOT_SCRIPT } from "@/lib/feed/feedSessionKeys";
 import { LIST_RELOAD_BOOT_SCRIPT } from "@/lib/list/scrollRestore";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
@@ -109,6 +110,7 @@ export default async function RootLayout({
         <LocaleProvider initialLocale={initialLocale}>
           <HtmlLangSync />
           <AuthBootstrap />
+          <EntryTrailTracker />
           <MigrationGuard />
           <ProfileBootstrap />
           <ActingAsProvider>

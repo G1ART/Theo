@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
@@ -104,9 +105,7 @@ function ShortlistsContent() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
-      <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
-        ← {t("library.back")}
-      </Link>
+      <EntryBackLink fallback="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
       <h1 className="text-xl font-semibold text-zinc-900">{t("boards.title")}</h1>
       <p className="mt-1 text-sm text-zinc-500">{t("boards.subtitle")}</p>
 

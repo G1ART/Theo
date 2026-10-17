@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
@@ -451,9 +451,7 @@ export default function MyDelegationsPage() {
         )}
 
         <p className="mt-10">
-          <Link href="/my" className="text-sm font-medium text-zinc-700 hover:text-zinc-900">
-            ← {t("profile.privateBackToMy")}
-          </Link>
+          <EntryBackLink fallback="/my" className="text-sm font-medium text-zinc-700 hover:text-zinc-900" />
         </p>
       </div>
 

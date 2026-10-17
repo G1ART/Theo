@@ -18,6 +18,7 @@
  */
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
@@ -239,12 +240,7 @@ export default function MyMessagesPage() {
   return (
     <AuthGate>
       <main className="mx-auto max-w-3xl px-4 py-8">
-        <Link
-          href="/my"
-          className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-        >
-          ← {t("profile.privateBackToMy")}
-        </Link>
+        <EntryBackLink fallback="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
         <h1 className="mb-1 text-2xl font-semibold text-zinc-900">
           {t("connection.inbox.title")}
         </h1>

@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
+import {
+  formExitLinkProps,
+  isExhibitionScreen,
+  leaveFormTo,
+  replaceWithEntry,
+} from "@/lib/nav/entryTrail";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
 import { useT } from "@/lib/i18n/useT";
@@ -49,9 +55,12 @@ type ProfileOption = {
 export default function EditExhibitionPage() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname() ?? "";
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
   const id = typeof params.id === "string" ? params.id : "";
+  const detailHref = `/my/exhibitions/${id}`;
+  const exitProps = formExitLinkProps({ back: () => router.back(), pathname, target: detailHref });
   const [exhibition, setExhibition] = useState<ExhibitionWithCredits | null>(null);
   const [myProfileId, setMyProfileId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -364,7 +373,7 @@ export default function EditExhibitionPage() {
       }
     }
     setSubmitting(false);
-    router.push(`/my/exhibitions/${id}`);
+    leaveFormTo({ router, pathname, target: detailHref });
   }
 
   async function handleDeleteExhibition() {
@@ -385,7 +394,14 @@ export default function EditExhibitionPage() {
       setError(`${base}${suffix}`);
       return;
     }
-    router.push("/my/exhibitions");
+    // Like an artwork delete: the screen before the exhibition was opened,
+    // never one of its own (now missing) pages; else the exhibition list.
+    replaceWithEntry({
+      router,
+      pathname,
+      fallback: "/my/exhibitions",
+      skip: (path) => isExhibitionScreen(path, id, true),
+    });
   }
 
   if (!id) {
@@ -402,8 +418,8 @@ export default function EditExhibitionPage() {
     <AuthGate>
       <main className="mx-auto max-w-2xl px-4 py-8">
         <div className="mb-6">
-          <Link href={`/my/exhibitions/${id}`} className="text-sm text-zinc-600 hover:text-zinc-900">
-            ← {backToLabel(t("exhibition.myExhibitions"), locale)}
+          <Link href={detailHref} {...exitProps} className="text-sm text-zinc-600 hover:text-zinc-900">
+            ← {backToLabel(t("exhibition.manageExhibition"), locale)}
           </Link>
         </div>
 
@@ -778,7 +794,8 @@ export default function EditExhibitionPage() {
                 {submitting ? "..." : t("common.save")}
               </button>
               <Link
-                href={`/my/exhibitions/${id}`}
+                href={detailHref}
+                {...exitProps}
                 className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
                 {t("common.cancel")}

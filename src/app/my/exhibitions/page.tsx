@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
@@ -124,9 +125,7 @@ export default function MyExhibitionsPage() {
     <AuthGate>
       <main className="mx-auto max-w-4xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <Link href="/my" className="text-sm text-zinc-600 hover:text-zinc-900">
-            ← {t("profile.privateBackToMy")}
-          </Link>
+          <EntryBackLink fallback="/my" className="text-sm text-zinc-600 hover:text-zinc-900" />
           <Link
             href="/my/exhibitions/new"
             className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"

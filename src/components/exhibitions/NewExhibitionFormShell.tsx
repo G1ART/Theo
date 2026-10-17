@@ -54,12 +54,15 @@ type NewExhibitionFormShellProps = {
    */
   showCancelLink?: boolean;
   cancelHref?: string;
+  /** Scroll restore for the cancel target (the screen the form was opened from). */
+  cancelLinkProps?: { scroll?: false; onClick?: () => void };
 };
 
 export function NewExhibitionFormShell({
   showHeader = true,
   showCancelLink = true,
   cancelHref = "/my/exhibitions",
+  cancelLinkProps,
 }: NewExhibitionFormShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -307,7 +310,8 @@ export function NewExhibitionFormShell({
       const nextPath = fromBoardId
         ? `/my/exhibitions/${data.id}/add?fromBoard=${fromBoardId}`
         : `/my/exhibitions/${data.id}/add`;
-      router.push(nextPath);
+      // Replace: Back must not reopen the filled form and create it twice.
+      router.replace(nextPath);
     }
   }
 
@@ -710,7 +714,7 @@ export function NewExhibitionFormShell({
           {showCancelLink && (
             <Link
               href={cancelHref}
-              {...listReturnLinkProps(cancelHref)}
+              {...(cancelLinkProps ?? listReturnLinkProps(cancelHref))}
               className="inline-flex items-center rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             >
               {t("common.cancel")}

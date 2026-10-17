@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { chipButton } from "@/components/ds/buttonStyles";
@@ -92,9 +93,7 @@ function OpsContent() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
-      <Link href="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900">
-        ← {t("profile.privateBackToMy")}
-      </Link>
+      <EntryBackLink fallback="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
       <h1 className="mb-4 text-xl font-semibold text-zinc-900">
         {t("workspace.ops.title")}{" "}
         <span className="text-sm font-normal text-zinc-400">

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
@@ -238,9 +239,7 @@ export default function MyLibraryPage() {
   return (
     <AuthGate>
       <PageShell variant="library">
-        <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
-          ← {t("library.back")}
-        </Link>
+        <EntryBackLink fallback="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
         <PageHeader
           variant="plain"
           title={t("library.title")}

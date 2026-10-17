@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useActingAs } from "@/context/ActingAsContext";
@@ -75,9 +76,7 @@ export default function MyClaimsPage() {
   return (
     <AuthGate>
       <main className="mx-auto max-w-2xl px-4 py-8">
-        <Link href="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900">
-          ← {t("profile.privateBackToMy")}
-        </Link>
+        <EntryBackLink fallback="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
         <h1 className="mb-2 text-xl font-semibold text-zinc-900">{t("my.kpi.claimRequests")}</h1>
         <p className="mb-6 text-sm text-zinc-500">{t("claims.intro")}</p>
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}

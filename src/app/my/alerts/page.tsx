@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -76,9 +77,7 @@ function AlertsContent() {
 
   return (
     <PageShell variant="narrow">
-      <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
-        ← {t("profile.privateBackToMy")}
-      </Link>
+      <EntryBackLink fallback="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
       <PageHeader
         variant="plain"
         title={t("alerts.title")}

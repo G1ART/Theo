@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
@@ -59,12 +60,7 @@ function SentInquiriesContent() {
 
   return (
     <PageShell>
-      <Link
-        href="/my"
-        className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900"
-      >
-        ← {t("profile.privateBackToMy")}
-      </Link>
+      <EntryBackLink fallback="/my" className="mb-6 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
       <PageHeader
         title={t("inquiriesSent.title")}
         lead={t("inquiriesSent.lead")}

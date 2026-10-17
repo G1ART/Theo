@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { formExitLinkProps } from "@/lib/nav/entryTrail";
 import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { backToLabel } from "@/lib/i18n/back";
@@ -135,6 +136,7 @@ function emptyExternalRow(): ExternalRow {
 export default function AddWorkToExhibitionPage() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t, locale } = useT();
   const id = typeof params.id === "string" ? params.id : "";
@@ -853,8 +855,16 @@ export default function AddWorkToExhibitionPage() {
     <AuthGate>
       <main className="mx-auto max-w-4xl px-4 py-8">
         <div className="mb-4 flex items-center justify-between">
-          <Link href={`/my/exhibitions/${id}`} className="text-sm text-zinc-600 hover:text-zinc-900">
-            ← {backToLabel(t("exhibition.myExhibitions"), locale)}
+          <Link
+            href={`/my/exhibitions/${id}`}
+            {...formExitLinkProps({
+              back: () => router.back(),
+              pathname: pathname ?? "",
+              target: `/my/exhibitions/${id}`,
+            })}
+            className="text-sm text-zinc-600 hover:text-zinc-900"
+          >
+            ← {backToLabel(t("exhibition.manageExhibition"), locale)}
           </Link>
         </div>
 

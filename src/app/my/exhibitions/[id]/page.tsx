@@ -8,7 +8,8 @@ import { AuthGate } from "@/components/AuthGate";
 import { useT } from "@/lib/i18n/useT";
 import { pickLocalizedArtworkTitle, pickLocalizedTitle, pickLocalizedVenueName } from "@/lib/i18n/pickLocalized";
 import { setArtworkBack } from "@/lib/artworkBack";
-import { listReturnLinkProps } from "@/lib/list/scrollRestore";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
+import { isExhibitionScreen } from "@/lib/nav/entryTrail";
 import { getExhibitionHostCuratorLabel } from "@/lib/exhibitionCredits";
 import {
   deleteExhibitionMedia,
@@ -605,9 +606,11 @@ export default function ExhibitionDetailPage() {
         <TourTrigger tourId={TOUR_IDS.exhibitionDetail} />
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <Link href="/my/exhibitions" {...listReturnLinkProps("/my/exhibitions")} className="text-sm text-zinc-600 hover:text-zinc-900">
-              ← {t("exhibition.myExhibitions")}
-            </Link>
+            <EntryBackLink
+              fallback="/my/exhibitions"
+              skip={(path) => isExhibitionScreen(path, id)}
+              className="text-sm text-zinc-600 hover:text-zinc-900"
+            />
           </div>
           <TourHelpButton tourId={TOUR_IDS.exhibitionDetail} />
         </div>

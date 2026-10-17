@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EntryBackLink } from "@/components/nav/EntryBackLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { ConfirmActionDialog } from "@/components/ds/ConfirmActionDialog";
@@ -120,9 +121,7 @@ export default function MyArtistsPage() {
   return (
     <AuthGate>
       <PageShell variant="narrow">
-        <Link href="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900">
-          ← {t("myArtists.back")}
-        </Link>
+        <EntryBackLink fallback="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
         <PageHeader
           variant="plain"
           title={t("myArtists.title")}

@@ -9,33 +9,32 @@ import { backToLabel } from "@/lib/i18n/back";
 import { PageShell } from "@/components/ds/PageShell";
 import { PageShellSkeleton } from "@/components/ds/PageShellSkeleton";
 import { NewExhibitionFormShell } from "@/components/exhibitions/NewExhibitionFormShell";
-import { listReturnLinkProps } from "@/lib/list/scrollRestore";
+import { useEntryBack } from "@/hooks/useEntryBack";
 
 function NewExhibitionPageInner() {
   const searchParams = useSearchParams();
   const fromUpload = searchParams.get("from") === "upload";
   const { t, locale } = useT();
-
-  const backHref = fromUpload ? "/upload" : "/my/exhibitions";
-  const backLabel = fromUpload
-    ? t("upload.backToUpload")
-    : backToLabel(t("exhibition.myExhibitions"), locale);
+  // Back and cancel return to the screen that opened the form (profile,
+  // board, list); the list or upload only when it was opened by a link.
+  const back = useEntryBack({ fallback: fromUpload ? "/upload" : "/my/exhibitions" });
 
   return (
     <AuthGate>
       <PageShell variant="narrow">
         <div className="mb-6">
           <Link
-            href={backHref}
-            {...listReturnLinkProps(backHref)}
+            href={back.path}
+            {...back.linkProps}
             className="text-sm text-zinc-600 hover:text-zinc-900"
           >
-            ← {backLabel}
+            ← {backToLabel(t(back.labelKey), locale)}
           </Link>
         </div>
         <NewExhibitionFormShell
           showCancelLink={!fromUpload}
-          cancelHref="/my/exhibitions"
+          cancelHref={back.path}
+          cancelLinkProps={back.linkProps}
         />
       </PageShell>
     </AuthGate>
