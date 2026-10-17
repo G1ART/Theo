@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 알림은 DB만 쓴다
+
+> **Supabase SQL:** `supabase/migrations/20261017214917_notifications_insert_lockdown.sql` 을 abstract-mvp 프로젝트에 적용했다. plpgsql 함수가 없어 한 번에 Run 해도 된다. **환경 변수 추가·변경 없음.**
+
+`notifications_insert` 정책이 모든 역할(anon 포함)에 `with check (true)` 라, 공개 API 키만 있으면 누구나 다른 사람 알림 목록에 가짜 알림을 넣을 수 있었다. 롤백 시험에서 로그인한 합성 계정이 다른 계정에게 `follow` 알림을 넣는 데 성공했다. `_record_delegation_notification(받는 사람, type, 행위자, payload)` 도 검증 없이 넣는 함수인데 anon·authenticated 가 RPC로 부를 수 있었다.
+
+- 클라이언트, 서버 라우트, 스크립트 어디에도 `notifications` 직접 insert 는 없었다. 알림은 모두 postgres 소유 SECURITY DEFINER 트리거·RPC가 쓰고, 행위자는 RLS가 `auth.uid()` 로 묶은 원본 행에서 온다(팔로우, 메시지, 가격 문의·답변·다시 알리기, 클레임, 보드, 좋아요, 신작, 위임 RPC, 외부 작가 클레임). 그래서 옮길 경로 없이 닫았다.
+- INSERT 정책을 지우고 anon·authenticated 의 INSERT 권한을 거뒀다. UPDATE 는 `read_at`, `is_read` 열만 남겼다(앱은 읽음 처리만 한다). `_record_delegation_notification` 실행 권한은 postgres·service_role 만 남겼다. 이 함수를 부르는 위임 RPC 13개는 모두 definer 라 그대로 동작한다.
+- 새 알림 type 을 더할 때는 SECURITY DEFINER 트리거나 RPC 로 써야 한다. 클라이언트 insert 는 권한 오류가 난다.
+
+**Verified:** `npx tsx tests/notifications-lockdown.test.ts`(신규). `supabase/tests/notifications_insert_lockdown.sql` 을 적용 전에는 직접 insert 성공으로 실패하는 것을, 적용 전(마이그레이션과 한 트랜잭션)·적용 후에는 통과하는 것을 확인했다. 합성 계정이 authenticated·anon 역할로 돌며 직접 insert·헬퍼 호출·payload 수정은 거부되고, 팔로우·좋아요·메시지·가격 문의(+다시 알리기)·문의 답변·클레임 요청·보드 저장·위임 초대·신작 알림은 그대로 갔다. 마지막 예외로 롤백.
+
 ## 2026-10-17 — 뒤로는 들어온 화면으로 (워크스페이스 하위·전시·CV), 전시 삭제 후
 
 > **Supabase SQL 돌려야 할 것은 없음.** **환경 변수 추가·변경 없음.**
