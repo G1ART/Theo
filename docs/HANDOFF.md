@@ -2,6 +2,30 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 'Three by Three' 기획을 대표님 계정으로, The GREEN 전시 7개 주최를 계정에 연결
+
+> **Supabase SQL 스키마 변경 없음.** 마이그레이션 파일을 만들지 않았다. 아래 `projects` 8행만 한 트랜잭션으로 `UPDATE` 했다(MCP). **환경 변수 추가·변경 없음.**
+
+대표님 결정: @henrykimceo·@henry_thegreen 은 대표님 계정이고, 전시 기획 크레딧은 @g1art_founder 로 모은다. 계정 자체(삭제·숨김·이름)와 대표님 영문 이름 'Henry Kim' 은 그대로 둔다. @thegreen_oc 가 기획한 전시 7개는 '냉정과 열정 사이'까지 모두 주최를 @thegreen_oc 에 연결한다.
+
+- `46eb432b-0300-43ef-afc6-6c96da219204` Three by Three. 이전 `curator_id` `1100c8a6-612d-4d61-b7e4-ed44ef1168b5`(@henrykimceo), 이후 `d4b84e70-3b10-4da9-a6da-ad7830fc7519`(@g1art_founder). `external_curator_id` 는 없다. 주최 `host_profile_id` @g1artkorea, `host_name`/`host_name_ko`/`host_name_en` `지원닷아트코리아`, 장소 `양양빌딩`/`YangYang Building` 은 그대로다.
+- 주최 연결 7행. 이전 `host_profile_id` 없음, 이후 `93f4f934-8296-40a0-9d3d-a3667ea2b71a`(@thegreen_oc). `curator_id` 는 모두 @thegreen_oc 그대로다. 주최 글자 칸과 장소 칸은 바꾸지 않아 이전 글자가 행에 남아 있다. `host_name_ko` 는 7행 모두 비어 있었고, `host_name` 과 `host_name_en` 은 같은 글자다.
+  - `4a397524-c41a-4eeb-a9cd-6ad14311ab08` 적재 — `The Green Gallery OC by G1.ART`
+  - `fb8e288b-dbb2-4ca4-a2ae-49dbcc39e146` 차려드림 — `The Green Gallery`
+  - `a336532c-a809-47ab-b092-cca8394cbb12` 냉정과 열정 사이 — `The Green Gallery / Alt Project`
+  - `adf742d8-92be-4e35-a13a-595065da480d` 기억을 포개다 — `The Green Gallery`
+  - `bc133847-3320-460e-a993-7d1261e82456` 소비 이후, 남겨진 것들이 묻다(작품 9점 쪽) — `The Green Gallery`
+  - `43310699-be98-4eb5-9a67-6b561f418596` 영웅은 은퇴하지 않는다 — `The Green Gallery`
+  - `08d91f62-632d-4228-acbc-7f5818e81c1f` 소품전 — `The Green Gallery`
+- '냉정과 열정 사이'의 공동 주최 'Alt Project': 스키마에 공동 주최나 추가 크레딧 칸이 없다(장소 칸은 건물·공간용이다). 카드는 연결된 계정 이름만 그리므로 'Alt Project' 는 화면에서 빠진다. 글자는 `host_name`/`host_name_en` 에 그대로 있다. 되돌리려면 그 행의 `host_profile_id` 만 null 로 돌린다.
+- `updated_at` 은 트리거가 8행 모두 `2026-10-17 22:25:45.752115+00` 으로 찍었다. 이전 값은 Three by Three `2026-10-10 05:58:33.986644+00`, 적재 `2026-10-11 02:09:27.13055+00`, 소품전 `2026-09-19 19:06:09.22977+00`, 나머지 5행 `2026-07-29 05:58:38.570881+00` 이다. 앱과 DB 함수는 전시 `updated_at` 으로 정렬하거나 거르지 않는다.
+- 부수 효과: `projects` 의 라이브 트리거는 한/영 제목·주최명 동기화(그 열을 바꿀 때만 동작)와 `updated_at` 둘뿐이고, 알림 트리거는 없다. `projects` 를 읽어 알림을 쓰는 함수는 `exhibition_works` INSERT 트리거뿐이다. pg_cron·pg_net·실시간 publication 은 없다. 트랜잭션 안에서 트리거 구성과 이전 값을 확인했고, 그 트랜잭션이 쓴 notifications·digest_events·profile_exhibition_orders 행이 0인지 확인한 뒤 커밋했다. 적용 뒤 알림은 0건이다. 이름을 복사해 둔 materialized view, 캐시 테이블, 외부 검색 색인은 없다.
+- 두 계정에 남은 것(바꾸지 않음). @henrykimceo: 확정 클레임 2(OWNS 1, CURATED 1, 둘 다 전시에 묶이지 않음), 팔로워 5·팔로잉 2, 대기 중 열람 요청 2, 보낸 가격 문의 1(메시지 1), 받은 알림 15·digest 13·보낸 알림 2, 프로필 상세 1, 조회 기록. @henry_thegreen: 팔로워 4, 작품 좋아요 2, 받은 메시지 1, 받은 알림 7·digest 5, 조회 기록. 두 계정 모두 전시 주최·작품·위임·게시글·프로필 순서는 0이다.
+- 남은 화면 차이: For you 산책의 갤러리 문구(`galleryName`, `src/lib/feed/walk/assemble.ts`)는 연결된 주최 계정 이름보다 `host_name` 글자를 먼저 쓴다. 그래서 이 7개와 이미 연결돼 있던 '빛의 순간을 기억하는 정원'·'남겨진 흔적'은 산책 문구에 'The Green Gallery' 가 남는다. 산책의 전시 카드 크레딧은 계정 이름이다. 피드 작업 영역이라 이번에는 두었다.
+- 중복 전시 2쌍은 대표님 결정을 기다린다(데이터 그대로): '동, 심, 원'(`2ca2ac1f`) ↔ '동同, 심沁, 원源.'(`d89cf405`), '소비 이후, 남겨진 것들이 묻다' `635b87a7`(대표님, 작품 0점) ↔ `bc133847`(@thegreen_oc, 작품 9점). `bc133847` 의 `end_date` 는 `2025-02-21` 로 시작일 `2026-01-09` 보다 앞선다(대표님 쪽은 `2026-02-21`).
+
+**Verified:** 적용 후 SELECT 로 8행의 이후 값과, 주최·장소 글자 칸이 그대로인 것을 확인했다. 비로그인 REST 로 앱의 `getExhibitionById` 와 `getExhibitionHostCuratorLabel` 을 돌렸다. Three by Three 는 이전 "전시 지원닷아트코리아 · 기획 Hyunmin Kim" → 한국어 "전시 지원닷아트코리아 · 기획 김현민", 영어 "Exhibited by 지원닷아트코리아 · Curated by Henry Kim". 7개는 이전 "전시 The Green Gallery · 기획 The GREEN" → "전시·기획 The GREEN" / "Exhibited & Curated by The GREEN". `listExhibitionsForProfile` 에 프로필 순서를 적용하면 @g1art_founder 는 전시 4개 중 Three by Three 가 3번째(고정 순서 2개 다음)이고, @henrykimceo 는 0개(이전 1개), @thegreen_oc 는 7개가 그대로 있다. 로그인한 브라우저로는 보지 못했다.
+
 ## 2026-10-17 — 좋아요한 작품 알림(전시·가격 공개·판매 완료), 좋아요 목록 잠금 적용
 
 > **Supabase SQL:** `supabase/migrations/20261017224500_liked_work_alerts.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP). 함수가 세 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 같이 적용: `20261017224000_artworks_first_published_select.sql`(한 줄), `20261017223500_artwork_likes_private.sql`(좋아요 탭 커밋 37cdafa 의 프로덕션 배포 성공을 확인한 뒤). **환경 변수 추가·변경 없음.**
