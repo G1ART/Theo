@@ -135,6 +135,7 @@ function EditArtworkContent() {
   const [useExternalArtist, setUseExternalArtist] = useState(false);
   const [externalArtistName, setExternalArtistName] = useState("");
   const [externalArtistEmail, setExternalArtistEmail] = useState("");
+  const [savedExternalArtistEmail, setSavedExternalArtistEmail] = useState("");
   // Soft-required email (2026-07-01) — opt out to link manually later via /my/artists.
   const [externalNoEmail, setExternalNoEmail] = useState(false);
 
@@ -249,7 +250,10 @@ function EditArtworkContent() {
         // RPC; non-inviters simply get an empty field.
         const externalArtistId = claim.external_artist_id;
         void getExternalArtistInviteEmail(externalArtistId).then(({ data }) => {
-          if (data) setExternalArtistEmail(data);
+          if (data) {
+            setExternalArtistEmail(data);
+            setSavedExternalArtistEmail(data);
+          }
         });
       }
     } else if (effectiveIds.includes(artwork.artist_id)) {
@@ -414,7 +418,15 @@ function EditArtworkContent() {
       if (myClaim?.id) {
         const existingExtId = myClaim.external_artist_id ?? null;
         let extId = existingExtId;
-        if (!existingExtId) {
+        const typedEmail = externalNoEmail ? "" : externalArtistEmail.trim();
+        // Sign-up merges by the email on the invite row, so a newly typed
+        // email goes through get_or_create: it fills this name-only row or
+        // finds the open invite that already holds the address.
+        const emailAdded =
+          !!existingExtId &&
+          !!typedEmail &&
+          typedEmail.toLowerCase() !== savedExternalArtistEmail.trim().toLowerCase();
+        if (!existingExtId || emailAdded) {
           const { data: createdId, error: extErr } = await createExternalArtist({
             displayName: externalArtistName.trim(),
             inviteEmail: externalArtistEmail.trim() || null,
@@ -444,7 +456,7 @@ function EditArtworkContent() {
           setSaving(false);
           return;
         }
-        if (!existingExtId && externalArtistEmail?.trim()) {
+        if ((!existingExtId || emailAdded) && externalArtistEmail?.trim()) {
           const email = externalArtistEmail.trim();
           const invite = await sendArtistInviteEmailClient({
             toEmail: email,

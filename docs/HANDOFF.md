@@ -2,6 +2,22 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 초대받은 작가가 초대 이메일로 가입을 마치면 작품·크레딧이 붙는다 (경로 점검과 막힌 곳 2개)
+
+> **Supabase SQL:** `supabase/migrations/20261017235907_invite_signup_merge.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
+
+대표님 확인: 어떤 경로로 초대받았든 초대 이메일로 계정 생성을 마치면 작품이 프로필에 자동으로 붙어야 한다. 최신 방식(09-29, 초대는 SendGrid 메일 → `/onboarding?email=`, 가입 전에 계정을 만들지 않음)을 기준으로 봤다.
+
+- 병합은 `link_matching_external_artists_for_user` 하나다. 가입(auth INSERT), 활성화 메일 열기(이메일 확인 UPDATE), 프로필 저장에서 돈다. 초대 이메일(대소문자 무관)이 같은 외부 작가 행을 모두 새 계정으로 옮기고 작품 `artist_id`, 갤러리·큐레이터 클레임의 작가 칸, 전시 참여 크레딧, CREATED 클레임, 한/영 이름을 넘긴다.
+- 경로별(롤백 시나리오와 코드로 확인): 싱글·벌크 업로드, 작품 수정에서 새 외부 작가, 전시 작품 추가의 참여 작가(이메일을 처음부터 넣은 경우)는 원래 붙었다. 위임 대리 업로드도 같은 RPC 라 같다(시나리오로는 돌리지 않음). 이름만 있는 초대(고아)는 이메일이 없어 자동으로는 안 붙고, 가입 뒤 '나에게 온 초대장' 배너에서 본인이 가져가면 같은 방식으로 옮겨진다. `/people/invite` 는 메일만 보내고 붙일 작품이 없다.
+- 막힌 곳 1(코드 퇴행): 전시 작품 추가에서 이름을 먼저 치면 이름 칸을 벗어날 때 참여 작가가 저장되고, 이메일을 넣어 다시 저장하면 `uq_claims_project_curated_ext` 중복으로 실패해 이메일이 저장되지 않았다(초대 메일도 안 갔다). 07-28 `20260728220000` 이 넣은 '같은 참여자는 다시 저장해도 같은 행' 처리를 그 뒤 인자를 늘린 3개 정의가 빠뜨렸다. 하나로 합치며 되살렸고, 13·14개 인자 옛 정의는 지웠다(SQL 호출처 없음).
+- 막힌 곳 2: 작품 수정에서 이미 이름만으로 연결된 외부 작가에 이메일을 넣으면 이름만 저장되고 이메일은 버려졌다(초대도 안 감). 이제 업로드와 같은 `get_or_create_external_artist` 로 그 행에 이메일을 채우거나 그 이메일을 가진 초대를 찾아 클레임을 그쪽으로 돌리고, 초대 메일을 보낸다.
+- 이름만 있는 참여 작가에 다른 초대가 이미 가진 이메일을 넣으면 실패하던 것도, 그 초대로 옮겨 참여자 한 명으로 둔다.
+- 병합 시점: 가입만 하고 메일을 열지 않은 계정(인증 안 된 이메일)으로는 이제 옮기지 않는다. 메일을 열면 그때 옮긴다(구글처럼 처음부터 인증된 가입은 바로). 전에는 남이 그 이메일로 가입만 해도 작품이 그 계정으로 갔다. 프로필 행은 전처럼 가입 때 만든다. 이미 인증 안 된 계정이 가져간 초대 9건(계정 9개, 모두 비밀번호로 가입을 시작했고 2월~9월 생성, 프로필 미완성)은 바꾸지 않았다. 그 작품들은 지금 그 계정의 작품으로 보인다. 메일을 열면 그 계정이 그대로 본인 것이 된다.
+- 남은 것(손대지 않음): 전시를 만들 때 '초대 큐레이터'(`projects.external_curator_id`)로 넣은 사람이 가입하면 외부 작가 행은 그 계정으로 가지만, 전시의 기획 크레딧은 외부 이름 그대로이고 그 사람 프로필에 전시가 뜨지 않는다. 기획자 칸(`curator_id`)은 만든 계정의 편집 권한이 걸려 있어 자동으로 바꾸지 않았다. 지금 이 칸을 쓰는 전시는 0개다. 같은 화면에서 비로그인 방문자는 초대 큐레이터 이름을 읽지 못해(외부 작가 공개 읽기 정책이 클레임만 본다) 만든 계정 이름이 기획으로 보인다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/external-artist-onboarding-merge.test.ts`(OTP 사전 생성 검사를 지금 흐름으로 바꿈: 최신 병합 정의가 인증된 이메일만 쓰고 클레임·작품·CREATED 를 옮김, 트리거 3개, 모든 초대 화면이 SendGrid 초대를 쓰고 계정을 미리 만들지 않음, `/onboarding?email=`, 참여자 재저장, 작품 수정의 새 이메일). `external-artist-dedupe`, `-dedupe-phase1`, `-link-phase2`, `-name-everywhere`, `-public-credit`, `invite-delivery`, `ir-demo`, `project-delegate-artwork-upload`, `sprint6-trust-floor`, `sprint7-passport-owner-minimization`, `credit-name-parity`, `search-typo-sql-contract`, `claims-integrity-phase3`, `npm run test:onboarding-smoke`, `npm run test:onboarding-runtime` 통과. `supabase/tests/invite_signup_merge.sql`(신규, 합성 계정·롤백, 메일 없음): 적용 전 같은 경로를 돌린 기준 시나리오에서는 참여자 재저장이 23505, 인증 전 가입이 초대 4건을 가져갔다. 새 시나리오는 마이그레이션과 한 트랜잭션(롤백)과 적용 후 모두 `invite_signup_merge: ok`. 바꾼 화면의 eslint 는 HEAD 와 같다. 로그인한 브라우저로 실제 초대·가입은 해 보지 않았다.
+
 ## 2026-10-17 — 비공개 계정 작가의 '공개' 작품은 작가·편집 권한자·승인된 팔로워만 (followers_only)
 
 > **Supabase SQL:** `supabase/migrations/20261017234802_private_account_works_followers_only.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 여덟 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 파일의 `search_works_for_dedup` 머리는 적용본의 `timestamp with time zone` / `set search_path to 'public'` 을 같은 뜻의 `timestamptz` / `= public` 으로 썼다(검색 계약 테스트 형식). **환경 변수 추가·변경 없음.**
