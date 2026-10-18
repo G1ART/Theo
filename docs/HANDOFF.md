@@ -2,6 +2,25 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 좋아요 입구는 하트 + '관심 작품', 가격이 보이는 작품에는 새 '문의하기'가 없다
+
+> **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.**
+
+- 좋아요 입구(바로 아래 '자물쇠 아이콘만' 섹션을 대신함)
+  - 자물쇠만 있는 버튼은 뭔지 알 수 없다는 대표님 말씀으로, 버튼만 봐도 알게 했다. 보이는 것은 하트 + '관심 작품'(영어 'Liked')이다. 하트는 좋아요 버튼과 같은 ♡이고, 목록이 열려 있으면 ♥이다.
+  - 툴팁과 접근 이름은 '내가 좋아한 작품들. 나만 볼 수 있습니다.' / 'Works I liked. Only you can see them.'이다. 개수, '나만 보기', 자물쇠는 버튼에 없다.
+  - 위치는 그대로 '프로필 편집' 바로 아래이고, 높이·패딩·글자 크기가 같다. 본인 로그인으로 자기 프로필을 볼 때만 보이고, 탭 줄에는 없다.
+  - 섹션 제목 '내가 좋아한 작품들' / 'Works I liked'는 그대로다. 문구 키 `likes.entry`, `likes.entryHint`를 더했다.
+- 가격이 보이는 작품의 새 문의(대표님 결정 public_price_inquire = hide_button)
+  - 규칙 하나(`src/lib/inquiry/askable.ts` `inquiryFormOpens`): 새 문의 폼은 가격이 '문의'이거나, 비공개이거나, 보는 사람에게 가려졌을 때만 열린다. 서버가 보는 사람 기준으로 내려준 칸(가격 가림, 가격 방식, 가격 공개)만 읽고 저장된 가격은 읽지 않는다. 상세의 기존 조건과 같은 식이다.
+  - 좋아요 카드: 가격이 보이는 작품은 '문의하기'가 없다. '문의 이어 보기'와 '답장 보기'는 가격이 보여도 그대로다.
+  - 작품 상세: 새 문의 버튼과 폼은 위 규칙일 때만 나온다. 가격·소장 안내 상자(`GatedField`)의 '문의하기'는 폼이 열릴 때만 보인다(누를 곳이 없는 버튼이 없도록, 받을 곳이 없으면 안내 상자가 그리지 않는다).
+  - 내 기존 문의 스레드는 가격이 보이게 된 뒤에도 상세에 남는다. 전에는 가격이 공개되면 스레드가 사라졌다.
+  - 룸: 각 작품의 '문의하기' 링크는 서버 판정(`artwork_viewer_fields_for`)으로 폼이 열리는 작품에만 보인다. 룸 맨 위 '이 룸의 작품에 대해 문의하기'는 폼이 열리는 첫 작품으로 가고, 그런 작품이 없으면 숨긴다.
+  - 권한, 문의가 열리는 곳, 팔로우 관계 표시, '가격과 소장 여부는 맞팔로우에게 공개' 안내는 그대로다.
+
+**Verified:** `npx tsc --noEmit`. 테스트: `npx tsx tests/inquiry-hidden-when-price-shown.test.ts`(신규), `likes-entry-and-inquiry-cta`(입구 검사를 하트·새 문구로 바꿈), `liked-works-view`(가격이 보이는 카드는 버튼 없음, 진행 중 문의는 '문의 이어 보기'), `sprint6-trust-floor`, `visibility-copy`, `entry-trail`, `price-inquiry-renotify`, `artwork-viewer-fields`, `access-enforcement`, `profile-sticky-chrome`, `profile-tab-access`, `private-account-works`, `room-rpc-image-order`, `credit-name-parity` 통과. 바꾼 파일 eslint 는 HEAD 와 같다. 로그인한 브라우저로 프로필·좋아요 목록·상세·룸을 눌러 보지는 못했다(로그인 세션 없음).
+
 ## 2026-10-17 — 좋아요 입구는 자물쇠 아이콘만
 
 > **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.**

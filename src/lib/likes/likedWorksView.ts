@@ -9,6 +9,7 @@
  */
 
 import type { ArtworkVisibilityGate } from "@/lib/artworks/viewerFields";
+import { inquiryFormOpensForFields } from "@/lib/inquiry/askable";
 import { artworkDimensionsCm, artworkMatchesConstraints, parseArtworkQuery } from "@/lib/search/artworkQuery";
 import { recordMatchesQuery } from "@/lib/search/matchText";
 
@@ -405,8 +406,9 @@ export type LikedCta =
   | { kind: "none" };
 
 /**
- * One action per card. Asking is one label whatever the viewer can see of
- * price or availability; it goes through the detail form (`?ask=1`).
+ * One action per card. An inquiry already made stays reachable; a new one is
+ * offered only when the detail form would open for this viewer (price on
+ * request, private, or held back), through `?ask=1`.
  */
 export function likedCta(item: LikedWork, viewerId: string | null): LikedCta {
   const art = item.artwork;
@@ -418,7 +420,7 @@ export function likedCta(item: LikedWork, viewerId: string | null): LikedCta {
   const detail = `/artwork/${art.id}`;
   if (item.mine.inquiry === "replied") return { kind: "reply", href: detail };
   if (item.mine.inquiry === "open") return { kind: "continue", href: detail };
-  return { kind: "ask", href: `${detail}?ask=1` };
+  return inquiryFormOpensForFields(art) ? { kind: "ask", href: `${detail}?ask=1` } : { kind: "none" };
 }
 
 export function latestChange(item: LikedWork): LikedChange | null {

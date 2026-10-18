@@ -58,6 +58,7 @@ import {
   type PriceInquiryRow,
   type PriceInquiryMessageRow,
 } from "@/lib/supabase/priceInquiries";
+import { inquiryFormOpens } from "@/lib/inquiry/askable";
 import { renotifyHint, type RenotifyState } from "@/lib/inquiry/renotify";
 import { getExhibitionHostCuratorLabel, type ExhibitionWithCredits } from "@/lib/exhibitionCredits";
 import { listMyDelegations } from "@/lib/supabase/delegations";
@@ -460,11 +461,16 @@ function ArtworkDetailContent() {
   // most needed it. The new check also accepts a fail-closed price
   // resolution as a valid trigger.
   const priceIsGated = Boolean(priceResolution && !priceResolution.canView);
+  const canInquire = Boolean(userId && artwork && userId !== artwork.artist_id);
   const showPriceInquiryBlock =
-    Boolean(userId && artwork && userId !== artwork.artist_id) &&
-    (artwork?.pricing_mode === "inquire" ||
-      artwork?.is_price_public === false ||
-      priceIsGated);
+    canInquire &&
+    inquiryFormOpens({
+      priceGated: priceIsGated,
+      pricingMode: artwork?.pricing_mode,
+      isPricePublic: artwork?.is_price_public,
+    });
+  // Gate boxes offer "Inquire" only when it opens the form.
+  const openInquiryForm = showPriceInquiryBlock ? () => setShowInquiryForm(true) : undefined;
 
   const showArtistInquiryBlock =
     Boolean(userId && artwork && (artwork.pricing_mode === "inquire" || artwork.is_price_public === false)) &&
@@ -479,8 +485,10 @@ function ArtworkDetailContent() {
     return myInquiryMessages.some((m) => m.sender_id !== userId);
   }, [myPriceInquiry, userId, myInquiryMessages]);
 
+  // The viewer's own inquiry stays visible even once the price is shown to
+  // them; only a new inquiry needs the form.
   useEffect(() => {
-    if (!id || !showPriceInquiryBlock) return;
+    if (!id || !canInquire) return;
     // Sprint 6 Phase 0 — also re-fetch when `priceIsGated` flips so a
     // freshly arrived gate (e.g. follow flow ↑↓ that moved the viewer
     // out of the audience) refreshes the form state to match.
@@ -490,11 +498,12 @@ function ArtworkDetailContent() {
       setMyPriceInquiry(data ?? null);
       setPriceInquiryLoading(false);
     });
-  }, [id, showPriceInquiryBlock]);
+  }, [id, canInquire, showPriceInquiryBlock]);
 
   useEffect(() => {
     if (!askOnOpen || askOpenedRef.current) return;
-    if (!showPriceInquiryBlock || priceInquiryLoading || !inquiryCheckedRef.current) return;
+    if (priceInquiryLoading || !inquiryCheckedRef.current) return;
+    if (!myPriceInquiry && !showPriceInquiryBlock) return;
     askOpenedRef.current = true;
     const openForm = !myPriceInquiry;
     window.requestAnimationFrame(() => {
@@ -1074,7 +1083,7 @@ function ArtworkDetailContent() {
                       viewerRelationship={viewerRelationship}
                       ownerLabel={ownerLabel}
                       surface="artwork_passport"
-                      onAskAboutWork={() => setShowInquiryForm(true)}
+                      onAskAboutWork={openInquiryForm}
                       onAfterFollow={() => void refreshPassport()}
                     >
                       <></>
@@ -1098,7 +1107,7 @@ function ArtworkDetailContent() {
                             viewerRelationship={viewerRelationship}
                             ownerLabel={ownerLabel}
                             surface="artwork_passport"
-                            onAskAboutWork={() => setShowInquiryForm(true)}
+                            onAskAboutWork={openInquiryForm}
                             onAfterFollow={() => void refreshPassport()}
                           >
                             <></>
@@ -1118,7 +1127,7 @@ function ArtworkDetailContent() {
                         viewerRelationship={viewerRelationship}
                         ownerLabel={ownerLabel}
                         surface="artwork_passport"
-                        onAskAboutWork={() => setShowInquiryForm(true)}
+                        onAskAboutWork={openInquiryForm}
                         onAfterFollow={() => void refreshPassport()}
                       >
                         <></>
@@ -1128,7 +1137,7 @@ function ArtworkDetailContent() {
                 </>
               );
             })()}
-            {showPriceInquiryBlock && (
+            {(showPriceInquiryBlock || myPriceInquiry) && (
               <div id="price-inquiry" className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
                 {priceInquiryLoading ? (
                   <p className="text-sm text-zinc-500">{t("common.loading")}</p>

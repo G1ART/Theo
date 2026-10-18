@@ -144,7 +144,9 @@ export function GatedField({
     // for the follow path lives on the click-capture wrapper below.
   };
 
-  const showSecondaryInquiry = shouldShowSecondaryInquiryCta(cta, fieldKey);
+  // Without a handler there is no form behind "Inquire", so it is not offered.
+  const canAsk = Boolean(onAskAboutWork);
+  const showSecondaryInquiry = canAsk && shouldShowSecondaryInquiryCta(cta, fieldKey);
 
   // Sprint 5.2 — fires the follow_request_from_visibility_gate event the
   // moment the user actually presses the FollowButton. We use a small
@@ -172,7 +174,7 @@ export function GatedField({
   return (
     <div className="rounded-2xl bg-zinc-50/70 p-4">
       <p className="text-sm leading-relaxed text-zinc-700">{copy}</p>
-      {cta.kind !== "none" && (
+      {cta.kind !== "none" && (cta.kind !== "inquiry" || canAsk) && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {cta.kind === "follow" && (
             // Real follow flow — never a no-op. Click-intent telemetry
@@ -191,7 +193,7 @@ export function GatedField({
               />
             </span>
           )}
-          {cta.kind === "inquiry" && (
+          {cta.kind === "inquiry" && canAsk && (
             <button
               type="button"
               onClick={() => handleClick("inquiry")}

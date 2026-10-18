@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { setArtworkBack } from "@/lib/artworkBack";
-import { getArtworkImageUrl } from "@/lib/supabase/artworks";
+import { fetchArtworkViewerFields, getArtworkImageUrl } from "@/lib/supabase/artworks";
+import { inquiryFormOpensForFields } from "@/lib/inquiry/askable";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
 import { logRoomAction } from "@/lib/supabase/shortlists";
 import { useT } from "@/lib/i18n/useT";
@@ -137,16 +138,45 @@ export default function RoomPage() {
     [meta]
   );
 
+  // Works this viewer can start a new inquiry on, judged by the server's
+  // per-viewer fields: a work whose price they are shown has no form, so
+  // it gets no "Inquire" link (대표님 결정 hide_button).
+  const visibleArtworkKey = useMemo(
+    () =>
+      items
+        .filter((i) => i.artwork_id && i.artwork_visible !== false)
+        .map((i) => i.artwork_id as string)
+        .join(","),
+    [items]
+  );
+  const [askableIds, setAskableIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!visibleArtworkKey) return;
+    let cancelled = false;
+    void fetchArtworkViewerFields(visibleArtworkKey.split(",")).then((fields) => {
+      if (cancelled) return;
+      const next = new Set<string>();
+      for (const [artworkId, value] of fields) {
+        if (inquiryFormOpensForFields(value)) next.add(artworkId);
+      }
+      setAskableIds(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleArtworkKey]);
+
   // Sprint 6 Phase D — calm "ask about a selected work" CTA at the
-  // header level. Implemented as a deep link into the FIRST artwork
-  // tile in the room with `?fromRoom=` attribution. The room token
+  // header level. Implemented as a deep link into the first artwork
+  // tile in the room that can take a new inquiry, with `?fromRoom=`
+  // attribution. The room token
   // never leaves the URL; once the viewer lands on the artwork page,
   // the new `resolveRoomSourceFromToken` RPC translates the token to
   // a clean `room_id` for inquiry attribution. Multi-work room
   // inquiry is intentionally deferred (documented in HANDOFF.md).
   const firstArtworkId = useMemo(
-    () => items.find((i) => i.artwork_id)?.artwork_id ?? null,
-    [items]
+    () => items.find((i) => i.artwork_id && askableIds.has(i.artwork_id))?.artwork_id ?? null,
+    [items, askableIds]
   );
   const handleAskAboutSelected = useCallback(() => {
     if (!firstArtworkId) return;
@@ -350,13 +380,15 @@ export default function RoomPage() {
                         {item.note}
                       </p>
                     ) : null}
-                    <Link
-                      href={href}
-                      onClick={() => handleArtworkClick(item.artwork_id!)}
-                      className="mt-3 inline-block self-start text-xs text-zinc-500 underline-offset-4 hover:text-zinc-900 hover:underline"
-                    >
-                      {t("inquiry.cta")}
-                    </Link>
+                    {askableIds.has(item.artwork_id) ? (
+                      <Link
+                        href={href}
+                        onClick={() => handleArtworkClick(item.artwork_id!)}
+                        className="mt-3 inline-block self-start text-xs text-zinc-500 underline-offset-4 hover:text-zinc-900 hover:underline"
+                      >
+                        {t("inquiry.cta")}
+                      </Link>
+                    ) : null}
                   </article>
                 </li>
               );

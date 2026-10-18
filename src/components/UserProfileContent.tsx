@@ -1026,21 +1026,16 @@ export function UserProfileContent({
                   type="button"
                   onClick={openLikes}
                   aria-pressed={showLikes}
-                  aria-label={t("likes.title")}
-                  title={t("likes.title")}
-                  className={`inline-flex shrink-0 items-center justify-center rounded-full border px-4 py-1.5 text-xs font-medium ${
+                  aria-label={t("likes.entryHint")}
+                  title={t("likes.entryHint")}
+                  className={`inline-flex shrink-0 items-center justify-center gap-1 rounded-full border px-4 py-1.5 text-xs font-medium ${
                     showLikes
                       ? "border-zinc-500 bg-zinc-100 text-zinc-900"
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-500"
                   }`}
                 >
-                  {/* h-4 is text-xs's line height, so the button stays as tall as Edit profile. */}
-                  <span className="inline-flex h-4 items-center justify-center">
-                    <svg aria-hidden viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.3">
-                      <rect x="2.5" y="5.5" width="7" height="5" rx="1" />
-                      <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" />
-                    </svg>
-                  </span>
+                  <span aria-hidden>{showLikes ? "♥" : "♡"}</span>
+                  <span>{t("likes.entry")}</span>
                 </button>
               ) : null}
             </div>

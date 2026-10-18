@@ -151,11 +151,16 @@ assert.deepEqual(
   [["artist-a", 3], ["artist-b", 1]],
 );
 
-// 6. One action per card. Asking is one kind whether the price is listed,
-//    on request, or held back from this viewer.
-assert.deepEqual(likedCta(listed, "viewer"), { kind: "ask", href: "/artwork/listed?ask=1" });
+// 6. One action per card. A new inquiry is offered only where the detail
+//    form opens (price on request or held back); a viewer shown the price
+//    gets none, while an inquiry already made stays reachable.
+assert.deepEqual(likedCta(listed, "viewer"), { kind: "none" });
 assert.deepEqual(likedCta(ask, "viewer"), { kind: "ask", href: "/artwork/ask?ask=1" });
 assert.deepEqual(likedCta(hidden, "viewer"), { kind: "ask", href: "/artwork/hidden?ask=1" });
+assert.deepEqual(likedCta({ ...listed, mine: { inquiry: "open", in_board: false } }, "viewer"), {
+  kind: "continue",
+  href: "/artwork/listed",
+});
 assert.deepEqual(likedCta(sold, "viewer"), { kind: "more", href: "/u/artist-a", count: 3 });
 assert.deepEqual(likedCta({ ...listed, mine: { inquiry: "replied", in_board: false } }, "viewer"), {
   kind: "reply",

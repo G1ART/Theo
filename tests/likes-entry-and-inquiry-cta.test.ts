@@ -1,8 +1,9 @@
 // 대표님 요청 (2026-10-17):
-//   1) The likes entry sits under "Edit profile", as tall and padded as that
-//      button, showing only a lock icon (no label, count or "only you" text),
-//      only for the login on its own profile. The list is called
-//      "Works I liked" / "내가 좋아한 작품들", which is also its accessible name.
+//   1) The likes entry sits under "Edit profile", in that button's height,
+//      padding and type size, and says what it is: a heart and "관심 작품" /
+//      "Liked" (no count, no "only you" text, no lock), only for the login on
+//      its own profile. Its tooltip and accessible name say the list is
+//      private. The list is called "Works I liked" / "내가 좋아한 작품들".
 //   2) Every contact button about a work says "Inquire" / "문의하기"; the
 //      follow relation shows next to the artist's name instead.
 
@@ -66,25 +67,26 @@ assert.ok(panel.includes("getFollowRelations("));
 
 // 4. Where the inquiry opens is unchanged: the detail form via ?ask=1.
 const view = read("src/lib/likes/likedWorksView.ts");
-assert.ok(view.includes('return { kind: "ask", href: `${detail}?ask=1` };'));
+assert.ok(view.includes('{ kind: "ask", href: `${detail}?ask=1` }'));
 assert.ok(!view.includes("askAbout"));
 
-// 5. The likes entry: under "Edit profile", same height and padding, lock icon only, own profile only.
+// 5. The likes entry: under "Edit profile", same size, heart + "관심 작품", own profile only.
+assert.equal(ko["likes.entry"], "관심 작품");
+assert.equal(en["likes.entry"], "Liked");
+assert.equal(ko["likes.entryHint"], "내가 좋아한 작품들. 나만 볼 수 있습니다.");
+assert.equal(en["likes.entryHint"], "Works I liked. Only you can see them.");
+assert.equal(ko["likes.tab"], undefined);
 const profile = read("src/components/UserProfileContent.tsx");
 const editAt = profile.indexOf('{t("profile.editProfile")}');
-const entryAt = profile.indexOf("aria-label={t(\"likes.title\")}");
+const entryAt = profile.indexOf("aria-label={t(\"likes.entryHint\")}");
 const tabsAt = profile.indexOf('data-profile-freeze="tabs"');
 assert.ok(editAt > 0 && entryAt > editAt && entryAt < tabsAt, "entry comes right after Edit profile, before the tab row");
 const entry = profile.slice(profile.lastIndexOf("{showLikesTab ? (", entryAt), profile.indexOf("</button>", entryAt));
-assert.ok(entry.includes('title={t("likes.title")}'));
+assert.ok(entry.includes('title={t("likes.entryHint")}'));
 assert.ok(entry.includes("rounded-full border") && entry.includes("px-4 py-1.5 text-xs font-medium"), "Edit profile's size");
-assert.ok(entry.includes("<svg aria-hidden"), "lock icon");
-assert.ok(/<span className="inline-flex h-4 items-center justify-center">\s+<svg aria-hidden/.test(entry), "icon centred in a text-xs-tall box");
-const body = entry.slice(entry.indexOf(">", entry.indexOf("className={`inline-flex shrink-0")) + 1);
-assert.ok(!/\{t\(/.test(body), "no visible text in the entry");
+assert.ok(/<span aria-hidden>\{showLikes \? "♥" : "♡"\}<\/span>\s+<span>\{t\("likes\.entry"\)\}<\/span>/.test(entry), "heart, then the label");
+assert.ok(!entry.includes("<svg"), "no lock inside the button");
 assert.ok(!entry.includes("likesCount") && !profile.includes('t("likes.onlyMe")'), "no count, no only-you text");
-assert.equal(ko["likes.tab"], undefined, "the visible label is gone");
-assert.equal(en["likes.tab"], undefined, "the visible label is gone");
 assert.ok(/const showLikesTab = isOwner && viewerId != null && viewerId === profile\.id;/.test(profile), "hidden from visitors and acting-as");
 assert.ok(!profile.slice(tabsAt, profile.indexOf("</div>", profile.indexOf("<ProfileTabManager", tabsAt) + 1)).includes("openLikes"), "not in the tab row");
 
