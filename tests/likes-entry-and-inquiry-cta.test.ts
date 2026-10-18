@@ -1,7 +1,8 @@
 // 대표님 요청 (2026-10-17):
-//   1) The likes entry sits under "Edit profile", in that button's size, with
-//      no count or "only you" text, only for the login on its own profile.
-//      The list is called "Works I liked" / "내가 좋아한 작품들".
+//   1) The likes entry sits under "Edit profile", as tall and padded as that
+//      button, showing only a lock icon (no label, count or "only you" text),
+//      only for the login on its own profile. The list is called
+//      "Works I liked" / "내가 좋아한 작품들", which is also its accessible name.
 //   2) Every contact button about a work says "Inquire" / "문의하기"; the
 //      follow relation shows next to the artist's name instead.
 
@@ -68,7 +69,7 @@ const view = read("src/lib/likes/likedWorksView.ts");
 assert.ok(view.includes('return { kind: "ask", href: `${detail}?ask=1` };'));
 assert.ok(!view.includes("askAbout"));
 
-// 5. The likes entry: under "Edit profile", same size, lock only, own profile only.
+// 5. The likes entry: under "Edit profile", same height and padding, lock icon only, own profile only.
 const profile = read("src/components/UserProfileContent.tsx");
 const editAt = profile.indexOf('{t("profile.editProfile")}');
 const entryAt = profile.indexOf("aria-label={t(\"likes.title\")}");
@@ -78,7 +79,12 @@ const entry = profile.slice(profile.lastIndexOf("{showLikesTab ? (", entryAt), p
 assert.ok(entry.includes('title={t("likes.title")}'));
 assert.ok(entry.includes("rounded-full border") && entry.includes("px-4 py-1.5 text-xs font-medium"), "Edit profile's size");
 assert.ok(entry.includes("<svg aria-hidden"), "lock icon");
+assert.ok(/<span className="inline-flex h-4 items-center justify-center">\s+<svg aria-hidden/.test(entry), "icon centred in a text-xs-tall box");
+const body = entry.slice(entry.indexOf(">", entry.indexOf("className={`inline-flex shrink-0")) + 1);
+assert.ok(!/\{t\(/.test(body), "no visible text in the entry");
 assert.ok(!entry.includes("likesCount") && !profile.includes('t("likes.onlyMe")'), "no count, no only-you text");
+assert.equal(ko["likes.tab"], undefined, "the visible label is gone");
+assert.equal(en["likes.tab"], undefined, "the visible label is gone");
 assert.ok(/const showLikesTab = isOwner && viewerId != null && viewerId === profile\.id;/.test(profile), "hidden from visitors and acting-as");
 assert.ok(!profile.slice(tabsAt, profile.indexOf("</div>", profile.indexOf("<ProfileTabManager", tabsAt) + 1)).includes("openLikes"), "not in the tab row");
 
