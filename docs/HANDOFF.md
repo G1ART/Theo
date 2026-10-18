@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 초대 큐레이터가 초대 이메일을 인증하면 전시 기획 크레딧이 그 계정이 된다 (merge_on_verify)
+
+> **Supabase SQL:** `supabase/migrations/20261018015347_invited_curator_credit.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
+
+대표님 결정: curator_invite_merge = merge_on_verify, unverified_claimed_nine = leave.
+
+- 시점: 작가 초대와 같다. 초대 큐레이터의 초대 행(`external_artists`)은 원래부터 인증된 이메일 병합 `link_matching_external_artists_for_user` 가 그 계정으로 가져간다. 구글처럼 처음부터 인증된 가입은 바로, 비밀번호 가입은 활성화 메일을 연 때, 이미 인증된 기존 계정은 다음 프로필 저장 때다. 병합 함수는 바꾸지 않았고, 이제 전시 크레딧이 그 초대를 따라 계정으로 간다.
+- 크레딧: `exhibitionCredits`(전시 페이지·프로필·스튜디오·작품 상세·둘러보기·피드 띠)가 `external_curator_id → 초대 → 가져간 계정` 순으로 읽는다. 인증 뒤에는 그 계정 이름(`pickLocalizedDisplayName`)과 프로필 링크, 인증 전에는 전처럼 초대 이름이다. 그 계정이 주최이기도 하면 '주최·기획' 한 줄. 피드 워크도 같은 규칙이고, 인증 전 초대 전시를 만든 계정의 기획 이야기로 묶지 않는다.
+- 프로필: `listExhibitionsForProfile` 이 그 계정이 가져간 초대가 큐레이터인 전시를 더한다(프로필 전시 탭). '내 전시' 관리 목록에는 넣지 않았다(편집 권한이 없어서).
+- 편집 권한: `curator_id` 는 만든 계정(주최·업로더) 그대로라 편집·작품·설치 사진·삭제·다운로드 권한이 그대로다. 큐레이터 계정에는 편집 권한을 자동으로 주지 않았다. 필요하면 만든 계정이 기존 프로젝트 위임으로 준다. 권한 정책이 projects·exhibition_works·exhibition_media 등에 `curator_id`·`host_profile_id` 로 걸려 있어서, `curator_id` 를 옮기면 주최가 아닌 만든 계정(지금 전시 23개 중 13개가 이 경우)이 편집권을 잃는다.
+- 비로그인 방문자: 전에는 초대 행을 읽지 못해(공개 읽기 정책이 클레임만 본다) 만든 계정이 기획으로 보였다. 새 정책 `external_artists_select_invited_curator` 로, 볼 수 있는 전시가 가리키는 초대 행만 읽는다. 칸 권한은 그대로라 `invite_email` 은 못 읽는다.
+- 큐레이터 칸 잠금: 421af3af 의 잠금(`claimed_profile_id`)은 이 칸을 다루지 않았다. 만든 계정이 `projects.external_curator_id` 를 이미 다른 계정이 가져간 초대로 바꾸면 그 계정이 기획으로 보이는 같은 구멍이었다(적용 전 시나리오로 확인). 트리거 `trg_projects_guard_external_curator` 가 anon·authenticated 의 '이미 가져간 초대로 넣기·바꾸기'를 42501 로 거부한다. 아무도 안 가져간 초대, 비우기, 같은 값 다시 저장은 된다. 같은 이메일의 열린 초대는 누가 만들었든 다시 쓰이므로(`get_or_create_external_artist`) '내가 만든 초대만'으로 좁히지 않았다. 확인용 함수 `external_artist_invite_is_taken` 은 정의자 권한이라 보안 점검기의 'anon 실행 가능 정의자 함수' 경고가 1건 늘었다(기존 178건). 알 수 있는 것은 그 초대 id 가 가져가졌는지뿐이고, 보이는 행에서는 이미 읽을 수 있는 값이다.
+- 데이터: 적용 직전에 다시 셌다. 이 칸을 쓰는 전시 0, 대기 중 초대 0, 이미 가져간 것 0이라 기존 전시·초대는 건드리지 않았다. 인증 안 된 채 초대를 가져간 계정 9개와 그 작품도 그대로다(적용 후 9).
+- 작가 병합: 421af3af 잠금 뒤와 이번 적용 뒤 모두 `supabase/tests/invite_signup_merge.sql` → `ok`. 병합 함수와 트리거 3개가 함수 소유자 권한이라, 로그인 사용자의 프로필 저장에서도 잠금에 걸리지 않는다(새 시나리오의 기존 계정 경로로 확인).
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/invited-curator-credit.test.ts`(신규, `npm run test:invited-curator-credit`: 인증 전후 크레딧·링크, 주최가 만든 계정·큐레이터 계정·이름만, 초대 없는 전시는 그대로, 피드 워크, 쿼리, 마이그레이션 계약). `credit-name-parity`, `external-artist-public-credit`, `-onboarding-merge`, `-link-phase2`, `-dedupe`, `-dedupe-phase1`, `-name-everywhere`, `feed-walk-assemble`, `feed-walk-catalog`, `exhibition-cover-enrichment`, `exhibition-back-context`, `exhibition-period`, `new-work-credit-order`, `search-typo-sql-contract`, `sprint6-2-network-hub` 통과. 바꾼 파일 eslint 오류 없음(경고 1건은 HEAD 와 같다). `supabase/tests/invited_curator_credit.sql`(신규, 합성 계정·롤백, 메일 없음): 적용 전 기준은 '가져감 예, 비로그인 읽기 0행, 가져간 초대로 넣기 허용'. 마이그레이션과 한 트랜잭션(롤백)과 적용 후 모두 `invited_curator_credit: ok`. 확인한 것: 인증된 가입은 바로, 비밀번호 가입은 인증 전에는 안 옮기고 인증 뒤 옮김, 기존 인증 계정은 프로필 저장 때. 비로그인은 그 계정 이름, 인증 전에는 초대 이름을 봄. 프로필 목록 1건, `invite_email` 못 읽음. 만든 계정은 두 전시(본인 주최·이름만 주최)를 수정하고 작품·설치 사진을 추가함. 큐레이터 계정의 수정은 0행. 가져간 초대로 바꾸기·새 전시 넣기는 42501, 비우기·되돌리기·같은 값 저장은 됨. 남은 행 0. 적용 뒤 공개 API(anon)로 바뀐 select 4개가 200. 로그인한 브라우저로 전시 만들기·큐레이터 가입은 해 보지 않았다.
+
 ## 2026-10-17 — 초대를 '가져간 계정' 칸은 인증된 이메일 병합만 쓴다 (권한 구멍 닫음)
 
 > **Supabase SQL:** `supabase/migrations/20261018001729_external_artist_claim_guard.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
@@ -28,7 +45,7 @@ Last updated: 2026-10-17
 - 막힌 곳 2: 작품 수정에서 이미 이름만으로 연결된 외부 작가에 이메일을 넣으면 이름만 저장되고 이메일은 버려졌다(초대도 안 감). 이제 업로드와 같은 `get_or_create_external_artist` 로 그 행에 이메일을 채우거나 그 이메일을 가진 초대를 찾아 클레임을 그쪽으로 돌리고, 초대 메일을 보낸다.
 - 이름만 있는 참여 작가에 다른 초대가 이미 가진 이메일을 넣으면 실패하던 것도, 그 초대로 옮겨 참여자 한 명으로 둔다.
 - 병합 시점: 가입만 하고 메일을 열지 않은 계정(인증 안 된 이메일)으로는 이제 옮기지 않는다. 메일을 열면 그때 옮긴다(구글처럼 처음부터 인증된 가입은 바로). 전에는 남이 그 이메일로 가입만 해도 작품이 그 계정으로 갔다. 프로필 행은 전처럼 가입 때 만든다. 이미 인증 안 된 계정이 가져간 초대 9건(계정 9개, 모두 비밀번호로 가입을 시작했고 2월~9월 생성, 프로필 미완성)은 바꾸지 않았다. 그 작품들은 지금 그 계정의 작품으로 보인다. 메일을 열면 그 계정이 그대로 본인 것이 된다.
-- 남은 것(손대지 않음): 전시를 만들 때 '초대 큐레이터'(`projects.external_curator_id`)로 넣은 사람이 가입하면 외부 작가 행은 그 계정으로 가지만, 전시의 기획 크레딧은 외부 이름 그대로이고 그 사람 프로필에 전시가 뜨지 않는다. 기획자 칸(`curator_id`)은 만든 계정의 편집 권한이 걸려 있어 자동으로 바꾸지 않았다. 지금 이 칸을 쓰는 전시는 0개다. 같은 화면에서 비로그인 방문자는 초대 큐레이터 이름을 읽지 못해(외부 작가 공개 읽기 정책이 클레임만 본다) 만든 계정 이름이 기획으로 보인다.
+- 남은 것(손대지 않음): 전시를 만들 때 '초대 큐레이터'(`projects.external_curator_id`)로 넣은 사람이 가입하면 외부 작가 행은 그 계정으로 가지만, 전시의 기획 크레딧은 외부 이름 그대로이고 그 사람 프로필에 전시가 뜨지 않는다. 기획자 칸(`curator_id`)은 만든 계정의 편집 권한이 걸려 있어 자동으로 바꾸지 않았다. 지금 이 칸을 쓰는 전시는 0개다. 같은 화면에서 비로그인 방문자는 초대 큐레이터 이름을 읽지 못해(외부 작가 공개 읽기 정책이 클레임만 본다) 만든 계정 이름이 기획으로 보인다. → 맨 위 '초대 큐레이터' 섹션에서 해결.
 
 **Verified:** `npx tsc --noEmit`. `npx tsx tests/external-artist-onboarding-merge.test.ts`(OTP 사전 생성 검사를 지금 흐름으로 바꿈: 최신 병합 정의가 인증된 이메일만 쓰고 클레임·작품·CREATED 를 옮김, 트리거 3개, 모든 초대 화면이 SendGrid 초대를 쓰고 계정을 미리 만들지 않음, `/onboarding?email=`, 참여자 재저장, 작품 수정의 새 이메일). `external-artist-dedupe`, `-dedupe-phase1`, `-link-phase2`, `-name-everywhere`, `-public-credit`, `invite-delivery`, `ir-demo`, `project-delegate-artwork-upload`, `sprint6-trust-floor`, `sprint7-passport-owner-minimization`, `credit-name-parity`, `search-typo-sql-contract`, `claims-integrity-phase3`, `npm run test:onboarding-smoke`, `npm run test:onboarding-runtime` 통과. `supabase/tests/invite_signup_merge.sql`(신규, 합성 계정·롤백, 메일 없음): 적용 전 같은 경로를 돌린 기준 시나리오에서는 참여자 재저장이 23505, 인증 전 가입이 초대 4건을 가져갔다. 새 시나리오는 마이그레이션과 한 트랜잭션(롤백)과 적용 후 모두 `invite_signup_merge: ok`. 바꾼 화면의 eslint 는 HEAD 와 같다. 로그인한 브라우저로 실제 초대·가입은 해 보지 않았다.
 

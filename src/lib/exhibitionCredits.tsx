@@ -27,6 +27,8 @@ export type ExhibitionWithCredits = ExhibitionRow & {
     display_name?: string | null;
     display_name_ko?: string | null;
     display_name_en?: string | null;
+    /** Account that verified the invite email; credited as the curator. */
+    claimed_profile?: (CreditProfile & { id?: string | null }) | null;
   } | null;
   /**
    * Optional count of works linked via `exhibition_works`. Populated by
@@ -50,6 +52,44 @@ function displayName(
 }
 
 /**
+ * Curator credit. An invited curator (`external_curator_id`) is credited as
+ * the account that verified the invite email, before that by the invite's
+ * name; otherwise the `curator_id` profile. `curator_id` stays the creating
+ * account (it carries the edit rights), so it is only the fallback here.
+ */
+function curatorCredit(
+  exhibition: ExhibitionWithCredits,
+  locale: Locale,
+): { label: string; username: string | null; invitedAccountId: string | null } {
+  const invite = exhibition.external_curator ?? null;
+  const account = invite?.claimed_profile ?? null;
+  if (account) {
+    return {
+      label: displayName(account, locale),
+      username: account.username?.trim() || null,
+      invitedAccountId: account.id ?? null,
+    };
+  }
+  const inviteName = invite ? pickLocalizedDisplayName(invite, locale).trim() : "";
+  if (inviteName) return { label: inviteName, username: null, invitedAccountId: null };
+  return {
+    label: displayName(exhibition.curator ?? null, locale),
+    username: exhibition.curator?.username?.trim() || null,
+    invitedAccountId: null,
+  };
+}
+
+function curatorIsHost(
+  exhibition: ExhibitionWithCredits,
+  invitedAccountId: string | null,
+): boolean {
+  const { curator_id, host_profile_id } = exhibition;
+  if (host_profile_id == null) return false;
+  if (exhibition.external_curator_id) return invitedAccountId === host_profile_id;
+  return curator_id != null && curator_id === host_profile_id;
+}
+
+/**
  * Returns the single line label for "Exhibited by / Curated by" for an exhibition.
  * - When curator_id === host_profile_id (both set): "Exhibited & Curated by [Name]"
  * - When only host (no curator display needed for host): "Exhibited by [Host]"
@@ -69,15 +109,9 @@ export function getExhibitionHostCuratorLabel(
   locale: Locale = "ko"
 ): string {
   const { curator_id, host_profile_id, host_name } = exhibition;
-  const samePerson =
-    !exhibition.external_curator_id &&
-    curator_id != null &&
-    host_profile_id != null &&
-    curator_id === host_profile_id;
-  const externalCuratorName = exhibition.external_curator
-    ? pickLocalizedDisplayName(exhibition.external_curator, locale).trim()
-    : "";
-  const curatorLabel = externalCuratorName || displayName(exhibition.curator ?? null, locale);
+  const curator = curatorCredit(exhibition, locale);
+  const samePerson = curatorIsHost(exhibition, curator.invitedAccountId);
+  const curatorLabel = curator.label;
   const hasHostProfile = host_profile_id != null && host_profile_id !== "";
   const hostLabelFromProfile = hasHostProfile
     ? displayName(exhibition.host ?? null, locale)
@@ -163,18 +197,10 @@ export function ExhibitionHostCuratorCredits({
   className?: string;
 }): ReactElement {
   const { curator_id, host_profile_id, host_name } = exhibition;
-  const samePerson =
-    !exhibition.external_curator_id &&
-    curator_id != null &&
-    host_profile_id != null &&
-    curator_id === host_profile_id;
-  const externalCuratorName = exhibition.external_curator
-    ? pickLocalizedDisplayName(exhibition.external_curator, locale).trim()
-    : "";
-  const curatorLabel = externalCuratorName || displayName(exhibition.curator ?? null, locale);
-  const curatorUsername = externalCuratorName
-    ? null
-    : exhibition.curator?.username?.trim() || null;
+  const curator = curatorCredit(exhibition, locale);
+  const samePerson = curatorIsHost(exhibition, curator.invitedAccountId);
+  const curatorLabel = curator.label;
+  const curatorUsername = curator.username;
   const hasHostProfile = host_profile_id != null && host_profile_id !== "";
   const hostLabelFromProfile = hasHostProfile
     ? displayName(exhibition.host ?? null, locale)

@@ -66,7 +66,8 @@ const SELECT_WITH_CREDITS =
   // QA 2026-07-28 — additive bilingual columns for host_name and the
   // joined curator/host profile display_name. The 240004 trigger keeps
   // the legacy `host_name` / `display_name` in sync (KO wins).
-  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, external_curator_id, host_name, host_name_ko, host_name_en, venue_name, venue_name_ko, venue_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username), external_curator:external_artists!external_curator_id(display_name, display_name_ko, display_name_en)";
+  // `claimed_profile` is the account that verified the curator invite email.
+  "id, project_type, title, title_ko, title_en, preface_ko, preface_en, start_date, end_date, status, curator_id, external_curator_id, host_name, host_name_ko, host_name_en, venue_name, venue_name_ko, venue_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at, curator:profiles!curator_id(display_name, display_name_ko, display_name_en, username), host:profiles!host_profile_id(display_name, display_name_ko, display_name_en, username), external_curator:external_artists!external_curator_id(display_name, display_name_ko, display_name_en, claimed_profile:profiles!claimed_profile_id(id, display_name, display_name_ko, display_name_en, username))";
 
 export type ExhibitionWorkRow = {
   id: string;
@@ -727,12 +728,14 @@ export async function listPublicExhibitionsForFeed(
   };
 }
 
-/** List exhibitions for a profile: curated/hosted by them OR they have works in. For My & public profile tabs. */
+/** List exhibitions for a profile: curated/hosted by them (including as the
+ *  invited curator whose invite email they verified) OR they have works in.
+ *  For My & public profile tabs. */
 export async function listExhibitionsForProfile(profileId: string): Promise<{
   data: ExhibitionWithCredits[];
   error: unknown;
 }> {
-  const [curatedRes, worksRes] = await Promise.all([
+  const [curatedRes, worksRes, invitesRes] = await Promise.all([
     supabase
       .from("projects")
       .select(SELECT_WITH_CREDITS)
@@ -740,8 +743,25 @@ export async function listExhibitionsForProfile(profileId: string): Promise<{
       .or(`curator_id.eq.${profileId},host_profile_id.eq.${profileId}`)
       .order("created_at", { ascending: false }),
     supabase.from("artworks").select("id").eq("artist_id", profileId),
+    supabase.from("external_artists").select("id").eq("claimed_profile_id", profileId),
   ]);
   const curated = (curatedRes.data ?? []) as ExhibitionWithCredits[];
+  const inviteIds = (invitesRes.data ?? []).map((r: { id: string }) => r.id);
+  if (inviteIds.length > 0) {
+    const { data: invitedProjects } = await supabase
+      .from("projects")
+      .select(SELECT_WITH_CREDITS)
+      .eq("project_type", "exhibition")
+      .in("external_curator_id", inviteIds);
+    const seen = new Set(curated.map((e) => e.id));
+    for (const p of (invitedProjects ?? []) as ExhibitionWithCredits[]) {
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
+        curated.push(p);
+      }
+    }
+    curated.sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
+  }
   const myWorkIds = (worksRes.data ?? []).map((r: { id: string }) => r.id);
   if (myWorkIds.length === 0) return { data: curated, error: curatedRes.error };
   const { data: ewRows } = await supabase

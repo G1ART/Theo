@@ -34,7 +34,7 @@ const WORK_WITH_ARTIST =
   ", artist:profiles!artist_id(id, username, display_name, display_name_ko, display_name_en, avatar_url, main_role, roles, is_public, city, education, mediums)";
 
 const EXH_COLS =
-  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at";
+  "id, project_type, title, title_ko, title_en, start_date, end_date, status, curator_id, host_name, host_name_ko, host_name_en, host_profile_id, cover_image_paths, feed_thumb_work_ids, created_at, external_curator_id, external_curator:external_artists!external_curator_id(claimed_profile_id, display_name, display_name_ko, display_name_en)";
 
 const WORK_CAP = 60;
 const CATALOG_HOPS = 30;
@@ -96,6 +96,15 @@ type ExhRow = {
   cover_image_paths: string[] | null;
   feed_thumb_work_ids: string[] | null;
   created_at: string | null;
+  external_curator_id?: string | null;
+  external_curator?: CuratorInviteRow | CuratorInviteRow[] | null;
+};
+
+type CuratorInviteRow = {
+  claimed_profile_id: string | null;
+  display_name: string | null;
+  display_name_ko: string | null;
+  display_name_en: string | null;
 };
 
 export async function loadWalkPools(
@@ -191,7 +200,9 @@ async function load(
     ...followingIds,
     ...viewerWorks.flatMap((row) => (row.artist_id ? [row.artist_id] : [])),
     ...shelf.recent.flatMap((row) => (row.artist_id ? [row.artist_id] : [])),
-    ...shelf.latest.flatMap((row) => [row.host_profile_id, row.curator_id].filter((id): id is string => !!id)),
+    ...shelf.latest.flatMap((row) =>
+      [row.host_profile_id, row.curator_id, invitedCuratorId(row)].filter((id): id is string => !!id)
+    ),
   ]);
 
   const shownExhibitionIds = exhibitionIds.slice(0, EXH_CAP + 4);
@@ -234,7 +245,9 @@ async function load(
   const missingWorkIds = priorityIds.filter((id) => !recentIds.has(id)).slice(0, WORK_CAP);
 
   const hostIds = exhibitionRows.map((row) => row.host_profile_id).filter((id): id is string => !!id);
-  const curatorIds = exhibitionRows.map((row) => row.curator_id).filter((id): id is string => !!id);
+  const curatorIds = exhibitionRows
+    .flatMap((row) => [row.curator_id, invitedCuratorId(row)])
+    .filter((id): id is string => !!id);
   const claimIds = claims.map((row) => row.subject_profile_id).filter((id): id is string => !!id);
   const earlyPeople = uniq([
     ...(userId ? [userId] : []),
@@ -380,17 +393,22 @@ async function load(
   for (const row of exhibitionRows) {
     const title = pickLocalizedArtworkTitle(row, locale).trim() || row.title?.trim() || "";
     if (!title || !row.curator_id) continue;
+    const invitedId = invitedCuratorId(row);
+    const curatorId = invitedId ?? row.curator_id;
     addParticipant(row.id, row.curator_id);
+    addParticipant(row.id, invitedId);
     addParticipant(row.id, row.host_profile_id);
     const host = row.host_profile_id ? peopleById.get(row.host_profile_id) : undefined;
-    const curator = peopleById.get(row.curator_id);
+    const curator = peopleById.get(curatorId);
     const city = host?.city || curator?.city || null;
+    const curatorName = pendingCuratorName(row, locale);
     exhibitions.push({
       id: row.id,
       title,
       startDate: row.start_date,
       endDate: row.end_date,
-      curatorId: row.curator_id,
+      curatorId,
+      ...(curatorName ? { curatorName } : {}),
       hostProfileId: row.host_profile_id,
       hostName: pickLocalizedHostName(row, locale).trim() || null,
       coverPath: row.cover_image_paths?.[0] ?? null,
@@ -548,6 +566,24 @@ function dedupeExhibitions(rows: ExhRow[]): ExhRow[] {
     if (row?.id && !map.has(row.id)) map.set(row.id, row);
   }
   return [...map.values()];
+}
+
+function curatorInvite(row: ExhRow): CuratorInviteRow | null {
+  const invite = row.external_curator;
+  return (Array.isArray(invite) ? invite[0] : invite) ?? null;
+}
+
+/** Account that verified the curator invite email. curator_id stays the
+ *  creating account (edit rights), so it is credited only without an invite. */
+function invitedCuratorId(row: ExhRow): string | null {
+  return curatorInvite(row)?.claimed_profile_id ?? null;
+}
+
+/** Invite name credited until the invited curator verifies the email. */
+function pendingCuratorName(row: ExhRow, locale: Locale): string | null {
+  const invite = curatorInvite(row);
+  if (!invite || invite.claimed_profile_id) return null;
+  return pickLocalizedDisplayName(invite, locale).trim() || null;
 }
 
 function mutualNames(

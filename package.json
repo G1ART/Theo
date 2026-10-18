@@ -45,6 +45,7 @@
     "test:external-artist-dedupe-phase1": "tsx tests/external-artist-dedupe-phase1.test.ts",
     "test:external-artist-link-phase2": "tsx tests/external-artist-link-phase2.test.ts",
     "test:external-artist-onboarding-merge": "tsx tests/external-artist-onboarding-merge.test.ts",
+    "test:invited-curator-credit": "tsx tests/invited-curator-credit.test.ts",
     "test:enhance-preview-commits": "tsx tests/enhance-preview-commits-to-parent.test.ts",
     "test:ir-demo": "tsx tests/ir-demo.test.ts",
     "seed:ir-demo": "tsx scripts/seed-ir-demo-personas.ts",

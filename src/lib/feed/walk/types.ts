@@ -47,7 +47,10 @@ export type WalkExhibition = {
   title: string;
   startDate: string | null;
   endDate: string | null;
+  /** Credited curator: the account that verified the curator invite email, else curator_id. */
   curatorId: string;
+  /** Invited curator's name while the invite email is not verified; credited instead of curatorId. */
+  curatorName?: string | null;
   hostProfileId: string | null;
   hostName: string | null;
   coverPath: string | null;

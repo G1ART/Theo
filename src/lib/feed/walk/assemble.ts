@@ -445,20 +445,24 @@ function toCredit(person: WalkPerson | undefined, fallbackName: string | null): 
   };
 }
 
+function curatorCredit(exhibition: WalkExhibition, idx: Indexes): WalkCredit | null {
+  if (exhibition.curatorName) return toCredit(undefined, exhibition.curatorName);
+  return toCredit(idx.people.get(exhibition.curatorId), null);
+}
+
 function galleryName(exhibition: WalkExhibition, idx: Indexes): string | null {
   const host = exhibition.hostProfileId ? idx.people.get(exhibition.hostProfileId) : undefined;
   return host?.name?.trim() || exhibition.hostName?.trim() || null;
 }
 
 function toExhibition(exhibition: WalkExhibition, idx: Indexes): WalkExhibitionView {
-  const curator = idx.people.get(exhibition.curatorId);
   const host = exhibition.hostProfileId ? idx.people.get(exhibition.hostProfileId) : undefined;
   return {
     id: exhibition.id,
     title: exhibition.title,
     startDate: exhibition.startDate,
     endDate: exhibition.endDate,
-    curator: toCredit(curator, null),
+    curator: curatorCredit(exhibition, idx),
     gallery: toCredit(host, galleryName(exhibition, idx)),
     coverPath: exhibition.coverPath,
     city: exhibition.city,
@@ -493,7 +497,6 @@ function toWork(work: WalkWork, idx: Indexes): WalkWorkView {
     work.exhibitionIds
       .map((id) => idx.exhibitions.get(id))
       .find((row): row is WalkExhibition => !!row) ?? null;
-  const curator = exhibition ? idx.people.get(exhibition.curatorId) : undefined;
   const host = exhibition?.hostProfileId ? idx.people.get(exhibition.hostProfileId) : undefined;
   return {
     id: work.id,
@@ -507,7 +510,7 @@ function toWork(work: WalkWork, idx: Indexes): WalkWorkView {
     imagePath: work.imagePath,
     size: work.size,
     sizeUnit: work.sizeUnit,
-    curator: toCredit(curator, null),
+    curator: exhibition ? curatorCredit(exhibition, idx) : null,
     gallery: exhibition ? toCredit(host, galleryName(exhibition, idx)) : null,
   };
 }
@@ -768,7 +771,7 @@ function buildCuratorial(ctx: Ctx): Built | null {
     (person) => person.role === "curator" && ctx.viewer.followingIds.includes(person.id)
   );
   for (const curator of curators) {
-    const shows = ctx.pools.exhibitions.filter((row) => row.curatorId === curator.id);
+    const shows = ctx.pools.exhibitions.filter((row) => row.curatorId === curator.id && !row.curatorName);
     for (const show of shows) {
       const built = storyCuratorial(ctx, curator, show);
       if (built) return built;
@@ -1234,7 +1237,9 @@ function looseCuratorial(ctx: Ctx): Built | null {
     (person) => person.role === "curator" && ctx.viewer.followingIds.includes(person.id)
   );
   for (const curator of curators) {
-    const shows = ctx.pools.exhibitions.filter((row) => row.curatorId === curator.id && isFilledSlot(row.title));
+    const shows = ctx.pools.exhibitions.filter(
+      (row) => row.curatorId === curator.id && !row.curatorName && isFilledSlot(row.title)
+    );
     for (const show of shows) {
       const built = looseStoryCuratorial(ctx, curator, show);
       if (built) return built;
