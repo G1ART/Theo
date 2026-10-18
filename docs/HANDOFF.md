@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 초대를 '가져간 계정' 칸은 인증된 이메일 병합만 쓴다 (권한 구멍 닫음)
+
+> **Supabase SQL:** `supabase/migrations/20261018001729_external_artist_claim_guard.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
+
+초대 병합(e5ac462)을 마치며 남은 구멍. 대표님 지시로 닫았다.
+
+- 구멍: `external_artists_all_own`(로그인 사용자, `invited_by = auth.uid()`)이 초대한 계정에게 자기 초대 행의 모든 칸 쓰기를 열어 둬, `external_artists.claimed_profile_id` 를 남의 계정으로 바꿀 수 있었다. 로그인한 누구나 그 칸이 채워진 초대 행을 새로 넣을 수도 있었다. 그러면 그 계정의 다음 병합(프로필 저장 등)이 초대 작품·크레딧·CREATED 클레임을 그 프로필로 옮겼다. `/my/artists` 의 '프로필 연결'(`link_external_artist_to_profile`)은 같은 일을 RPC 로 했다(사람 검색으로 고른 아무 프로필로 작품이 바로 옮겨짐). anon 은 쓰기 정책이 없어 행은 못 썼지만 표 쓰기 권한(TRUNCATE 포함)은 남아 있었다.
+- 막음: anon 의 쓰기 권한을 모두 거뒀다. authenticated 의 INSERT·UPDATE 는 `claimed_profile_id` 를 뺀 17칸의 칸 단위 권한으로 바꿨다(같은 RLS 정책, DELETE 는 그대로, TRUNCATE·REFERENCES·TRIGGER 는 거둠). 누가 나중에 표 전체 권한을 다시 줘도 트리거 `trg_external_artists_guard_claimed_profile` 가 anon·authenticated 의 그 칸 변경을 거부한다. '프로필 연결'은 대상 계정의 인증된 이메일이 초대 이메일과 같을 때만 연결한다(병합과 같은 규칙). 다른 계정을 고르면 화면에 '연결에 실패했어요' 가 뜬다. anon 은 이 RPC 를 실행하지 못한다.
+- 그대로인 합법 경로(모두 함수 소유자 권한): 인증된 이메일 병합 `link_matching_external_artists_for_user`(가입·이메일 인증·프로필 저장 트리거, 구글처럼 처음부터 인증된 가입 포함), 이메일 없는 초대를 이름이 맞는 본인이 가져가는 `claim_orphan_external_artist_as_self`, 운영자 병합 `admin_merge_external_artists`(그 칸을 쓰지 않음). 작품 수정 화면의 외부 작가 이름 저장도 그대로다.
+- 이미 가져간 행 23개(인증 안 된 계정 9개 포함)와 작가 데이터는 바뀌지 않았다(적용 전후 지문 동일).
+- 남은 것(손대지 않음): 초대한 계정은 자기 초대의 이메일을 바꿀 수 있어서, 이미 인증된 남의 이메일을 넣으면 그 계정의 다음 병합 때 작품이 간다. 이것은 e5ac462 의 '초대 이메일 소유자에게 옮긴다' 규칙 그대로다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/external-artist-claim-guard.test.ts`(신규). `external-artist-onboarding-merge`, `external-artist-link-phase2`, `external-artist-dedupe`, `-dedupe-phase1`, `-name-everywhere`, `-public-credit`, `invite-delivery`, `claims-integrity-phase3`, `project-delegate-artwork-upload`, `sprint6-trust-floor`, `sprint6-delegation-principal`, `credit-name-parity`, `private-account-works`, `search-typo-sql-contract`, `npm run test:onboarding-smoke`, `npm run test:onboarding-runtime` 통과. 적용 전 같은 SQL 을 되돌리는 트랜잭션에서 합성 계정(example.invalid, 메일 없음)으로 확인했다. 초대한 계정·다른 로그인 사용자·anon 의 그 칸 쓰기와 채운 행 넣기는 모두 42501 로 거부됐고, 표 전체 권한을 다시 준 상태에서도 트리거가 거부했다. 이름 바꾸기와 일반 초대 행 넣기는 됐다. 연결 RPC 는 아무 프로필로는 거부, 초대 이메일을 인증한 계정으로는 연결, 남의 초대에는 거부, anon 은 실행 불가였다. 처음부터 인증된 가입은 바로 병합됐고, 인증 전 비밀번호 가입은 병합되지 않다가 인증 뒤 병합됐다. 본인 가져가기도 됐다. 롤백 뒤 남은 행 0, 알림 수 그대로. 적용 후 `supabase/tests/invite_signup_merge.sql` → `invite_signup_merge: ok`. 공개 API 로 anon 의 PATCH·POST(없는 id)와 연결 RPC 가 401 `42501` 이었다. 로그인한 브라우저로 '프로필 연결' 화면을 눌러 보지는 않았다.
+
 ## 2026-10-17 — 초대받은 작가가 초대 이메일로 가입을 마치면 작품·크레딧이 붙는다 (경로 점검과 막힌 곳 2개)
 
 > **Supabase SQL:** `supabase/migrations/20261017235907_invite_signup_merge.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
