@@ -17,9 +17,9 @@ import {
 import { searchPeople } from "@/lib/supabase/artists";
 import {
   createClaimForExistingArtist,
-  createExternalArtist,
   createExternalArtistAndClaim,
   getExternalArtistInviteEmail,
+  setClaimExternalArtist,
   updateClaim,
 } from "@/lib/provenance/rpc";
 import { AuthGate } from "@/components/AuthGate";
@@ -417,26 +417,28 @@ function EditArtworkContent() {
     } else if (useExternalArtist) {
       if (myClaim?.id) {
         const existingExtId = myClaim.external_artist_id ?? null;
-        let extId = existingExtId;
         const typedEmail = externalNoEmail ? "" : externalArtistEmail.trim();
         // Sign-up merges by the email on the invite row, so a newly typed
         // email goes through get_or_create: it fills this name-only row or
-        // finds the open invite that already holds the address.
+        // finds the open invite that already holds the address. The server
+        // does that and the claim move in one call, so a refused address
+        // leaves no new invite behind.
         const emailAdded =
           !!existingExtId &&
           !!typedEmail &&
           typedEmail.toLowerCase() !== savedExternalArtistEmail.trim().toLowerCase();
         if (!existingExtId || emailAdded) {
-          const { data: createdId, error: extErr } = await createExternalArtist({
+          const { data: createdId, error: extErr } = await setClaimExternalArtist({
+            claimId: myClaim.id,
             displayName: externalArtistName.trim(),
             inviteEmail: externalArtistEmail.trim() || null,
+            claimType,
           });
           if (extErr || !createdId) {
             setError(formatSupabaseError(extErr, t, "artwork.errors.failedAddArtist"));
             setSaving(false);
             return;
           }
-          extId = createdId;
         } else {
           const name = externalArtistName.trim();
           if (name) {
@@ -445,16 +447,16 @@ function EditArtworkContent() {
               .update({ display_name: name })
               .eq("id", existingExtId);
           }
-        }
-        const { error: claimErr } = await updateClaim(myClaim.id, {
-          claim_type: claimType,
-          artist_profile_id: null,
-          external_artist_id: extId,
-        });
-        if (claimErr) {
-          setError(formatSupabaseError(claimErr, t, "artwork.errors.failedUpdateProvenance"));
-          setSaving(false);
-          return;
+          const { error: claimErr } = await updateClaim(myClaim.id, {
+            claim_type: claimType,
+            artist_profile_id: null,
+            external_artist_id: existingExtId,
+          });
+          if (claimErr) {
+            setError(formatSupabaseError(claimErr, t, "artwork.errors.failedUpdateProvenance"));
+            setSaving(false);
+            return;
+          }
         }
         if ((!existingExtId || emailAdded) && externalArtistEmail?.trim()) {
           const email = externalArtistEmail.trim();

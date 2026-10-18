@@ -2,6 +2,35 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 작품 수정에서 이메일 변경이 거절돼도 빈 초대가 남지 않는다
+
+> **Supabase SQL:** `supabase/migrations/20261018041803_claim_external_artist_atomic.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
+
+380910e 보고에 남은 부작용. 작품 수정 화면은 이메일을 바꾸면 요청을 두 번 보냈다. 먼저 `get_or_create_external_artist`(새 초대를 만들 수 있음)를 부르고, 다음에 클레임을 직접 수정했다. 두 번째 요청이 `invite_email_verified_by_other_account` 로 거절되면 첫 요청이 만든 초대가 작품 0점으로 초대 작가 목록에 남았다.
+
+- 이제 새 이메일·바뀐 이메일 저장은 `set_claim_external_artist` 한 번으로 한다(`src/lib/provenance/rpc.ts` `setClaimExternalArtist`).
+- 그 안에서 `prepare_claim_external_artist` 가 먼저 그 클레임을 고칠 수 있는 사람(본인 또는 위임 작성자)인지 확인한다. 이어 같은 거부 규칙을 초대를 만들기 전에 보고, 통과하면 `get_or_create_external_artist` 로 초대를 찾거나 만든다.
+- 클레임 수정은 호출자 권한으로 해서 클레임 RLS 는 전과 같다.
+- 거절되거나(그 사이 주소가 인증된 동시 요청 포함) 고친 행이 없으면 호출 전체가 되돌려져, 이번 저장이 만든 초대도 남지 않는다.
+- 이메일을 바꾸지 않는 저장은 전처럼 이름만 고치고 클레임을 수정한다. 원래 있던 초대, 작품이 붙은 초대, 이름만 있는 초대는 지우지 않는다.
+- 문구는 그대로다("이미 다른 계정이 인증한 이메일이라 초대에 쓸 수 없어요." / "This email is already verified by another account, so it can't be used for the invite.").
+- 기존 데이터는 지우지 않았다. 지금 가져가지 않은 빈 초대(작품 클레임·큐레이터 연결 없음)는 8개다. 이메일 있는 것 1개, 이름만 있는 것 7개이고, 2026-02-17~07-25 에 생겼다. 그중 인증된 주소를 가진 것은 0개라 이 버그로 생긴 것이 아니다(규칙 적용 뒤 생긴 빈 초대 0개).
+- e5ac462 테스트 `external-artist-onboarding-merge` 의 작품 수정 검사 한 줄을 새 호출 이름에 맞췄다.
+- `claimed_profile_id` 잠금(20261018001729), `invite_email` 잠금(20261018040637), 프로필 연결 문구, 가격 열 잠금, a2a1957, 큐레이터 병합(20261018015347)은 그대로다. 이미 가져간 23행(인증 안 된 계정 9개)은 지문이 같다.
+
+**Verified:** `npx tsc --noEmit`. 테스트: `npx tsx tests/claim-external-artist-atomic.test.ts`(신규), `invite-email-rewrite-guard`, `external-artist-onboarding-merge`, `external-artist-claim-guard`, `external-artist-link-phase2`, `external-artist-dedupe`, `-dedupe-phase1`, `-name-everywhere`, `-public-credit`, `invite-delivery`, `claims-integrity-phase3`, `project-delegate-artwork-upload`, `sprint6-trust-floor`, `sprint6-delegation-principal`, `credit-name-parity`, `invited-curator-credit`, `private-account-works`, `search-typo-sql-contract`, `npm run test:onboarding-smoke`, `npm run test:onboarding-runtime` 통과. 바꾼 화면 eslint 는 HEAD 와 같다(기존 1오류·1경고).
+
+적용 전 같은 SQL 을 되돌리는 트랜잭션에서 합성 계정(example.invalid, 메일 없음)으로 확인했다.
+- 막힐 주소로 바꾸면 이메일 있는 초대, 이름만 있는 초대, 플랫폼 작가 크레딧 세 경우 모두 거절되고 클레임은 그대로였다. 그 주소의 초대는 0건이었다.
+- 같은 이메일로 다시 저장하면 같은 초대를 쓴다.
+- 미가입 주소로 오타를 고치면 클레임이 새 초대로 옮겨지고 원래 초대는 남았다. 인증된 가입 때 작품이 따라갔다.
+- 초대를 만든 뒤 그 주소가 인증되면 거절되고, 빈 초대는 0건이었다.
+- 남의 클레임에는 `claim not found` 로 거절되고 초대도 생기지 않았다. `claimed_profile_id` 직접 변경은 42501 이었다.
+- 알림 0건, 남은 행 0건이었다.
+- 적용 후 라이브 함수로 같은 거절·오타 수정을 다시 확인했다.
+
+로그인한 브라우저로 작품 수정 화면을 눌러 보지는 않았다.
+
 ## 2026-10-17 — 초대 이메일은 이미 다른 계정이 인증한 주소로 못 바꾸고, '프로필 연결'은 거절 이유를 보여 준다
 
 > **Supabase SQL:** `supabase/migrations/20261018040637_invite_email_rewrite_guard.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 네 개(PL/pgSQL 세 개)라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**

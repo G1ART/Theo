@@ -163,7 +163,8 @@ assert.match(
 // 7) 작품 수정에서 새로 넣은 이메일은 초대 행으로 잡힌다 -----------------------
 const edit = read("src/app/artwork/[id]/edit/page.tsx");
 assert.match(edit, /const emailAdded =/);
-assert.match(edit, /if \(!existingExtId \|\| emailAdded\) \{\s+const \{ data: createdId, error: extErr \} = await createExternalArtist\(/);
+// Since 20261018041803 the invite lookup and the claim move are one call.
+assert.match(edit, /if \(!existingExtId \|\| emailAdded\) \{\s+const \{ data: createdId, error: extErr \} = await setClaimExternalArtist\(/);
 assert.match(edit, /if \(\(!existingExtId \|\| emailAdded\) && externalArtistEmail\?\.trim\(\)\)/);
 
 const scenario = read("supabase/tests/invite_signup_merge.sql");

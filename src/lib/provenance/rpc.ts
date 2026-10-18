@@ -111,6 +111,28 @@ export async function createExternalArtist(
 }
 
 /**
+ * Points an existing claim at the invite for (name, email) in one call: the
+ * server finds or creates the invite and moves the claim together, so a
+ * refused email (`invite_email_verified_by_other_account`) leaves no new
+ * invite behind (20261018041803).
+ */
+export async function setClaimExternalArtist(args: {
+  claimId: string;
+  displayName: string;
+  inviteEmail?: string | null;
+  claimType?: string | null;
+}): Promise<{ data: string | null; error: unknown }> {
+  const { data, error } = await supabase.rpc("set_claim_external_artist", {
+    p_claim_id: args.claimId,
+    p_display_name: args.displayName.trim(),
+    p_invite_email: args.inviteEmail?.trim() || null,
+    p_claim_type: args.claimType ?? null,
+  });
+  if (error) return { data: null, error };
+  return { data: (data as string | null) ?? null, error: null };
+}
+
+/**
  * Owner-only fetch of an invited external artist's invite_email.
  *
  * QA 2026-06-27: `external_artists.invite_email` (PII) is no longer
