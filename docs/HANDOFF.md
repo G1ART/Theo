@@ -2,6 +2,24 @@
 
 Last updated: 2026-10-17
 
+## 2026-10-17 — 초대 이메일은 이미 다른 계정이 인증한 주소로 못 바꾸고, '프로필 연결'은 거절 이유를 보여 준다
+
+> **Supabase SQL:** `supabase/migrations/20261018040637_invite_email_rewrite_guard.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 네 개(PL/pgSQL 세 개)라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**
+
+대표님 결정: invite_email_rewrite = block_verified_other, profile_link_mismatch = explain.
+
+- 막음: `external_artists.invite_email` 을 이미 어떤 계정이 인증한 주소(`auth.users.email_confirmed_at` 있음)로 바꾸는 것. 트리거 `trg_external_artists_guard_invite_email` 이 직접 쓰기와 서버 함수(이름만 있는 초대에 이메일 채우기, 전시 참여자 두 번째 저장)에 모두 걸린다. 작품 수정에서 이메일을 바꾸면 실제로는 새 초대를 찾거나 만들고 작품 클레임을 그쪽으로 옮기므로, 기존 클레임(`claims.external_artist_id`)을 그런 주소의 초대로 옮기는 것도 `trg_claims_guard_invite_repoint` 가 같은 규칙으로 막는다. 초대한 계정, 다른 로그인 사용자(남의 초대는 RLS 로 0행, 자기 초대는 거부), 비로그인(쓰기 권한 없음) 모두 같다. 운영자 병합(`is_ops_user`)만 예외.
+- 허용: 아직 계정이 없는 주소나 인증 전 가입 주소로 고치기(오타 수정), 대소문자만 바꾸기, 이메일 지우기, 미가입 주소의 초대로 클레임 옮기기. 새 초대(업로드, 참여자 첫 저장)는 바꾸기가 아니라서 그대로다. 그 주소를 인증한 사람에게는 e5ac462 병합대로 작품이 간다.
+- 화면: 서버가 `invite_email_verified_by_other_account` / `invite_email_mismatch` 를 돌려주고 `src/lib/errors/supabase.ts` 가 문구로 바꾼다. 작품 수정·전시 참여자·업로드 화면에는 "이미 다른 계정이 인증한 이메일이라 초대에 쓸 수 없어요." / "This email is already verified by another account, so it can't be used for the invite.", '프로필 연결'에는 "이 계정의 인증된 이메일과 초대 이메일이 달라 연결할 수 없어요." / "This account's verified email doesn't match the invite email, so it can't be linked." 가 뜬다. 네트워크·권한 같은 다른 실패는 기존 문구 그대로다. 같은 표를 쓰는 초대 큐레이터 화면(전시 만들기·수정)도 같은 규칙과 문구를 따른다(그 화면 코드는 손대지 않음).
+- 남은 것: 작품 수정에서 클레임 옮기기가 막히면, 그 직전에 만든 빈 초대(그 주소, 작품 0)가 초대 작가 목록에 남을 수 있다. 그 계정이 다음에 프로필을 저장하면 작품 없이 가져간 것으로 표시된다. 거절 문구는 그 주소가 인증된 계정이라는 것을 알려 준다(대표님이 고른 문구).
+- `claimed_profile_id` 잠금(20261018001729), 가격 열 잠금, a2a1957 작품 정책, 초대 큐레이터 병합(20261018015347)은 건드리지 않았다. 이미 가져간 23행(인증 안 된 계정 9개)은 적용 전후 지문이 같다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/invite-email-rewrite-guard.test.ts`(신규). `external-artist-claim-guard`, `external-artist-onboarding-merge`, `external-artist-link-phase2`, `external-artist-dedupe`, `-dedupe-phase1`, `-name-everywhere`, `-public-credit`, `invite-delivery`, `claims-integrity-phase3`, `project-delegate-artwork-upload`, `sprint6-trust-floor`, `sprint6-delegation-principal`, `credit-name-parity`, `private-account-works`, `search-typo-sql-contract`, `invited-curator-credit`, `npm run test:onboarding-smoke`, `npm run test:onboarding-runtime` 통과. 바꾼 파일 eslint 0. 적용 전 같은 SQL 을 되돌리는 트랜잭션에서 합성 계정(example.invalid, 메일 없음)으로 확인했다.
+  - 허용됨: 미가입 주소 오타 수정, 인증 전 가입 주소, 대소문자, 미가입 주소 초대로 클레임 옮기기, 참여자 미가입 주소, 새 업로드 초대.
+  - 거부됨(`invite_email_verified_by_other_account`): 다른 계정이 인증한 주소로 직접 변경, 이름만 있는 초대 채우기, 작품 클레임 옮기기, 참여자 두 번째 저장, 다른 로그인 사용자의 자기 초대 변경.
+  - 그 밖: 남의 초대는 0행이고, 비로그인과 `claimed_profile_id` 직접 변경은 42501 이다. 연결은 불일치면 `invite_email_mismatch`, 일치하면 연결된다. 인증된 가입 병합이 됐고, 알림 0건, 남은 행 0.
+  - 적용 후 `supabase/tests/invite_signup_merge.sql` → `invite_signup_merge: ok`. 로그인한 브라우저로 각 화면의 문구를 눌러 보지는 않았다.
+
 ## 2026-10-17 — 초대 큐레이터가 초대 이메일을 인증하면 전시 기획 크레딧이 그 계정이 된다 (merge_on_verify)
 
 > **Supabase SQL:** `supabase/migrations/20261018015347_invited_curator_credit.sql` 을 abstract-mvp 프로젝트에 적용했다(MCP, 기록된 version 과 파일 번호가 같다). 함수가 두 개라 대시보드에서 다시 붙일 때는 섹션마다 highlight → Run. 기존 행은 바꾸지 않았다. **환경 변수 추가·변경 없음.**

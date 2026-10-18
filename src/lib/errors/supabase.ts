@@ -82,6 +82,10 @@ const EXACT_MAP: Record<string, string> = {
   "period_status must be past, current, or future":
     "errors.claim.invalidPeriodStatus",
 
+  // --- artist invite email (external_artists, 20261018040637) ---
+  "invite_email_verified_by_other_account": "errors.invite.emailVerifiedByOther",
+  "invite_email_mismatch": "myArtists.linkEmailMismatch",
+
   // --- follow request ---
   "target profile not found": "errors.follow.targetNotFound",
   "invalid target": "errors.follow.invalidTarget",

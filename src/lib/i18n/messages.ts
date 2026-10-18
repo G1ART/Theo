@@ -2115,6 +2115,7 @@ export const messages = {
     "myArtists.confirmCta": "Link",
     "myArtists.linked": "Linked. Works moved to the artist's profile.",
     "myArtists.linkFailed": "Couldn't link this artist. Please try again.",
+    "myArtists.linkEmailMismatch": "This account's verified email doesn't match the invite email, so it can't be linked.",
     "myArtists.navLabel": "Invited artists",
     "orphanInvites.title": "Invitations for you",
     "orphanInvites.subtitle": "Curators may have added your works before you joined \u2014 without your email. Claim any that are truly yours, and the works move onto your profile.",
@@ -3499,6 +3500,7 @@ export const messages = {
     "errors.invite.projectNotFound":
       "Project not found, or you don't have permission to delegate it.",
     "errors.invite.cannotInviteSelf": "You can't invite yourself.",
+    "errors.invite.emailVerifiedByOther": "This email is already verified by another account, so it can't be used for the invite.",
     "errors.invite.delegateNotFound":
       "We couldn't find that user. Please verify the email address.",
     "errors.invite.duplicate":
@@ -7176,6 +7178,7 @@ export const messages = {
     "myArtists.confirmCta": "연결",
     "myArtists.linked": "연결되었어요. 작품이 작가 프로필로 옮겨졌습니다.",
     "myArtists.linkFailed": "연결에 실패했어요. 다시 시도해 주세요.",
+    "myArtists.linkEmailMismatch": "이 계정의 인증된 이메일과 초대 이메일이 달라 연결할 수 없어요.",
     "myArtists.navLabel": "초대한 작가",
     "orphanInvites.title": "나에게 온 초대장",
     "orphanInvites.subtitle": "가입 전에 다른 큐레이터가 내 이름으로 작품을 올려둔 초대장이 있을 수 있어요. 내 것이 맞다면 확인 후 프로필로 옮겨주세요.",
@@ -8559,6 +8562,7 @@ export const messages = {
     "errors.invite.projectNotFound":
       "선택한 전시·프로젝트를 찾을 수 없거나, 위임할 권한이 없어요.",
     "errors.invite.cannotInviteSelf": "본인에게는 위임을 보낼 수 없어요.",
+    "errors.invite.emailVerifiedByOther": "이미 다른 계정이 인증한 이메일이라 초대에 쓸 수 없어요.",
     "errors.invite.delegateNotFound":
       "초대할 사용자를 찾을 수 없어요. 이메일 주소를 다시 확인해 주세요.",
     "errors.invite.duplicate": "이미 동일한 위임 초대가 진행 중이에요.",
