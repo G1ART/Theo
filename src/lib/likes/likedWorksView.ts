@@ -74,6 +74,8 @@ export type LikedWork<A extends LikedArtwork = LikedArtwork> = {
   artistKey: string;
   artistName: string;
   artistHref: string | null;
+  /** The owner account when it is the person shown; its rules gate price and availability. */
+  relationProfileId?: string | null;
 };
 
 export type LikedStatus = "available" | "sold" | "owned" | "not_for_sale" | "hidden" | "none";
@@ -398,11 +400,14 @@ export function sizeOptions(items: ReadonlyArray<LikedWork>): SizeBucket[] {
 }
 
 export type LikedCta =
-  | { kind: "ask" | "askAbout" | "continue" | "reply"; href: string }
+  | { kind: "ask" | "continue" | "reply"; href: string }
   | { kind: "more"; href: string | null; count: number }
   | { kind: "none" };
 
-/** One action per card. Asking goes through the detail form (`?ask=1`). */
+/**
+ * One action per card. Asking is one label whatever the viewer can see of
+ * price or availability; it goes through the detail form (`?ask=1`).
+ */
 export function likedCta(item: LikedWork, viewerId: string | null): LikedCta {
   const art = item.artwork;
   if (viewerId && art.artist_id === viewerId) return { kind: "none" };
@@ -413,10 +418,7 @@ export function likedCta(item: LikedWork, viewerId: string | null): LikedCta {
   const detail = `/artwork/${art.id}`;
   if (item.mine.inquiry === "replied") return { kind: "reply", href: detail };
   if (item.mine.inquiry === "open") return { kind: "continue", href: detail };
-  if (status === "available") {
-    return { kind: priceView(art).kind === "listed" ? "askAbout" : "ask", href: `${detail}?ask=1` };
-  }
-  return { kind: "askAbout", href: `${detail}?ask=1` };
+  return { kind: "ask", href: `${detail}?ask=1` };
 }
 
 export function latestChange(item: LikedWork): LikedChange | null {

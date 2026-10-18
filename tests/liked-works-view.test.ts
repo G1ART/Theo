@@ -151,10 +151,11 @@ assert.deepEqual(
   [["artist-a", 3], ["artist-b", 1]],
 );
 
-// 6. One action per card.
-assert.deepEqual(likedCta(listed, "viewer"), { kind: "askAbout", href: "/artwork/listed?ask=1" });
+// 6. One action per card. Asking is one kind whether the price is listed,
+//    on request, or held back from this viewer.
+assert.deepEqual(likedCta(listed, "viewer"), { kind: "ask", href: "/artwork/listed?ask=1" });
 assert.deepEqual(likedCta(ask, "viewer"), { kind: "ask", href: "/artwork/ask?ask=1" });
-assert.deepEqual(likedCta(hidden, "viewer"), { kind: "askAbout", href: "/artwork/hidden?ask=1" });
+assert.deepEqual(likedCta(hidden, "viewer"), { kind: "ask", href: "/artwork/hidden?ask=1" });
 assert.deepEqual(likedCta(sold, "viewer"), { kind: "more", href: "/u/artist-a", count: 3 });
 assert.deepEqual(likedCta({ ...listed, mine: { inquiry: "replied", in_board: false } }, "viewer"), {
   kind: "reply",

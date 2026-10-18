@@ -1,3 +1,4 @@
+import { followRelation, type FollowRelation } from "@/lib/follow/relation";
 import { recordMatchesQuery } from "@/lib/search/matchText";
 import { looseInitialQuery } from "@/lib/search/romanize";
 import { supabase } from "./client";
@@ -176,6 +177,53 @@ export async function isFollowing(targetId: string) {
     .eq("following_id", targetId)
     .eq("status", "accepted");
   return { data: (count ?? 0) > 0, error };
+}
+
+const RELATION_CHUNK = 100;
+
+/**
+ * The viewer's follow relation with each profile in `profileIds`, from
+ * accepted follows in both directions. Profiles with no relation are absent.
+ */
+export async function getFollowRelations(
+  profileIds: ReadonlyArray<string>,
+): Promise<{ data: Map<string, FollowRelation>; error: unknown }> {
+  const relations = new Map<string, FollowRelation>();
+  const ids = [...new Set(profileIds.filter(Boolean))];
+  if (ids.length === 0) return { data: relations, error: null };
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const me = session?.user?.id;
+  if (!me) return { data: relations, error: null };
+
+  const following = new Set<string>();
+  const followers = new Set<string>();
+  for (let i = 0; i < ids.length; i += RELATION_CHUNK) {
+    const chunk = ids.slice(i, i + RELATION_CHUNK);
+    const [out, back] = await Promise.all([
+      supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", me)
+        .eq("status", "accepted")
+        .in("following_id", chunk),
+      supabase
+        .from("follows")
+        .select("follower_id")
+        .eq("following_id", me)
+        .eq("status", "accepted")
+        .in("follower_id", chunk),
+    ]);
+    if (out.error || back.error) return { data: relations, error: out.error ?? back.error };
+    for (const row of out.data ?? []) following.add(row.following_id as string);
+    for (const row of back.data ?? []) followers.add(row.follower_id as string);
+  }
+  for (const id of ids) {
+    const relation = followRelation(following.has(id), followers.has(id));
+    if (relation) relations.set(id, relation);
+  }
+  return { data: relations, error: null };
 }
 
 /**

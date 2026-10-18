@@ -30,6 +30,8 @@ import {
 import { isLiked } from "@/lib/supabase/likes";
 import { isFollowing } from "@/lib/supabase/follows";
 import { FollowButton } from "@/components/FollowButton";
+import { FollowRelationChip } from "@/components/FollowRelationChip";
+import { followRelation } from "@/lib/follow/relation";
 import { LikeButton } from "@/components/LikeButton";
 import { ArtworkProvenanceBlock } from "@/components/ArtworkProvenanceBlock";
 import {
@@ -858,6 +860,9 @@ function ArtworkDetailContent() {
   const username = artist?.username || profileUsername || "";
   const headerProfileId = artist?.id ?? artwork.artist_id;
   const isExternalArtist = isExternalArtistArtwork(artwork);
+  const detailRelation = viewerRelationship
+    ? followRelation(viewerRelationship.viewer_follows_target, viewerRelationship.target_follows_viewer)
+    : null;
 
   const { path: backPath, labelKey: backLabelKey } = back;
   const sizeDisplay =
@@ -963,11 +968,20 @@ function ArtworkDetailContent() {
                       {chip.label}
                     </span>
                   ))}
+                  {userId && userId !== headerProfileId && headerProfileId === artwork.artist_id && viewerRelationship ? (
+                    <FollowRelationChip
+                      relation={
+                        // The follow button next to it already says "Following".
+                        detailRelation === "following" ? null : detailRelation
+                      }
+                    />
+                  ) : null}
                   {userId && userId !== headerProfileId && username && (
                     <FollowButton
                       targetProfileId={headerProfileId}
                       initialFollowing={following}
                       size="sm"
+                      onFollowed={() => void refreshPassport()}
                     />
                   )}
                 </div>
@@ -1224,7 +1238,7 @@ function ArtworkDetailContent() {
                     }}
                     className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                   >
-                    {t("priceInquiry.ask")}
+                    {t("inquiry.cta")}
                   </button>
                 )}
               </div>

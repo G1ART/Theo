@@ -355,7 +355,7 @@ export default function RoomPage() {
                       onClick={() => handleArtworkClick(item.artwork_id!)}
                       className="mt-3 inline-block self-start text-xs text-zinc-500 underline-offset-4 hover:text-zinc-900 hover:underline"
                     >
-                      {t("room.askAboutWork")}
+                      {t("inquiry.cta")}
                     </Link>
                   </article>
                 </li>

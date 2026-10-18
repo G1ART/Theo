@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SaveToShortlistModal } from "@/components/SaveToShortlistModal";
 import { BodyPortal } from "@/components/ui/BodyPortal";
+import type { FollowRelation } from "@/lib/follow/relation";
 import { formatIdentityPair } from "@/lib/identity/format";
 import { useT } from "@/lib/i18n/useT";
 import {
@@ -24,6 +25,7 @@ import {
 } from "@/lib/likes/likedWorksView";
 import { searchArtworkHrefs } from "@/lib/search/artworkQuery";
 import { getExternalArtistClaim, type ArtworkWithLikes } from "@/lib/supabase/artworks";
+import { getFollowRelations } from "@/lib/supabase/follows";
 import {
   forgetMyLikedWorks,
   listMyLikedWorks,
@@ -80,9 +82,11 @@ function toLikedWork(row: LikedRow, t: Translate, locale: string): LikedWork<Art
     artistUsername: external ? "" : (credited?.username ?? ""),
     artistIsExternal: Boolean(external),
   });
+  const creditedId = (credited as { id?: string } | null)?.id ?? null;
   const artistKey = external
     ? `ext:${external.external_artist_id ?? artistName}`
-    : (credited as { id?: string } | null)?.id ?? artwork.artist_id;
+    : creditedId ?? artwork.artist_id;
+  const ownerShown = !external && artwork.artist_id != null && (creditedId ?? artwork.artist_id) === artwork.artist_id;
   return {
     artwork,
     likedAt: row.likedAt,
@@ -93,8 +97,12 @@ function toLikedWork(row: LikedRow, t: Translate, locale: string): LikedWork<Art
     artistKey,
     artistName,
     artistHref: hrefs.artistHref,
+    relationProfileId: ownerShown ? artwork.artist_id : null,
   };
 }
+
+// The last relations per viewer, so returning to the tab does not flash.
+let lastRelations: { viewerId: string; relations: Map<string, FollowRelation> } | null = null;
 
 function ChipSelect<V extends string>({
   label,
@@ -255,6 +263,29 @@ export function LikedWorksPanel({ viewerId, actingLabel, onCountChange }: Props)
     () => (data?.rows ?? []).map((row) => toLikedWork(row, t, locale)),
     [data, t, locale],
   );
+  const [relations, setRelations] = useState<Map<string, FollowRelation>>(() =>
+    lastRelations?.viewerId === viewerId ? lastRelations.relations : new Map(),
+  );
+  const relationIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of items) {
+      if (item.relationProfileId && item.relationProfileId !== viewerId) ids.add(item.relationProfileId);
+    }
+    return [...ids].sort();
+  }, [items, viewerId]);
+  const relationKey = relationIds.join(",");
+  useEffect(() => {
+    if (!relationKey) return;
+    let cancelled = false;
+    void getFollowRelations(relationKey.split(",")).then(({ data: next, error }) => {
+      if (cancelled || error) return;
+      lastRelations = { viewerId, relations: next };
+      setRelations(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [relationKey, viewerId]);
   const summary = useMemo(() => summarizeLikedWorks(items), [items]);
   const visible = useMemo(
     () => sortLikedWorks(filterLikedWorks(items, filters), sort, locale),
@@ -464,6 +495,7 @@ export function LikedWorksPanel({ viewerId, actingLabel, onCountChange }: Props)
               item={item}
               viewerId={viewerId}
               removed={pending.has(item.artwork.id)}
+              relation={item.relationProfileId ? (relations.get(item.relationProfileId) ?? null) : null}
               onToggleLike={toggleLike}
               onSaveToBoard={setBoardId}
             />

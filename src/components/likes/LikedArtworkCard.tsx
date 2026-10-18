@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ArtworkSizeCapsule } from "@/components/artwork/ArtworkSizeCapsule";
 import { CroppedArtworkImage } from "@/components/artwork/CroppedArtworkImage";
+import { FollowRelationChip } from "@/components/FollowRelationChip";
 import { cardTradeView } from "@/lib/artworks/cardTrade";
 import { setArtworkBack } from "@/lib/artworkBack";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
+import type { FollowRelation } from "@/lib/follow/relation";
 import { pickLocalizedArtworkTitle, pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { useT } from "@/lib/i18n/useT";
 import { readDisplayAdjust } from "@/lib/image/displayAdjust";
@@ -34,6 +36,7 @@ type Props = {
   item: LikedWork<ArtworkWithLikes>;
   viewerId: string;
   removed: boolean;
+  relation: FollowRelation | null;
   onToggleLike: (artworkId: string) => void;
   onSaveToBoard: (artworkId: string) => void;
 };
@@ -50,7 +53,7 @@ function leaveForDetail(): void {
   setArtworkBack();
 }
 
-export function LikedArtworkCard({ item, viewerId, removed, onToggleLike, onSaveToBoard }: Props) {
+export function LikedArtworkCard({ item, viewerId, removed, relation, onToggleLike, onSaveToBoard }: Props) {
   const router = useRouter();
   const { t, locale } = useT();
   const sizePref = useSizeUnitPref();
@@ -150,6 +153,7 @@ export function LikedArtworkCard({ item, viewerId, removed, onToggleLike, onSave
         ) : (
           <span className="font-medium text-zinc-800">{item.artistName}</span>
         )}
+        <FollowRelationChip relation={relation} className="ml-1" />
         {art.year ? <span> · {art.year}</span> : null}
       </p>
 
@@ -199,12 +203,12 @@ export function LikedArtworkCard({ item, viewerId, removed, onToggleLike, onSave
             href={cta.href.includes("?") ? `${cta.href}&from=likes` : cta.href}
             onClick={leaveForDetail}
             className={
-              cta.kind === "ask" || cta.kind === "askAbout"
+              cta.kind === "ask"
                 ? "truncate rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:bg-zinc-800"
                 : "truncate rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-500"
             }
           >
-            {t(`likes.cta.${cta.kind}`)}
+            {cta.kind === "ask" ? t("inquiry.cta") : t(`likes.cta.${cta.kind}`)}
           </Link>
         )}
         <div ref={menuRef} className="relative ml-auto">

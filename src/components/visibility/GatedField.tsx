@@ -197,7 +197,7 @@ export function GatedField({
               onClick={() => handleClick("inquiry")}
               className="rounded-full bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-800"
             >
-              {t("visibility.gate.cta.askAboutWork")}
+              {t("inquiry.cta")}
             </button>
           )}
           {cta.kind === "access_request" && (
@@ -215,7 +215,7 @@ export function GatedField({
               onClick={() => handleClick("inquiry")}
               className="rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
             >
-              {t("visibility.gate.cta.askAboutWork")}
+              {t("inquiry.cta")}
             </button>
           )}
         </div>
