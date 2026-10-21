@@ -1201,6 +1201,86 @@ function testCursorKeepsShownWorksPastTheOldCap() {
   assert.equal(decoded.used[499], "w:499");
 }
 
+function artistCardPeople(modules: FeedModule[]): string[] {
+  return modules.filter((mod) => mod.type === "artist_card").map((mod) => mod.person.id);
+}
+
+function artistCardWorks(modules: FeedModule[]): string[] {
+  return modules
+    .filter((mod) => mod.type === "artist_card")
+    .flatMap((mod) => mod.works.map((row) => row.id));
+}
+
+function testCuratedGalleryIsNotAnArtistYouMightKnow() {
+  const { viewer: me, pools } = world();
+  pools.people.push(
+    person({
+      id: "Gal",
+      name: "Gallery Korea",
+      username: "g1artkorea",
+      role: "gallery",
+      artistPersona: false,
+    })
+  );
+  pools.works.push(
+    work({ id: "Cur1", artistId: "Gal", authored: false, title: "Abundance Structure (yellow)" }),
+    work({ id: "Cur2", artistId: "Gal", authored: false, title: "Abundance Structure (green)" })
+  );
+  const shared = pools.exhibitions.find((row) => row.id === "E1");
+  assert.ok(shared);
+  shared.participantIds = ["V", "Gal", "Co"];
+  const second = pools.exhibitions.find((row) => row.id === "E2");
+  assert.ok(second);
+  second.participantIds = ["Gal", "Co", "R1", "R2"];
+
+  const page = assembleWalk({ lane: "personalized", viewer: me, pools, cursor: null });
+  assert.equal(page.scenario, "exhibition_network");
+  assert.equal(artistCardPeople(page.modules).includes("Gal"), false);
+  assert.equal(artistCardWorks(page.modules).includes("Cur1"), false);
+  assert.equal(artistCardWorks(page.modules).includes("Cur2"), false);
+  assert.equal(artistCardPeople(page.modules)[0], "Co");
+
+  const hybrid = person({
+    id: "Hy",
+    name: "Hybrid Artist",
+    role: "gallery",
+    artistPersona: true,
+  });
+  const onlyHybrid = assembleWalk({
+    lane: "following",
+    viewer: viewer({
+      id: "V",
+      exhibitionIds: [],
+      followingIds: ["Hy", "Gal"],
+      artworkIds: [],
+      savedArtworkIds: [],
+      likedArtworkIds: [],
+      school: null,
+      medium: null,
+    }),
+    pools: {
+      people: [
+        person({ id: "V", name: "Viewer" }),
+        hybrid,
+        person({ id: "Gal", name: "Gallery Korea", role: "gallery", artistPersona: false }),
+      ],
+      works: [
+        work({ id: "Hy1", artistId: "Hy" }),
+        work({ id: "Hy2", artistId: "Hy" }),
+        work({ id: "Hy3", artistId: "Hy" }),
+        work({ id: "Cur1", artistId: "Gal", authored: false }),
+      ],
+      exhibitions: [],
+      engagements: [],
+      follows: [],
+    },
+    cursor: null,
+  });
+  assert.deepEqual(artistCardPeople(onlyHybrid.modules), ["Hy"]);
+  assert.equal(artistCardWorks(onlyHybrid.modules).includes("Cur1"), false);
+}
+
+testCuratedGalleryIsNotAnArtistYouMightKnow();
 testExhibitionCardThumbs();
 testGroupShowThumbs();
 testOrderAndCursor();

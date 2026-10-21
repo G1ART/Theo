@@ -57,12 +57,27 @@ const listedOnly = work({
   ],
 });
 
+const curatedExternal = work({
+  id: "curated-external",
+  artist_id: gallery,
+  claims: [
+    {
+      claim_type: "CURATED",
+      subject_profile_id: gallery,
+      artist_profile_id: null,
+      status: "confirmed",
+      profiles: null,
+    },
+  ],
+});
+
 assert.equal(isOwnArtistWork(uploadedForArtist, artist), true);
 assert.equal(isOwnArtistWork(uploadedForArtist, gallery), false);
 assert.equal(isOwnArtistWork(galleryOwn, gallery), true);
 assert.equal(isOwnArtistWork(listedOnly, gallery), false);
+assert.equal(isOwnArtistWork(curatedExternal, gallery), false);
 
-const rows = [uploadedForArtist, galleryOwn, listedOnly];
+const rows = [uploadedForArtist, galleryOwn, listedOnly, curatedExternal];
 const artistMine = filterArtworksByPersona(rows, artist, "CREATED").map((row) => row.id);
 assert.deepEqual(artistMine, ["uploaded-for-artist"]);
 
@@ -70,11 +85,11 @@ const galleryMine = filterArtworksByPersona(rows, gallery, "CREATED").map((row) 
 assert.deepEqual(galleryMine, ["gallery-own"]);
 
 const allForArtist = filterArtworksByPersona(rows, artist, "all").map((row) => row.id);
-assert.deepEqual(allForArtist, ["uploaded-for-artist", "gallery-own", "listed-only"]);
+assert.deepEqual(allForArtist, ["uploaded-for-artist", "gallery-own", "listed-only", "curated-external"]);
 
 const counts = getPersonaCounts(rows, artist);
 assert.equal(counts.created, 1);
-assert.equal(counts.all, 3);
+assert.equal(counts.all, 4);
 
 const galleryBuckets = getArtworksByAllBuckets(rows, gallery);
 assert.deepEqual(
@@ -83,7 +98,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   galleryBuckets.curated.map((row) => row.id).sort(),
-  ["listed-only", "uploaded-for-artist"],
+  ["curated-external", "listed-only", "uploaded-for-artist"],
 );
 
 const artistBuckets = getArtworksByAllBuckets(rows, artist);

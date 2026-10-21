@@ -1,8 +1,14 @@
 /**
  * Persona tab filtering for profile/My artworks.
- * CREATED (내 작품) = works this profile owns as the artist (`artist_id`),
- * even when a gallery or delegated account uploaded them.
- * A CREATED claim counts only when the work has no different owner.
+ *
+ * Who is an artist: `isArtistRole` (main_role or roles includes artist).
+ * A claim does not grant an artist persona.
+ *
+ * CREATED (내 작품) = works this profile authored. `artist_id` is that
+ * author when a gallery uploaded the work for them. It is not authorship
+ * when the same profile only has a lister claim (CURATED, INVENTORY,
+ * EXHIBITED, OWNS, host, or include) and no CREATED claim — that is how
+ * a gallery's upload of an external artist was stored.
  * OWNS/INVENTORY/CURATED = works where the profile has that claim type (lister).
  */
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
@@ -19,21 +25,49 @@ type ArtistWorkRef = {
     claim_type?: string | null;
     subject_profile_id?: string | null;
     artist_profile_id?: string | null;
+    status?: string | null;
   }> | null;
 };
 
+/** Relationship claims. None of these make the subject the artist. */
+const LISTER_CLAIM_TYPES = new Set([
+  "CURATED",
+  "INVENTORY",
+  "EXHIBITED",
+  "OWNS",
+  "HOSTS_PROJECT",
+  "INCLUDES_WORK",
+]);
+
+function confirmedClaim(claim: { status?: string | null }): boolean {
+  return claim.status == null || claim.status === "" || claim.status === "confirmed";
+}
+
 /**
- * 내 작품. The owner is the artist on the work, not the account that
- * uploaded it. Uploader and curator claims stay on the wider list.
+ * 내 작품. The author is the artist on the work, not the account that
+ * uploaded it. A lister claim on the stored `artist_id` (curated, inventory,
+ * exhibited, owns, host) is not authorship unless that profile also has a
+ * CREATED claim. Uploader and curator claims stay on the wider list.
  */
 export function isOwnArtistWork(artwork: ArtistWorkRef, profileId: string): boolean {
-  if (artwork.artist_id != null && artwork.artist_id === profileId) return true;
-  if (artwork.artist_id != null) return false;
-  return (artwork.claims ?? []).some(
+  const claims = (artwork.claims ?? []).filter(confirmedClaim);
+  const createdForProfile = claims.some(
     (claim) =>
       claim.claim_type === "CREATED" &&
       (claim.subject_profile_id === profileId || claim.artist_profile_id === profileId),
   );
+  const listerOnly = claims.some(
+    (claim) =>
+      claim.subject_profile_id === profileId &&
+      typeof claim.claim_type === "string" &&
+      LISTER_CLAIM_TYPES.has(claim.claim_type),
+  );
+  if (artwork.artist_id != null && artwork.artist_id === profileId) {
+    if (listerOnly && !createdForProfile) return false;
+    return true;
+  }
+  if (artwork.artist_id != null) return false;
+  return createdForProfile;
 }
 
 function kindOf(artwork: ArtworkWithLikes) {

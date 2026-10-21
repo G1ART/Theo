@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "@/lib/i18n/locale";
+import { isArtistRole } from "@/lib/identity/roles";
+import { isOwnArtistWork } from "@/lib/provenance/personaTabs";
 import {
   pickLocalizedArtworkTitle,
   pickLocalizedDisplayName,
@@ -327,6 +329,7 @@ async function load(
       school: edu.school,
       city: text(row.city),
       role: walkRole(row.main_role, row.roles),
+      artistPersona: isArtistRole({ main_role: row.main_role, roles: row.roles }),
       mediums: Array.isArray(row.mediums) ? row.mediums.filter((item) => typeof item === "string" && item.trim()) : [],
       mutualNames: mutualKnown ? mutualByTarget.get(row.id)?.names ?? [] : null,
       mutualAvatars: mutualKnown ? mutualByTarget.get(row.id)?.avatars ?? [] : null,
@@ -366,10 +369,36 @@ async function load(
     }
   }
 
+  const claimFetch = await authorshipClaims(
+    supabase,
+    workRows.map((row) => row.id)
+  );
+  const claimsByWork = new Map<string, AuthorshipClaim[]>();
+  if (claimFetch.ok) {
+    for (const claim of claimFetch.rows) {
+      if (!claim.work_id) continue;
+      const list = claimsByWork.get(claim.work_id) ?? [];
+      list.push(claim);
+      claimsByWork.set(claim.work_id, list);
+    }
+  }
+
   const works: WalkWork[] = [];
   for (const row of workRows) {
     if (!row.artist_id || !peopleById.has(row.artist_id)) continue;
     if (row.visibility && row.visibility !== "public" && row.artist_id !== userId) continue;
+    const author = peopleById.get(row.artist_id);
+    if (!author) continue;
+    // Claims say whether artist_id is the author or only the uploader of a
+    // curated / inventory work. If that read fails, keep works of artist
+    // personas and drop everyone else so a gallery is not shown as the artist.
+    const authored = claimFetch.ok
+      ? isOwnArtistWork(
+          { artist_id: row.artist_id, claims: claimsByWork.get(row.id) ?? [] },
+          row.artist_id
+        )
+      : author.artistPersona === true;
+    if (!authored) continue;
     const title = pickLocalizedArtworkTitle(row, locale).trim();
     works.push({
       id: row.id,
@@ -486,6 +515,40 @@ function text(value: string | null | undefined): string | null {
 
 function uniq(ids: string[]): string[] {
   return [...new Set(ids.filter((id) => typeof id === "string" && id.length > 0))];
+}
+
+type AuthorshipClaim = {
+  work_id: string | null;
+  claim_type: string | null;
+  subject_profile_id: string | null;
+  artist_profile_id: string | null;
+  status: string | null;
+};
+
+const AUTHORSHIP_CLAIM_TYPES = [
+  "CREATED",
+  "CURATED",
+  "INVENTORY",
+  "EXHIBITED",
+  "OWNS",
+  "HOSTS_PROJECT",
+  "INCLUDES_WORK",
+];
+
+async function authorshipClaims(
+  supabase: SupabaseClient,
+  workIds: string[]
+): Promise<{ ok: boolean; rows: AuthorshipClaim[] }> {
+  const ids = uniq(workIds).slice(0, 200);
+  if (ids.length === 0) return { ok: true, rows: [] };
+  const { data, error } = await supabase
+    .from("claims")
+    .select("work_id, claim_type, subject_profile_id, artist_profile_id, status")
+    .in("work_id", ids)
+    .in("claim_type", AUTHORSHIP_CLAIM_TYPES)
+    .limit(1000);
+  if (error) return { ok: false, rows: [] };
+  return { ok: true, rows: (data as AuthorshipClaim[] | null) ?? [] };
 }
 
 function walkRole(main: string | null, roles: string[] | null): WalkRole {

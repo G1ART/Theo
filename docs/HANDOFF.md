@@ -1,6 +1,19 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-17
+Last updated: 2026-10-21
+
+## 2026-10-21 — 알 만한 작가는 아티스트 페르소나만, 썸네일은 그 계정이 작가로 올린 작품만
+
+> **Supabase SQL:** `20261021185558_artist_persona_authorship.sql`, `20261021185627_search_artists_skip_lister_works.sql`, `20261021185741_likes_recs_artist_authorship.sql` (MCP apply_migration 으로 적용됨. schema_migrations version 과 파일 번호 같음). **환경 변수 추가·변경 없음.** 계정 행은 수정하지 않음.
+
+- 정본
+  - 아티스트 페르소나 = `isArtistRole` (`main_role` 이 artist 이거나 `roles` 에 artist). 클레임은 페르소나를 만들지 않는다.
+  - 작품 소속 = `isOwnArtistWork` / SQL `work_is_profile_authorship`. `artist_id` 가 그 프로필이어도, 그 프로필의 확정 관계가 큐레이션·인벤토리·전시·소장·주최 클레임뿐이고 CREATED 가 없으면 그 계정의 작품이 아니다.
+- For you 워크 (`loadPools` + `assemble`): '알 만한 작가'·작가 하이라이트·'작가들' 명단은 아티스트 페르소나만. 썸네일·'의 작품'은 위 소속만. 갤러리·큐레이터 추천(주 역할)은 그대로.
+- 같이 맞춤: 프로필 '내 작품' 버킷, 작품 제목으로 사람 찾기(`search_artists_by_artwork`), 좋아요 기반 사람 추천의 작가 후보(`get_people_recs` likes_based). 역할별 갤러리·큐레이터 명단은 작가를 빼지 않음.
+- 확인: `@g1artkorea` 공개 작품 중 작가 소속 0. 아티스트 페르소나이고 공개 작품이 있는 계정 35명은 그대로 35명. 'Abundance Structure' 검색은 그 계정을 작가로 반환하지 않음. 'FURY' 는 sol_kang.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/own-artist-works.test.ts`, `tests/feed-walk-assemble.test.ts` 통과. 로그인한 For you 화면은 세션이 없어 눌러 보지 못했다.
 
 ## 2026-10-17 — 좋아요 입구는 하트 + '관심 작품', 가격이 보이는 작품에는 새 '문의하기'가 없다
 

@@ -204,7 +204,7 @@ function unusedShows(ctx: Ctx): WalkExhibition[] {
 }
 
 function catalogWorks(ctx: Ctx): WalkWork[] {
-  return ctx.pools.works.filter((work) => ctx.idx.people.has(work.artistId));
+  return ctx.pools.works.filter((work) => isAuthoredWork(work) && ctx.idx.people.has(work.artistId));
 }
 
 function unseenCatalog(ctx: Ctx): WalkWork[] {
@@ -295,12 +295,28 @@ function buildLoose(name: WalkScenario, ctx: Ctx): Built | null {
   }
 }
 
+/**
+ * Artist persona. Fixtures that only set `role` still count role "artist".
+ * A stored `artistPersona: false` wins, so a gallery is not an artist
+ * just because a curated upload left `artist_id` on that account.
+ */
+function isWalkArtist(person: WalkPerson | null | undefined): person is WalkPerson {
+  if (!person) return false;
+  if (typeof person.artistPersona === "boolean") return person.artistPersona;
+  return person.role === "artist";
+}
+
+function isAuthoredWork(work: WalkWork): boolean {
+  return work.authored !== false;
+}
+
 function indexPools(pools: WalkPools): Indexes {
   const people = new Map(pools.people.map((p) => [p.id, p]));
   const works = new Map(pools.works.map((w) => [w.id, w]));
   const exhibitions = new Map(pools.exhibitions.map((e) => [e.id, e]));
   const worksByArtist = new Map<string, WalkWork[]>();
   for (const work of pools.works) {
+    if (!isAuthoredWork(work)) continue;
     const list = worksByArtist.get(work.artistId) ?? [];
     list.push(work);
     worksByArtist.set(work.artistId, list);
@@ -348,7 +364,7 @@ function openGate(ctx: Ctx): Gate {
   }
 
   function workOk(work: WalkWork): boolean {
-    return ctx.idx.people.has(work.artistId) && !blocked.has(keyW(work.id));
+    return isAuthoredWork(work) && ctx.idx.people.has(work.artistId) && !blocked.has(keyW(work.id));
   }
 
   return {
@@ -543,7 +559,7 @@ function moduleAnchor(extra: Record<string, unknown>): string {
 
 function worksOfArtists(ids: string[], ctx: Ctx): WalkWork[] {
   const set = new Set(ids);
-  return ctx.pools.works.filter((work) => set.has(work.artistId));
+  return ctx.pools.works.filter((work) => isAuthoredWork(work) && set.has(work.artistId));
 }
 
 function likersOf(workIds: Set<string>, ctx: Ctx): WalkPerson[] {
@@ -552,7 +568,7 @@ function likersOf(workIds: Set<string>, ctx: Ctx): WalkPerson[] {
   for (const edge of ctx.pools.engagements) {
     if (edge.kind !== "like" || !workIds.has(edge.artworkId) || seen.has(edge.userId)) continue;
     const person = ctx.idx.people.get(edge.userId);
-    if (!person || person.role !== "artist" || person.id === ctx.viewer.id) continue;
+    if (!isWalkArtist(person) || person.id === ctx.viewer.id) continue;
     seen.add(edge.userId);
     out.push(person);
   }
@@ -606,7 +622,7 @@ function buildExhibitionNetwork(ctx: Ctx): Built | null {
     for (const personId of shared.participantIds) {
       if (personId === ctx.viewer.id) continue;
       const person = ctx.idx.people.get(personId);
-      if (!person) continue;
+      if (!isWalkArtist(person)) continue;
       const built = storyExhibition(ctx, person, shared);
       if (built) return built;
     }
@@ -692,11 +708,11 @@ function buildSharedMedium(ctx: Ctx): Built | null {
   if (!ctx.viewer.id || !ctx.viewer.medium) return null;
   const medium = ctx.viewer.medium;
   const matching = ctx.pools.works.filter(
-    (work) => work.artistId !== ctx.viewer.id && same(work.medium, medium)
+    (work) => isAuthoredWork(work) && work.artistId !== ctx.viewer.id && same(work.medium, medium)
   );
   const artistIds: string[] = [];
   for (const person of ctx.pools.people) {
-    if (person.id === ctx.viewer.id) continue;
+    if (person.id === ctx.viewer.id || !isWalkArtist(person)) continue;
     const listed = person.mediums.some((item) => same(item, medium));
     const made = (ctx.idx.worksByArtist.get(person.id) ?? []).some((work) => same(work.medium, medium));
     if (listed || made) artistIds.push(person.id);
@@ -704,7 +720,7 @@ function buildSharedMedium(ctx: Ctx): Built | null {
   const shows = ctx.pools.exhibitions.filter((row) =>
     row.workIds.some((id) => {
       const work = ctx.idx.works.get(id);
-      return !!work && same(work.medium, medium);
+      return !!work && isAuthoredWork(work) && same(work.medium, medium);
     })
   );
   for (const exhibition of shows) {
@@ -786,7 +802,7 @@ function storyCuratorial(ctx: Ctx, curator: WalkPerson, show: WalkExhibition): B
   if (!exhibition) return null;
   const artistCandidate = show.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.id !== curator.id && person.role === "artist");
+    .find((person) => isWalkArtist(person) && person.id !== curator.id);
   const artistWorks = artistCandidate ? artistRail(ctx, gate, artistCandidate) : null;
   const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
   if (!artist || !artistWorks) return null;
@@ -798,7 +814,7 @@ function storyCuratorial(ctx: Ctx, curator: WalkPerson, show: WalkExhibition): B
   let engagedPerson: WalkPerson | null = null;
   let engagedWorks: WalkWork[] | null = null;
   for (const person of ctx.pools.people) {
-    if (person.id === artist.id || person.id === curator.id || person.role !== "artist") continue;
+    if (person.id === artist.id || person.id === curator.id || !isWalkArtist(person)) continue;
     if (!curatorLikes.some((work) => work.artistId === person.id)) continue;
     const works = artistRail(ctx, gate, person);
     const taken = works ? gate.takePerson(person) : null;
@@ -818,7 +834,7 @@ function storyCuratorial(ctx: Ctx, curator: WalkPerson, show: WalkExhibition): B
 
   const roomArtists = show.participantIds.filter((id) => {
     const person = ctx.idx.people.get(id);
-    return person?.role === "artist";
+    return isWalkArtist(person);
   });
   const more = gate.takeWorks(worksOfArtists(roomArtists, ctx), TRIO);
   if (!more) return null;
@@ -874,7 +890,7 @@ function storySchool(ctx: Ctx, school: string, alumniIds: string[], exhibition: 
   if (!gallery || !show) return null;
   const fromRoom = exhibition.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist" && same(person.school, school));
+    .find((person) => isWalkArtist(person) && same(person.school, school));
   const fromWorks = fromRoom ? artistRail(ctx, gate, fromRoom) : null;
   const fromPerson = fromRoom && fromWorks ? gate.takePerson(fromRoom) : null;
   if (!fromPerson || !fromWorks) return null;
@@ -922,7 +938,7 @@ function storyLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | null 
   const gate = openGate(ctx);
   const show = gate.takeExhibition(seed);
   if (!show) return null;
-  const artistIds = seed.participantIds.filter((id) => ctx.idx.people.get(id)?.role === "artist");
+  const artistIds = seed.participantIds.filter((id) => isWalkArtist(ctx.idx.people.get(id)));
   const artists = gate.takePeople(artistIds, 1);
   if (!artists) return null;
 
@@ -942,7 +958,7 @@ function storyLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | null 
   }
   const another = [...shownIds]
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist" && !artists.some((row) => row.id === person.id));
+    .find((person) => isWalkArtist(person) && !artists.some((row) => row.id === person.id));
   const anotherWorks = another ? artistRail(ctx, gate, another) : null;
   const anotherPerson = another && anotherWorks ? gate.takePerson(another) : null;
   if (!anotherPerson || !anotherWorks) return null;
@@ -1016,7 +1032,7 @@ function storyCollector(ctx: Ctx, saved: WalkWork[], exhibition: WalkExhibition)
   if (!gallery || !show) return null;
   const artistCandidate = exhibition.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist");
+    .find((person) => isWalkArtist(person));
   const artistWorks = artistCandidate ? artistRail(ctx, gate, artistCandidate) : null;
   const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
   if (!artist || !artistWorks) return null;
@@ -1076,7 +1092,7 @@ function looseExhibitionNetwork(ctx: Ctx): Built | null {
     for (const personId of shared.participantIds) {
       if (personId === ctx.viewer.id) continue;
       const person = ctx.idx.people.get(personId);
-      if (!person) continue;
+      if (!isWalkArtist(person)) continue;
       const built = looseStoryExhibition(ctx, person, shared);
       if (built) return built;
     }
@@ -1146,10 +1162,10 @@ function looseStoryExhibition(ctx: Ctx, person: WalkPerson, shared: WalkExhibiti
 function looseSharedMedium(ctx: Ctx): Built | null {
   if (!ctx.viewer.id || !ctx.viewer.medium) return null;
   const medium = ctx.viewer.medium;
-  const matching = ctx.pools.works.filter((work) => work.artistId !== ctx.viewer.id && same(work.medium, medium));
+  const matching = ctx.pools.works.filter((work) => isAuthoredWork(work) && work.artistId !== ctx.viewer.id && same(work.medium, medium));
   const artistIds: string[] = [];
   for (const person of ctx.pools.people) {
-    if (person.id === ctx.viewer.id) continue;
+    if (person.id === ctx.viewer.id || !isWalkArtist(person)) continue;
     const listed = person.mediums.some((item) => same(item, medium));
     const made = (ctx.idx.worksByArtist.get(person.id) ?? []).some((work) => same(work.medium, medium));
     if (listed || made) artistIds.push(person.id);
@@ -1157,7 +1173,7 @@ function looseSharedMedium(ctx: Ctx): Built | null {
   const shows = ctx.pools.exhibitions.filter((row) =>
     row.workIds.some((id) => {
       const work = ctx.idx.works.get(id);
-      return !!work && same(work.medium, medium);
+      return !!work && isAuthoredWork(work) && same(work.medium, medium);
     })
   );
   for (const exhibition of shows) {
@@ -1259,7 +1275,7 @@ function looseStoryCuratorial(ctx: Ctx, curator: WalkPerson, show: WalkExhibitio
   ];
   const artistCandidate = show.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.id !== curator.id && person.role === "artist");
+    .find((person) => isWalkArtist(person) && person.id !== curator.id);
   const artistWorks = artistCandidate ? gate.takeArtistWorks(artistCandidate.id, 1, 3) : null;
   const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
   if (artist && artistWorks) {
@@ -1343,7 +1359,7 @@ function looseStorySchool(ctx: Ctx, school: string, alumniIds: string[], exhibit
   }
   const fromRoom = exhibition.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist" && same(person.school, school));
+    .find((person) => isWalkArtist(person) && same(person.school, school));
   const fromWorks = fromRoom ? gate.takeArtistWorks(fromRoom.id, 1, 3) : null;
   const fromPerson = fromRoom && fromWorks ? gate.takePerson(fromRoom) : null;
   const network = gate.takePeople(
@@ -1393,7 +1409,7 @@ function looseStoryLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | 
       exhibition: toExhibition(show, ctx.idx),
     }),
   ];
-  const artistIds = seed.participantIds.filter((id) => ctx.idx.people.get(id)?.role === "artist");
+  const artistIds = seed.participantIds.filter((id) => isWalkArtist(ctx.idx.people.get(id)));
   const artists = gate.takePeople(artistIds, 1);
   if (artists) {
     modules.push(
@@ -1471,7 +1487,7 @@ function looseStoryCollector(ctx: Ctx, saved: WalkWork[], exhibition: WalkExhibi
   }
   const artistCandidate = exhibition.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist");
+    .find((person) => isWalkArtist(person));
   const artistWorks = artistCandidate ? gate.takeArtistWorks(artistCandidate.id, 1, 3) : null;
   const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
   if (artist && artistWorks) {
@@ -1571,7 +1587,7 @@ function loosePublicShow(ctx: Ctx, exhibition: WalkExhibition, works: WalkWork[]
   }
   const artistCandidate = exhibition.participantIds
     .map((id) => ctx.idx.people.get(id))
-    .find((person) => person && person.role === "artist");
+    .find((person) => isWalkArtist(person));
   const artistWorks = artistCandidate ? gate.takeArtistWorks(artistCandidate.id, 1, 3) : null;
   const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
   if (artist && artistWorks) {
@@ -1584,7 +1600,7 @@ function loosePublicShow(ctx: Ctx, exhibition: WalkExhibition, works: WalkWork[]
   }
   const more = gate.takeSome(
     worksOfArtists(
-      exhibition.participantIds.filter((id) => ctx.idx.people.get(id)?.role === "artist"),
+      exhibition.participantIds.filter((id) => isWalkArtist(ctx.idx.people.get(id))),
       ctx
     ),
     1,
@@ -1658,7 +1674,7 @@ function storyPublic(
   const artistCandidate = full
     ? exhibition.participantIds
         .map((id) => ctx.idx.people.get(id))
-        .find((person) => person && person.role === "artist")
+        .find((person) => isWalkArtist(person))
     : undefined;
   const artistWorks = artistCandidate ? artistRail(ctx, gate, artistCandidate) : null;
   const artist = artistCandidate && artistWorks ? gate.takePerson(artistCandidate) : null;
@@ -1684,7 +1700,7 @@ function storyPublic(
 
   const more = gate.takeWorks(
     worksOfArtists(
-      exhibition.participantIds.filter((id) => ctx.idx.people.get(id)?.role === "artist"),
+      exhibition.participantIds.filter((id) => isWalkArtist(ctx.idx.people.get(id))),
       ctx
     ),
     TRIO
@@ -1714,7 +1730,7 @@ function buildFollowing(ctx: Ctx): Built | null {
   const gate = openGate(ctx);
   const gallery = gate.takeWorks(theirWorks, TRIO);
   if (!gallery) {
-    const only = followed.find((person) => (ctx.idx.worksByArtist.get(person.id) ?? []).length > 0);
+    const only = followed.find((person) => isWalkArtist(person) && (ctx.idx.worksByArtist.get(person.id) ?? []).length > 0);
     if (!only) return null;
     const soloGate = openGate(ctx);
     const works = artistRail(ctx, soloGate, only);
@@ -1731,7 +1747,8 @@ function buildFollowing(ctx: Ctx): Built | null {
     };
   }
 
-  const lead = ctx.idx.people.get(gallery[0]!.artistId);
+  const leadCandidate = ctx.idx.people.get(gallery[0]!.artistId);
+  const lead = isWalkArtist(leadCandidate) ? leadCandidate : null;
   const leadWorks = lead ? artistRail(ctx, gate, lead) : null;
   const leadPerson = lead && leadWorks ? gate.takePerson(lead) : null;
   const modules: FeedModule[] = [

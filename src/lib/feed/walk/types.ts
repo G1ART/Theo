@@ -19,6 +19,12 @@ export type WalkPerson = {
   school: string | null;
   city: string | null;
   role: WalkRole;
+  /**
+   * Artist persona (`main_role` or `roles` includes artist).
+   * Omitted on older fixtures, which fall back to `role === "artist"`.
+   * A gallery or curator role alone is not an artist persona.
+   */
+  artistPersona?: boolean;
   mediums: string[];
   /**
    * Mutual connection names computed from stored follow edges.
@@ -40,6 +46,11 @@ export type WalkWork = {
   exhibitionIds: string[];
   size: string | null;
   sizeUnit: "cm" | "in" | null;
+  /**
+   * False when `artistId` is only the uploader of a lister claim
+   * (curated, inventory, exhibited, owns). Omitted means authored.
+   */
+  authored?: boolean;
 };
 
 export type WalkExhibition = {
