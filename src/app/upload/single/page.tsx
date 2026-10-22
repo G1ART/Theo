@@ -9,6 +9,7 @@ import {
   attachArtworkImage,
   createArtwork,
   deleteArtwork,
+  publishDraftArtwork,
   getArtworkImageUrl,
   type ArtworkImageViewType,
   type CreateArtworkPayload,
@@ -609,6 +610,17 @@ function UploadPageContent() {
     setIsSubmitting(true);
 
     let inviteKind: "sent" | "already" | "failed" | null = null;
+    let createdId: string | null = null;
+    let published = false;
+    const uploadedPaths: string[] = [];
+    const rollbackCreated = async () => {
+      if (published) return;
+      for (const p of uploadedPaths) {
+        try { await removeStorageFile(p); } catch { /* best-effort */ }
+      }
+      if (!createdId) return;
+      try { await deleteArtwork(createdId); } catch { /* best-effort */ }
+    };
     try {
       const { data: artworkId, error: createErr } = await createArtwork(payload);
       if (createErr) {
@@ -622,6 +634,7 @@ function UploadPageContent() {
         setIsSubmitting(false);
         return;
       }
+      createdId = artworkId;
 
       // Create claim BEFORE attaching image (RLS: artwork_images INSERT needs claim for lister)
       const claimType: ClaimType = intent === "CREATED" ? "CREATED" : (intent ?? "OWNS");
@@ -721,13 +734,7 @@ function UploadPageContent() {
       // profile thumbnails pick up). When acting-as, storage path is
       // rooted on the principal so lifecycle stays principal-rooted.
       const storageOwner = actingAsProfileId ?? userId;
-      const uploadedPaths: string[] = [];
-      const rollback = async () => {
-        for (const p of uploadedPaths) {
-          try { await removeStorageFile(p); } catch {}
-        }
-        try { await deleteArtwork(artworkId); } catch {}
-      };
+      const rollback = rollbackCreated;
 
       for (let i = 0; i < images.length; i++) {
         const pending = images[i];
@@ -799,6 +806,16 @@ function UploadPageContent() {
           return;
         }
       }
+
+      const { error: publishErr } = await publishDraftArtwork(artworkId);
+      if (publishErr) {
+        await rollback();
+        logSupabaseError("publishDraftArtwork", publishErr);
+        setError(formatSupabaseError(publishErr, t, "errors.failedCreateArtwork"));
+        setIsSubmitting(false);
+        return;
+      }
+      published = true;
 
       if (linkedExhibitionId) {
         const { error: addExErr } = await addWorkToExhibition(
@@ -893,6 +910,7 @@ function UploadPageContent() {
         go();
       }
     } catch (err) {
+      await rollbackCreated();
       setError(err instanceof Error ? err.message : t("common.unknownError"));
       setIsSubmitting(false);
     }

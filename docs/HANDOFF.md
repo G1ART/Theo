@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-21
 
+## 2026-10-21 — 공개 작품은 이미지가 1장 이상이어야 한다
+
+> **Supabase SQL:** `20261022043926_public_artwork_requires_image.sql` (MCP apply_migration 으로 적용됨. schema_migrations version `20261022043926` 과 파일 번호 같음). **환경 변수 추가·변경 없음.**
+
+- 싱글 업로드와 가입 퀵스타트는 작품을 초안으로 만든 뒤, 이미지 행이 붙은 다음에만 공개한다. 공개 전에 실패하면 초안과 올린 파일을 지운다.
+- 서버 트리거 `public_artwork_requires_image`: 이미지가 없는 공개 삽입·공개 전환, 공개 작품의 마지막 이미지를 지우거나 다른 작품으로 옮기는 것을 막는다. 초안은 비어 있어도 된다. 작품 행 삭제(이미지 cascade)는 그대로다. 이미 공개이고 이미지가 없는 다른 작품은 고치지 않았다.
+- 이목 `@blue_greentree` 「또 다른 흐름」(`a826ad1f-3cca-4ccd-b6b1-d3626ee980eb`)에, 같은 시각 저장소에만 남아 있던 표시본·원본을 이미지 행으로 한 번 연결했다. 파일을 새로 만들지 않았고, 알림을 보내지 않았다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/public-artwork-requires-image.test.ts`, `tests/artwork-storage-cleanup.test.ts`, `tests/claim-revoke-does-not-delete-artwork.test.ts` 통과. 프로덕션 `/artwork/a826ad1f-3cca-4ccd-b6b1-d3626ee980eb` 에서 해당 webp 가 가로 1200으로 로드됨. DB에서 이미지 없는 공개 삽입·공개 전환·마지막 이미지 삭제·이미지 이동은 거부되고, 빈 초안과 작품 삭제는 통과(테스트 행은 남기지 않음).
+
 ## 2026-10-21 — 알 만한 작가는 아티스트 페르소나만, 썸네일은 그 계정이 작가로 올린 작품만
 
 > **Supabase SQL:** `20261021185558_artist_persona_authorship.sql`, `20261021185627_search_artists_skip_lister_works.sql`, `20261021185741_likes_recs_artist_authorship.sql` (MCP apply_migration 으로 적용됨. schema_migrations version 과 파일 번호 같음). **환경 변수 추가·변경 없음.** 계정 행은 수정하지 않음.

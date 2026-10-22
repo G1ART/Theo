@@ -43,6 +43,7 @@ import {
   createArtwork,
   attachArtworkImage,
   deleteArtwork,
+  publishDraftArtwork,
   updateArtworkDimsIfMissing,
   type CreateArtworkPayload,
 } from "@/lib/supabase/artworks";
@@ -290,6 +291,18 @@ export async function createArtworkForCreatedIntent(
       message:
         (attachErr as { message?: string } | null)?.message
           ?? "Failed to attach image to artwork",
+    };
+  }
+
+  const { error: publishErr } = await publishDraftArtwork(artworkId);
+  if (publishErr) {
+    await rollback();
+    return {
+      ok: false,
+      code: "publish_failed",
+      message:
+        (publishErr as { message?: string } | null)?.message
+          ?? "Failed to publish artwork",
     };
   }
 

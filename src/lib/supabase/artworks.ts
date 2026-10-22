@@ -1673,7 +1673,10 @@ export async function createArtwork(
       story: payload.story ?? null,
       story_ko: payload.story_ko?.trim() || null,
       story_en: payload.story_en?.trim() || null,
-      visibility: "public",
+      // Draft until the caller attaches an image and publishes.
+      // public_artwork_requires_image rejects a public row with no
+      // picture, including a direct API insert.
+      visibility: "draft",
       work_kind: payload.work_kind ?? "artwork",
       ownership_status: payload.ownership_status,
       pricing_mode: payload.pricing_mode,
@@ -2174,6 +2177,9 @@ export async function deleteArtworkCascade(
     .eq("artwork_id", artworkId);
 
   const storage = await removeCascadeStorage(images ?? [], removeStorageFiles);
+  // Image rows are removed by ON DELETE CASCADE in the artwork delete
+  // below. Deleting them first would commit an empty public work and
+  // the public-image check would reject the delete.
   if (storage.error) {
     const isDev = process.env.NODE_ENV === "development";
     const logPayload = {
@@ -2190,12 +2196,6 @@ export async function deleteArtworkCascade(
       }
     }
   }
-
-  const { error: imgErr } = await supabase
-    .from("artwork_images")
-    .delete()
-    .eq("artwork_id", artworkId);
-  if (imgErr) return { error: imgErr };
 
   // RLS allows the artist or the uploader. A claim does not.
   const { error } = await supabase
@@ -2620,6 +2620,25 @@ export function validatePublish(
     imageCount: artwork.artwork_images?.length ?? 0,
   });
   return { ok: missing.length === 0, missing };
+}
+
+/**
+ * Make one draft public. The database rejects the update when the
+ * work has no artwork_images row.
+ */
+export async function publishDraftArtwork(id: string): Promise<{ error: unknown }> {
+  if (!id) return { error: new Error("public_artwork_requires_image") };
+  const { data, error } = await supabase
+    .from("artworks")
+    .update({ visibility: "public" })
+    .eq("id", id)
+    .eq("visibility", "draft")
+    .select("id");
+  if (error) return { error };
+  if (!data || data.length === 0) {
+    return { error: new Error("public_artwork_requires_image") };
+  }
+  return { error: null };
 }
 
 export async function publishArtworks(
