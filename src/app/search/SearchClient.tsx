@@ -98,6 +98,12 @@ export function SearchClient() {
 
   return (
     <PageShell variant="default">
+      {/* Mobile results keep the query in the header row. This title,
+          lead, and field stay on desktop, and on mobile only before a query. */}
+      <div
+        data-search-page-chrome
+        className={qFromUrl.trim() ? "hidden lg:block" : undefined}
+      >
       <PageHeader variant="plain" title={t("search.title")} lead={t("search.lead")} />
       <form
         className="relative mb-6"
@@ -126,6 +132,7 @@ export function SearchClient() {
           </svg>
         </button>
       </form>
+      </div>
 
       {labels.length > 0 && (
         <ul className="mb-6 flex flex-wrap gap-2">

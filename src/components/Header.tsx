@@ -2,9 +2,9 @@
 
 import { TheoLogo } from "@/components/brand/TheoLogo";
 import { ShellNavLink } from "@/components/shell/ShellNavLink";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isAuthFrontDoorRoute, isShellRoute } from "@/lib/shell/routes";
-import { useEffect, useId, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useId, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
@@ -44,6 +44,7 @@ import { hitTarget } from "@/components/ds/buttonStyles";
 import { captureFeedDocumentNavigation } from "@/lib/feed/scrollRestore";
 import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
 import { shellSearchHref } from "@/lib/search/shellSearchHref";
+import { armEntryReturn, resolveEntryPath } from "@/lib/nav/entryTrail";
 import {
   captureProfileDocumentNavigation,
   installProfileScrollPopListener,
@@ -60,8 +61,10 @@ installProfileScrollPopListener();
  * chrome language: hamburger + (when logged in) a direct avatar link
  * to the public profile, and one magnifier in the slot left of that
  * account icon. The magnifier is `lg:hidden`. Opening it replaces this
- * row with close, a field, and submit — the same `/search` destination
- * as the desktop right rail — and focuses the field. There is no tablet
+ * row with back, a field, and clear — the same `/search` destination as
+ * the desktop right rail — and focuses the field. On a mobile results
+ * page the row stays, with the query, and the page's own search chrome
+ * hides. There is no tablet
  * horizontal nav strip — sidebar at `lg+` plus hamburger below `lg`
  * is enough. Desktop does not grow a second search control.
  *
@@ -87,6 +90,26 @@ installProfileScrollPopListener();
  *  with the WCAG focus-trap conventions — no third-party dep. */
 const FOCUSABLE_SELECTOR =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+function readMobileSearchQuery(): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("q") ?? "";
+}
+
+function isDesktopHeader(): boolean {
+  return window.matchMedia("(min-width: 1024px)").matches;
+}
+
+/** Keeps the mobile results row on the URL query when only `q` changes. */
+function MobileSearchUrlSync({ onQuery }: { onQuery: (q: string) => void }) {
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const q = pathname === "/search" ? (params.get("q") ?? "").trim() : "";
+  useLayoutEffect(() => {
+    onQuery(q);
+  }, [q, onQuery]);
+  return null;
+}
 
 function SearchGlyph() {
   return (
@@ -133,6 +156,7 @@ export function Header() {
   const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
+  const backMobileSearchRef = useRef<() => void>(() => {});
   const mobilePanelRef = useRef<HTMLDivElement>(null);
   const mobilePanelId = useId();
   const mobilePanelHeadingId = useId();
@@ -428,24 +452,47 @@ export function Header() {
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setMobileSearchOpen(false);
-      setMobileQuery("");
-      window.setTimeout(() => mobileSearchButtonRef.current?.focus(), 0);
+      backMobileSearchRef.current();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [mobileSearchOpen]);
 
   // `lg` is 1024px — the same point the header becomes the mobile bar.
+  // A results query reopens the row when the window comes back below it.
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
     function onChange() {
-      if (!query.matches) return;
-      setMobileSearchOpen(false);
-      setMobileQuery("");
+      if (query.matches) {
+        setMobileSearchOpen(false);
+        return;
+      }
+      const q = readMobileSearchQuery().trim();
+      if (window.location.pathname === "/search" && q) {
+        setMobileSearchOpen(true);
+        setMobileQuery(q);
+      }
     }
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  // Direct /search?q= loads: open the row before paint, without a
+  // hydration mismatch. Query-only edits are handled by MobileSearchUrlSync.
+  useLayoutEffect(() => {
+    if (isDesktopHeader()) return;
+    if (pathname !== "/search") return;
+    const q = readMobileSearchQuery().trim();
+    if (!q) return;
+    setMobileSearchOpen(true);
+    setMobileQuery(q);
+  }, [pathname]);
+
+  const onMobileSearchQuery = useCallback((q: string) => {
+    if (isDesktopHeader()) return;
+    if (!q) return;
+    setMobileSearchOpen(true);
+    setMobileQuery(q);
   }, []);
 
   function resolveBadge(item: NavItem): number {
@@ -489,18 +536,21 @@ export function Header() {
       ? `${accountMenuLabel} (${unreadCount > 99 ? "99+" : unreadCount})`
       : accountMenuLabel;
 
-  // A route change is not the search field. Drop a half-typed query.
-  // The results page keeps whatever was submitted.
+  // Leaving the results screen drops the row. Arriving at /search keeps
+  // it, so the query the reader just sent is still in the header.
   if (pathname !== mobileSearchPath) {
     setMobileSearchPath(pathname);
-    setMobileSearchOpen(false);
-    setMobileQuery("");
+    if (pathname !== "/search") {
+      setMobileSearchOpen(false);
+      setMobileQuery("");
+    }
   }
 
   function openMobileSearch() {
     if (mobileOpen) closeMobile();
+    const current = pathname === "/search" ? readMobileSearchQuery() : "";
     flushSync(() => {
-      setMobileQuery("");
+      setMobileQuery(current);
       setMobileSearchOpen(true);
     });
     // Still inside the tap, so the mobile keyboard can open.
@@ -513,13 +563,41 @@ export function Header() {
     window.setTimeout(() => mobileSearchButtonRef.current?.focus(), 0);
   }
 
+  function clearMobileQuery() {
+    setMobileQuery("");
+    mobileSearchInputRef.current?.focus();
+  }
+
+  function backMobileSearch() {
+    if (pathname !== "/search") {
+      closeMobileSearch();
+      return;
+    }
+    // The row closes when the route actually leaves /search, so the
+    // results screen does not flash the logo while navigation starts.
+    const entry = resolveEntryPath({ pathname });
+    if (entry) {
+      armEntryReturn(entry);
+      router.push(entry);
+      return;
+    }
+    router.push(feedHomeHref(loggedIn));
+  }
+  backMobileSearchRef.current = backMobileSearch;
+
   function submitMobileSearch(event: React.FormEvent) {
     event.preventDefault();
     const href = shellSearchHref(mobileQuery);
     disarmListScrollReturn();
-    setMobileSearchOpen(false);
-    setMobileQuery("");
-    router.push(href);
+    if (!href.startsWith("/search")) {
+      setMobileSearchOpen(false);
+      setMobileQuery("");
+      router.push(href);
+      return;
+    }
+    setMobileSearchOpen(true);
+    if (pathname === "/search") router.replace(href);
+    else router.push(href);
   }
 
   // Login / signup wireframes are a full-bleed canvas with no global
@@ -817,6 +895,9 @@ export function Header() {
         </div>
         </div>
 
+        <Suspense fallback={null}>
+          <MobileSearchUrlSync onQuery={onMobileSearchQuery} />
+        </Suspense>
         {mobileSearchOpen && (
           <form
             role="search"
@@ -826,32 +907,38 @@ export function Header() {
           >
             <button
               type="button"
-              onClick={closeMobileSearch}
+              data-mobile-search-back
+              onClick={backMobileSearch}
               className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
-              aria-label={t("common.close")}
+              aria-label={t("common.back")}
             >
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
             <input
               ref={mobileSearchInputRef}
               type="search"
               enterKeyHint="search"
-              autoFocus
               value={mobileQuery}
               onChange={(event) => setMobileQuery(event.target.value)}
               placeholder={t("shell.searchPlaceholder")}
               aria-label={t("shell.searchPlaceholder")}
-              className="min-w-0 flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-base text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none"
+              className="min-w-0 flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-base text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
             />
-            <button
-              type="submit"
-              className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
-              aria-label={t("shell.searchSubmit")}
-            >
-              <SearchGlyph />
-            </button>
+            {mobileQuery.trim() ? (
+              <button
+                type="button"
+                data-mobile-search-clear
+                onClick={clearMobileQuery}
+                className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
+                aria-label={t("shell.searchClear")}
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            ) : null}
           </form>
         )}
 
