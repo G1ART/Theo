@@ -141,7 +141,15 @@ export function MyConnectionRail() {
           </svg>
         </button>
       </form>
-      ) : null}
+      ) : (
+        <div
+          data-rail-search-spacer
+          aria-hidden
+          className="w-full rounded-full border border-transparent py-2 text-sm"
+        >
+          &nbsp;
+        </div>
+      )}
 
       <section aria-label={t("rail.myConnection.title")}>
         <div className="mb-2 flex items-baseline justify-between">

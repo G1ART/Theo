@@ -1,12 +1,67 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppSidebar } from "./AppSidebar";
 import { RightRail } from "./RightRail";
 import { NotificationsDrawer } from "@/components/notifications/NotificationsDrawer";
 import { layer } from "@/lib/ui/layers";
+import { useT } from "@/lib/i18n/useT";
+import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
+
+/**
+ * Wide-screen search. It grows left from the right-rail search slot and
+ * stops at the viewport center, so the left menu stays put. It is fixed
+ * to the same top inset as that slot (`top-8`, matching the rail and
+ * sidebar padding) and does not add a bar above the shell.
+ */
+function SearchSpanBar() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { t } = useT();
+  const qFromUrl = params.get("q") ?? "";
+  const [q, setQ] = useState(qFromUrl);
+
+  useEffect(() => {
+    setQ(qFromUrl);
+  }, [qFromUrl]);
+
+  function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    const query = q.trim();
+    disarmListScrollReturn();
+    router.replace(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
+  }
+
+  return (
+    <form
+      data-search-span
+      role="search"
+      onSubmit={onSubmit}
+      className={`pointer-events-auto fixed top-8 z-30 hidden w-[calc(min(50vw,720px)-1.5rem)] lg:block ${layer.chrome}`}
+      style={{ left: "50vw" }}
+    >
+      <input
+        type="search"
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+        placeholder={t("shell.searchPlaceholder")}
+        aria-label={t("shell.searchPlaceholder")}
+        className="w-full rounded-full border border-zinc-300 bg-white py-2 pl-4 pr-10 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none"
+      />
+      <button
+        type="submit"
+        aria-label={t("shell.searchSubmit")}
+        className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-zinc-500 hover:text-zinc-900"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+          <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </button>
+    </form>
+  );
+}
 
 /**
  * Theo 3-column app shell (Aug-2026 redesign).
@@ -83,6 +138,12 @@ export function AppShell({
           </div>
         </aside>
       )}
+
+      {pathname === "/search" ? (
+        <Suspense fallback={null}>
+          <SearchSpanBar />
+        </Suspense>
+      ) : null}
 
       <NotificationsDrawer
         open={drawerOpen}

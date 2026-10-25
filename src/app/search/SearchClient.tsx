@@ -81,6 +81,7 @@ export function SearchClient() {
 
   return (
     <PageShell variant="default">
+      <div className="hidden h-4 lg:block" data-search-span-clearance aria-hidden />
       {labels.length > 0 && (
         <ul className="mb-6 flex flex-wrap gap-2">
           {labels.map((label) => (

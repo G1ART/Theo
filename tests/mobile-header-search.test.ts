@@ -10,6 +10,7 @@ import path from "node:path";
 import { hitTarget } from "../src/components/ds/buttonStyles";
 import { messages } from "../src/lib/i18n/messages";
 import { shellSearchHref } from "../src/lib/search/shellSearchHref";
+import { isShellRoute } from "../src/lib/shell/routes";
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -87,13 +88,8 @@ assert.equal(form.includes("mobileProfileHref"), false, "account stays off the s
 assert.match(form, /enterKeyHint="search"/);
 assert.match(form, /\btext-base\b/);
 assert.match(form, /\$\{hitTarget\}/);
-assert.equal((header.match(/<input/g) ?? []).length, 2, "mobile row and the desktop top bar each have one field");
-const deskAt = header.indexOf("data-desktop-search");
-const desk = header.slice(deskAt, header.indexOf("</form>", deskAt));
-assert.match(desk, /hidden min-w-0 flex-1 lg:block/);
-assert.match(desk, /shell\.searchPlaceholder/);
-assert.match(desk, /shell\.searchSubmit/);
-assert.match(header, /pathname === "\/search" \? "lg:hidden"/);
+assert.equal((header.match(/<input/g) ?? []).length, 1, "header keeps only the mobile search field");
+assert.equal(header.includes("data-desktop-search"), false, "desktop search is not a bar above the shell");
 
 const openFn = header.slice(
   header.indexOf("function openMobileSearch"),
@@ -131,9 +127,9 @@ const railNetworkAt = rail.indexOf('aria-label={t("rail.myConnection.title")}');
 assert.ok(railSearchAt !== -1 && railSearchAt < railNetworkAt, "rail search stays above network");
 assert.ok(
   rail.indexOf('pathname !== "/search"') < railSearchAt &&
-    rail.indexOf(") : null}") > railSearchAt &&
-    rail.indexOf(") : null}") < railNetworkAt,
-  "rail search is omitted only on /search",
+    rail.indexOf("data-rail-search-spacer") > railSearchAt &&
+    rail.indexOf("data-rail-search-spacer") < railNetworkAt,
+  "on /search the rail keeps the row height and does not add a second field",
 );
 
 assert.match(results, /searchParams\.get\("q"\)/);
@@ -145,5 +141,16 @@ assert.equal(results.includes("PageHeader"), false, "desktop search has no title
 assert.equal(results.includes("search.title"), false);
 assert.equal(results.includes("search.lead"), false);
 assert.match(results, /search\.artworks/);
+
+assert.equal(isShellRoute("/search"), true, "search uses the same shell as Explore, with no bar above it");
+assert.equal(isShellRoute("/feed"), true);
+const shell = read("src/components/shell/AppShell.tsx");
+assert.match(shell, /data-search-span/);
+assert.match(shell, /left: "50vw"/);
+assert.match(shell, /w-\[calc\(min\(50vw,720px\)-1\.5rem\)\]/);
+assert.match(shell, /fixed top-8/);
+assert.match(shell, /hidden w-\[calc\(min\(50vw,720px\)-1\.5rem\)\] lg:block/);
+assert.match(shell, /pathname === "\/search"/);
+assert.equal(shell.includes("<Header"), false);
 
 console.log("mobile-header-search.test.ts: ok");

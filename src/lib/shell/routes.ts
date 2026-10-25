@@ -29,7 +29,7 @@ const SHELL_PREFIXES = [
   "/upload",
   "/theo-board",
 ] as const;
-const SHELL_EXACT = ["/feed"] as const;
+const SHELL_EXACT = ["/feed", "/search"] as const;
 
 export function isShellRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
