@@ -146,6 +146,7 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [mobileQuery, setMobileQuery] = useState("");
+  const [desktopQuery, setDesktopQuery] = useState("");
   const [mobileSearchPath, setMobileSearchPath] = useState(pathname);
   const [pageBlocked, setPageBlocked] = useState(false);
   const pageBlockTimerRef = useRef<number | null>(null);
@@ -466,6 +467,9 @@ export function Header() {
     function onChange() {
       if (query.matches) {
         setMobileSearchOpen(false);
+        if (window.location.pathname === "/search") {
+          setDesktopQuery(readMobileSearchQuery());
+        }
         return;
       }
       const q = readMobileSearchQuery().trim();
@@ -481,15 +485,18 @@ export function Header() {
   // Direct /search?q= loads: open the row before paint, without a
   // hydration mismatch. Query-only edits are handled by MobileSearchUrlSync.
   useLayoutEffect(() => {
-    if (isDesktopHeader()) return;
     if (pathname !== "/search") return;
-    const q = readMobileSearchQuery().trim();
-    if (!q) return;
+    const q = readMobileSearchQuery();
+    setDesktopQuery(q);
+    if (isDesktopHeader()) return;
+    const trimmed = q.trim();
+    if (!trimmed) return;
     setMobileSearchOpen(true);
-    setMobileQuery(q);
+    setMobileQuery(trimmed);
   }, [pathname]);
 
   const onMobileSearchQuery = useCallback((q: string) => {
+    setDesktopQuery(q);
     if (isDesktopHeader()) return;
     if (!q) return;
     setMobileSearchOpen(true);
@@ -584,6 +591,14 @@ export function Header() {
     else router.push(href);
   }
 
+  function submitDesktopSearch(event: React.FormEvent) {
+    event.preventDefault();
+    const query = desktopQuery.trim();
+    const href = query ? `/search?q=${encodeURIComponent(query)}` : "/search";
+    disarmListScrollReturn();
+    router.replace(href);
+  }
+
   // Login / signup wireframes are a full-bleed canvas with no global
   // chrome. AuthShell owns the logo (large centered mark on /login,
   // none on /signup). Hooks above must still run.
@@ -660,17 +675,46 @@ export function Header() {
             mobileSearchOpen ? "hidden lg:flex" : "flex"
           } w-full min-w-0 items-center justify-between`}
         >
-        <div className="flex items-center gap-6">
+        <div className={`flex min-w-0 items-center ${pathname === "/search" ? "flex-1 gap-3" : "gap-6"}`}>
           <ShellNavLink
             href={feedHomeHref(loggedIn)}
             aria-label="Theo"
-            className="inline-flex items-center text-zinc-900 hover:opacity-80"
+            className={`inline-flex shrink-0 items-center text-zinc-900 hover:opacity-80 ${
+              pathname === "/search" ? "lg:hidden" : ""
+            }`}
             onClick={closeMobile}
           >
             {/* Brand mark — official raster with session-once reveal + settle
                 animation (see TheoLogo). Header appears on every route so `priority`. */}
             <TheoLogo className="h-9" size="sm" priority />
           </ShellNavLink>
+          {pathname === "/search" ? (
+            <form
+              data-desktop-search
+              role="search"
+              onSubmit={submitDesktopSearch}
+              className="relative hidden min-w-0 flex-1 lg:block"
+            >
+              <input
+                type="search"
+                value={desktopQuery}
+                onChange={(event) => setDesktopQuery(event.target.value)}
+                placeholder={t("shell.searchPlaceholder")}
+                aria-label={t("shell.searchPlaceholder")}
+                className="w-full rounded-full border border-zinc-300 bg-white py-2 pl-4 pr-12 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                aria-label={t("shell.searchSubmit")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-zinc-500 hover:text-zinc-900"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                  <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </form>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-3">

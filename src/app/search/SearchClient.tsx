@@ -14,37 +14,21 @@ import { getArtworkImageUrl, type ArtworkWithLikes } from "@/lib/supabase/artwor
 import { getPeopleRecommendations } from "@/lib/supabase/recommendations";
 import type { PeopleRec } from "@/lib/supabase/peopleRecs";
 
-const DEBOUNCE_MS = 300;
-
 export function SearchClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t, locale } = useT();
   const qFromUrl = searchParams.get("q") ?? "";
-  const [q, setQ] = useState(qFromUrl);
   const [artworks, setArtworks] = useState<ArtworkWithLikes[]>([]);
   const [people, setPeople] = useState<PeopleRec[]>([]);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
-  useEffect(() => {
-    setQ(qFromUrl);
-  }, [qFromUrl]);
-
   useLayoutEffect(() => {
     if (loading || !searched) return;
     replayPendingListScroll();
   }, [loading, searched, artworks.length, people.length]);
-
-  useEffect(() => {
-    const query = q.trim();
-    if (query === qFromUrl.trim()) return;
-    const handle = window.setTimeout(() => {
-      router.replace(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
-    }, DEBOUNCE_MS);
-    return () => window.clearTimeout(handle);
-  }, [q, qFromUrl, router]);
 
   useEffect(() => {
     const query = qFromUrl.trim();
@@ -97,38 +81,6 @@ export function SearchClient() {
 
   return (
     <PageShell variant="default">
-      {/* Wide screens keep this one field above the results. Below `lg`
-          the header row is the only search, so this stays off the page. */}
-      <div data-search-page-chrome className="hidden lg:block">
-      <form
-        className="relative mb-8"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const query = q.trim();
-          router.replace(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
-        }}
-      >
-        <input
-          type="search"
-          value={q}
-          onChange={(event) => setQ(event.target.value)}
-          placeholder={t("shell.searchPlaceholder")}
-          aria-label={t("shell.searchPlaceholder")}
-          className="w-full rounded-full border border-zinc-300 bg-white py-2.5 pl-4 pr-12 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none"
-        />
-        <button
-          type="submit"
-          aria-label={t("shell.searchSubmit")}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-zinc-500 hover:text-zinc-900"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-            <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
-      </form>
-      </div>
-
       {labels.length > 0 && (
         <ul className="mb-6 flex flex-wrap gap-2">
           {labels.map((label) => (
@@ -170,7 +122,6 @@ export function SearchClient() {
             <button
               type="button"
               onClick={() => {
-                setQ(suggestion);
                 router.replace(`/search?q=${encodeURIComponent(suggestion)}`);
               }}
               className="mt-4 rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white"

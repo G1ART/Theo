@@ -87,7 +87,13 @@ assert.equal(form.includes("mobileProfileHref"), false, "account stays off the s
 assert.match(form, /enterKeyHint="search"/);
 assert.match(form, /\btext-base\b/);
 assert.match(form, /\$\{hitTarget\}/);
-assert.equal((header.match(/<input/g) ?? []).length, 1, "header has one search field, and only while open");
+assert.equal((header.match(/<input/g) ?? []).length, 2, "mobile row and the desktop top bar each have one field");
+const deskAt = header.indexOf("data-desktop-search");
+const desk = header.slice(deskAt, header.indexOf("</form>", deskAt));
+assert.match(desk, /hidden min-w-0 flex-1 lg:block/);
+assert.match(desk, /shell\.searchPlaceholder/);
+assert.match(desk, /shell\.searchSubmit/);
+assert.match(header, /pathname === "\/search" \? "lg:hidden"/);
 
 const openFn = header.slice(
   header.indexOf("function openMobileSearch"),
@@ -131,17 +137,13 @@ assert.ok(
 );
 
 assert.match(results, /searchParams\.get\("q"\)/);
-assert.match(results, /\/search\?q=\$\{encodeURIComponent\(query\)\}/);
-assert.equal((results.match(/<form/g) ?? []).length, 1, "results page keeps its one existing field");
-const chromeAt = results.indexOf("data-search-page-chrome");
-const resultsFormAt = results.indexOf("<form");
-const cardAt = results.indexOf("<SearchArtworkCard");
-assert.ok(chromeAt !== -1 && chromeAt < resultsFormAt && resultsFormAt < cardAt);
-assert.match(results, /data-search-page-chrome className="hidden lg:block"/);
+assert.match(results, /\/search\?q=\$\{encodeURIComponent\(suggestion\)\}/);
+assert.equal((results.match(/<form/g) ?? []).length, 0, "results start under the top bar, with no second field");
+assert.equal(results.includes("data-search-page-chrome"), false);
+assert.match(results, /<SearchArtworkCard/);
 assert.equal(results.includes("PageHeader"), false, "desktop search has no title block");
 assert.equal(results.includes("search.title"), false);
 assert.equal(results.includes("search.lead"), false);
 assert.match(results, /search\.artworks/);
-assert.match(results, /type="search"/);
 
 console.log("mobile-header-search.test.ts: ok");
