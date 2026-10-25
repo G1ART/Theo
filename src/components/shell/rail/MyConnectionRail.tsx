@@ -20,6 +20,7 @@ import type { PeopleRec } from "@/lib/supabase/peopleRecs";
 import { getArtworkImageUrl } from "@/lib/supabase/artworks";
 import { formatDisplayName, formatUsername } from "@/lib/identity/format";
 import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
+import { shellSearchHref } from "@/lib/search/shellSearchHref";
 import { CommunityPulseStrip } from "./CommunityPulseStrip";
 
 /**
@@ -36,6 +37,7 @@ import { CommunityPulseStrip } from "./CommunityPulseStrip";
  *
  * The header carries a top-of-column search bar. A query opens
  * `/search` (works and people). An empty submit still opens `/people`.
+ * The mobile header magnifier uses the same `shellSearchHref`.
  * "more >" routes to `/my/network`.
  *
  * All fetches are self-contained (`use client` + `useEffect`); rail
@@ -93,10 +95,9 @@ export function MyConnectionRail() {
 
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
-    const query = q.trim();
     // A search from the rail is a new entry, not a return from a detail.
     disarmListScrollReturn();
-    router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/people");
+    router.push(shellSearchHref(q));
   }
 
   async function handleAccept(row: NotificationRow) {

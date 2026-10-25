@@ -5,7 +5,7 @@ import { ShellNavLink } from "@/components/shell/ShellNavLink";
 import { usePathname, useRouter } from "next/navigation";
 import { isAuthFrontDoorRoute, isShellRoute } from "@/lib/shell/routes";
 import { useEffect, useId, useRef, useState, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { getMyProfile } from "@/lib/supabase/profiles";
@@ -42,6 +42,8 @@ import {
 } from "@/components/shell/HamburgerContextPeek";
 import { hitTarget } from "@/components/ds/buttonStyles";
 import { captureFeedDocumentNavigation } from "@/lib/feed/scrollRestore";
+import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
+import { shellSearchHref } from "@/lib/search/shellSearchHref";
 import {
   captureProfileDocumentNavigation,
   installProfileScrollPopListener,
@@ -56,8 +58,12 @@ installProfileScrollPopListener();
  * Global top-bar. On desktop AppShell routes (`lg+`) the sidebar takes
  * over so this only renders below `lg`. Phone and tablet share one
  * chrome language: hamburger + (when logged in) a direct avatar link
- * to the public profile. There is no tablet horizontal nav strip —
- * sidebar at `lg+` plus hamburger below `lg` is enough.
+ * to the public profile, and one magnifier in the slot left of that
+ * account icon. The magnifier is `lg:hidden`. Opening it replaces this
+ * row with close, a field, and submit — the same `/search` destination
+ * as the desktop right rail — and focuses the field. There is no tablet
+ * horizontal nav strip — sidebar at `lg+` plus hamburger below `lg`
+ * is enough. Desktop does not grow a second search control.
  *
  * Below `lg`:
  *   - Avatar is a **direct link** to the user's public profile
@@ -82,6 +88,20 @@ installProfileScrollPopListener();
 const FOCUSABLE_SELECTOR =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
+function SearchGlyph() {
+  return (
+    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="m20 20-3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function Header() {
   const router = useRouter();
   const pathname = usePathname();
@@ -102,12 +122,17 @@ export function Header() {
   const mobileProfileHref = ownAccountProfileHref(profileUsername);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [mobileQuery, setMobileQuery] = useState("");
+  const [mobileSearchPath, setMobileSearchPath] = useState(pathname);
   const [pageBlocked, setPageBlocked] = useState(false);
   const pageBlockTimerRef = useRef<number | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const avatarRef = useRef<HTMLDivElement>(null);
   const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileSearchButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const mobilePanelRef = useRef<HTMLDivElement>(null);
   const mobilePanelId = useId();
   const mobilePanelHeadingId = useId();
@@ -398,6 +423,31 @@ export function Header() {
     return () => window.clearTimeout(handle);
   }, [staleCleared, acknowledgeStaleCleared]);
 
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMobileSearchOpen(false);
+      setMobileQuery("");
+      window.setTimeout(() => mobileSearchButtonRef.current?.focus(), 0);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mobileSearchOpen]);
+
+  // `lg` is 1024px — the same point the header becomes the mobile bar.
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    function onChange() {
+      if (!query.matches) return;
+      setMobileSearchOpen(false);
+      setMobileQuery("");
+    }
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
   function resolveBadge(item: NavItem): number {
     if (item.badge === "delegationsPending") return pendingDelegations;
     if (item.badge === "unread") return unreadCount;
@@ -438,6 +488,39 @@ export function Header() {
     unreadCount > 0
       ? `${accountMenuLabel} (${unreadCount > 99 ? "99+" : unreadCount})`
       : accountMenuLabel;
+
+  // A route change is not the search field. Drop a half-typed query.
+  // The results page keeps whatever was submitted.
+  if (pathname !== mobileSearchPath) {
+    setMobileSearchPath(pathname);
+    setMobileSearchOpen(false);
+    setMobileQuery("");
+  }
+
+  function openMobileSearch() {
+    if (mobileOpen) closeMobile();
+    flushSync(() => {
+      setMobileQuery("");
+      setMobileSearchOpen(true);
+    });
+    // Still inside the tap, so the mobile keyboard can open.
+    mobileSearchInputRef.current?.focus();
+  }
+
+  function closeMobileSearch() {
+    setMobileSearchOpen(false);
+    setMobileQuery("");
+    window.setTimeout(() => mobileSearchButtonRef.current?.focus(), 0);
+  }
+
+  function submitMobileSearch(event: React.FormEvent) {
+    event.preventDefault();
+    const href = shellSearchHref(mobileQuery);
+    disarmListScrollReturn();
+    setMobileSearchOpen(false);
+    setMobileQuery("");
+    router.push(href);
+  }
 
   // Login / signup wireframes are a full-bleed canvas with no global
   // chrome. AuthShell owns the logo (large centered mark on /login,
@@ -510,6 +593,11 @@ export function Header() {
           shellRoute ? "flex lg:hidden" : "flex"
         }`}
       >
+        <div
+          className={`${
+            mobileSearchOpen ? "hidden lg:flex" : "flex"
+          } w-full min-w-0 items-center justify-between`}
+        >
         <div className="flex items-center gap-6">
           <ShellNavLink
             href={feedHomeHref(loggedIn)}
@@ -523,7 +611,17 @@ export function Header() {
           </ShellNavLink>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            ref={mobileSearchButtonRef}
+            type="button"
+            data-mobile-search
+            onClick={openMobileSearch}
+            className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100 lg:hidden`}
+            aria-label={t("shell.searchOpen")}
+          >
+            <SearchGlyph />
+          </button>
           {ready && loggedIn && (
             <>
               {/* Desktop-only locale switcher on non-shell routes.
@@ -717,6 +815,45 @@ export function Header() {
             </button>
           </div>
         </div>
+        </div>
+
+        {mobileSearchOpen && (
+          <form
+            role="search"
+            data-mobile-search-form
+            onSubmit={submitMobileSearch}
+            className="flex w-full min-w-0 items-center gap-1 lg:hidden"
+          >
+            <button
+              type="button"
+              onClick={closeMobileSearch}
+              className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
+              aria-label={t("common.close")}
+            >
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <input
+              ref={mobileSearchInputRef}
+              type="search"
+              enterKeyHint="search"
+              autoFocus
+              value={mobileQuery}
+              onChange={(event) => setMobileQuery(event.target.value)}
+              placeholder={t("shell.searchPlaceholder")}
+              aria-label={t("shell.searchPlaceholder")}
+              className="min-w-0 flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-base text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
+              aria-label={t("shell.searchSubmit")}
+            >
+              <SearchGlyph />
+            </button>
+          </form>
+        )}
 
         {/* Mobile hamburger panel. `role="dialog"` + `aria-modal="true"`
             + `aria-labelledby` + Escape close + focus trap live on this
