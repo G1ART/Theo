@@ -122,6 +122,16 @@ assert.match(rail, /shellSearchHref\(q\)/);
 assert.match(rail, /disarmListScrollReturn\(\)/);
 assert.match(rail, /type="search"/);
 assert.equal(rail.includes("data-mobile-search"), false, "desktop rail keeps its own field");
+assert.match(rail, /pathname !== "\/search"/);
+const railSearchAt = rail.indexOf("data-rail-search");
+const railNetworkAt = rail.indexOf('aria-label={t("rail.myConnection.title")}');
+assert.ok(railSearchAt !== -1 && railSearchAt < railNetworkAt, "rail search stays above network");
+assert.ok(
+  rail.indexOf('pathname !== "/search"') < railSearchAt &&
+    rail.indexOf(") : null}") > railSearchAt &&
+    rail.indexOf(") : null}") < railNetworkAt,
+  "rail search is omitted only on /search",
+);
 
 assert.match(results, /searchParams\.get\("q"\)/);
 assert.match(results, /\/search\?q=\$\{encodeURIComponent\(query\)\}/);
@@ -130,9 +140,11 @@ const chromeAt = results.indexOf("data-search-page-chrome");
 const resultsFormAt = results.indexOf("<form");
 const cardAt = results.indexOf("<SearchArtworkCard");
 assert.ok(chromeAt !== -1 && chromeAt < resultsFormAt && resultsFormAt < cardAt);
-assert.match(results, /qFromUrl\.trim\(\) \? "hidden lg:block"/);
-assert.match(results, /search\.title/);
-assert.match(results, /search\.lead/);
+assert.match(results, /data-search-page-chrome className="hidden lg:block"/);
+assert.equal(results.includes("PageHeader"), false, "desktop search has no title block");
+assert.equal(results.includes("search.title"), false);
+assert.equal(results.includes("search.lead"), false);
 assert.match(results, /search\.artworks/);
+assert.match(results, /type="search"/);
 
 console.log("mobile-header-search.test.ts: ok");

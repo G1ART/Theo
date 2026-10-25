@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/useT";
 import { supabase } from "@/lib/supabase/client";
@@ -38,6 +38,8 @@ import { CommunityPulseStrip } from "./CommunityPulseStrip";
  * The header carries a top-of-column search bar. A query opens
  * `/search` (works and people). An empty submit still opens `/people`.
  * The mobile header magnifier uses the same `shellSearchHref`.
+ * On `/search` the center column already has the only field, so this
+ * bar is not rendered there. Other pages keep it.
  * "more >" routes to `/my/network`.
  *
  * All fetches are self-contained (`use client` + `useEffect`); rail
@@ -47,6 +49,7 @@ import { CommunityPulseStrip } from "./CommunityPulseStrip";
 export function MyConnectionRail() {
   const { t, locale } = useT();
   const router = useRouter();
+  const pathname = usePathname();
   const [q, setQ] = useState("");
 
   const [invitations, setInvitations] = useState<NotificationRow[] | null>(null);
@@ -117,7 +120,8 @@ export function MyConnectionRail() {
 
   return (
     <div className="flex flex-col gap-3">
-      <form onSubmit={submitSearch} className="relative">
+      {pathname !== "/search" ? (
+      <form data-rail-search onSubmit={submitSearch} className="relative">
         <input
           type="search"
           value={q}
@@ -137,6 +141,7 @@ export function MyConnectionRail() {
           </svg>
         </button>
       </form>
+      ) : null}
 
       <section aria-label={t("rail.myConnection.title")}>
         <div className="mb-2 flex items-baseline justify-between">

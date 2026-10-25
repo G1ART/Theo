@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PageHeader } from "@/components/ds/PageHeader";
 import { PageShell } from "@/components/ds/PageShell";
 import { SearchArtworkCard } from "@/components/search/SearchArtworkCard";
 import { formatIdentityPair, formatUsername, hasPublicLinkableUsername } from "@/lib/identity/format";
@@ -98,15 +97,11 @@ export function SearchClient() {
 
   return (
     <PageShell variant="default">
-      {/* Mobile results keep the query in the header row. This title,
-          lead, and field stay on desktop, and on mobile only before a query. */}
-      <div
-        data-search-page-chrome
-        className={qFromUrl.trim() ? "hidden lg:block" : undefined}
-      >
-      <PageHeader variant="plain" title={t("search.title")} lead={t("search.lead")} />
+      {/* Wide screens keep this one field above the results. Below `lg`
+          the header row is the only search, so this stays off the page. */}
+      <div data-search-page-chrome className="hidden lg:block">
       <form
-        className="relative mb-6"
+        className="relative mb-8"
         onSubmit={(event) => {
           event.preventDefault();
           const query = q.trim();
