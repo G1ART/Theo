@@ -60,6 +60,8 @@ import { recordUsageEvent } from "@/lib/metering";
 import { USAGE_KEYS } from "@/lib/metering/usageKeys";
 import { AttributionContextBanner } from "@/components/upload/AttributionContextBanner";
 import { UploadCloudMark } from "@/components/upload/BulkDraftCard";
+import { FieldRequiredNote } from "@/components/upload/FieldRequiredNote";
+import { FittedDetailPhoto } from "@/components/upload/FittedDetailPhoto";
 import { InviteResultCard } from "@/components/upload/InviteResultCard";
 import type { DisplayAdjust } from "@/lib/image/displayAdjust";
 import { useT } from "@/lib/i18n/useT";
@@ -979,8 +981,9 @@ function UploadPageContent() {
   const yearOptions = Array.from({ length: 81 }, (_, i) => String(new Date().getFullYear() - i));
   const coverImage = images[0];
   const detailImages = images.slice(1);
-  const formGapText = currentGaps().map((gap) => t(uploadGapLabelKey(gap))).join(", ");
-  const coverBlocked = formGapText.length > 0;
+  const formGaps = currentGaps();
+  const formGapText = formGaps.map((gap) => t(uploadGapLabelKey(gap))).join(", ");
+  const coverBlocked = formGaps.length > 0;
 
   return (
       <div>
@@ -1448,15 +1451,11 @@ function UploadPageContent() {
                       {t("bulk.enhance.row")}
                     </button>
                   )}
-                  {coverImage && (
-                    <button
-                      type="button"
-                      onClick={() => document.getElementById("single-detail-input")?.click()}
-                      className="mt-1 w-full rounded border border-zinc-300 bg-white px-1 py-1 text-[10px] leading-tight text-zinc-800 hover:bg-zinc-50"
-                    >
-                      {t("bulk.cardUpload")}
-                    </button>
-                  )}
+                  {!coverImage && formGaps.includes("image") ? (
+                    <p className="mt-1 text-center">
+                      <FieldRequiredNote />
+                    </p>
+                  ) : null}
                   <input
                     id="single-cover-input"
                     type="file"
@@ -1468,24 +1467,13 @@ function UploadPageContent() {
                       e.target.value = "";
                     }}
                   />
-                  {coverImage && (
+                  {coverImage && !coverBlocked ? (
                     <p className="mt-4 flex justify-center">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${
-                          coverBlocked
-                            ? "border-red-400 text-red-500"
-                            : "border-emerald-500 text-emerald-600"
-                        }`}
-                      >
-                        {coverBlocked ? t("bulk.statusBlocked") : t("bulk.statusReady")}
+                      <span className="inline-flex rounded-full border border-emerald-500 px-2 py-0.5 text-[11px] text-emerald-600">
+                        {t("bulk.statusReady")}
                       </span>
-                      {coverBlocked && formGapText ? (
-                        <span className="mt-1 block text-center text-[10px] leading-snug text-red-600">
-                          {formGapText}
-                        </span>
-                      ) : null}
                     </p>
-                  )}
+                  ) : null}
                   <input
                     id="single-detail-input"
                     type="file"
@@ -1503,7 +1491,12 @@ function UploadPageContent() {
                 <div className="min-w-0 flex-1">
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.15fr)_5.25rem_minmax(0,1.35fr)]">
                     <BilingualFieldPair
-                      label={t("bulk.tableTitle")}
+                      label={
+                        <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                          <span>{t("bulk.tableTitle")}*</span>
+                          {formGaps.includes("title") ? <FieldRequiredNote /> : null}
+                        </span>
+                      }
                       addKoKey="bilingual.addKoTitle"
                       addEnKey="bilingual.addEnTitle"
                       placeholderKo={t("upload.placeholderTitle")}
@@ -1520,7 +1513,10 @@ function UploadPageContent() {
                       }}
                     />
                     <label className="block text-xs text-zinc-800">
-                      {t("bulk.year")}
+                      <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                        <span>{t("bulk.year")}*</span>
+                        {formGaps.includes("year") ? <FieldRequiredNote /> : null}
+                      </span>
                       <select
                         value={year}
                         onChange={(e) => setYear(e.target.value)}
@@ -1535,7 +1531,10 @@ function UploadPageContent() {
                     </label>
                     <div>
                       <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-zinc-800">
-                        <span>{t("bulk.size")} *</span>
+                        <span className="inline-flex items-baseline gap-x-1.5">
+                          <span>{t("bulk.size")} *</span>
+                          {formGaps.includes("size") ? <FieldRequiredNote /> : null}
+                        </span>
                         <span className="inline-flex overflow-hidden rounded border border-zinc-300 text-[10px] leading-none">
                           {(["cm", "in"] as const).map((u) => (
                             <button
@@ -1673,7 +1672,12 @@ function UploadPageContent() {
 
                   <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1.35fr)]">
                     <BilingualFieldPair
-                      label={`${t("bulk.medium")} *`}
+                      label={
+                        <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                          <span>{t("bulk.medium")} *</span>
+                          {formGaps.includes("medium") ? <FieldRequiredNote /> : null}
+                        </span>
+                      }
                       addKoKey="bilingual.addKoMedium"
                       addEnKey="bilingual.addEnMedium"
                       placeholderKo={t("artwork.field.mediumPlaceholder")}
@@ -1734,6 +1738,7 @@ function UploadPageContent() {
                   </div>
                   {pricingMode === "fixed" && (
                     <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      {formGaps.includes("price") ? <FieldRequiredNote /> : null}
                       <input
                         type="number"
                         value={priceAmount}
@@ -1804,42 +1809,27 @@ function UploadPageContent() {
                       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
                         {detailImages.map((img) => (
                           <div key={img.id} className="w-36">
-                            <div className="relative">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setImages((prev) => {
-                                    const removed = prev.find((p) => p.id === img.id);
-                                    if (removed) {
-                                      try { URL.revokeObjectURL(removed.previewUrl); } catch { /* gone */ }
-                                      if (removed.enhancement?.previewUrl) {
-                                        try { URL.revokeObjectURL(removed.enhancement.previewUrl); } catch { /* gone */ }
-                                      }
+                            <FittedDetailPhoto
+                              src={img.enhancement?.previewUrl ?? img.previewUrl}
+                              ready={!coverBlocked}
+                              removeLabel={t("upload.imageRemove")}
+                              activateLabel={t("bulk.enhance.row")}
+                              onActivate={() =>
+                                setEnhanceTargetId((cur) => (cur === img.id ? null : img.id))
+                              }
+                              onRemove={() => {
+                                setImages((prev) => {
+                                  const removed = prev.find((p) => p.id === img.id);
+                                  if (removed) {
+                                    try { URL.revokeObjectURL(removed.previewUrl); } catch { /* gone */ }
+                                    if (removed.enhancement?.previewUrl) {
+                                      try { URL.revokeObjectURL(removed.enhancement.previewUrl); } catch { /* gone */ }
                                     }
-                                    return prev.filter((p) => p.id !== img.id);
-                                  });
-                                }}
-                                className="absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 bg-white text-[10px]"
-                                aria-label={t("upload.imageRemove")}
-                              >
-                                ×
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setEnhanceTargetId((cur) => (cur === img.id ? null : img.id))
-                                }
-                                className="block h-16 w-16 overflow-hidden border border-zinc-200 bg-zinc-200"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={img.enhancement?.previewUrl ?? img.previewUrl}
-                                  alt=""
-                                  className="h-full w-full object-contain"
-                                />
-                              </button>
-                              <div className={`h-1 ${coverBlocked ? "bg-red-500" : "bg-emerald-500"}`} />
-                            </div>
+                                  }
+                                  return prev.filter((p) => p.id !== img.id);
+                                });
+                              }}
+                            />
                             <button
                               type="button"
                               onClick={() => setEnhanceTargetId(img.id)}

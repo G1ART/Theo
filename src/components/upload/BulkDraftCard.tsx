@@ -13,10 +13,12 @@ import { useT } from "@/lib/i18n/useT";
 import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { ExtraViewRolePicker } from "@/components/upload/ExtraViewRolePicker";
 import { registrationViewLabelKey } from "@/lib/upload/extraViewRoles";
-import { pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
+import { pickLegacyForSave, pickLocalizedTitle } from "@/lib/i18n/pickLocalized";
 import { registrationBilingualFields } from "@/lib/upload/registrationCopy";
-import { isUploadGap, uploadGapLabelKey } from "@/lib/upload/readiness";
-import { readDimensionFields, shouldHydrateDimensionBoxes, sizeCommitPatch } from "@/lib/size/format";
+import { uploadGaps } from "@/lib/upload/readiness";
+import { composeDimensionSize, readDimensionFields, shouldHydrateDimensionBoxes, sizeCommitPatch } from "@/lib/size/format";
+import { FieldRequiredNote } from "@/components/upload/FieldRequiredNote";
+import { FittedDetailPhoto } from "@/components/upload/FittedDetailPhoto";
 
 const OWNERSHIP_OPTIONS = [
   { value: "available", labelKey: "upload.ownershipAvailable" },
@@ -130,12 +132,6 @@ export function BulkDraftCard({
   const cover = images[0];
   const details = images.slice(1);
   const thumb = cover ? getArtworkImageUrl(cover.storage_path, "thumb") : null;
-  const publishState = validatePublish(draft, { sizeNotApplicable });
-  const ready = publishState.ok;
-  const gapText = publishState.missing
-    .filter(isUploadGap)
-    .map((gap) => t(uploadGapLabelKey(gap)))
-    .join(", ");
   const dims = readDimensionFields(draft.size);
   const [width, setWidth] = useState(dims.w);
   const [height, setHeight] = useState(dims.h);
@@ -158,6 +154,7 @@ export function BulkDraftCard({
   const [storyEn, setStoryEn] = useState(draft.story_en ?? (locale === "ko" ? "" : draft.story ?? ""));
   const [storyOpen, setStoryOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(details.length > 0);
+  const [yearValue, setYearValue] = useState(draft.year != null ? String(draft.year) : "");
   const [priceAmount, setPriceAmount] = useState(
     draft.price_input_amount != null ? String(draft.price_input_amount) : "",
   );
@@ -190,6 +187,10 @@ export function BulkDraftCard({
     setPriceAmount(draft.price_input_amount != null ? String(draft.price_input_amount) : "");
     setPriceCurrency(draft.price_input_currency || "USD");
   }, [draft.id, bulkVersion, draft.size, draft.size_unit, draft.medium, draft.medium_ko, draft.medium_en, draft.title, draft.title_ko, draft.title_en, draft.story, draft.story_ko, draft.story_en, draft.price_input_amount, draft.price_input_currency, locale]);
+
+  useEffect(() => {
+    setYearValue(draft.year != null ? String(draft.year) : "");
+  }, [draft.id, bulkVersion, draft.year]);
 
   useEffect(() => {
     const patch: UpdateArtworkPayload = {};
@@ -291,6 +292,24 @@ export function BulkDraftCard({
     });
   }
 
+  const ready = validatePublish(draft, { sizeNotApplicable }).ok;
+  const typedSize = composeDimensionSize(width, height, depth);
+  const existingSize = (draft.size ?? "").trim();
+  const visibleSize = sizeNa
+    ? ""
+    : typedSize || (existingSize && !readDimensionFields(existingSize).w ? existingSize : "");
+  const missing = new Set(
+    uploadGaps({
+      title: pickLegacyForSave(titleKo, titleEn) ?? "",
+      year: yearValue,
+      medium: pickLegacyForSave(mediumKo, mediumEn) ?? "",
+      size: visibleSize,
+      sizeNotApplicable: sizeNa,
+      pricingMode: draft.pricing_mode,
+      priceAmount,
+      imageCount: draft.artwork_images?.length ?? 0,
+    }),
+  );
   const fileId = `bulk-add-${draft.id}`;
 
   return (
@@ -368,27 +387,18 @@ export function BulkDraftCard({
               {t("bulk.enhance.row")}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => document.getElementById(fileId)?.click()}
-            className="mt-1 w-full rounded border border-zinc-300 bg-white px-1 py-1 text-[10px] leading-tight text-zinc-800 hover:bg-zinc-50"
-          >
-            {t("bulk.cardUpload")}
-          </button>
-          <p className="mt-4 flex justify-center">
-            <span
-              className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${
-                ready ? "border-emerald-500 text-emerald-600" : "border-red-400 text-red-500"
-              }`}
-            >
-              {ready ? t("bulk.statusReady") : t("bulk.statusBlocked")}
-            </span>
-            {!ready && gapText ? (
-              <span className="mt-1 block text-center text-[10px] leading-snug text-red-600">
-                {gapText}
+          {!thumb && missing.has("image") ? (
+            <p className="mt-1 text-center">
+              <FieldRequiredNote />
+            </p>
+          ) : null}
+          {ready ? (
+            <p className="mt-4 flex justify-center">
+              <span className="inline-flex rounded-full border border-emerald-500 px-2 py-0.5 text-[11px] text-emerald-600">
+                {t("bulk.statusReady")}
               </span>
-            ) : null}
-          </p>
+            </p>
+          ) : null}
           <input
             id={fileId}
             type="file"
@@ -416,7 +426,12 @@ export function BulkDraftCard({
         <div className="min-w-0 flex-1">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.15fr)_5.25rem_minmax(0,1.35fr)]">
             <BilingualFieldPair
-              label={t("bulk.tableTitle")}
+              label={
+                <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                  <span>{t("bulk.tableTitle")}*</span>
+                  {missing.has("title") ? <FieldRequiredNote /> : null}
+                </span>
+              }
               addKoKey="bilingual.addKoTitle"
               addEnKey="bilingual.addEnTitle"
               placeholderKo={t("bulk.tableTitle")}
@@ -428,14 +443,18 @@ export function BulkDraftCard({
               onBlur={() => commitCopy({ titleKo, titleEn }, "title")}
             />
             <label className={label}>
-              {t("bulk.year")}
+              <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                <span>{t("bulk.year")}*</span>
+                {missing.has("year") ? <FieldRequiredNote /> : null}
+              </span>
               <select
-                defaultValue={draft.year != null ? String(draft.year) : ""}
+                value={yearValue}
                 key={`year-${draft.id}-${bulkVersion}`}
                 className={`${field} mt-1`}
-                onChange={(e) =>
-                  onSave({ year: e.target.value ? parseInt(e.target.value, 10) : null })
-                }
+                onChange={(e) => {
+                  setYearValue(e.target.value);
+                  onSave({ year: e.target.value ? parseInt(e.target.value, 10) : null });
+                }}
               >
                 <option value=""> </option>
                 {years.map((y) => (
@@ -447,8 +466,11 @@ export function BulkDraftCard({
             </label>
             <div>
               <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-zinc-800">
-                <span>
-                  {t("bulk.size")} <span className="text-zinc-900">*</span>
+                <span className="inline-flex items-baseline gap-x-1.5">
+                  <span>
+                    {t("bulk.size")} <span className="text-zinc-900">*</span>
+                  </span>
+                  {missing.has("size") ? <FieldRequiredNote /> : null}
                 </span>
                 <span className="inline-flex overflow-hidden rounded border border-zinc-300 text-[10px] leading-none">
                   {(["cm", "in"] as const).map((u) => (
@@ -538,7 +560,12 @@ export function BulkDraftCard({
 
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1.35fr)]">
             <BilingualFieldPair
-              label={`${t("bulk.medium")} *`}
+              label={
+                <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                  <span>{t("bulk.medium")} *</span>
+                  {missing.has("medium") ? <FieldRequiredNote /> : null}
+                </span>
+              }
               addKoKey="bilingual.addKoMedium"
               addEnKey="bilingual.addEnMedium"
               placeholderKo={t("artwork.field.mediumPlaceholder")}
@@ -610,7 +637,8 @@ export function BulkDraftCard({
             </div>
           </div>
           {draft.pricing_mode === "fixed" && (
-            <div className="mt-2 flex justify-end gap-2">
+            <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+              {missing.has("price") ? <FieldRequiredNote /> : null}
               <input
                 value={priceAmount}
                 onChange={(e) => setPriceAmount(e.target.value)}
@@ -680,21 +708,12 @@ export function BulkDraftCard({
                   const detailThumb = getArtworkImageUrl(detail.storage_path, "thumb");
                   return (
                     <div key={detail.storage_path || `${draft.id}-d-${index}`} className="w-36">
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => onRemoveDetail(detail.storage_path)}
-                          className="absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 bg-white text-[10px] leading-none text-zinc-600 hover:text-zinc-900"
-                          aria-label={t("upload.imageRemove")}
-                        >
-                          ×
-                        </button>
-                        <div className="h-16 w-16 overflow-hidden border border-zinc-200 bg-zinc-100">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={detailThumb} alt="" className="h-full w-full object-contain" />
-                        </div>
-                        <div className={`h-1 ${ready ? "bg-emerald-500" : "bg-red-500"}`} />
-                      </div>
+                      <FittedDetailPhoto
+                        src={detailThumb}
+                        ready={ready}
+                        removeLabel={t("upload.imageRemove")}
+                        onRemove={() => onRemoveDetail(detail.storage_path)}
+                      />
                       <button
                         type="button"
                         onClick={() => onEnhance(detail.storage_path)}

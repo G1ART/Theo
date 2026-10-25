@@ -1266,6 +1266,10 @@ export const messages = {
     "upload.tabExhibitionShort": "Exhibition",
     "upload.modeSingle": "Single",
     "upload.modeBulk": "Bulk",
+    "upload.modeBulkHelpLabel": "About Bulk",
+    "upload.modeBulkHelp":
+      "Bulk adds many works at once. Each photo becomes its own work, which is quicker for a series or a profile with many works.",
+    "upload.fieldRequired": "This field is required",
     "upload.backToUpload": "Back to Upload",
     "upload.linkArtist": "Link the artist (who created this work)",
     "upload.searchArtist": "Search artist",
@@ -1828,13 +1832,18 @@ export const messages = {
     "bulk.uploadFailuresTitle": "Failed files ({n})",
     "bulk.uploadBeforeUnload": "Uploads are still in progress. Leave the page anyway?",
     "bulk.uploadError": "{message}",
-    "bulk.selectAll": "Select all",
+    "bulk.selectAll": "Select All",
     "bulk.applyToSelected": "Apply to selected",
     "bulk.applyToAll": "Apply to all",
     "bulk.workspaceDrop":
       "Upload one or multiple images at once (JPG, PNG, WebP, GIF). Max. {maxMb} MB per image. Edit each work's information individually or apply shared info to all.",
-    "bulk.dropLine1": "Add images here, or click to choose them (JPG, PNG, WebP, GIF).",
-    "bulk.dropLineMore": "Add more images and each one becomes a work card.",
+    "bulk.dropLine1": "Drop photos here, or click to choose them.",
+    "bulk.dropLineMore": "Drop more photos. Each one becomes another work.",
+    "bulk.dropRules":
+      "JPG, PNG, and WebP can be up to {jpgMb} MB each. GIF can be up to {gifMb} MB, and we leave it as uploaded.",
+    "bulk.dropFit":
+      "If a JPG, PNG, or WebP is longer than {edge} px on its long side, we fit it to that length. The photo on the page stays under {displayMb} MB. The file you uploaded is kept.",
+    "bulk.dropAfter": "Write each work on its card, or set shared info for all of them.",
     "bulk.dropMark": "Photos",
     "bulk.dropLine2":
       "Large photos are welcome. We fit the size when you upload.",
@@ -1893,7 +1902,7 @@ export const messages = {
     "bulk.extraImagesHint":
       "Add the whole image, an installation photo, and a detail. They show on the work page.",
     "bulk.cardPublish": "Publish",
-    "bulk.publishWhere": "Publish is the button on each draft card.",
+    "bulk.publishWhere": "Publish is on each work card.",
     "bulk.group.added": "Added {n} photo(s) to this work.",
     "bulk.group.addFailed": "Could not add those photos.",
     "bulk.group.untitled": "Untitled",
@@ -6329,6 +6338,10 @@ export const messages = {
     "upload.tabExhibitionShort": "전시",
     "upload.modeSingle": "한 점",
     "upload.modeBulk": "여러 점",
+    "upload.modeBulkHelpLabel": "여러 점 안내",
+    "upload.modeBulkHelp":
+      "여러 점은 사진 여러 장을 한 번에 넣는 자리입니다. 작품이 나란히 생기고, 시리즈나 점이 많을 때 한 점보다 빠릅니다.",
+    "upload.fieldRequired": "필수 항목입니다",
     "upload.backToUpload": "업로드로 돌아가기",
     "upload.linkArtist": "이 작품의 작가를 연결하세요",
     "upload.searchArtist": "작가 검색",
@@ -6895,8 +6908,13 @@ export const messages = {
     "bulk.applyToAll": "전체 적용",
     "bulk.workspaceDrop":
       "이미지를 한 장 또는 여러 장 한 번에 올리세요 (JPG, PNG, WebP, GIF). 이미지당 최대 {maxMb}MB. 작품마다 적거나, 공통 정보를 전체에 적용할 수 있습니다.",
-    "bulk.dropLine1": "사진을 여기에 놓거나 클릭해서 고르세요 (JPG, PNG, WebP, GIF).",
-    "bulk.dropLineMore": "사진을 더 놓으면 작품 카드가 바로 생겨요.",
+    "bulk.dropLine1": "사진을 여기에 놓거나, 클릭해서 고르세요.",
+    "bulk.dropLineMore": "사진을 더 놓으면 작품이 하나씩 더 생깁니다.",
+    "bulk.dropRules":
+      "JPG, PNG, WebP는 한 장에 {jpgMb}MB까지 올릴 수 있습니다. GIF는 {gifMb}MB까지이고, 크기를 바꾸지 않습니다.",
+    "bulk.dropFit":
+      "JPG, PNG, WebP는 긴 쪽이 {edge}픽셀보다 크면 그 안으로 줄입니다. 페이지에 보이는 사진은 {displayMb}MB 아래로 맞추고, 올리신 원본은 그대로 남깁니다.",
+    "bulk.dropAfter": "정보는 작품마다 적어도 되고, 공통 정보로 한 번에 넣어도 됩니다.",
     "bulk.dropMark": "사진",
     "bulk.dropLine2":
       "큰 사진도 올릴 수 있고, 올릴 때 크기를 맞춥니다.",
@@ -6955,7 +6973,7 @@ export const messages = {
     "bulk.extraImagesHint":
       "전체 사진, 설치 사진, 디테일 컷을 이 작품에 더할 수 있어요. 작품 페이지에 같이 보입니다.",
     "bulk.cardPublish": "게시",
-    "bulk.publishWhere": "게시는 각 초안 카드의 게시 버튼입니다.",
+    "bulk.publishWhere": "게시 버튼은 각 작품 카드에 있습니다.",
     "bulk.group.added": "이 작품에 사진 {n}장을 더했습니다.",
     "bulk.group.addFailed": "사진을 더하지 못했습니다.",
     "bulk.group.untitled": "제목 없음",

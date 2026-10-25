@@ -114,18 +114,15 @@ export default function UploadLayout({
               <button
                 type="button"
                 aria-expanded={bulkHelp}
-                aria-label={t("upload.modeBulk")}
+                aria-label={t("upload.modeBulkHelpLabel")}
                 onClick={() => setBulkHelp((open) => !open)}
                 className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-400 text-[10px] leading-none text-zinc-500"
               >
                 ?
               </button>
               {bulkHelp && (
-                <div className="absolute right-0 top-7 z-20 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs leading-relaxed text-zinc-600 shadow-sm">
-                  <p>{t("bulk.dropLine1")}</p>
-                  <p className="mt-1">
-                    {t("bulk.dropLine2")}
-                  </p>
+                <div className="absolute right-0 top-7 z-20 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs leading-relaxed text-zinc-600 shadow-sm">
+                  <p>{t("upload.modeBulkHelp")}</p>
                 </div>
               )}
             </div>

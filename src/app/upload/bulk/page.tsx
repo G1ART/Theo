@@ -91,8 +91,11 @@ import {
   BULK_MY_DRAFTS_QUERY_LIMIT,
   BULK_WEBSITE_STAGED_IDS_MAX,
   UPLOAD_MAX_COMPRESSIBLE_MB_LABEL,
+  UPLOAD_MAX_IMAGE_MB_LABEL,
   getUploadCeilingBytes,
 } from "@/lib/upload/limits";
+import { COMPRESS_DEFAULT_LONG_EDGE } from "@/lib/image/compress";
+import { nextBulkSelection } from "@/lib/upload/bulkSelection";
 import { isCompressibleUpload } from "@/lib/upload/compressibleFile";
 import {
   buildCaptionPatch,
@@ -1193,8 +1196,7 @@ export default function BulkUploadPage() {
   }
 
   function toggleSelectAll() {
-    if (selected.size === drafts.length) setSelected(new Set());
-    else setSelected(new Set(drafts.map((d) => d.id)));
+    setSelected((prev) => nextBulkSelection(drafts.map((d) => d.id), prev));
   }
 
   async function applyToDrafts(ids: string[], partial: UpdateArtworkPayload) {
@@ -2625,15 +2627,23 @@ export default function BulkUploadPage() {
             <UploadCloudMark className="h-6 w-6" />
             <span className="text-[10px] leading-none">{t("bulk.dropMark")}</span>
           </div>
-          <p className="mx-auto mt-4 max-w-lg text-xs leading-relaxed text-zinc-500">
-            {drafts.length > 0 || placing.length > 0 ? t("bulk.dropLineMore") : t("bulk.dropLine1")}
-          </p>
-          <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-            {t("bulk.dropLine2")}
-          </p>
-          <p className="mx-auto mt-2 max-w-lg text-xs leading-relaxed text-zinc-600">
-            {t("bulk.publishWhere")}
-          </p>
+          <div className="mx-auto mt-4 max-w-lg space-y-2 text-xs leading-relaxed text-zinc-500">
+            <p>
+              {drafts.length > 0 || placing.length > 0 ? t("bulk.dropLineMore") : t("bulk.dropLine1")}
+            </p>
+            <p>
+              {t("bulk.dropRules")
+                .replace("{jpgMb}", String(UPLOAD_MAX_COMPRESSIBLE_MB_LABEL))
+                .replace("{gifMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+            </p>
+            <p>
+              {t("bulk.dropFit")
+                .replace("{edge}", COMPRESS_DEFAULT_LONG_EDGE.toLocaleString("en-US"))
+                .replace("{displayMb}", String(UPLOAD_MAX_IMAGE_MB_LABEL))}
+            </p>
+            <p>{t("bulk.dropAfter")}</p>
+            <p className="text-zinc-600">{t("bulk.publishWhere")}</p>
+          </div>
         </div>
         <input
           ref={csvInputRef}
@@ -2831,6 +2841,14 @@ export default function BulkUploadPage() {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              disabled={drafts.length === 0 || deleting}
+              className="rounded-full border border-zinc-400 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-40"
+            >
+              {t("bulk.selectAll")}
+            </button>
             <button
               type="button"
               onClick={handleDeleteSelected}
