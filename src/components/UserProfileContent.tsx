@@ -107,6 +107,11 @@ import {
   serializeActiveTabParam,
   uploadHrefForActiveTab,
 } from "@/lib/studio/studioPortfolioConfig";
+import {
+  isCollectedRoleView,
+  profileActiveAfterRoleWriters,
+  stripListsActive,
+} from "@/lib/studio/profileRoleTab";
 
 // Strip state while the likes tab is open: no public tab is highlighted.
 const NO_STRIP_TAB: ActiveStudioTab = { kind: "custom", id: "" };
@@ -209,9 +214,10 @@ export function UserProfileContent({
   const [savedToast, setSavedToast] = useState(false);
   const [savedToastMsg, setSavedToastMsg] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  // Wireframe redesign: top-of-profile role tab (Artist(main) / Collector).
-  // Purely a UI filter — the underlying persona strip / reorder / permission
-  // logic keeps its own state (`active`) and stays authoritative.
+  // Artist / Collector role tab. The persona strip keeps `active`.
+  // Collector must not write `active` to OWNS: the strip omits OWNS when
+  // nothing is collected, and the strip guard would bounce that write
+  // back to the artist grid on the next commit.
   const [roleTab, setRoleTab] = useState<"artist" | "collector">("artist");
   const [tabAssignMode, setTabAssignMode] = useState(false);
   const [tabAssignIds, setTabAssignIds] = useState<Set<string>>(new Set());
@@ -735,17 +741,36 @@ export function UserProfileContent({
 
   const stripPublic = useMemo(() => filterStripForPublicView(stripRows), [stripRows]);
 
+  const isArtistProfile = isArtistRole({ main_role: profile.main_role ?? null, roles });
+  const collectorFromRoles =
+    profile.main_role === "collector" || roles.includes("collector");
+  // Any OWNS-typed claim naming this profile — including self-owned works
+  // — surfaces the Collector tab. Self-ownership counts as collection in
+  // Theo's model (kept works, unsold), and the persona strip already
+  // exposes it as `Collected (n)` when the count is above zero.
+  const collectorFromArtworks = artworks.some((a) =>
+    (a.claims ?? []).some(
+      (c) => c.subject_profile_id === profile.id && c.claim_type === "OWNS"
+    )
+  );
+  const hasCollectorTab = collectorFromRoles || collectorFromArtworks;
+  const showRoleTabs = isArtistProfile && hasCollectorTab;
+  const collectedView = isCollectedRoleView(roleTab, showRoleTabs);
+
   useEffect(() => {
-    if (active.kind === "custom") {
-      const ok = stripPublic.some((r) => r.kind === "custom" && r.customId === active.id);
-      if (!ok) setActive({ kind: "persona", tab: "all" });
-    } else if (active.kind === "persona") {
-      const ok = stripPublic.some((r) => r.kind === "persona" && r.personaTab === active.tab);
-      if (!ok) setActive({ kind: "persona", tab: "all" });
-    }
-  }, [active, stripPublic]);
+    const next = profileActiveAfterRoleWriters({
+      roleTab,
+      active,
+      showRoleTabs,
+      stripLists: (tab) => stripListsActive(stripPublic, tab),
+    });
+    if (next !== active) setActive(next);
+  }, [active, roleTab, showRoleTabs, stripPublic]);
 
   const displayedArtworks = useMemo(() => {
+    if (collectedView) {
+      return filterArtworksByPersona(artworks, profile.id, "OWNS");
+    }
     if (active.kind === "persona") {
       const rows = filterArtworksByPersona(artworks, profile.id, active.tab);
       if (active.tab === "all" || active.tab === "CREATED") {
@@ -764,7 +789,7 @@ export function UserProfileContent({
       if (a) out.push(a);
     }
     return out;
-  }, [active, artworks, catalog, profile.id, portfolio.custom_tabs]);
+  }, [active, artworks, catalog, collectedView, profile.id, portfolio.custom_tabs]);
   // Reorderable artworks: user is artist OR has any claim (not just CREATED)
   const reorderableArtworks = useMemo(
     () => localArtworks.filter((a) => {
@@ -775,7 +800,8 @@ export function UserProfileContent({
     [localArtworks, profile.id]
   );
 
-  const isExhibitionsView = active.kind === "persona" && active.tab === "exhibitions";
+  const isExhibitionsView =
+    !collectedView && active.kind === "persona" && active.tab === "exhibitions";
   const uploadHref = uploadHrefForActiveTab(active);
   const activeCustomLabel =
     active.kind === "custom"
@@ -875,42 +901,6 @@ export function UserProfileContent({
     router.refresh();
   }
 
-  // Derived role-tab set. We only surface the Artist tab if the profile
-  // actually claims artist-hood (main_role=artist or artist in roles[]),
-  // and only surface the Collector tab if the profile has any collected
-  // works OR explicitly declares the collector role. Solo-role profiles
-  // never render the tab strip.
-  const isArtistProfile = isArtistRole({ main_role: profile.main_role ?? null, roles });
-  const collectorFromRoles =
-    profile.main_role === "collector" || roles.includes("collector");
-  // Any OWNS-typed claim naming this profile — including self-owned works
-  // — surfaces the Collector tab. Self-ownership counts as collection in
-  // Theo's model (kept works, unsold), and the persona strip already
-  // exposes it as `Collected (n)`; making the top tab reflect that keeps
-  // the two navigations in sync.
-  const collectorFromArtworks = artworks.some((a) =>
-    (a.claims ?? []).some(
-      (c) => c.subject_profile_id === profile.id && c.claim_type === "OWNS"
-    )
-  );
-  const hasCollectorTab = collectorFromRoles || collectorFromArtworks;
-  const showRoleTabs = isArtistProfile && hasCollectorTab;
-
-  // Keep the underlying persona `active` in sync with the chosen role tab.
-  // Collector → force `OWNS`; Artist → if we came from OWNS reset to `all`.
-  useEffect(() => {
-    if (!showRoleTabs) return;
-    if (roleTab === "collector") {
-      if (!(active.kind === "persona" && active.tab === "OWNS")) {
-        setActive({ kind: "persona", tab: "OWNS" });
-      }
-    } else if (roleTab === "artist") {
-      if (active.kind === "persona" && active.tab === "OWNS") {
-        setActive({ kind: "persona", tab: "all" });
-      }
-    }
-  }, [roleTab, showRoleTabs, active]);
-
   useEffect(() => {
     const notice = peekArtistPublishNotice();
     if (!notice || notice.artistId !== profile.id) return;
@@ -927,12 +917,12 @@ export function UserProfileContent({
   const worksHeading = useMemo(() => {
     if (showLikes) return t("likes.title");
     if (isExhibitionsView) return t("exhibition.myExhibitions");
-    if (active.kind === "custom") {
+    if (!collectedView && active.kind === "custom") {
       const row = stripPublic.find((r) => r.kind === "custom" && r.customId === active.id);
       return row?.label ?? t("profile.works");
     }
     return t("profile.works");
-  }, [active, isExhibitionsView, showLikes, stripPublic, t]);
+  }, [active, collectedView, isExhibitionsView, showLikes, stripPublic, t]);
 
   return (
     <>
@@ -1495,7 +1485,7 @@ export function UserProfileContent({
         )}
         </>)}
       </div>
-      {!showLikes && !isExhibitionsView && reorderMode && canReorderWorks && (
+      {!showLikes && !collectedView && !isExhibitionsView && reorderMode && canReorderWorks && (
         <p className="mb-4 text-sm text-zinc-500">{t("profile.reorderHint")}</p>
       )}
       {!showLikes && isExhibitionsView && exhibitionReorderMode && canManageShows && (
@@ -1597,7 +1587,7 @@ export function UserProfileContent({
             })}
           </ul>
         )
-      ) : !isExhibitionsView && (downloadMode === "order" || downloadMode === "confirm") ? (
+      ) : !collectedView && !isExhibitionsView && (downloadMode === "order" || downloadMode === "confirm") ? (
         <ProfileDownloadSteps
           mode={downloadMode}
           artworks={downloadOrdered}
@@ -1614,7 +1604,7 @@ export function UserProfileContent({
           onConfirm={() => void confirmDownload()}
           onCancel={cancelDownload}
         />
-      ) : reorderMode && canReorderWorks && artworks.length > 0 ? (
+      ) : !collectedView && reorderMode && canReorderWorks && artworks.length > 0 ? (
         <>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={reorderableArtworks.map((a) => a.id)} strategy={rectSortingStrategy}>
@@ -1654,7 +1644,7 @@ export function UserProfileContent({
           )}
         </>
       ) : displayedArtworks.length === 0 ? (
-        roleTab === "collector" ? (
+        collectedView ? (
           <EmptyState title={t("profile.collectorEmpty")} size="sm" />
         ) : canUploadWorks && !isExhibitionsView ? (
           <div>
