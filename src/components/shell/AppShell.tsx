@@ -11,9 +11,10 @@ import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
 
 /**
  * Wide-screen search. It grows left from the right-rail search slot and
- * stops at the viewport center, so the left menu stays put. It is fixed
- * to the same top inset as that slot (`top-8`, matching the rail and
- * sidebar padding) and does not add a bar above the shell.
+ * stops at the right edge of the right rail. It starts at the center
+ * column, so the left menu stays put. It is fixed to the same top inset
+ * as that slot (`top-8`, matching the rail and sidebar padding) and does
+ * not add a bar above the shell.
  */
 function SearchSpanBar() {
   const router = useRouter();
@@ -38,8 +39,8 @@ function SearchSpanBar() {
       data-search-span
       role="search"
       onSubmit={onSubmit}
-      className={`pointer-events-auto fixed top-8 z-30 hidden w-[calc(min(50vw,720px)-1.5rem)] lg:block ${layer.chrome}`}
-      style={{ left: "50vw" }}
+      className={`pointer-events-auto fixed top-8 z-30 hidden w-[calc(min(100vw,1440px)-14.5rem-1.5rem)] lg:block ${layer.chrome}`}
+      style={{ left: "calc(max(0px, (100vw - 1440px) / 2) + 14.5rem)" }}
     >
       <input
         type="search"

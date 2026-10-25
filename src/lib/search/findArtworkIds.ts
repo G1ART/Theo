@@ -202,7 +202,7 @@ export async function findArtworkIdsForQuery(options: {
   if (!queryText) return [];
   const groups = rpcSearchGroups(queryText);
   if (groups.length === 0) return [];
-  const limit = Math.min(Math.max(options.limit ?? 30, 1), 80);
+  const limit = Math.min(Math.max(options.limit ?? 30, 1), 400);
   const ownerId = isUuid(options.ownerId) ? options.ownerId : null;
   const cross = isCrossScriptQuery(queryText);
 

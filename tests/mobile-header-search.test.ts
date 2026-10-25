@@ -146,10 +146,9 @@ assert.equal(isShellRoute("/search"), true, "search uses the same shell as Explo
 assert.equal(isShellRoute("/feed"), true);
 const shell = read("src/components/shell/AppShell.tsx");
 assert.match(shell, /data-search-span/);
-assert.match(shell, /left: "50vw"/);
-assert.match(shell, /w-\[calc\(min\(50vw,720px\)-1\.5rem\)\]/);
+assert.match(shell, /w-\[calc\(min\(100vw,1440px\)-14\.5rem-1\.5rem\)\]/);
+assert.match(shell, /left: "calc\(max\(0px, \(100vw - 1440px\) \/ 2\) \+ 14\.5rem\)"/);
 assert.match(shell, /fixed top-8/);
-assert.match(shell, /hidden w-\[calc\(min\(50vw,720px\)-1\.5rem\)\] lg:block/);
 assert.match(shell, /pathname === "\/search"/);
 assert.equal(shell.includes("<Header"), false);
 
