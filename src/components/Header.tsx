@@ -44,7 +44,6 @@ import { hitTarget } from "@/components/ds/buttonStyles";
 import { captureFeedDocumentNavigation } from "@/lib/feed/scrollRestore";
 import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
 import { shellSearchHref } from "@/lib/search/shellSearchHref";
-import { armEntryReturn, resolveEntryPath } from "@/lib/nav/entryTrail";
 import {
   captureProfileDocumentNavigation,
   installProfileScrollPopListener,
@@ -60,11 +59,11 @@ installProfileScrollPopListener();
  * over so this only renders below `lg`. Phone and tablet share one
  * chrome language: hamburger + (when logged in) a direct avatar link
  * to the public profile, and one magnifier in the slot left of that
- * account icon. The magnifier is `lg:hidden`. Opening it replaces this
- * row with back, a field, and clear — the same `/search` destination as
- * the desktop right rail — and focuses the field. On a mobile results
- * page the row stays, with the query, and the page's own search chrome
- * hides. There is no tablet
+ * account icon. The magnifier is `lg:hidden`. Opening it keeps the
+ * same home logo on the left and puts the field and clear to its
+ * right — the same `/search` destination as the desktop right rail —
+ * and focuses the field. On a mobile results page the row stays, with
+ * the query, and the page's own search chrome hides. There is no tablet
  * horizontal nav strip — sidebar at `lg+` plus hamburger below `lg`
  * is enough. Desktop does not grow a second search control.
  *
@@ -156,7 +155,6 @@ export function Header() {
   const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
-  const backMobileSearchRef = useRef<() => void>(() => {});
   const mobilePanelRef = useRef<HTMLDivElement>(null);
   const mobilePanelId = useId();
   const mobilePanelHeadingId = useId();
@@ -451,12 +449,15 @@ export function Header() {
     if (!mobileSearchOpen) return;
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      if (pathname === "/search") return;
       event.preventDefault();
-      backMobileSearchRef.current();
+      setMobileSearchOpen(false);
+      setMobileQuery("");
+      window.setTimeout(() => mobileSearchButtonRef.current?.focus(), 0);
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [mobileSearchOpen]);
+  }, [mobileSearchOpen, pathname]);
 
   // `lg` is 1024px — the same point the header becomes the mobile bar.
   // A results query reopens the row when the window comes back below it.
@@ -567,23 +568,6 @@ export function Header() {
     setMobileQuery("");
     mobileSearchInputRef.current?.focus();
   }
-
-  function backMobileSearch() {
-    if (pathname !== "/search") {
-      closeMobileSearch();
-      return;
-    }
-    // The row closes when the route actually leaves /search, so the
-    // results screen does not flash the logo while navigation starts.
-    const entry = resolveEntryPath({ pathname });
-    if (entry) {
-      armEntryReturn(entry);
-      router.push(entry);
-      return;
-    }
-    router.push(feedHomeHref(loggedIn));
-  }
-  backMobileSearchRef.current = backMobileSearch;
 
   function submitMobileSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -903,19 +887,20 @@ export function Header() {
             role="search"
             data-mobile-search-form
             onSubmit={submitMobileSearch}
-            className="flex w-full min-w-0 items-center gap-1 lg:hidden"
+            className="flex w-full min-w-0 items-center gap-2 lg:hidden"
           >
-            <button
-              type="button"
-              data-mobile-search-back
-              onClick={backMobileSearch}
-              className={`${hitTarget} inline-flex shrink-0 items-center justify-center rounded p-2 text-zinc-600 hover:bg-zinc-100`}
-              aria-label={t("common.back")}
+            <ShellNavLink
+              href={feedHomeHref(loggedIn)}
+              aria-label="Theo"
+              data-mobile-search-logo
+              className="inline-flex shrink-0 items-center text-zinc-900 hover:opacity-80"
+              onClick={() => {
+                closeMobile();
+                if (pathname !== "/search") closeMobileSearch();
+              }}
             >
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
+              <TheoLogo className="h-9" size="sm" priority />
+            </ShellNavLink>
             <input
               ref={mobileSearchInputRef}
               type="search"

@@ -72,9 +72,14 @@ const form = header.slice(formAt, header.indexOf("</form>", formAt));
 assert.match(form, /\blg:hidden\b/);
 assert.equal(/\blg:flex\b/.test(form), false, "expanded search stays off the desktop header");
 assert.match(form, /role="search"/);
-assert.match(form, /aria-label=\{t\("common\.back"\)\}/);
+assert.match(form, /aria-label="Theo"/);
+assert.match(form, /href=\{feedHomeHref\(loggedIn\)\}/);
+assert.match(form, /<TheoLogo className="h-9"/);
 assert.match(form, /aria-label=\{t\("shell\.searchPlaceholder"\)\}/);
 assert.match(form, /aria-label=\{t\("shell\.searchClear"\)\}/);
+assert.equal(form.includes("common.back"), false, "the logo is home, not back");
+assert.equal(form.includes("data-mobile-search-back"), false);
+assert.equal(form.indexOf("data-mobile-search-logo") < form.indexOf("<input"), true);
 assert.match(form, /ref=\{mobileSearchInputRef\}/);
 assert.equal(form.includes("autoFocus"), false, "landing on results must not force the keyboard");
 assert.equal(form.includes("SearchGlyph"), false, "the results row has no magnifier");
@@ -93,19 +98,11 @@ assert.match(openFn, /mobileSearchInputRef\.current\?\.focus\(\)/);
 
 const clearFn = header.slice(
   header.indexOf("function clearMobileQuery"),
-  header.indexOf("function backMobileSearch"),
+  header.indexOf("function submitMobileSearch"),
 );
 assert.match(clearFn, /setMobileQuery\(""\)/);
 assert.equal(clearFn.includes("router"), false, "clear only empties the field");
 assert.equal(clearFn.includes("shellSearchHref"), false);
-
-const backFn = header.slice(
-  header.indexOf("function backMobileSearch"),
-  header.indexOf("function submitMobileSearch"),
-);
-assert.match(backFn, /pathname !== "\/search"/);
-assert.match(backFn, /resolveEntryPath\(\{ pathname \}\)/);
-assert.match(backFn, /feedHomeHref\(loggedIn\)/);
 
 const submitFn = header.slice(
   header.indexOf("function submitMobileSearch"),
