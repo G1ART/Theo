@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { setArtworkBack } from "@/lib/artworkBack";
@@ -7,8 +8,8 @@ import {
   type ArtworkWithLikes,
   getArtworkImageUrl,
   getPrimaryClaim,
-  canEditArtwork,
 } from "@/lib/supabase/artworks";
+import { ArtworkManageActions } from "@/components/artwork/ArtworkManageActions";
 import { claimedOnboardedArtist, personUnderArtworkTitle } from "@/lib/upload/artworkOwner";
 import { claimTypeToByPhrase } from "@/lib/provenance/rpc";
 import type { ClaimType } from "@/lib/provenance/types";
@@ -107,6 +108,7 @@ export function FeedArtworkCard({
 }: Props) {
   const router = useRouter();
   const { t, locale } = useT();
+  const [removed, setRemoved] = useState(false);
   const sizePref = useSizeUnitPref();
   const images = artwork.artwork_images ?? [];
   const sorted = [...images].sort(
@@ -253,6 +255,8 @@ export function FeedArtworkCard({
     }
   }
 
+  if (removed) return null;
+
   return (
     <article
       role="link"
@@ -315,6 +319,7 @@ export function FeedArtworkCard({
           <h3 className="truncate text-xs font-medium text-zinc-900">
             {pickLocalizedArtworkTitle(artwork, locale)}
           </h3>
+          <ArtworkManageActions artwork={artwork} onDeleted={() => setRemoved(true)} />
         </div>
       ) : (
         <div className="flex flex-1 flex-col gap-0.5 pt-3">
@@ -378,17 +383,7 @@ export function FeedArtworkCard({
             </p>
           ) : null}
 
-          {userId && canEditArtwork(artwork, userId) && (
-            <Link
-              href={`/artwork/${artwork.id}/edit`}
-              onClick={(e) => e.stopPropagation()}
-              // Edit affordance hidden by default; reveals on hover/focus on
-              // lg+ where there's clean room. Keeps the salon spread quiet.
-              className="mt-1 hidden self-start text-[11px] text-zinc-500 opacity-0 transition-opacity hover:text-zinc-800 group-hover:opacity-100 group-focus-within:opacity-100 lg:inline-block"
-            >
-              {t("common.edit")}
-            </Link>
-          )}
+          <ArtworkManageActions artwork={artwork} onDeleted={() => setRemoved(true)} />
         </div>
       )}
     </article>

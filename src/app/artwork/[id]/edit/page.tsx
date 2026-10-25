@@ -42,6 +42,7 @@ import { BilingualFieldPair } from "@/components/i18n/BilingualFieldPair";
 import { pickLegacyForSave } from "@/lib/i18n/pickLocalized";
 import { supabase } from "@/lib/supabase/client";
 import { primaryArtworkImage } from "@/lib/artworks/primaryImage";
+import { useArtworkManageActorIds } from "@/lib/artworks/useArtworkManageActorIds";
 
 type IntentType = "CREATED" | "OWNS" | "INVENTORY" | "CURATED";
 
@@ -148,6 +149,7 @@ function EditArtworkContent() {
     if (userId && !out.includes(userId)) out.push(userId);
     return out;
   }, [actingAsProfileId, userId]);
+  const { ids: manageIds, ready: manageReady } = useArtworkManageActorIds();
   const myClaim = artwork && effectiveIds.length > 0 ? getMyClaim(artwork, effectiveIds) : null;
   // Subject of any claim writes when acting-as is active. RPCs guard this
   // server-side via is_active_account_delegate_writer; passing undefined
@@ -284,15 +286,20 @@ function EditArtworkContent() {
   }, []);
 
   useEffect(() => {
-    if (artwork && effectiveIds.length > 0 && !canEditArtwork(artwork, effectiveIds)) {
+    if (!manageReady || !artwork) return;
+    if (!canEditArtwork(artwork, manageIds)) {
       router.replace(`/artwork/${id}`);
     }
-  }, [artwork, effectiveIds, id, router]);
+  }, [artwork, manageIds, manageReady, id, router]);
 
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!id || !userId || !artwork) return;
+    if (!manageReady || !canEditArtwork(artwork, manageIds)) {
+      router.replace(`/artwork/${id}`);
+      return;
+    }
     setError(null);
 
     const yearNum = parseInt(year, 10);
@@ -1073,7 +1080,7 @@ function EditArtworkContent() {
         </div>
       </form>
 
-      {artwork && userId && canEditArtwork(artwork, effectiveIds) && (
+      {artwork && userId && manageReady && canEditArtwork(artwork, manageIds) && (
         <ArtworkFieldVisibilityPanel
           ownerProfileId={actingAsProfileId ?? userId}
           artworkId={artwork.id}

@@ -44,7 +44,8 @@ import { getSession } from "@/lib/supabase/auth";
 import { getMyProfile } from "@/lib/supabase/profiles";
 import type { ProfilePublic } from "@/lib/supabase/profiles";
 import type { ArtworkWithLikes } from "@/lib/supabase/artworks";
-import { canEditArtwork, fetchArtworkViewerFields, getArtworkImageUrl, getArtworksByIds, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import { canManageArtwork, deleteArtworkCascade, fetchArtworkViewerFields, getArtworkImageUrl, getArtworksByIds, updateMyArtworkOrder, getProfileArtworkOrders, applyProfileOrdering } from "@/lib/supabase/artworks";
+import { useArtworkManageActorIds } from "@/lib/artworks/useArtworkManageActorIds";
 import { mergeViewerFields, type ViewerFields } from "@/lib/artworks/viewerFields";
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import { isCollectedMembershipOnly } from "@/lib/studio/profileContentKind";
@@ -141,6 +142,7 @@ export function UserProfileContent({
 }: Props) {
   const { t, locale } = useT();
   const { actingAsProfileId, actingAsLabel } = useActingAs();
+  const { ids: manageIds, ready: manageReady } = useArtworkManageActorIds();
   const downloadPreset = useDownloadPreset();
   const sizePref = useSizeUnitPref();
   const router = useRouter();
@@ -178,6 +180,8 @@ export function UserProfileContent({
   const canEditProfile = isOwner || grants.editPublicProfile;
   const canManageTabs = isOwner || grants.manageTabs;
   const canUploadWorks = isOwner || grants.manageArtworks;
+  const profileMayManage =
+    manageReady && !!profile?.id && manageIds.includes(profile.id);
   const canReorderWorks = isOwner || grants.manageArtworks;
   const canManageShows = isOwner || grants.manageExhibitions;
   const showManagerChrome =
@@ -435,6 +439,24 @@ export function UserProfileContent({
     setLocalArtworks(artworks);
     setSaveError(null);
   }, [artworks]);
+
+  const handleDeleteArtwork = useCallback(
+    async (artworkId: string) => {
+      const { error } = await deleteArtworkCascade(artworkId, { actingAsProfileId });
+      if (error) {
+        setSavedToastMsg(t("errors.failedDelete"));
+        setSavedToast(true);
+        window.setTimeout(() => setSavedToast(false), 2000);
+        return;
+      }
+      setLocalArtworks((prev) => prev.filter((row) => row.id !== artworkId));
+      setMembershipWorks((prev) => prev.filter((row) => row.id !== artworkId));
+      setSavedToastMsg(t("artwork.deleted"));
+      setSavedToast(true);
+      window.setTimeout(() => setSavedToast(false), 2000);
+    },
+    [actingAsProfileId, t],
+  );
 
   const sortedExhibitions = useMemo(
     () => sortExhibitions(exhibitions, exhibitionSortMode, exhibitionOrderMap),
@@ -1703,10 +1725,18 @@ export function UserProfileContent({
                 showEdit={
                   !tabAssignMode &&
                   downloadMode == null &&
-                  canUploadWorks &&
-                  !!profile?.id &&
-                  canEditArtwork(artwork, profile.id)
+                  profileMayManage &&
+                  canManageArtwork(artwork, profile.id)
                 }
+                showDelete={
+                  !tabAssignMode &&
+                  downloadMode == null &&
+                  profileMayManage &&
+                  canManageArtwork(artwork, profile.id)
+                }
+                onDelete={(artworkId) => {
+                  void handleDeleteArtwork(artworkId);
+                }}
                 viewerId={viewerId}
                 onLikeUpdate={(id, liked, count) => {
                   setLikedIds((prev) => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,10 +9,10 @@ import { useT } from "@/lib/i18n/useT";
 import { pickLocalizedArtworkTitle } from "@/lib/i18n/pickLocalized";
 import {
   type ArtworkWithLikes,
-  canEditArtwork,
   getStorageUrl,
   getPrimaryClaim,
 } from "@/lib/supabase/artworks";
+import { ArtworkManageActions } from "@/components/artwork/ArtworkManageActions";
 import type { ClaimType } from "@/lib/provenance/types";
 import { claimTypeToByPhrase } from "@/lib/provenance/rpc";
 import {
@@ -55,11 +56,11 @@ export function ArtistThreadCard({
   artworks,
   likedIds,
   initialFollowing = false,
-  userId = null,
   onLikeUpdate,
 }: Props) {
   const router = useRouter();
   const { t, locale } = useT();
+  const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
   const username = artist.username ?? "";
   const { primary: displayName, secondary: handleLabel } =
     formatIdentityPair(artist, t, locale);
@@ -69,7 +70,9 @@ export function ArtistThreadCard({
     { max: 2 }
   );
   const avatarUrl = getAvatarUrl(artist.avatar_url);
-  const worksToShow = artworks.slice(0, MAX_WORKS_IN_THREAD);
+  const worksToShow = artworks
+    .filter((artwork) => !removedIds.has(artwork.id))
+    .slice(0, MAX_WORKS_IN_THREAD);
   const firstClaim = worksToShow[0]
     ? getPrimaryClaim(worksToShow[0])
     : null;
@@ -199,15 +202,17 @@ export function ArtistThreadCard({
                 className="absolute bottom-1 right-1 flex items-center gap-1"
                 onClick={(e) => e.stopPropagation()}
               >
-                {userId && canEditArtwork(artwork, userId) && (
-                  <Link
-                    href={`/artwork/${artwork.id}/edit`}
-                    className="rounded bg-white/90 px-1.5 py-0.5 text-xs font-medium text-zinc-700 shadow hover:bg-white hover:text-zinc-900"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {t("common.edit")}
-                  </Link>
-                )}
+                <ArtworkManageActions
+                  artwork={artwork}
+                  className="flex items-center gap-1"
+                  onDeleted={() => {
+                    setRemovedIds((prev) => {
+                      const next = new Set(prev);
+                      next.add(artwork.id);
+                      return next;
+                    });
+                  }}
+                />
                 <LikeButton
                   artworkId={artwork.id}
                   likesCount={artwork.likes_count ?? 0}

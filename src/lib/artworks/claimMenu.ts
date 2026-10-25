@@ -37,8 +37,13 @@ export function isRevocableClaimType(claimType: string | null | undefined): bool
   return (REVOCABLE_CLAIM_TYPES as readonly string[]).includes(claimType ?? "");
 }
 
-/** Artist or uploader. Claims are ignored on purpose. */
-export function canDeleteArtwork(
+/**
+ * Artist (`artist_id`) or uploader (`created_by`).
+ * A relationship claim does not make someone the artist and does not
+ * grant edit or delete. Callers add an acting-as principal only when
+ * that delegation includes artwork management.
+ */
+export function canManageArtwork(
   artwork: ArtworkDeleteSubject,
   userId: string | string[] | null | undefined,
 ): boolean {
@@ -47,6 +52,14 @@ export function canDeleteArtwork(
   if (artwork.artist_id && ids.includes(artwork.artist_id)) return true;
   if (artwork.created_by && ids.includes(artwork.created_by)) return true;
   return false;
+}
+
+/** Same people as `canManageArtwork`. */
+export function canDeleteArtwork(
+  artwork: ArtworkDeleteSubject,
+  userId: string | string[] | null | undefined,
+): boolean {
+  return canManageArtwork(artwork, userId);
 }
 
 function isLiveRelationshipStatus(status: string | null | undefined): boolean {

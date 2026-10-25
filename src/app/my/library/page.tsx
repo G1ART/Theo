@@ -14,6 +14,7 @@ import { chipButton } from "@/components/ds/buttonStyles";
 import { useT } from "@/lib/i18n/useT";
 import { getSession } from "@/lib/supabase/auth";
 import {
+  canManageArtwork,
   deleteArtworksBatch,
   type ArtworkCursor,
   type ArtworkWithLikes,
@@ -22,6 +23,7 @@ import {
   publishArtworks,
   validatePublish,
 } from "@/lib/supabase/artworks";
+import { useArtworkManageActorIds } from "@/lib/artworks/useArtworkManageActorIds";
 import { generateCsv, downloadCsv } from "@/lib/csv/parse";
 import { useActingAs } from "@/context/ActingAsContext";
 import { ownershipStatusLabel } from "@/lib/artworks/labels";
@@ -37,6 +39,7 @@ export default function MyLibraryPage() {
   const { t } = useT();
   const searchParams = useSearchParams();
   const { actingAsProfileId } = useActingAs();
+  const { ids: manageIds, ready: manageReady } = useArtworkManageActorIds();
   const [items, setItems] = useState<ArtworkWithLikes[]>([]);
   const [nextCursor, setNextCursor] = useState<ArtworkCursor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -156,9 +159,13 @@ export default function MyLibraryPage() {
       return next;
     });
   }
+  function rowManageable(artwork: ArtworkWithLikes) {
+    return manageReady && canManageArtwork(artwork, manageIds);
+  }
+  const manageableItems = items.filter(rowManageable);
   function selectAll() {
-    if (selectedIds.size >= items.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(items.map((a) => a.id)));
+    if (selectedIds.size >= manageableItems.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(manageableItems.map((a) => a.id)));
   }
   function clearSelection() {
     setSelectedIds(new Set());
@@ -168,7 +175,16 @@ export default function MyLibraryPage() {
     if (ids.length === 0) return;
     setDeleting(true);
     setShowDeleteConfirm(false);
-    const { okIds, failed } = await deleteArtworksBatch(ids);
+    const allowed = ids.filter((artworkId) => {
+      const row = items.find((artwork) => artwork.id === artworkId);
+      return row != null && rowManageable(row);
+    });
+    if (allowed.length === 0) {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+      return;
+    }
+    const { okIds, failed } = await deleteArtworksBatch(allowed, { actingAsProfileId });
     setDeleting(false);
     setSelectMode(false);
     setSelectedIds(new Set());
@@ -348,7 +364,7 @@ export default function MyLibraryPage() {
           </div>
         </div>
 
-        {items.length > 0 && !loading && (
+        {manageableItems.length > 0 && !loading && (
           <>
             {!selectMode ? (
               <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -365,7 +381,7 @@ export default function MyLibraryPage() {
               <>
                 <div className="mb-4 hidden flex-wrap items-center gap-2 md:flex">
                   <button type="button" onClick={selectAll} className={chipButton}>
-                    {selectedIds.size >= items.length
+                    {selectedIds.size >= manageableItems.length && manageableItems.length > 0
                       ? t("my.bulkSelect.clear")
                       : t("my.bulkSelect.selectAll")}
                   </button>
@@ -412,7 +428,7 @@ export default function MyLibraryPage() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {items.map((a) => (
               <div key={a.id} className="relative">
-                {selectMode && (
+                {selectMode && rowManageable(a) && (
                   <label className="absolute left-1 top-1 z-10 flex p-2">
                     <input
                       type="checkbox"
@@ -426,7 +442,21 @@ export default function MyLibraryPage() {
                 <ArtworkCard
                   artwork={a}
                   likesCount={a.likes_count ?? 0}
-                  showEdit={!selectMode}
+                  showEdit={!selectMode && rowManageable(a)}
+                  showDelete={!selectMode && rowManageable(a)}
+                  onDelete={(artworkId) => {
+                    void (async () => {
+                      const { okIds, failed } = await deleteArtworksBatch([artworkId], {
+                        actingAsProfileId,
+                      });
+                      if (failed.length > 0 || okIds.length === 0) {
+                        setToast(t("errors.failedDelete"));
+                        return;
+                      }
+                      setItems((prev) => prev.filter((row) => row.id !== artworkId));
+                      setToast(t("artwork.deleted"));
+                    })();
+                  }}
                   viewerId={myUserId}
                 />
                 {a.visibility === "draft" && !selectMode && (
@@ -458,10 +488,10 @@ export default function MyLibraryPage() {
           </div>
         )}
 
-        {items.length > 0 && !loading && selectMode && (
+        {manageableItems.length > 0 && !loading && selectMode && (
           <div className="sticky bottom-0 z-20 -mx-4 mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur md:hidden pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6">
             <button type="button" onClick={selectAll} className={chipButton}>
-              {selectedIds.size >= items.length
+              {selectedIds.size >= manageableItems.length && manageableItems.length > 0
                 ? t("my.bulkSelect.clear")
                 : t("my.bulkSelect.selectAll")}
             </button>

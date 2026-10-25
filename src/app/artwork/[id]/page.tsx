@@ -20,13 +20,13 @@ import { ArtworkArtistName } from "@/components/artwork/ArtworkArtistName";
 import { getSession } from "@/lib/supabase/auth";
 import {
   type ArtworkWithLikes,
-  canDeleteArtwork,
-  canEditArtwork,
+  canManageArtwork,
   canViewProvenance,
   deleteArtworkCascade,
   getProvenanceClaims,
   recordArtworkView,
 } from "@/lib/supabase/artworks";
+import { useArtworkManageActorIds } from "@/lib/artworks/useArtworkManageActorIds";
 import { isLiked } from "@/lib/supabase/likes";
 import { isFollowing } from "@/lib/supabase/follows";
 import { FollowButton } from "@/components/FollowButton";
@@ -225,11 +225,13 @@ function ArtworkDetailContent() {
     if (userId && !out.includes(userId)) out.push(userId);
     return out;
   }, [actingAsProfileId, userId]);
+  const { ids: manageIds, ready: manageReady } = useArtworkManageActorIds();
   const isOwner = Boolean(
     artwork && effectiveIds.length > 0 && effectiveIds.includes(artwork.artist_id)
   );
-  const canEdit = Boolean(artwork && canEditArtwork(artwork, effectiveIds));
-  const canDelete = Boolean(artwork && canDeleteArtwork(artwork, effectiveIds));
+  const canManage = Boolean(
+    manageReady && artwork && canManageArtwork(artwork, manageIds),
+  );
   const myClaimsByType =
     artwork?.claims?.filter((c) => effectiveIds.includes(c.subject_profile_id)) ?? [];
   const myRelationshipClaims = relationshipClaimsForActor(
@@ -257,9 +259,9 @@ function ArtworkDetailContent() {
   const showProvenance = artwork && canViewProvenance(artwork, userId);
 
   async function handleDelete() {
-    if (!id || !canDelete) return;
+    if (!id || !canManage) return;
     setDeleting(true);
-    const { error: err } = await deleteArtworkCascade(id);
+    const { error: err } = await deleteArtworkCascade(id, { actingAsProfileId });
     setDeleting(false);
     setShowDeleteConfirm(false);
     if (err) {
@@ -996,6 +998,24 @@ function ArtworkDetailContent() {
                 </div>
               );
             })()}
+            {canManage && (
+              <div className="mt-4 flex items-center gap-4">
+                <Link
+                  href={`/artwork/${id}/edit`}
+                  className="text-sm font-medium text-zinc-700 hover:text-zinc-900"
+                >
+                  {t("common.edit")}
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={deleting}
+                  className="text-sm text-red-600 hover:text-red-800"
+                >
+                  {t("common.delete")}
+                </button>
+              </div>
+            )}
             <p className="mt-3 text-sm text-zinc-600">
               {[artwork.year, pickLocalizedMedium(artwork, locale) || null]
                 .filter(Boolean)
@@ -1707,28 +1727,6 @@ function ArtworkDetailContent() {
                     );
                   })}
                 </ul>
-              </div>
-            )}
-            {(canEdit || canDelete) && (
-              <div className="mt-4 flex items-center gap-4">
-                {canEdit && (
-                  <Link
-                    href={`/artwork/${id}/edit`}
-                    className="text-sm font-medium text-zinc-700 hover:text-zinc-900"
-                  >
-                    {t("common.edit")}
-                  </Link>
-                )}
-                {canDelete && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteConfirm(true)}
-                    disabled={deleting}
-                    className="text-sm text-red-600 hover:text-red-800"
-                  >
-                    {t("common.delete")}
-                  </button>
-                )}
               </div>
             )}
           </div>

@@ -25,7 +25,12 @@ import {
   draftArtistIdForInsert,
   personUnderArtworkTitle,
 } from "@/lib/upload/artworkOwner";
-import { canDeleteArtwork as canDeleteArtworkRole } from "@/lib/artworks/claimMenu";
+import { canDeleteArtwork as canDeleteArtworkRole, canManageArtwork } from "@/lib/artworks/claimMenu";
+import {
+  actingProfileMayManageArtworks,
+  artworkManageActorIds,
+} from "@/lib/artworks/manageAccess";
+import { listMyDelegations } from "@/lib/supabase/delegations";
 import {
   ARTWORK_CARDS_VIEW,
   applyViewerFields,
@@ -287,26 +292,20 @@ function normalizeUserIds(input: UserIdLike): string[] {
   return out;
 }
 
-/** User can edit artwork if they are artist or have a confirmed claim. */
+/**
+ * Artist or uploader. A claim does not grant edit. Same people as delete.
+ * Pass the acting-as principal only when that delegation can manage artworks.
+ */
 export function canEditArtwork(artwork: Artwork, userId: UserIdLike): boolean {
-  const ids = normalizeUserIds(userId);
-  if (ids.length === 0) return false;
-  if (ids.includes(artwork.artist_id)) return true;
-  const claims = artwork.claims ?? [];
-  return claims.some(
-    (c) =>
-      ids.includes(c.subject_profile_id) &&
-      (c.status == null || c.status === CLAIM_STATUS_CONFIRMED)
-  );
+  return canManageArtwork(artwork, userId);
 }
 
-/**
- * Artist or uploader (`created_by`). A pending or approved claim does not
- * grant this. Claiming a relationship is not ownership-for-deletion.
- */
+/** Artist or uploader (`created_by`). A claim does not grant this. */
 export function canDeleteArtwork(artwork: Artwork, userId: UserIdLike): boolean {
   return canDeleteArtworkRole(artwork, userId);
 }
+
+export { canManageArtwork };
 
 /**
  * Get the current user's claim (any status; for edit flow or pending check).
@@ -2128,21 +2127,48 @@ export async function replaceArtworkDisplayImage(input: {
   return { error: null, storagePath: uploaded.path };
 }
 
-export async function deleteArtwork(artworkId: string) {
+/**
+ * Session user, plus the acting-as principal when that account granted
+ * artwork management. A caller cannot widen this by passing an id the
+ * session does not manage.
+ */
+async function resolveWriteActorIds(
+  actingAsProfileId?: string | null,
+): Promise<string[] | null> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  if (!session?.user?.id) return { error: new Error("Not authenticated") };
+  const sessionId = session?.user?.id ?? "";
+  if (!sessionId) return null;
+  const acting = actingAsProfileId?.trim() ?? "";
+  let actingMayManage = false;
+  if (acting && acting !== sessionId) {
+    const { data } = await listMyDelegations();
+    actingMayManage = actingProfileMayManageArtworks(data?.received ?? [], acting);
+  }
+  return artworkManageActorIds({
+    sessionUserId: sessionId,
+    actingAsProfileId: acting,
+    actingMayManage,
+  });
+}
+
+export async function deleteArtwork(
+  artworkId: string,
+  options?: { actingAsProfileId?: string | null },
+) {
+  const actorIds = await resolveWriteActorIds(options?.actingAsProfileId);
+  if (!actorIds) return { error: new Error("Not authenticated") };
 
   // When the row is readable, refuse claimants before the delete. A claim
   // is not enough. If the row is not readable, RLS still decides: artist,
-  // uploader, or an existing delegate policy. Claim-only delete is denied.
+  // uploader, or a delegate with artwork management.
   const { data: row, error: readErr } = await supabase
     .from("artworks")
     .select("artist_id, created_by")
     .eq("id", artworkId)
     .maybeSingle();
-  if (!readErr && row && !canDeleteArtworkRole(row, session.user.id)) {
+  if (!readErr && row && !canDeleteArtworkRole(row, actorIds)) {
     return { error: new Error("Artwork not found or not owned by you") };
   }
 
@@ -2150,15 +2176,13 @@ export async function deleteArtwork(artworkId: string) {
   return { error };
 }
 
-/** Delete artwork with cascade. Artist or uploader only. A claim does not grant this. */
+/** Delete artwork with cascade. Artist, uploader, or their artwork manager. A claim does not grant this. */
 export async function deleteArtworkCascade(
-  artworkId: string
+  artworkId: string,
+  options?: { actingAsProfileId?: string | null },
 ): Promise<{ error: unknown }> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.user?.id)
-    return { error: new Error("Not authenticated") };
+  const actorIds = await resolveWriteActorIds(options?.actingAsProfileId);
+  if (!actorIds) return { error: new Error("Not authenticated") };
 
   // Readable row, then the same artist-or-uploader check the detail page uses.
   // Claim rows on the artwork do not authorize this delete.
@@ -2167,7 +2191,7 @@ export async function deleteArtworkCascade(
     return { error: new Error("Artwork not found") };
   }
 
-  if (!canDeleteArtwork(artwork, session.user.id)) {
+  if (!canDeleteArtwork(artwork, actorIds)) {
     return { error: new Error("Artwork not found or not owned by you") };
   }
 
@@ -2229,15 +2253,24 @@ function runWithLimit<T>(items: T[], fn: (x: T) => Promise<unknown>): Promise<vo
  */
 export async function deleteArtworksBatch(
   ids: string[],
-  options?: { concurrency?: number }
+  options?: { concurrency?: number; actingAsProfileId?: string | null }
 ): Promise<{ okIds: string[]; failed: Array<{ id: string; error: unknown }> }> {
-  void options; // reserved — see JSDoc.
+  void options?.concurrency; // reserved — see JSDoc.
   const okIds: string[] = [];
   const failed: Array<{ id: string; error: unknown }> = [];
+  const actorIds = await resolveWriteActorIds(options?.actingAsProfileId);
+  if (!actorIds) {
+    return {
+      okIds,
+      failed: ids.map((id) => ({ id, error: new Error("Not authenticated") })),
+    };
+  }
   const items = ids.map((id) => ({ id }));
 
   await runWithLimit(items, async ({ id }) => {
-    const res = await deleteArtworkCascade(id);
+    const res = await deleteArtworkCascade(id, {
+      actingAsProfileId: options?.actingAsProfileId,
+    });
     if (res.error) {
       failed.push({ id, error: res.error });
     } else {
@@ -2250,7 +2283,8 @@ export async function deleteArtworksBatch(
 
 /** Delete multiple drafts with cascade. Owner-only, batches with concurrency limit. */
 export async function deleteDraftArtworks(
-  ids: string[]
+  ids: string[],
+  options?: { actingAsProfileId?: string | null },
 ): Promise<{ error: unknown; removed: number }> {
   if (ids.length === 0) return { error: null, removed: 0 };
   const errors: unknown[] = [];
@@ -2266,7 +2300,9 @@ export async function deleteDraftArtworks(
       errors.push(readErr ?? new Error("Only drafts can be deleted from the bulk list"));
       return;
     }
-    const res = await deleteArtworkCascade(id);
+    const res = await deleteArtworkCascade(id, {
+      actingAsProfileId: options?.actingAsProfileId,
+    });
     if (res.error) errors.push(res.error);
     else removed += 1;
   });
@@ -2385,8 +2421,25 @@ export async function updateArtwork(
   if (!session?.user?.id)
     return { error: new Error("Not authenticated") };
 
-  // RLS allows update when artist or lister (has claim)
-  const { error } = await supabase.from("artworks").update(partial).eq("id", id);
+  const actorIds = await resolveWriteActorIds(options?.actingSubjectProfileId);
+  if (!actorIds) return { error: new Error("Not authenticated") };
+  const { data: existing, error: readErr } = await supabase
+    .from("artworks")
+    .select("artist_id, created_by")
+    .eq("id", id)
+    .maybeSingle();
+  if (!readErr && existing && !canManageArtwork(existing, actorIds)) {
+    return { error: new Error("Artwork not found or not owned by you") };
+  }
+
+  const { data: updated, error } = await supabase
+    .from("artworks")
+    .update(partial)
+    .eq("id", id)
+    .select("id");
+  if (!error && (!updated || updated.length === 0)) {
+    return { error: new Error("Artwork not found or not owned by you") };
+  }
 
   if (
     !error &&

@@ -1,6 +1,25 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-21
+Last updated: 2026-10-24
+
+## 2026-10-24 — 작품 수정·삭제는 작가와 올린 계정만
+
+> **Supabase SQL:** `20261025030336_artwork_manage_same_people.sql` (MCP apply_migration. schema_migrations version `20261025030336` 과 파일 번호 같음). **환경 변수 추가·변경 없음.**
+
+- 원인
+  - `a799a75`의 공개 작품 마지막 이미지 금지는 작품 삭제 버튼을 숨기지 않았다. 그 트리거는 그대로다. 작품 행을 지우면 이미지는 cascade 되고, 공개 작품의 마지막 이미지 파일만 지우는 것은 계속 거부된다.
+  - 화면에서 삭제가 안 보이던 직접 원인은 두 갈래다. `b56b552`가 클레임 메뉴의 삭제를 작품 삭제가 아니게 만든 뒤, 남은 삭제 링크는 상세 맨 아래뿐이었다. 프로필 작품 목록(`UserProfileContent`)은 삭제 버튼을 넘기지 않았다. `/my`에 붙어 있던 스튜디오 목록은 이미 빠져 있었다.
+  - 수정은 확정 클레임만 있어도 열렸고, 서버 UPDATE 정책도 클레임이면 통과했다. 그래서 큐레이션 클레임만 있는 계정은 수정은 보이고 삭제는 안 보였다. 삭제는 `artist_id` 또는 `created_by`만 통과했는데, 그 판정이 목록에는 연결되어 있지 않았다.
+  - 대리 삭제는 클라이언트가 로그인 세션만 봤고, 위임 정책은 `artist_id`만 봐서 갤러리가 올린 작품(`created_by`)을 대리로 고치지 못했다.
+- 지금 수정·삭제할 수 있는 사람
+  - 그 작품의 작가(`artist_id`). 클레임만으로 작가가 되지 않는다.
+  - 그 작품을 올린 계정(`created_by`).
+  - 그 둘 중 하나를 대리(acting-as)하고, 계정 위임은 `manage_artworks`, 전시 위임은 `manage_works`가 있을 때.
+- 없는 사람: 방문자, 팔로워, 큐레이션·소장·인벤토리·전시 클레임만 있는 계정. 버튼이 없고 서버 UPDATE/DELETE도 거부된다.
+- 화면: 상세는 작가 이름 아래에 수정·삭제. 삭제는 확인 후, 들어오기 전 화면으로 가는 이동은 유지. 프로필 본인 목록, 라이브러리, 피드·스레드 카드, 초안 벌크는 같은 판정. 라이브러리·벌크의 일괄 삭제도 그 작품만. 전시에서 작품 빼기는 작품 삭제가 아니라서 전시 관리 화면에 그대로 둔다.
+- 서버: `artwork_manage_allowed`. 클레임으로 작품 행을 고치거나 이미지를 넣지 못한다. 작가·업로더의 대리도 `created_by` 쪽을 포함한다. 공개 작품 마지막 이미지 트리거는 바꾸지 않았다.
+
+**Verified:** `npx tsc --noEmit`. `npx tsx tests/artwork-manage-access.test.ts`, `claim-revoke-does-not-delete-artwork.test.ts`, `public-artwork-requires-image.test.ts`, `artwork-storage-cleanup.test.ts`, `artwork-delete-navigation.test.ts`, `bulk-delete-status.test.ts` 통과. 합성 계정으로 한 트랜잭션에서 작가 삭제 성공, 업로더 갤러리 삭제 성공, 작품 관리 대리 삭제 성공, 무관 계정 거부, 큐레이션 클레임만 있는 계정 거부, 공개 작품의 마지막 이미지 삭제 거부, 그 작품 행 삭제는 성공. 끝에서 예외로 롤백. 합성 행은 남지 않았고, 그 작품으로 실제 사용자 알림은 0건. 로그인한 화면은 세션이 없어 눌러 보지 못했다.
 
 ## 2026-10-21 — 공개 작품은 이미지가 1장 이상이어야 한다
 

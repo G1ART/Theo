@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useT } from "@/lib/i18n/useT";
 import { ArtworkCard } from "@/components/ArtworkCard";
 import {
-  canEditArtwork,
+  canManageArtwork,
   deleteArtworksBatch,
   getArtworkImageUrl,
   type ArtworkWithLikes,
@@ -218,15 +218,22 @@ export function StudioPortfolioPanel({
       return next;
     });
   }
+  function workManageable(artwork: ArtworkWithLikes) {
+    return canManageArtwork(artwork, profile.id);
+  }
   function selectAll() {
-    if (selectedIds.size >= displayedArtworks.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(displayedArtworks.map((a) => a.id)));
+    const manageable = displayedArtworks.filter(workManageable);
+    if (selectedIds.size >= manageable.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(manageable.map((a) => a.id)));
   }
   function clearSelection() {
     setSelectedIds(new Set());
   }
   async function handleBulkDelete() {
-    const ids = Array.from(selectedIds);
+    const ids = Array.from(selectedIds).filter((id) => {
+      const row = displayedArtworks.find((artwork) => artwork.id === id);
+      return row != null && workManageable(row);
+    });
     if (ids.length === 0) return;
     setDeleting(true);
     setShowDeleteConfirm(false);
@@ -719,7 +726,7 @@ export function StudioPortfolioPanel({
   function renderCard(artwork: ArtworkWithLikes) {
     return (
       <div key={artwork.id} className="relative">
-        {selectMode && (
+        {selectMode && workManageable(artwork) && (
           <div className="absolute left-2 top-2 z-10">
             <input
               type="checkbox"
@@ -733,8 +740,8 @@ export function StudioPortfolioPanel({
         <ArtworkCard
           artwork={artwork}
           likesCount={artwork.likes_count ?? 0}
-          showEdit={!selectMode && canEditArtwork(artwork, profile.id)}
-          showDelete={!selectMode}
+          showEdit={!selectMode && workManageable(artwork)}
+          showDelete={!selectMode && workManageable(artwork)}
           onDelete={handleRowDelete}
         />
       </div>

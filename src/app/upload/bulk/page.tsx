@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BodyPortal } from "@/components/ui/BodyPortal";
 import { layer } from "@/lib/ui/layers";
 import Link from "next/link";
@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   appendArtworkDetailImages,
   attachArtworkImage,
+  canManageArtwork,
   createDraftArtwork,
   deleteArtwork,
   deleteArtworkImage,
@@ -30,6 +31,7 @@ import { sizeTextForSave } from "@/lib/size/format";
 import { chainAfter } from "@/lib/upload/draftSaveQueue";
 import { leaveFormTo } from "@/lib/nav/entryTrail";
 import { planOnboardedArtistPublish, rememberedArtistId } from "@/lib/upload/artworkOwner";
+import { useArtworkManageActorIds } from "@/lib/artworks/useArtworkManageActorIds";
 import {
   bulkDraftInsertArtistId,
   bulkSessionFromArtist,
@@ -166,6 +168,7 @@ export default function BulkUploadPage() {
 
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
+  const { ids: manageIds, ready: manageReady } = useArtworkManageActorIds();
   const [filingMode, setFilingMode] = useState<"all" | "each">("all");
   const [filingSelection, setFilingSelection] = useState<UploadTabSelection | null>(null);
   const [cardTabIds, setCardTabIds] = useState<Record<string, string>>({});
@@ -1134,18 +1137,24 @@ export default function BulkUploadPage() {
     void fetchDrafts({ silent: true });
   }
 
+  const manageableDraftIds = useMemo(() => {
+    if (!manageReady) return [] as string[];
+    return drafts.filter((row) => canManageArtwork(row, manageIds)).map((row) => row.id);
+  }, [drafts, manageIds, manageReady]);
+
   async function deleteDraftIds(ids: string[], scope: "all" | "selected") {
-    if (ids.length === 0) return;
+    const allowed = ids.filter((id) => manageableDraftIds.includes(id));
+    if (allowed.length === 0) return;
     const beforeIds = drafts.map((d) => d.id);
     setDeleting(true);
-    const result = await deleteDraftArtworks(ids);
+    const result = await deleteDraftArtworks(allowed, { actingAsProfileId });
     setDeleting(false);
     setSelected(new Set());
     const next = await fetchDrafts();
     const plan = planBulkDeleteStatus({
       scope,
       draftIdsBefore: beforeIds,
-      requestedIds: ids,
+      requestedIds: allowed,
       removedCount: result.removed,
       draftIdsAfter: next.map((d) => d.id),
       placingCount: placingRef.current.length,
@@ -2825,7 +2834,7 @@ export default function BulkUploadPage() {
             <button
               type="button"
               onClick={handleDeleteSelected}
-              disabled={selectedIds.length === 0 || deleting}
+              disabled={deleting || ![...selected].some((id) => manageableDraftIds.includes(id))}
               className="rounded-full border border-zinc-400 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-40"
             >
               {t("bulk.deleteSelected")}
@@ -2833,7 +2842,7 @@ export default function BulkUploadPage() {
             <button
               type="button"
               onClick={handleDeleteAll}
-              disabled={drafts.length === 0 || deleting}
+              disabled={manageableDraftIds.length === 0 || deleting}
               className="rounded-full border border-zinc-400 px-4 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-40"
             >
               {t("bulk.deleteAll")}
