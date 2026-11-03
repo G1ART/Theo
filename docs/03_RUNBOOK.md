@@ -52,7 +52,8 @@
 2) Set Environment Variables in Vercel (Production at minimum):
 - **NEXT_PUBLIC_SUPABASE_URL**
 - **NEXT_PUBLIC_SUPABASE_ANON_KEY**
-- **NEXT_PUBLIC_APP_URL** — 앱 공개 URL (예: `https://abstract-mvp-dxfn.vercel.app`). 위임/초대 이메일 링크의 base로 사용. 없으면 초대 링크가 잘못된 주소로 갈 수 있음.
+- **NEXT_PUBLIC_APP_URL** — 앱 공개 URL (예: `https://withtheo.art`). 위임/초대 이메일 링크와 OAuth가 돌아온 뒤의 주소의 base. 없으면 초대 링크가 잘못된 주소로 갈 수 있음.
+- Google / Apple 로그인용 클라이언트 ID와 시크릿은 Vercel 환경 변수가 아니다. Supabase Dashboard → Authentication → Providers 에만 둔다. The Green Calendar 클라이언트는 넣지 않는다. 절차는 아래 "Supabase OAuth setup".
 - (optional) NEXT_PUBLIC_KRW_TO_USD_RATE
 - (optional) **NEXT_PUBLIC_DIAGNOSTICS** — `1`이면 `/my/diagnostics` 노출(베타 이벤트 테이블 필요)
 - **NEXT_PUBLIC_SIGNUP_V2** — Signup v2 wizard 피처 플래그 (2026-08-20 도입). 초기 배포는 `false` 로 세팅 (레거시 `/onboarding` + `/login` 유지). Phase 1 QA 이후 `true` 로 램프. Preview 환경에서 먼저 `true` 로 두고 내부 검증하는 것을 권장. 상세: `docs/SIGNUP_REDESIGN_SPEC.md` §6/§11.
@@ -111,18 +112,65 @@ Kakao 는 spec §5 #5 로 deferred — pill 이 항상 disabled 이므로
 Dashboard 에서 켜지 말 것 (지금 켜도 앱에서 클릭 안 됨).
 
 ### 1) Google 세팅
-1. Google Cloud Console → APIs & Services → **OAuth consent screen** →
-   앱 이름, support email, 로고, 승인된 도메인 (`<운영 도메인>`),
-   Privacy policy / Terms 링크 (임시로 `/legal/privacy` `/legal/terms`
-   stub 도 OK — Phase 4 에서 채워짐) 를 등록.
-2. Google Cloud Console → APIs & Services → **Credentials** → "Create
-   Credentials" → OAuth client ID → Web application.
-   - **Authorized JavaScript origins**: `https://<운영 도메인>`, `http://localhost:3000` (개발용).
-   - **Authorized redirect URIs**: `https://<Supabase project>.supabase.co/auth/v1/callback` — 이 값은 Supabase Dashboard → Authentication → Providers → Google 카드 안에서 그대로 복사 (Supabase 가 표시해 준다). 이 리다이렉트는 **Google → Supabase** 구간이며, Supabase 가 그 다음에 우리 앱의 `/auth/callback?provider=google&next=…` 로 넘긴다 (앱 코드가 stamp).
-3. Supabase Dashboard → Authentication → Providers → **Google** → toggle **Enable Sign in with Google**.
-   - Client ID / Client Secret 을 붙여넣고 Save.
-   - "Skip nonce check" 는 기본값 (off) 유지.
-4. 첫 로그인 검증: 로컬 개발에서 `NEXT_PUBLIC_SIGNUP_V2=true` 로 두고 `/login` → "Google" pill → Google 계정 선택 → `/auth/callback` → `/signup?step=3` (신규 사용자) 또는 `/feed` (완성된 프로필) 로 라우팅되는지 1회 확인.
+
+2026-11-02 프로덕션은 Supabase 프로젝트 `sgufonscldvdwfgzltfw` 의 Google
+제공자로 가입한다. 코드에는 클라이언트 ID가 없다. 그 제공자가 지금
+보내는 클라이언트는 구글 프로젝트 번호 `827860082883`, 동의 화면 이름
+**The Green Calendar**, 공개 support email `thegreencalendar@g-1.art`,
+사용자 유형 **Internal** 이다. 일반 Gmail 은
+구글 화면에서 `403 org_internal` 로 막힌다. 이 클라이언트는 Theo 가입에서
+뺀다. 캘린더 scope 는 가입 요청에 없다. 가입 scope 는 `email`, `profile`,
+`openid` 만이다.
+
+Supabase 가 Google 제공자 칸에 적어 둔 scope 를 요청 앞에 붙인다. 앱이
+그 뒤를 `openid email profile` 로 잇는다. 칸에 `calendar` 가 있으면
+가입이 캘린더 권한까지 묻게 되므로 비우거나 `email profile` 만 둔다.
+
+1. Google Cloud Console 에서 프로젝트 번호 `827860082883`
+   (The Green Calendar) 을 연다. 이 프로젝트의 OAuth 클라이언트는
+   Theo 에 쓰지 않는다.
+2. Theo 용 프로젝트를 새로 만들거나, 이미 **External** 인 Theo 프로젝트가
+   있으면 그것을 쓴다. 저장소와 Vercel 에는 Theo 용 클라이언트 ID가 없다.
+   Audience / OAuth consent screen 이 Internal 에서 External 로 바뀌지
+   않으면, 그 워크스페이스 안에 새 클라이언트를 만들지 말고 프로젝트를
+   새로 만든다.
+3. **OAuth consent screen** (새 콘솔에서는 Google Auth Platform →
+   Audience / Branding):
+   - User type: **External**.
+   - 앱 이름: Theo. The Green Calendar 를 쓰지 않는다.
+   - Support email, 로고, 승인된 도메인 `withtheo.art`.
+   - Privacy / Terms: `https://withtheo.art/legal/privacy`,
+     `https://withtheo.art/legal/terms`.
+   - Scopes: `openid`, `email`, `profile`,
+     `.../auth/userinfo.email`, `.../auth/userinfo.profile` 만.
+     Calendar API 와 `calendar.readonly` 는 넣지 않는다.
+   - Publishing status 가 Testing 이면 Test users 에 베타 Gmail 을
+     넣거나, **In production** 으로 게시한다. email/profile/openid 는
+     민감 scope 가 아니라서 긴 심사 없이 게시되는 경우가 많다.
+     Internal 로 두면 그 조직 밖 Gmail 은 계속 403 이다.
+4. **Credentials** → OAuth client ID → Web application.
+   - Authorized JavaScript origins: `https://withtheo.art`,
+     `http://localhost:3000`.
+   - Authorized redirect URIs:
+     `https://sgufonscldvdwfgzltfw.supabase.co/auth/v1/callback`
+     만. 앱의 `/auth/callback` 은 구글 redirect URI 가 아니다.
+     구글이 Supabase 로 돌려보내고, Supabase 가
+     `/auth/callback?provider=google&from=…&next=…` 로 넘긴다.
+5. Supabase Dashboard → Authentication → Providers → **Google** → Enable.
+   - Client ID / Client Secret 을 방금 만든 Theo External 클라이언트로
+     바꾼다. The Green Calendar 값은 지운다.
+   - Scopes 는 비우거나 `email profile` 만.
+   - Skip nonce check 는 off.
+6. Supabase → Authentication → URL Configuration.
+   - Site URL: `https://withtheo.art` (`NEXT_PUBLIC_APP_URL` 과 같게).
+   - Redirect URLs: `https://withtheo.art/auth/callback`,
+     `http://localhost:3000/auth/callback`.
+7. Vercel 에 Google 클라이언트 변수를 추가하지 않는다.
+8. 일반 Gmail 로 `/login` 또는 `/signup` 의 Google 을 누른다. 동의 화면에
+   Theo 가 보여야 한다. The Green Calendar / 조직 내부라고 나오면
+   Supabase Google 제공자에 그 클라이언트가 아직 남아 있는 것이다.
+   가입이 끝나면 그 Gmail 이 이미 초대 메일이면 작품·크레딧이 그 계정에
+   붙는다. 비밀번호 가입은 활성화 메일을 연 뒤에 붙는다.
 
 ### 2) Apple 세팅
 1. Apple Developer → Certificates, Identifiers & Profiles → **Identifiers** → **App IDs** 에서 Sign in with Apple capability 를 활성화한 App ID 가 없으면 새로 만든다. 이미 있으면 재사용.
@@ -145,7 +193,8 @@ Dashboard 에서 켜지 말 것 (지금 켜도 앱에서 클릭 안 됨).
 
 ### 4) 관측 / 문제 해결
 - 클릭했을 때 아무 반응 없이 토스트 "이 로그인 방식은 아직 준비 중입니다..." 가 뜨면 → Supabase Dashboard 에서 provider 가 아직 Enabled 가 아니거나 client id/secret 저장이 안 된 상태. Dashboard 재확인.
-- Google 콘센트 화면에서 "This app is blocked" 오류 → OAuth consent screen 이 "Testing" 모드이고 사용자가 test user 리스트에 없음. Google Cloud → OAuth consent screen → Test users 에 이메일 추가.
+- 구글 화면이 "조직 내에서만 사용할 수 있습니다" / `403 org_internal` 이고 앱 이름이 The Green Calendar 이면, Supabase Google 제공자가 Internal 클라이언트다. 위 1) 대로 Theo External 클라이언트로 바꾼다. 코드로 우회하지 않는다. 브라우저 뒤로 가면 가입 화면에 "이 Google 계정으로는 가입할 수 없어요. 이메일로 계속해 주세요." 가 나온다.
+- Google 콘센트 화면에서 "This app is blocked" (access_denied, Testing) → OAuth consent screen 이 Testing 이고 사용자가 test user 가 아니다. Test users 에 이메일을 넣거나 In production 으로 게시한다.
 - Apple 이 로그인 창을 띄우다가 "invalid_client" 로 실패 → Services ID / Team ID / Key ID / Private key 중 하나가 어긋남. 특히 Private key 는 `-----BEGIN PRIVATE KEY-----` 헤더/푸터 라인까지 포함되어야 함.
 - `/auth/callback` 이후 무한 스피너 → 브라우저 콘솔에서 `get_my_auth_state` RPC 응답 확인. Signup v2 마이그레이션 (`20260819180000_upsert_my_profile_signup_v2.sql`) 이 적용되지 않은 상태일 수 있음.
 

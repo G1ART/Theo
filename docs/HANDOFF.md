@@ -1,6 +1,17 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-10-25
+Last updated: 2026-11-02
+
+## 2026-11-02 — 구글 가입은 The Green Calendar 내부 앱
+
+> **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.** Google 클라이언트 ID와 시크릿은 Vercel 변수가 아니다. Supabase Dashboard → Authentication → Providers → Google 에 들어 있는 The Green Calendar(프로젝트 번호 `827860082883`, 동의 화면 support `thegreencalendar@g-1.art`, Internal)를 Theo용 External 클라이언트로 바꿔야 일반 Gmail이 가입된다. 순서는 `docs/03_RUNBOOK.md`. 키 값은 적지 않았다.
+
+- `/login`, `/signup`, `/onboarding`의 Google은 `signInWithOAuth({ provider: "google" })`만 탄다. 캘린더 연동은 없고, 가입 scope는 email, profile, openid뿐이다. 구글 redirect는 Supabase 콜백이고, 그다음 앱의 `/auth/callback`으로 온다.
+- `403 org_internal`은 코드가 캘린더 링크로 보낸 것이 아니다. Supabase Google 제공자가 조직 내부 앱이라 그 워크스페이스 밖 Gmail이 구글 화면에서 막힌다. 저장소와 Vercel에는 Theo용 다른 클라이언트가 없다.
+- 구글이 오류를 안고 돌아오면 시작한 화면으로 돌아간다. 브라우저 뒤로 와도 가입 화면에 "이 Google 계정으로는 가입할 수 없어요. 이메일로 계속해 주세요."가 한/영으로 나온다. 만료된 활성화 메일은 기존 안내 그대로다.
+- 초대 병합은 그대로다. 구글처럼 가입 순간 이메일이 확인되면 그 이메일의 작품이 바로 붙고, 비밀번호 가입은 활성화 메일을 연 뒤에 붙는다.
+
+**Verified:** `npx tsc --noEmit`. `tests/oauth-signup.test.ts`, `src/lib/auth/signupEmailStep.test.ts`, `tests/auth-password-recovery.test.ts`, `tests/onboarding-banner-refresh.test.ts`, `tests/external-artist-onboarding-merge.test.ts`, `tests/onboarding-smoke.mjs`, `tests/onboarding-routing-runtime.mjs` 통과. 로컬에서 로그인·가입·온보딩의 안내, `org_internal` 콜백이 `/signup`으로 `next`를 유지한 채 돌아온 것, 만료된 메일 안내가 그대로인 것, Google 버튼이 The Green Calendar로 가고 계정을 고르기 전에 돌아온 뒤 안내가 뜨는 것을 봤다. 일반 Gmail로 가입을 끝까지 하지 못했다. 콘솔을 바꾸기 전에는 막힌다. `example.invalid` 롤백 검사 `invite_signup_merge: ok`. 남은 행 없음. 메일은 보내지 않았다.
 
 ## 2026-10-25 — 검색창은 가운데와 오른쪽, 결과는 10건씩
 

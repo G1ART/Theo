@@ -35,6 +35,11 @@ import { supabase } from "@/lib/supabase/client";
 import { saveProfileUnified } from "@/lib/supabase/profileSaveUnified";
 import { routeByAuthState, safeNextPath } from "@/lib/identity/routing";
 import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
+import {
+  classifyOAuthCallbackFailure,
+  clearOAuthAttempt,
+  oauthFailureHref,
+} from "@/lib/auth/oauthSignup";
 import { useT } from "@/lib/i18n/useT";
 import type { Session } from "@supabase/supabase-js";
 
@@ -135,6 +140,22 @@ function AuthCallbackInner() {
       } = await getSession();
       if (cancelled) return;
       if (!session) {
+        // Google's organization-only block (403 org_internal) usually
+        // stays on accounts.google.com. When it does come back, or the
+        // person cancels, return to the form instead of treating it as
+        // an expired email link.
+        const oauthFailure = classifyOAuthCallbackFailure(
+          window.location.search,
+          window.location.hash,
+        );
+        if (oauthFailure) {
+          clearOAuthAttempt();
+          const from = new URLSearchParams(window.location.search).get("from");
+          router.replace(
+            oauthFailureHref({ from, next: nextParam, kind: oauthFailure }),
+          );
+          return;
+        }
         // A used or expired confirm link used to bounce home, and the
         // signup screen would send another mail. Stay here and say so.
         if (authLinkFailed()) {
@@ -144,6 +165,8 @@ function AuthCallbackInner() {
         router.replace("/");
         return;
       }
+
+      clearOAuthAttempt();
 
       const oauthProvider = detectOAuthProvider(session, providerParam);
       if (oauthProvider) {

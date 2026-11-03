@@ -4815,6 +4815,8 @@ export const messages = {
     "auth.loginV2.oauth.notConfigured":
       "This sign-in method is not yet available. Please use email.",
     "auth.loginV2.oauth.cancelled": "Sign-in was cancelled.",
+    "auth.loginV2.oauth.orgBlocked":
+      "This Google account can't be used to sign up. Continue with email.",
     "auth.loginV2.oauth.error":
       "Something went wrong signing you in. Please try again.",
     "auth.loginV2.footnote.consent":
@@ -9833,6 +9835,8 @@ export const messages = {
     "auth.loginV2.oauth.notConfigured":
       "이 로그인 방식은 아직 준비 중입니다. 이메일로 로그인해 주세요.",
     "auth.loginV2.oauth.cancelled": "로그인이 취소됐어요.",
+    "auth.loginV2.oauth.orgBlocked":
+      "이 Google 계정으로는 가입할 수 없어요. 이메일로 계속해 주세요.",
     "auth.loginV2.oauth.error":
       "로그인 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.",
     "auth.loginV2.footnote.consent":

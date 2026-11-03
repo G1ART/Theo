@@ -22,6 +22,7 @@ export function SignupStep1Email({ api }: { api: SignupStepApi }) {
     <OnboardingAccountForm
       initialEmail={api.state.email}
       nextPath={api.nextPath}
+      oauthFrom="signup"
       onAccountReady={async (userId) => {
         await ensureFreeEntitlement(userId);
         const state = await getMyAuthState();

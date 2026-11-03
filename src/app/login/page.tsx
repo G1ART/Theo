@@ -26,6 +26,8 @@ import {
   isUnconfirmedAuthError,
   deliverSignupConfirmation,
 } from "@/lib/supabase/auth";
+import { messageKeyForOAuthCode } from "@/lib/auth/oauthSignup";
+import { useOAuthReturnNotice } from "@/lib/auth/useOAuthReturnNotice";
 import { signInWithOAuthProvider } from "@/lib/supabase/oauth";
 import { routeByAuthState, safeNextPath } from "@/lib/identity/routing";
 import { isSignupV2Enabled } from "@/lib/featureFlags/signupV2";
@@ -73,6 +75,7 @@ function LoginInner() {
 
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const oauthReturn = useOAuthReturnNotice();
 
   const signupBase = isSignupV2Enabled() ? "/signup" : "/onboarding";
   const signupHref = nextPath
@@ -152,16 +155,13 @@ function LoginInner() {
   async function handleGoogle() {
     setOauthLoading(true);
     setOauthError(null);
-    const { error: err } = await signInWithOAuthProvider("google", { next: nextPath });
+    const { error: err } = await signInWithOAuthProvider("google", {
+      next: nextPath,
+      from: "login",
+    });
     if (err) {
       setOauthLoading(false);
-      const messageKey =
-        err.code === "provider_not_configured"
-          ? "auth.loginV2.oauth.notConfigured"
-          : err.code === "cancelled"
-            ? "auth.loginV2.oauth.cancelled"
-            : "auth.loginV2.oauth.error";
-      setOauthError(t(messageKey));
+      setOauthError(t(messageKeyForOAuthCode(err.code)));
     }
   }
 
@@ -275,9 +275,9 @@ function LoginInner() {
       <div className="mt-12 text-center">
         <p className="mb-3 text-[13px] text-zinc-700">{t("auth.loginV2.quickStart.label")}</p>
         <GoogleStartButton onClick={() => void handleGoogle()} loading={oauthLoading} />
-        {oauthError ? (
-          <p role="alert" className="mt-3 text-xs text-red-600">
-            {oauthError}
+        {oauthError || oauthReturn ? (
+          <p role="alert" className="mt-3 text-sm text-red-600">
+            {oauthError || oauthReturn}
           </p>
         ) : null}
       </div>

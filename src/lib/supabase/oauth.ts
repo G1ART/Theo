@@ -15,6 +15,9 @@
  *     configured" errors into a machine-readable `provider_not_configured`
  *     code so the UI can render the "이 로그인 방식은 아직 준비 중입니다."
  *     toast without pattern-matching English strings.
+ *   - Google requests `openid email profile` only. Calendar scopes are
+ *     not part of sign-up. The client id lives in the Supabase Google
+ *     provider, not in this app.
  *
  * This helper is intentionally *not* feature-flag gated — it's a plain
  * utility. Only the pill buttons that call it live behind
@@ -26,6 +29,13 @@
 import { supabase } from "./client";
 import { getAuthOrigin } from "./auth";
 import { safeNextPath } from "@/lib/identity/routing";
+import {
+  buildOAuthCallbackUrl,
+  clearOAuthAttempt,
+  markOAuthAttempt,
+  oauthProviderScopes,
+  type OAuthSurface,
+} from "@/lib/auth/oauthSignup";
 
 export type OAuthProvider = "google" | "apple";
 
@@ -34,11 +44,16 @@ export type SignInWithOAuthProviderOptions = {
    *  relative single-slash paths are honored — anything else falls back
    *  to the default post-auth destination. */
   next?: string | null;
+  /** Screen that started the redirect. Google's organization-only
+   *  error often never returns here, so the screen also reads a
+   *  session flag when the browser comes back. */
+  from?: OAuthSurface | null;
 };
 
 /** Machine-readable error codes surfaced to the UI. */
 export type OAuthErrorCode =
   | "provider_not_configured"
+  | "org_blocked"
   | "cancelled"
   | "network"
   | "unknown";
@@ -80,7 +95,9 @@ function classifyError(raw: unknown): OAuthError {
       .trim() || "OAuth request failed";
   const lower = message.toLowerCase();
   let code: OAuthErrorCode = "unknown";
-  if (PROVIDER_DISABLED_PATTERNS.some((p) => lower.includes(p))) {
+  if (lower.includes("org_internal") || lower.includes("org internal")) {
+    code = "org_blocked";
+  } else if (PROVIDER_DISABLED_PATTERNS.some((p) => lower.includes(p))) {
     code = "provider_not_configured";
   } else if (CANCELLED_PATTERNS.some((p) => lower.includes(p))) {
     code = "cancelled";
@@ -101,22 +118,34 @@ export async function signInWithOAuthProvider(
   opts: SignInWithOAuthProviderOptions = {},
 ): Promise<{ error: OAuthError | null }> {
   const safeNext = safeNextPath(opts.next);
+  const from: OAuthSurface =
+    opts.from === "signup" || opts.from === "onboarding" ? opts.from : "login";
   // The `provider` query param lets `/auth/callback` route OAuth
   // sessions through the "seed full_name / send to Step 3" branch
   // without probing every session for identities on every callback.
-  const callbackParams = new URLSearchParams();
-  callbackParams.set("provider", provider);
-  if (safeNext) callbackParams.set("next", safeNext);
-  const redirectTo = `${getAuthOrigin()}/auth/callback?${callbackParams.toString()}`;
+  const redirectTo = buildOAuthCallbackUrl(getAuthOrigin(), {
+    provider,
+    next: safeNext,
+    from,
+  });
+  const scopes = oauthProviderScopes(provider);
+  markOAuthAttempt({ provider, from, next: safeNext });
 
   try {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo },
+      options: {
+        redirectTo,
+        ...(scopes ? { scopes } : {}),
+      },
     });
-    if (error) return { error: classifyError(error) };
+    if (error) {
+      clearOAuthAttempt();
+      return { error: classifyError(error) };
+    }
     return { error: null };
   } catch (raw) {
+    clearOAuthAttempt();
     return { error: classifyError(raw) };
   }
 }

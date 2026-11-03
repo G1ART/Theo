@@ -41,6 +41,8 @@ import {
   signInWithPassword,
   signUpWithPassword,
 } from "@/lib/supabase/auth";
+import { messageKeyForOAuthCode, type OAuthSurface } from "@/lib/auth/oauthSignup";
+import { useOAuthReturnNotice } from "@/lib/auth/useOAuthReturnNotice";
 import { signInWithOAuthProvider } from "@/lib/supabase/oauth";
 
 type Mode = "check" | "signup";
@@ -51,10 +53,12 @@ export function OnboardingAccountForm({
   initialEmail,
   nextPath,
   onAccountReady,
+  oauthFrom = "onboarding",
 }: {
   initialEmail: string;
   nextPath: string | null;
   onAccountReady: (userId: string) => void | Promise<void>;
+  oauthFrom?: Extract<OAuthSurface, "signup" | "onboarding">;
 }) {
   const router = useRouter();
   const { t } = useT();
@@ -69,6 +73,7 @@ export function OnboardingAccountForm({
   const [duplicateEmailFor, setDuplicateEmailFor] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const oauthReturn = useOAuthReturnNotice();
   const appliedQueryEmail = useRef(false);
 
   useEffect(() => {
@@ -91,16 +96,13 @@ export function OnboardingAccountForm({
   async function handleGoogle() {
     setOauthLoading(true);
     setOauthError(null);
-    const { error: err } = await signInWithOAuthProvider("google", { next: nextPath });
+    const { error: err } = await signInWithOAuthProvider("google", {
+      next: nextPath,
+      from: oauthFrom,
+    });
     if (err) {
       setOauthLoading(false);
-      const messageKey =
-        err.code === "provider_not_configured"
-          ? "auth.loginV2.oauth.notConfigured"
-          : err.code === "cancelled"
-            ? "auth.loginV2.oauth.cancelled"
-            : "auth.loginV2.oauth.error";
-      setOauthError(t(messageKey));
+      setOauthError(t(messageKeyForOAuthCode(err.code)));
     }
   }
 
@@ -285,9 +287,9 @@ export function OnboardingAccountForm({
               {t("auth.loginV2.quickStart.label")}
             </p>
             <GoogleStartButton onClick={() => void handleGoogle()} loading={oauthLoading} />
-            {oauthError ? (
-              <p role="alert" className="mt-3 text-xs text-red-600">
-                {oauthError}
+            {oauthError || oauthReturn ? (
+              <p role="alert" className="mt-3 text-sm text-red-600">
+                {oauthError || oauthReturn}
               </p>
             ) : null}
           </div>
