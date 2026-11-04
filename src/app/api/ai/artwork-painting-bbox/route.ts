@@ -37,10 +37,11 @@ export const maxDuration = 60;
  * primary image as-is (safe fallback), while a false negative crop
  * risks slicing into the actual artwork.
  *
- * Model (2026-10-02): this route uses the shared default
- * (`gpt-5.6-sol` via `resolveModelForFeature`), the same model as
- * every other AI feature. The prompt still rejects the symmetric
- * 10% fallback bbox that `gpt-4o-mini` used to emit.
+ * Model (2026-11-03): this route uses the shared default
+ * (`gpt-6.1-sol` via `resolveModelForFeature`), the same model as
+ * every other AI feature. One image, `detail: "high"`, four-corner
+ * JSON. The prompt still rejects the symmetric 10% fallback bbox
+ * that `gpt-4o-mini` used to emit.
  *
  * Entitlement + soft-cap gating reuses `handleAiRoute` (feature key
  * `artwork_painting_bbox` maps to entitlement `simulation.2d` —

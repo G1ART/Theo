@@ -1,6 +1,18 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
+
+## 2026-11-03 — 기본 OpenAI 모델은 gpt-6.1-sol
+
+> **Supabase SQL:** 없음.
+>
+> **환경 변수:** 새 이름 없음. `OPENAI_MODEL`이 `gpt-5.6-sol`, `gpt-5.6`, `gpt-4o`, `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-4.1-nano`, `gpt-6-astra`이면 코드가 무시하고 `gpt-6.1-sol`을 쓴다. Vercel에 `gpt-5.6-sol`이 남아 있어도 바꾸지 않아도 된다. 그 목록에 없는 다른 모델 ID가 들어 있으면 그 값이 이긴다. `.env.example`, `docs/03_RUNBOOK.md` 갱신.
+
+- 사각형 크롭(`detectArtworkQuad` / artwork painting bbox)을 포함한 OpenAI 기능의 기본 모델이 `gpt-6.1-sol`이다. 요청은 이미지 1장, detail high, 네 모서리 JSON, reasoning medium 그대로다.
+- 원형·비정형 포토룸(`sdk.photoroom.com/v1/segment`)은 그대로다.
+- 공식 단가는 입력 $2, 출력 $10 per 1M이다. 공식 문서는 모서리 품질을 비교하지 않는다.
+
+**Verified:** `npx tsc --noEmit`. `tests/openai-default-model.test.ts`, `tests/upload-no-quality-gate.test.ts`, `tests/artwork-bbox-soft-cap.test.ts` 통과. 실제 작품 이미지는 다시 크롭하지 않았다. OpenAI를 호출해 모서리 품질을 보지 않았다. 프로덕션 `OPENAI_MODEL` 값은 읽지 않았다.
 
 ## 2026-11-02 — 구글 가입은 The Green Calendar 내부 앱
 

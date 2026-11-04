@@ -14,15 +14,16 @@ import { SAFETY_FOOTER, assertSafePrompt } from "./safety";
 const CONFIGURED_MODEL = (process.env.OPENAI_MODEL ?? "").trim();
 
 /**
- * Default for every AI feature (2026-10-02). Vision + chat completions
- * + JSON. Chosen over `gpt-6-astra` for artwork boundary / crop /
- * correction volume: same image tokenizer, about 40% of the price
- * ($4 / $20 per 1M). `gpt-5.6` aliases to this snapshot.
+ * Default for every AI feature (2026-11-03). Vision + chat completions
+ * + JSON. `gpt-6.1-sol` replaces `gpt-5.6-sol`: the next snapshot, at
+ * half the listed token price ($2 / $10 per 1M). Official model notes
+ * do not compare corner quality. `gpt-5.6` aliases to the previous
+ * snapshot, so that pin is retired with it.
  */
-export const RECOMMENDED_MODEL = "gpt-5.6-sol";
+export const RECOMMENDED_MODEL = "gpt-6.1-sol";
 
-/** Env pins we refuse to keep, including the one-day `gpt-6-astra`
- *  default, so a stale Vercel value cannot undo this choice. */
+/** Env pins we refuse to keep, so a stale Vercel `OPENAI_MODEL` cannot
+ *  undo this choice. Includes the previous default `gpt-5.6-sol`. */
 const RETIRED_MODELS = new Set([
   "gpt-4o",
   "gpt-4o-2024-05-13",
@@ -33,12 +34,20 @@ const RETIRED_MODELS = new Set([
   "gpt-4.1-mini",
   "gpt-4.1-nano",
   "gpt-6-astra",
+  "gpt-5.6-sol",
+  "gpt-5.6",
 ]);
 
-export const DEFAULT_MODEL =
-  CONFIGURED_MODEL && !RETIRED_MODELS.has(CONFIGURED_MODEL)
-    ? CONFIGURED_MODEL
-    : RECOMMENDED_MODEL;
+/** `OPENAI_MODEL` when it is a real pin; otherwise `RECOMMENDED_MODEL`.
+ *  Retired ids, including `gpt-5.6-sol`, never win. */
+export function resolveDefaultModel(configured: string): string {
+  const trimmed = configured.trim();
+  if (!trimmed || RETIRED_MODELS.has(trimmed)) return RECOMMENDED_MODEL;
+  return trimmed;
+}
+
+export const DEFAULT_MODEL = resolveDefaultModel(CONFIGURED_MODEL);
+
 /**
  * OpenAI chat completion budget (SDK client + AbortSignal in handleAiRoute).
  * 8s was too tight for JSON-mode portfolio hints in production; keep below
@@ -49,14 +58,15 @@ export const GENERATE_TIMEOUT_MS = 45_000;
 /**
  * Per-feature model overrides (2026-08-19).
  *
- * Every feature rides `DEFAULT_MODEL` (`gpt-5.6-sol` unless a
+ * Every feature rides `DEFAULT_MODEL` (`gpt-6.1-sol` unless a
  * non-retired `OPENAI_MODEL` is set). Add a key here only to diverge.
  */
 export const FEATURE_MODEL_OVERRIDE: Partial<Record<AiFeatureKey, string>> = {};
 
 /**
  * Pick the model for a given feature. A key in `FEATURE_MODEL_OVERRIDE`
- * wins over `DEFAULT_MODEL`. Retired env pins (`gpt-4o`, `gpt-4o-mini`)
+ * wins over `DEFAULT_MODEL`. Retired env pins (`gpt-4o`, `gpt-4o-mini`,
+ * `gpt-4.1-mini`, `gpt-4.1-nano`, `gpt-6-astra`, `gpt-5.6-sol`)
  * never become the default — see `RETIRED_MODELS`.
  */
 export function resolveModelForFeature(feature: AiFeatureKey): string {
@@ -212,7 +222,7 @@ export async function generateJSON<T extends object>(
       {
         model,
         // Reasoning models reject a non-default temperature. Medium
-        // matches gpt-5.6-sol's own default for both vision and text.
+        // stays the effort for gpt-6.1-sol on both vision and text.
         // Classic models keep 0.7.
         ...(reasoning
           ? {

@@ -102,7 +102,7 @@ type Props = {
   autoHint?: boolean;
   /**
    * When false, the photo stays up but the corner handles and the
-   * quad outline stay off. The crop step uses this while gpt-5.6-sol
+   * quad outline stay off. The crop step uses this while gpt-6.1-sol
    * is still finding the rectangle, so the 15% inset is not drawn
    * as a detection.
    */

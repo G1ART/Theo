@@ -1,6 +1,6 @@
 /**
  * Upload must not call the artwork quality gate, and a new file must
- * still ask gpt-5.6-sol for rectangle corners without waiting on that
+ * still ask gpt-6.1-sol for rectangle corners without waiting on that
  * gate.
  */
 

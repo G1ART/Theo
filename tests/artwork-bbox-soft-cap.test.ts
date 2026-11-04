@@ -8,7 +8,7 @@ import type { AiFeatureKey } from "../src/lib/ai/types";
 
 /**
  * 2026-10-03 — the 30 was our account-day draft counter (`ai_events`
- * since UTC midnight), not an OpenAI / gpt-5.6-sol quota. Opening a
+ * since UTC midnight), not an OpenAI / gpt-6.1-sol quota. Opening a
  * photo used to fill it, and the next call returned 429 `cap` before
  * the model ran. Authenticated quality-gate, rectangle, and draft
  * calls must not be rejected for that count. A missing bearer token

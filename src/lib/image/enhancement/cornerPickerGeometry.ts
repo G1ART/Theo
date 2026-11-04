@@ -357,7 +357,7 @@ export type RectangleVisionStatus = "idle" | "loading" | "ok" | "miss";
 /**
  * Corner handles and the quad outline on the crop step.
  *
- * gpt-5.6-sol owns the rectangle. While that request is in progress
+ * gpt-6.1-sol owns the rectangle. While that request is in progress
  * (`idle` or `loading`, the "사진 안에서 작품을 찾는 중…" chip) the
  * 15% inset placeholder is not drawn and cannot confirm a crop.
  * A usable sol quad is shown dashed, at those corners, with no slide

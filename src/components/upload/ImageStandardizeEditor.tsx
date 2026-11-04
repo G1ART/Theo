@@ -1312,7 +1312,7 @@ export function ImageStandardizeEditor({
 
   // Seed the Step-1 PerspectiveCornerPicker with (in order):
   //   1. user's committed corners,
-  //   2. vision 4-corner trapezoid (gpt-5.6-sol owns the rectangle),
+  //   2. vision 4-corner trapezoid (gpt-6.1-sol owns the rectangle),
   //   3. a local matte / edge hint only when it is not the photo frame,
   //   4. an inset quad the artist can drag. That inset is not a detect.
   const matteQuad = (analysis?.matteForegroundCorners ?? null) as Quad | null;
