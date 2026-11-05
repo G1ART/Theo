@@ -1280,6 +1280,105 @@ function testCuratedGalleryIsNotAnArtistYouMightKnow() {
   assert.equal(artistCardWorks(onlyHybrid.modules).includes("Cur1"), false);
 }
 
+function testPairGridTakesFourWithoutPaddingOrChangingTheDesktopCap() {
+  const people = ["A", "B", "C", "D", "E"].map((id) => person({ id, name: id }));
+  const outside = [0, 1, 2, 3, 4].map((n) =>
+    work({ id: `Out${n}`, artistId: "E", title: `Outside ${n}` })
+  );
+  const onShow = [
+    ...[0, 1, 2, 3].map((n) => work({ id: `A${n}`, artistId: "A", title: `Ada ${n}`, exhibitionIds: ["Show"] })),
+    ...[0, 1].map((n) => work({ id: `Ax${n}`, artistId: "A", title: `Ada extra ${n}` })),
+    ...["B", "C", "D"].flatMap((id) =>
+      [0, 1].map((n) => work({ id: `${id}${n}`, artistId: id, title: `${id} ${n}`, exhibitionIds: ["Show"] }))
+    ),
+  ];
+  const showIds = onShow.filter((row) => row.exhibitionIds.includes("Show")).map((row) => row.id);
+  const pools: WalkPools = {
+    people,
+    works: [...outside, ...onShow],
+    exhibitions: [
+      exhibition({
+        id: "Show",
+        title: "Four Square",
+        status: "live",
+        participantIds: ["A", "B", "C", "D"],
+        workIds: showIds,
+        curatorId: "A",
+      }),
+    ],
+    engagements: [],
+    follows: [],
+  };
+  const page = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools,
+    cursor: null,
+  });
+  const gallery = page.modules.find((mod) => mod.type === "artwork_gallery");
+  const curated = page.modules.find((mod) => mod.type === "curators_view");
+  const related = page.modules.find((mod) => mod.type === "related_artwork");
+  const network = page.modules.find((mod) => mod.type === "related_network");
+  const artist = page.modules.find((mod) => mod.type === "artist_card");
+  const show = page.modules.find((mod) => mod.type === "exhibition_card");
+  assert.ok(gallery && gallery.type === "artwork_gallery");
+  assert.equal(gallery.works.length, 4);
+  assert.equal(gallery.desktopCount, 3);
+  assert.equal(new Set(gallery.works.map((row) => row.id)).size, 4);
+  assert.ok(curated && curated.type === "curators_view");
+  assert.equal(curated.works.length, 4);
+  assert.equal(curated.desktopCount, 3);
+  assert.ok(related && related.type === "related_artwork");
+  assert.equal(related.works.length, 4);
+  assert.equal(related.desktopCount, 3);
+  assert.ok(network && network.type === "related_network");
+  assert.equal(network.people.length, 4);
+  assert.equal(network.desktopCount, 3);
+  if (artist && artist.type === "artist_card") {
+    assert.ok(artist.works.length <= 3);
+    assert.ok(artist.works.length >= 1);
+  }
+  assert.ok(show && show.type === "exhibition_card");
+  assert.equal("desktopCount" in show, false);
+
+  const fewPools: WalkPools = {
+    ...pools,
+    works: outside.slice(0, 3),
+    exhibitions: [],
+  };
+  const few = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools: fewPools,
+    cursor: null,
+  });
+  assert.equal(few.modules[0]?.type, "artwork_gallery");
+  if (few.modules[0]?.type === "artwork_gallery") {
+    assert.equal(few.modules[0].works.length, 3);
+    assert.equal(few.modules[0].desktopCount, undefined);
+  }
+
+  const longPools: WalkPools = {
+    people,
+    works: Array.from({ length: 6 }, (_, n) => work({ id: `L${n}`, artistId: "E", title: `Long ${n}` })),
+    exhibitions: [],
+    engagements: [],
+    follows: [],
+  };
+  const long = assembleWalk({
+    lane: "public",
+    viewer: anonViewer(),
+    pools: longPools,
+    cursor: null,
+  });
+  assert.equal(long.modules[0]?.type, "artwork_gallery");
+  if (long.modules[0]?.type === "artwork_gallery") {
+    assert.equal(long.modules[0].works.length, 6);
+    assert.equal(long.modules[0].desktopCount, undefined);
+  }
+}
+
+testPairGridTakesFourWithoutPaddingOrChangingTheDesktopCap();
 testCuratedGalleryIsNotAnArtistYouMightKnow();
 testExhibitionCardThumbs();
 testGroupShowThumbs();

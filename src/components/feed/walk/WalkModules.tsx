@@ -10,11 +10,17 @@ import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { visibleModule } from "@/lib/feed/walk/content";
 import { fillTemplate } from "@/lib/feed/walk/fill";
 import {
+  FEED_BLOCK_DESKTOP_COUNT,
+  FEED_BLOCK_MOBILE_COUNT,
+  FEED_NETWORK_COUNT,
   isWalkArtworkModule,
+  WALK_ARTWORK_DESKTOP_TRIM_CLASS,
   WALK_ARTWORK_GRID_CLASS,
   WALK_ARTWORK_IMAGE_SIZES,
   WALK_ARTWORK_OMIT_SECONDARY_COPY_CLASS,
   WALK_ARTWORK_SECTION_CLASS,
+  networkDesktopTrimClass,
+  walkGridDesktopCount,
 } from "@/lib/feed/walk/mobileArtworkGrid";
 import type { ExhibitionThumb } from "@/lib/feed/walk/exhibitionThumbs";
 import type {
@@ -60,11 +66,15 @@ export function WalkModuleView({ module, userId, lane }: Props) {
       {shown.type === "artist_card" && (
         <ArtistCard person={shown.person} works={shown.works} userId={userId} lane={lane} />
       )}
-      {shown.type === "artwork_gallery" && <WorkTrio works={shown.works} mode="gallery" />}
+      {shown.type === "artwork_gallery" && (
+        <WorkTrio works={shown.works} mode="gallery" desktopCount={walkGridDesktopCount(shown)} />
+      )}
       {shown.type === "exhibition_card" && <ExhibitionCard exhibition={shown.exhibition} />}
-      {shown.type === "related_network" && <Network people={shown.people} />}
+      {shown.type === "related_network" && (
+        <Network people={shown.people} desktopCount={shown.desktopCount} />
+      )}
       {(shown.type === "curators_view" || shown.type === "related_artwork") && (
-        <WorkTrio works={shown.works} mode="credits" />
+        <WorkTrio works={shown.works} mode="credits" desktopCount={walkGridDesktopCount(shown)} />
       )}
     </section>
   );
@@ -193,10 +203,20 @@ function ArtistCard({
   );
 }
 
-function WorkTrio({ works, mode }: { works: WalkWorkView[]; mode: "gallery" | "credits" }) {
-  const shown = mode === "gallery" ? works : works.slice(0, 3);
+function WorkTrio({
+  works,
+  mode,
+  desktopCount,
+}: {
+  works: WalkWorkView[];
+  mode: "gallery" | "credits";
+  desktopCount: number | null;
+}) {
+  const limit = desktopCount == null ? works.length : Math.max(desktopCount, FEED_BLOCK_MOBILE_COUNT);
+  const shown = works.slice(0, limit);
+  const trim = desktopCount === FEED_BLOCK_DESKTOP_COUNT ? ` ${WALK_ARTWORK_DESKTOP_TRIM_CLASS}` : "";
   return (
-    <div className={WALK_ARTWORK_GRID_CLASS}>
+    <div className={`${WALK_ARTWORK_GRID_CLASS}${trim}`}>
       {shown.map((work) =>
         mode === "gallery" ? <GalleryTile key={work.id} work={work} /> : <CreditTile key={work.id} work={work} />
       )}
@@ -331,11 +351,13 @@ function ExhibitionWorkThumbs({ works }: { works: ExhibitionThumb[] }) {
   );
 }
 
-function Network({ people }: { people: WalkPersonView[] }) {
+function Network({ people, desktopCount }: { people: WalkPersonView[]; desktopCount?: number }) {
   const { t } = useT();
+  const shown = people.slice(0, FEED_NETWORK_COUNT);
+  const trim = networkDesktopTrimClass(desktopCount, shown.length);
   return (
-    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {people.slice(0, 4).map((person) => {
+    <ul className={`grid grid-cols-2 gap-3 sm:grid-cols-4${trim ? ` ${trim}` : ""}`}>
+      {shown.map((person) => {
         const role = roleLabel(person.role, t);
         const href = profileHref(person);
         const inner = (

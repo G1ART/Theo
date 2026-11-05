@@ -206,6 +206,11 @@ export type ArtistCardModule = ModuleBase & {
 export type ArtworkGalleryModule = ModuleBase & {
   type: "artwork_gallery";
   works: WalkWorkView[];
+  /**
+   * Desktop (`sm`, 640px) shows this many. Mobile shows the rest, up to
+   * four. Omitted on the long public continuation, which shows every work.
+   */
+  desktopCount?: number;
 };
 
 export type ExhibitionCardModule = ModuleBase & {
@@ -216,16 +221,25 @@ export type ExhibitionCardModule = ModuleBase & {
 export type RelatedNetworkModule = ModuleBase & {
   type: "related_network";
   people: WalkPersonView[];
+  /**
+   * When this is lower than `people.length`, desktop shows only this many.
+   * The extra faces fill the mobile 2×2 and were already on this page.
+   */
+  desktopCount?: number;
 };
 
 export type CuratorsViewModule = ModuleBase & {
   type: "curators_view";
   works: WalkWorkView[];
+  /** Desktop shows this many. Mobile shows the rest, up to four. */
+  desktopCount?: number;
 };
 
 export type RelatedArtworkModule = ModuleBase & {
   type: "related_artwork";
   works: WalkWorkView[];
+  /** Desktop shows this many. Mobile shows the rest, up to four. */
+  desktopCount?: number;
 };
 
 export type FeedModule =

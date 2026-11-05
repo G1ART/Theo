@@ -15,14 +15,21 @@ import {
   FEED_ARTWORK_SCREEN_INSET_PX,
   FEED_ARTWORK_TIGHT_INSET_PX,
   FEED_ARTWORK_TIGHT_MAX_PX,
+  FEED_BLOCK_DESKTOP_COUNT,
+  FEED_BLOCK_MOBILE_COUNT,
+  FEED_NETWORK_COUNT,
   FEED_PAGE_MOBILE_PADDING,
   FEED_WALK_ONE_COLUMN_BELOW_PX,
+  WALK_ARTWORK_DESKTOP_TRIM_CLASS,
   WALK_ARTWORK_GRID_CLASS,
+  networkDesktopTrimClass,
   WALK_ARTWORK_OMIT_SECONDARY_COPY_CLASS,
   WALK_ARTWORK_SECTION_CLASS,
   artworkFrameForViewport,
   artworkScreenInsetPull,
   isWalkArtworkModule,
+  walkBlockShownCount,
+  walkGridDesktopCount,
 } from "../src/lib/feed/walk/mobileArtworkGrid";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -49,6 +56,40 @@ assert.equal(FEED_ARTWORK_TIGHT_INSET_PX, 10);
 assert.equal(FEED_PAGE_MOBILE_PADDING, "1rem");
 assert.equal(FEED_ARTWORK_DESKTOP_COLUMNS, 3);
 assert.equal(FEED_ARTWORK_DESKTOP_GAP_PX, 16);
+assert.equal(FEED_BLOCK_DESKTOP_COUNT, 3);
+assert.equal(FEED_BLOCK_MOBILE_COUNT, 4);
+assert.equal(FEED_NETWORK_COUNT, 4);
+assert.equal(WALK_ARTWORK_DESKTOP_TRIM_CLASS, "sm:[&>:nth-child(n+4)]:hidden");
+assert.equal(networkDesktopTrimClass(3, 4), "sm:[&>:nth-child(n+4)]:hidden");
+assert.equal(networkDesktopTrimClass(4, 4), "");
+assert.equal(networkDesktopTrimClass(undefined, 4), "");
+assert.equal(networkDesktopTrimClass(2, 2), "");
+assert.equal(walkBlockShownCount(390, 4, 3), 4);
+assert.equal(walkBlockShownCount(1440, 4, 3), 3);
+assert.equal(walkBlockShownCount(1440, 4, 4), 4);
+
+for (const width of [320, 350, 390, 639]) {
+  assert.equal(walkBlockShownCount(width, 4, 3), 4, String(width));
+  assert.equal(walkBlockShownCount(width, 3, 3), 3, String(width));
+  assert.equal(walkBlockShownCount(width, 2, 3), 2, String(width));
+  assert.equal(walkBlockShownCount(width, 1, 3), 1, String(width));
+  assert.equal(walkBlockShownCount(width, 0, 3), 0, String(width));
+  assert.equal(walkBlockShownCount(width, 24, null), 24, String(width));
+}
+for (const width of [640, 768, 1024, 1440]) {
+  assert.equal(walkBlockShownCount(width, 4, 3), 3, String(width));
+  assert.equal(walkBlockShownCount(width, 3, 3), 3, String(width));
+  assert.equal(walkBlockShownCount(width, 2, 3), 2, String(width));
+  assert.equal(walkBlockShownCount(width, 24, null), 24, String(width));
+  assert.equal(walkBlockShownCount(width, 4, null), 4, String(width));
+}
+assert.equal(walkGridDesktopCount({ type: "artwork_gallery", desktopCount: 3 }), 3);
+assert.equal(walkGridDesktopCount({ type: "curators_view", desktopCount: 3 }), 3);
+assert.equal(walkGridDesktopCount({ type: "related_artwork", desktopCount: 3 }), 3);
+assert.equal(walkGridDesktopCount({ type: "artwork_gallery" }), null);
+assert.equal(walkGridDesktopCount({ type: "related_network", desktopCount: 3 }), null);
+assert.equal(walkGridDesktopCount({ type: "exhibition_card" }), null);
+assert.equal(walkGridDesktopCount({ type: "artist_card" }), null);
 
 assert.equal(isWalkArtworkModule("artwork_gallery"), true);
 assert.equal(isWalkArtworkModule("related_artwork"), true);
@@ -143,9 +184,13 @@ const artist = between(walk, "function ArtistCard", "function WorkTrio");
 assert.equal(artist.includes("WALK_ARTWORK"), false);
 assert.ok(artist.includes('className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]"'));
 assert.ok(artist.includes('className="mt-auto grid grid-cols-3 gap-3"'));
+assert.ok(artist.includes("works.slice(0, 3)"));
 
 const trio = between(walk, "function WorkTrio", "function GalleryTile");
 assert.ok(trio.includes("WALK_ARTWORK_GRID_CLASS"));
+assert.ok(trio.includes("WALK_ARTWORK_DESKTOP_TRIM_CLASS"));
+assert.ok(trio.includes("FEED_BLOCK_MOBILE_COUNT"));
+assert.equal(trio.includes("works.slice(0, 3)"), false);
 assert.equal(trio.includes("grid-cols-1"), false);
 
 const gallery = between(walk, "function GalleryTile", "function CreditTile");
@@ -165,10 +210,15 @@ assert.ok(
     'className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(140px,200px)_minmax(0,1fr)]"'
   )
 );
+assert.ok(exhibition.includes(".slice(0, 6)"));
+assert.equal(exhibition.includes("FEED_BLOCK_MOBILE_COUNT"), false);
 
 const network = between(walk, "function Network", "function CreditPill");
 assert.equal(network.includes("WALK_ARTWORK"), false);
-assert.ok(network.includes('className="grid grid-cols-2 gap-3 sm:grid-cols-4"'));
+assert.ok(network.includes("grid-cols-2 gap-3 sm:grid-cols-4"));
+assert.ok(network.includes("people.slice(0, FEED_NETWORK_COUNT)"));
+assert.ok(network.includes("networkDesktopTrimClass"));
+assert.equal(network.includes("people.slice(0, 3)"), false);
 
 const square = between(walk, "function SquareImage", "function PersonName");
 assert.ok(square.includes("aspect-square"));

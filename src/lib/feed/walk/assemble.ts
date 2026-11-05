@@ -36,6 +36,12 @@ export const PERSONALIZED_SCENARIOS: readonly WalkScenario[] = [
 ];
 
 const TRIO = 3;
+/**
+ * Mobile 2-column blocks (artwork gallery, curator's view, related
+ * artwork) take one extra work so a 2×2 can fill. Desktop still shows
+ * `TRIO`. Stories that required three still succeed with three.
+ */
+const PAIR_GRID = 4;
 const NETWORK_MAX = 4;
 /** A scenario page stays a short chapter, not a second full feed. */
 const PAGE_MAX = 6;
@@ -66,6 +72,7 @@ type Ctx = {
   pools: WalkPools;
   idx: Indexes;
   used: Set<string>;
+  gate?: Gate;
 };
 
 type FillMode = "strict" | "loose";
@@ -133,6 +140,24 @@ function rotationFor(lane: WalkLane, viewer: WalkViewer): WalkScenario[] {
   return [...PERSONALIZED_SCENARIOS];
 }
 
+function padPairGrids(ctx: Ctx, gate: Gate, modules: FeedModule[]) {
+  for (const claim of gate.pairClaims) {
+    const module = modules.find((mod) => {
+      if (mod.type !== "artwork_gallery" && mod.type !== "curators_view" && mod.type !== "related_artwork") return false;
+      if (mod.works.length !== claim.ids.length) return false;
+      return mod.works.every((work, index) => work.id === claim.ids[index]);
+    });
+    if (!module || (module.type !== "artwork_gallery" && module.type !== "curators_view" && module.type !== "related_artwork")) continue;
+    for (const work of claim.rest) {
+      if (module.works.length >= PAIR_GRID) break;
+      const key = keyW(work.id);
+      if (ctx.used.has(key) || gate.touch.includes(key)) continue;
+      gate.claimWork(work);
+      module.works.push(toWork(work, ctx.idx));
+    }
+  }
+}
+
 function walkRotation(
   ctx: Ctx,
   rotation: readonly WalkScenario[],
@@ -145,6 +170,7 @@ function walkRotation(
   for (let n = 0; n < rotation.length; n++) {
     const name = rotation[si]!;
     const built = buildScenario(name, ctx, mode);
+    if (built && ctx.gate) padPairGrids(ctx, ctx.gate, built.modules);
     const modules = built ? keepVisibleModules(built.modules).slice(0, PAGE_MAX) : [];
     const followingLane = rotation.length === 1 && rotation[0] === "following";
     if (built && modules.length > 0 && (followingLane || hasNonArtwork(modules))) {
@@ -344,6 +370,8 @@ function keyE(id: string): string {
   return `e:${id}`;
 }
 
+type PairClaim = { ids: string[]; rest: WalkWork[] };
+
 type Gate = {
   takePerson: (person: WalkPerson | null | undefined) => WalkPerson | null;
   takeExhibition: (exhibition: WalkExhibition | null | undefined) => WalkExhibition | null;
@@ -352,14 +380,19 @@ type Gate = {
   takeArtistWorks: (artistId: string, min: number, max?: number) => WalkWork[] | null;
   takePeople: (ids: string[], min: number, max?: number) => WalkPerson[] | null;
   touch: string[];
+  pairClaims: PairClaim[];
+  claimWork: (work: WalkWork) => void;
 };
 
 function openGate(ctx: Ctx): Gate {
   const blocked = new Set(ctx.used);
   const touch: string[] = [];
+  const fresh = new Set<string>();
+  const pairClaims: PairClaim[] = [];
 
   function claim(key: string) {
     blocked.add(key);
+    fresh.add(key);
     touch.push(key);
   }
 
@@ -367,7 +400,7 @@ function openGate(ctx: Ctx): Gate {
     return isAuthoredWork(work) && ctx.idx.people.has(work.artistId) && !blocked.has(keyW(work.id));
   }
 
-  return {
+  const gate: Gate = {
     touch,
     takePerson(person) {
       if (!person || person.id === ctx.viewer.id) return null;
@@ -393,6 +426,14 @@ function openGate(ctx: Ctx): Gate {
       }
       if (picked.length < min) return null;
       for (const work of picked) claim(keyW(work.id));
+      if (max === TRIO && picked.length < PAIR_GRID) {
+        const rest: WalkWork[] = [];
+        for (const work of works) {
+          if (!workOk(work)) continue;
+          rest.push(work);
+        }
+        if (rest.length > 0) pairClaims.push({ ids: picked.map((work) => work.id), rest });
+      }
       return picked;
     },
     takeWorks(works, count) {
@@ -411,27 +452,56 @@ function openGate(ctx: Ctx): Gate {
       return picked;
     },
     takePeople(ids, min, max = NETWORK_MAX) {
-      const picked: WalkPerson[] = [];
+      const primary: WalkPerson[] = [];
+      const reused: WalkPerson[] = [];
       const seen = new Set<string>();
       for (const id of ids) {
-        if (picked.length === max) break;
         if (seen.has(id) || id === ctx.viewer.id) continue;
         const person = ctx.idx.people.get(id);
         if (!person) continue;
         const key = keyP(id);
-        if (blocked.has(key)) continue;
+        const alreadyHere = blocked.has(key) && fresh.has(key);
+        if (blocked.has(key) && !alreadyHere) continue;
         seen.add(id);
+        if (alreadyHere) {
+          reused.push(person);
+          continue;
+        }
+        if (primary.length === max) continue;
+        claim(key);
+        primary.push(person);
+      }
+      const picked = primary.slice(0, max);
+      for (const person of reused) {
+        if (picked.length === max) break;
         picked.push(person);
       }
       if (picked.length < min) return null;
-      for (const person of picked) claim(keyP(person.id));
-      return picked;
+      const faces = picked as WalkPerson[] & { desktopCount?: number };
+      // Desktop keeps the count from before this page's other cards were reused.
+      faces.desktopCount = primary.length;
+      return faces;
+    },
+    pairClaims,
+    claimWork(work) {
+      claim(keyW(work.id));
     },
   };
+  ctx.gate = gate;
+  return gate;
 }
 
 function copy(key: string, params: Record<string, string> = {}): WalkCopy {
   return { key, params };
+}
+
+function networkFaces(people: WalkPerson[]): { people: WalkPersonView[]; desktopCount?: number } {
+  const desktopCount = (people as WalkPerson[] & { desktopCount?: number }).desktopCount;
+  const views = people.map(toPerson);
+  if (typeof desktopCount === "number" && desktopCount < views.length) {
+    return { people: views, desktopCount };
+  }
+  return { people: views };
 }
 
 function toPerson(person: WalkPerson): WalkPersonView {
@@ -539,13 +609,20 @@ function mod(
   reason: WalkCopy,
   extra: Record<string, unknown>
 ): FeedModule {
-  const anchor = moduleAnchor(extra);
+  const showAll = extra.showAll === true;
+  const rest = { ...extra };
+  delete rest.showAll;
+  const paired =
+    !showAll &&
+    (type === "artwork_gallery" || type === "curators_view" || type === "related_artwork");
+  const anchor = moduleAnchor(rest);
   return {
     type,
     key: `${scenario}:${slot}:${anchor}`,
     title,
     reason,
-    ...extra,
+    ...rest,
+    ...(paired ? { desktopCount: TRIO } : {}),
   } as FeedModule;
 }
 
@@ -691,7 +768,7 @@ function storyExhibition(ctx: Ctx, person: WalkPerson, shared: WalkExhibition): 
         exhibition: toExhibition(otherTaken, ctx.idx),
       }),
       mod("related_network", "exhibition_network", "room", copy("feed.walk.ex.room.title"), copy("feed.walk.ex.room.reason", { exhibition: otherName }), {
-        people: room.map(toPerson),
+        ...networkFaces(room),
       }),
       mod("artwork_gallery", "exhibition_network", "works", copy("feed.walk.ex.works.title"), copy("feed.walk.ex.works.reason", { exhibition: otherName }), {
         works: roomWorks.map((work) => toWork(work, ctx.idx)),
@@ -765,7 +842,7 @@ function storySharedMedium(
         works: gallery.map((work) => toWork(work, ctx.idx)),
       }),
       mod("related_network", "shared_medium", "artists", copy("feed.walk.medium.artists.title"), copy("feed.walk.medium.artists.reason", { medium }), {
-        people: artists.map(toPerson),
+        ...networkFaces(artists),
       }),
       mod("exhibition_card", "shared_medium", "show", copy("feed.walk.medium.show.title"), copy("feed.walk.medium.show.reason", { exhibition: show.title, medium }), {
         exhibition: toExhibition(show, ctx.idx),
@@ -907,7 +984,7 @@ function storySchool(ctx: Ctx, school: string, alumniIds: string[], exhibition: 
         works: gallery.map((work) => toWork(work, ctx.idx)),
       }),
       mod("related_network", "school", "people", copy("feed.walk.school.people.title"), copy("feed.walk.school.people.reason", { school }), {
-        people: network.map(toPerson),
+        ...networkFaces(network),
       }),
       mod("exhibition_card", "school", "show", copy("feed.walk.school.show.title"), copy("feed.walk.school.show.reason", { school, exhibition: show.title }), {
         exhibition: toExhibition(show, ctx.idx),
@@ -983,7 +1060,7 @@ function storyLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | null 
         exhibition: toExhibition(show, ctx.idx),
       }),
       mod("related_network", "local", "artists", copy("feed.walk.local.artists.title"), copy("feed.walk.local.artists.reason", { exhibition: show.title }), {
-        people: artists.map(toPerson),
+        ...networkFaces(artists),
       }),
       mod("artwork_gallery", "local", "works", copy("feed.walk.local.works.title"), copy("feed.walk.local.works.reason", { gallery }), {
         works: others.map((work) => toWork(work, ctx.idx)),
@@ -996,7 +1073,7 @@ function storyLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | null 
         exhibition: toExhibition(other, ctx.idx),
       }),
       mod("related_network", "local", "network", copy("feed.walk.local.network.title"), copy("feed.walk.local.network.reason", { exhibition: other.title }), {
-        people: room.map(toPerson),
+        ...networkFaces(room),
       }),
     ],
   };
@@ -1066,7 +1143,7 @@ function storyCollector(ctx: Ctx, saved: WalkWork[], exhibition: WalkExhibition)
         works: engagedWorks.map((work) => toWork(work, ctx.idx)),
       }),
       mod("related_network", "collector", "network", copy("feed.walk.collect.network.title"), copy("feed.walk.collect.network.reason", { name: artist.name }), {
-        people: network.map(toPerson),
+        ...networkFaces(network),
       }),
       mod("exhibition_card", "collector", "next", copy("feed.walk.collect.next.title"), copy("feed.walk.collect.next.reason", { exhibition: nextShow.title }), {
         exhibition: toExhibition(nextShow, ctx.idx),
@@ -1130,7 +1207,7 @@ function looseStoryExhibition(ctx: Ctx, person: WalkPerson, shared: WalkExhibiti
     if (room) {
       modules.push(
         mod("related_network", "exhibition_network", "room", copy("feed.walk.ex.room.title"), copy("feed.walk.ex.room.reason", { exhibition: otherTaken.title }), {
-          people: room.map(toPerson),
+          ...networkFaces(room),
         })
       );
       const roomWorks = gate.takeSome(worksOfArtists(room.map((row) => row.id), ctx), 1, 3);
@@ -1208,7 +1285,7 @@ function looseStoryMedium(
   if (artists) {
     modules.push(
       mod("related_network", "shared_medium", "artists", copy("feed.walk.medium.artists.title"), copy("feed.walk.medium.artists.reason", { medium }), {
-        people: artists.map(toPerson),
+        ...networkFaces(artists),
       })
     );
   }
@@ -1337,7 +1414,7 @@ function looseSchool(ctx: Ctx): Built | null {
   if (network) {
     modules.push(
       mod("related_network", "school", "people", copy("feed.walk.school.people.title"), copy("feed.walk.school.people.reason", { school }), {
-        people: network.map(toPerson),
+        ...networkFaces(network),
       })
     );
   }
@@ -1369,7 +1446,7 @@ function looseStorySchool(ctx: Ctx, school: string, alumniIds: string[], exhibit
   if (network) {
     modules.push(
       mod("related_network", "school", "people", copy("feed.walk.school.people.title"), copy("feed.walk.school.people.reason", { school }), {
-        people: network.map(toPerson),
+        ...networkFaces(network),
       })
     );
   }
@@ -1414,7 +1491,7 @@ function looseStoryLocal(ctx: Ctx, seed: WalkExhibition, city: string): Built | 
   if (artists) {
     modules.push(
       mod("related_network", "local", "artists", copy("feed.walk.local.artists.title"), copy("feed.walk.local.artists.reason", { exhibition: show.title }), {
-        people: artists.map(toPerson),
+        ...networkFaces(artists),
       })
     );
   }
@@ -1511,7 +1588,7 @@ function looseStoryCollector(ctx: Ctx, saved: WalkWork[], exhibition: WalkExhibi
     if (network) {
       modules.push(
         mod("related_network", "collector", "network", copy("feed.walk.collect.network.title"), copy("feed.walk.collect.network.reason", { name: artist.name }), {
-          people: network.map(toPerson),
+          ...networkFaces(network),
         })
       );
     }
@@ -1581,7 +1658,7 @@ function loosePublicShow(ctx: Ctx, exhibition: WalkExhibition, works: WalkWork[]
   if (people) {
     modules.push(
       mod("related_network", "public", "people", copy("feed.walk.public.people.title"), copy("feed.walk.public.people.reason", { exhibition: show.title }), {
-        people: people.map(toPerson),
+        ...networkFaces(people),
       })
     );
   }
@@ -1646,6 +1723,7 @@ function publicWorksOnly(ctx: Ctx, loose: WalkWork[]): Built | null {
         copy("feed.walk.public.works.title"),
         copy("feed.walk.public.works.reason"),
         {
+          showAll: true,
           works: gallery.map((work) => toWork(work, ctx.idx)),
         }
       ),
@@ -1690,7 +1768,7 @@ function storyPublic(
       exhibition: toExhibition(show, ctx.idx),
     }),
     mod("related_network", "public", "people", copy("feed.walk.public.people.title"), copy("feed.walk.public.people.reason", { exhibition: show.title }), {
-      people: people.map(toPerson),
+      ...networkFaces(people),
     }),
   ];
 
@@ -1771,7 +1849,7 @@ function buildFollowing(ctx: Ctx): Built | null {
   if (others) {
     modules.push(
       mod("related_network", "following", "network", copy("feed.walk.follow.network.title"), copy("feed.walk.follow.network.reason"), {
-        people: others.map(toPerson),
+        ...networkFaces(others),
       })
     );
   }

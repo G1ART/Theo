@@ -102,3 +102,48 @@ export const WALK_ARTWORK_GRID_CLASS =
 export const WALK_ARTWORK_OMIT_SECONDARY_COPY_CLASS = "[@media(max-width:350px)]:hidden";
 
 export const WALK_ARTWORK_IMAGE_SIZES = "(max-width: 639px) 42vw, 240px";
+
+/** Desktop row for the blocks that used to be a trio. */
+export const FEED_BLOCK_DESKTOP_COUNT = 3;
+/** Mobile 2×2. Fewer works stay as they are — no placeholder cards. */
+export const FEED_BLOCK_MOBILE_COUNT = 4;
+/** Related network already takes this many. Both widths show them. */
+export const FEED_NETWORK_COUNT = 4;
+
+/** Hides the mobile-only fourth tile once the row is three across. */
+export const WALK_ARTWORK_DESKTOP_TRIM_CLASS = "sm:[&>:nth-child(n+4)]:hidden";
+
+/** Desktop network row hides faces that were only added to fill the mobile 2×2. */
+export const WALK_NETWORK_DESKTOP_TRIM: Record<number, string> = {
+  1: "sm:[&>:nth-child(n+2)]:hidden",
+  2: "sm:[&>:nth-child(n+3)]:hidden",
+  3: "sm:[&>:nth-child(n+4)]:hidden",
+};
+
+export function networkDesktopTrimClass(desktopCount: number | undefined, available: number): string {
+  if (desktopCount == null || desktopCount >= available || desktopCount < 1) return "";
+  return WALK_NETWORK_DESKTOP_TRIM[desktopCount] ?? "";
+}
+
+export function walkGridDesktopCount(module: { type: string; desktopCount?: number }): number | null {
+  if (
+    module.type !== "artwork_gallery" &&
+    module.type !== "curators_view" &&
+    module.type !== "related_artwork"
+  ) {
+    return null;
+  }
+  return module.desktopCount === FEED_BLOCK_DESKTOP_COUNT ? FEED_BLOCK_DESKTOP_COUNT : null;
+}
+
+/** How many real cards to show. Never pads a short list. */
+export function walkBlockShownCount(
+  width: number,
+  available: number,
+  desktopCount: number | null
+): number {
+  const safe = Math.max(0, Math.floor(available));
+  if (desktopCount == null) return safe;
+  if (width >= FEED_WALK_ONE_COLUMN_BELOW_PX) return Math.min(safe, desktopCount);
+  return Math.min(safe, FEED_BLOCK_MOBILE_COUNT);
+}
