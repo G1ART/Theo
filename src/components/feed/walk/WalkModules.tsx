@@ -9,6 +9,13 @@ import { setArtworkBack } from "@/lib/artworkBack";
 import { setExhibitionBack } from "@/lib/exhibitionBack";
 import { visibleModule } from "@/lib/feed/walk/content";
 import { fillTemplate } from "@/lib/feed/walk/fill";
+import {
+  isWalkArtworkModule,
+  WALK_ARTWORK_GRID_CLASS,
+  WALK_ARTWORK_IMAGE_SIZES,
+  WALK_ARTWORK_OMIT_SECONDARY_COPY_CLASS,
+  WALK_ARTWORK_SECTION_CLASS,
+} from "@/lib/feed/walk/mobileArtworkGrid";
 import type { ExhibitionThumb } from "@/lib/feed/walk/exhibitionThumbs";
 import type {
   FeedModule,
@@ -34,9 +41,22 @@ type Props = {
 export function WalkModuleView({ module, userId, lane }: Props) {
   const shown = visibleModule(module);
   if (!shown) return null;
+  const artworkModule = isWalkArtworkModule(shown.type);
   return (
-    <section className="mb-4 rounded-lg border border-zinc-200 bg-white p-4" aria-labelledby={shown.key}>
-      <ModuleHeading id={shown.key} titleKey={moduleTitleKey(shown)} reason={shown.reason} />
+    <section
+      className={
+        artworkModule
+          ? WALK_ARTWORK_SECTION_CLASS
+          : "mb-4 rounded-lg border border-zinc-200 bg-white p-4"
+      }
+      aria-labelledby={shown.key}
+    >
+      <ModuleHeading
+        id={shown.key}
+        titleKey={moduleTitleKey(shown)}
+        reason={shown.reason}
+        omitSecondaryCopy={artworkModule}
+      />
       {shown.type === "artist_card" && (
         <ArtistCard person={shown.person} works={shown.works} userId={userId} lane={lane} />
       )}
@@ -50,7 +70,17 @@ export function WalkModuleView({ module, userId, lane }: Props) {
   );
 }
 
-function ModuleHeading({ id, titleKey, reason }: { id: string; titleKey: string; reason: WalkCopy }) {
+function ModuleHeading({
+  id,
+  titleKey,
+  reason,
+  omitSecondaryCopy = false,
+}: {
+  id: string;
+  titleKey: string;
+  reason: WalkCopy;
+  omitSecondaryCopy?: boolean;
+}) {
   const { t } = useT();
   const reasonText = fillTemplate(t(reason.key), reason.params).trim();
   return (
@@ -59,7 +89,7 @@ function ModuleHeading({ id, titleKey, reason }: { id: string; titleKey: string;
         {t(titleKey)}
       </h2>
       {reasonText && (
-        <p className="min-w-0">
+        <p className={`min-w-0 ${omitSecondaryCopy ? WALK_ARTWORK_OMIT_SECONDARY_COPY_CLASS : ""}`}>
           <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs leading-5 text-zinc-600">
             <PersonGlyph />
             <span className="truncate">{reasonText}</span>
@@ -166,7 +196,7 @@ function ArtistCard({
 function WorkTrio({ works, mode }: { works: WalkWorkView[]; mode: "gallery" | "credits" }) {
   const shown = mode === "gallery" ? works : works.slice(0, 3);
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-4">
+    <div className={WALK_ARTWORK_GRID_CLASS}>
       {shown.map((work) =>
         mode === "gallery" ? <GalleryTile key={work.id} work={work} /> : <CreditTile key={work.id} work={work} />
       )}
@@ -178,11 +208,13 @@ function GalleryTile({ work }: { work: WalkWorkView }) {
   const caption = [work.title, work.year].filter(Boolean).join(" . ");
   return (
     <WorkLink work={work}>
-      <WorkThumb work={work} sizes="240px" alt={work.title || work.artistName} />
-      <div className="mt-2 space-y-0.5 text-sm text-zinc-900">
+      <WorkThumb work={work} sizes={WALK_ARTWORK_IMAGE_SIZES} alt={work.title || work.artistName} />
+      <div className="mt-2 min-w-0 space-y-0.5 text-sm text-zinc-900">
         {work.artistName && <p className="truncate font-medium">{work.artistName}</p>}
         {caption && <p className="truncate">{caption}</p>}
-        {work.medium && <p className="truncate text-zinc-700">{work.medium}</p>}
+        {work.medium && (
+          <p className={`truncate text-zinc-700 ${WALK_ARTWORK_OMIT_SECONDARY_COPY_CLASS}`}>{work.medium}</p>
+        )}
       </div>
     </WorkLink>
   );
@@ -194,7 +226,7 @@ function CreditTile({ work }: { work: WalkWorkView }) {
   return (
     <div className="min-w-0">
       <WorkLink work={work}>
-        <WorkThumb work={work} sizes="240px" alt={work.title || work.artistName} />
+        <WorkThumb work={work} sizes={WALK_ARTWORK_IMAGE_SIZES} alt={work.title || work.artistName} />
       </WorkLink>
       <div className="mt-2 flex items-baseline justify-between gap-2 text-sm text-zinc-900">
         <p className="min-w-0 truncate font-medium">{work.title}</p>
