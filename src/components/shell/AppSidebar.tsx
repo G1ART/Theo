@@ -2,7 +2,7 @@
 
 import { ShellNavLink } from "@/components/shell/ShellNavLink";
 import { TheoLogo } from "@/components/brand/TheoLogo";
-import { DesktopAccountMenu } from "@/components/shell/DesktopAccountMenu";
+import { DesktopAccountMenu, MENU_ID } from "@/components/shell/DesktopAccountMenu";
 import { useRoleMode } from "@/context/RoleModeContext";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -396,8 +396,9 @@ export function AppSidebar({
             data-side-account
             aria-expanded={menuOpen}
             aria-haspopup="dialog"
+            aria-controls={MENU_ID}
             onClick={() => setMenuOpen((open) => !open)}
-            className="flex w-full items-center gap-2 rounded-md py-1.5 pl-1 pr-1 text-left hover:bg-zinc-50"
+            className="relative z-10 flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md py-1.5 pl-1 pr-1 text-left hover:bg-zinc-50"
           >
             <AccountAvatar imageUrl={avatarUrl} fallback={initial} />
             <span className="min-w-0 flex-1">

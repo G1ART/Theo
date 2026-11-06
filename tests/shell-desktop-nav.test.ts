@@ -17,6 +17,7 @@ import {
   writeStoredShellRole,
   shellRoleProfileLabel,
 } from "../src/lib/shell/roleMode";
+import { placeAccountMenu } from "../src/lib/shell/placeAccountMenu";
 
 const root = path.resolve(__dirname, "..");
 const read = (rel: string) => readFileSync(path.join(root, rel), "utf8");
@@ -72,6 +73,49 @@ assert.equal(roleContext.includes("saveProfileUnified"), false);
 assert.equal(roleContext.includes(".update("), false);
 assert.match(roleContext, /select\("main_role, roles"\)/);
 assert.match(menu, /heldRoles\.map/);
+assert.match(menu, /function AccountMenuCard/);
+assert.match(menu, /data-account-menu/);
+assert.match(menu, /showMenu\(anchorEl, panelEl\)/);
+assert.match(menu, /panelEl\.focus\(\)/);
+assert.match(menu, /event\.key === "Escape"/);
+assert.match(menu, /setLocale\("en"\)/);
+assert.match(menu, /setLocale\("ko"\)/);
+assert.match(menu, /shell\.switchProfile/);
+assert.match(menu, /shell\.viewPublicProfile/);
+assert.match(menu, /shell\.settings/);
+assert.match(menu, /nav\.logout/);
+assert.match(menu, /href="\/settings"/);
+assert.equal(menu.includes("router.push"), false);
+const cardStart = menu.indexOf("function AccountMenuCard");
+const cardEnd = menu.indexOf("export function DesktopAccountMenu");
+const card = menu.slice(cardStart, cardEnd);
+assert.ok(card.includes("ref={panelRef}"));
+assert.ok(card.includes("useLayoutEffect"));
+assert.match(sidebar, /data-side-account/);
+assert.match(sidebar, /setMenuOpen\(\(open\) => !open\)/);
+assert.match(sidebar, /aria-controls=\{MENU_ID\}/);
+const accountBlock = sidebar.slice(
+  sidebar.indexOf("data-side-account"),
+  sidebar.indexOf("<DesktopAccountMenu"),
+);
+assert.equal(accountBlock.includes("href="), false);
+assert.match(header, /Locale switcher — sidebar parity for mobile/);
+assert.match(header, /onClick=\{\(\) => setLocale\("ko"\)\}/);
+
+const beside = placeAccountMenu(
+  { left: 24, right: 200, top: 700, bottom: 748 },
+  { width: 280, height: 320 },
+  { width: 1440, height: 900 },
+);
+assert.equal(beside.left, 208);
+assert.equal(beside.top, 428);
+const flipped = placeAccountMenu(
+  { left: 1200, right: 1400, top: 700, bottom: 748 },
+  { width: 280, height: 200 },
+  { width: 1440, height: 900 },
+);
+assert.equal(flipped.left, 912);
+assert.equal(flipped.top, 548);
 
 assert.equal(messages.en["shell.nav.dashboard"], "Dashboard");
 assert.equal(messages.ko["shell.nav.dashboard"], "대시보드");
