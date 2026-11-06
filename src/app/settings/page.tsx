@@ -1204,6 +1204,9 @@ export default function SettingsPage() {
           title={t("settings.title")}
           actions={
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link href="/my/delegations" className={chipButton}>
+                {t("nav.delegations")}
+              </Link>
               {username && (
                 <Link href={`/u/${username}`} className={chipButton}>
                   {t("settings.cta.publicProfileTabs")}

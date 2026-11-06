@@ -165,7 +165,7 @@ export function backLabelKeyForPath(path: string): MessageKey {
   if (p.startsWith("/u/") || p === "/me") return "nav.profile";
   if (p.startsWith("/e/")) return "exhibition.backLabel";
   if (p.startsWith("/artwork/")) return "artwork.backLabel";
-  if (p === "/my") return "nav.workspace";
+  if (p === "/my") return "shell.nav.dashboard";
   if (p === "/my/exhibitions") return "exhibition.myExhibitions";
   if (/^\/my\/exhibitions\/(?!new$)[^/]+/.test(p)) return "exhibition.manageExhibition";
   if (p === "/my/library/import") return "library.import.title";

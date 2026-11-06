@@ -35,6 +35,8 @@ import {
   type WorkspaceTile,
 } from "@/components/studio/WorkspaceOperationGrid";
 import { claimFounder, isStaffAtLeast } from "@/lib/ops/staff";
+import { useRoleMode } from "@/context/RoleModeContext";
+import { dashboardTileVisible, shellRoleProfileLabel } from "@/lib/shell/roleMode";
 
 // TODO 2026-08 (Phase B redesign): the original studio surface still
 // exports StudioHero / StudioPortfolioPanel / StudioMaterialsPanel /
@@ -68,6 +70,8 @@ type Profile = FullProfile;
 function WorkspaceContent() {
   const { t, locale } = useT();
   const { actingAsProfileId } = useActingAs();
+  const { ready: roleReady, activeRole } = useRoleMode();
+  const viewRole = !actingAsProfileId && roleReady ? activeRole : null;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [priceInquiryCount, setPriceInquiryCount] = useState<number | null>(null);
   const [pendingClaimsCount, setPendingClaimsCount] = useState<number | null>(null);
@@ -320,11 +324,14 @@ function WorkspaceContent() {
   return (
     <PageShell variant="studio">
       <TourTrigger tourId={TOUR_IDS.studio} />
-      <div data-tour="workspace-hub">
+      <div data-tour="workspace-hub" data-role-mode={viewRole ?? "none"}>
+        {viewRole ? (
+          <p className="mb-2 text-sm text-zinc-500">{shellRoleProfileLabel(viewRole, t)}</p>
+        ) : null}
         <PageHeader
           variant="plain"
           title={t("workspace.hub.title")}
-          lead={t("workspace.hub.subtitle")}
+          lead={viewRole ? t(`shell.dashboard.lead.${viewRole}`) : t("workspace.hub.subtitle")}
           actions={
             <div className="flex flex-wrap items-center justify-end gap-2">
               {profile?.username && (
@@ -380,7 +387,9 @@ function WorkspaceContent() {
         </Link>
       )}
 
-      <WorkspaceOperationGrid tiles={tiles} />
+      <WorkspaceOperationGrid
+        tiles={tiles.filter((tile) => dashboardTileVisible(viewRole, tile.key))}
+      />
 
       {profile && actingAsProfileId && (
         <div className="mt-6">

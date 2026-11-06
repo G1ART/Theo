@@ -82,7 +82,7 @@ assert.equal(isExhibitionScreen("/e/ex1", "ex1"), false);
 // Labels name the destination.
 assert.equal(backLabelKeyForPath("/feed?tab=foryou"), "nav.feed");
 assert.equal(backLabelKeyForPath("/u/ada?tab=CREATED"), "nav.profile");
-assert.equal(backLabelKeyForPath("/my"), "nav.workspace");
+assert.equal(backLabelKeyForPath("/my"), "shell.nav.dashboard");
 assert.equal(backLabelKeyForPath("/my/exhibitions"), "exhibition.myExhibitions");
 assert.equal(backLabelKeyForPath("/my/exhibitions/ex1"), "exhibition.manageExhibition");
 assert.equal(backLabelKeyForPath("/notifications"), "notifications.title");

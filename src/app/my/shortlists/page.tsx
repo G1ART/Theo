@@ -17,11 +17,15 @@ import {
   type ShortlistRow,
 } from "@/lib/supabase/shortlists";
 import { useActingAs } from "@/context/ActingAsContext";
+import { useRoleMode } from "@/context/RoleModeContext";
+import { shellRoleProfileLabel } from "@/lib/shell/roleMode";
 
 function ShortlistsContent() {
   const { t } = useT();
   const router = useRouter();
   const { actingAsProfileId } = useActingAs();
+  const { ready: roleReady, activeRole } = useRoleMode();
+  const viewRole = !actingAsProfileId && roleReady ? activeRole : null;
   const [lists, setLists] = useState<ShortlistRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
@@ -78,7 +82,7 @@ function ShortlistsContent() {
     setTimeout(() => {
       router.push(`/my/shortlists/${data.id}`);
     }, 300);
-  }, [newTitle, creating, router, t]);
+  }, [newTitle, creating, router, t, actingAsProfileId]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!pendingDeleteId || deleting) return;
@@ -104,10 +108,17 @@ function ShortlistsContent() {
   }, [t]);
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
+    <main data-role-mode={viewRole ?? "none"} className="mx-auto max-w-2xl px-4 py-8">
       <EntryBackLink fallback="/my" className="mb-4 inline-block text-sm text-zinc-600 hover:text-zinc-900" />
       <h1 className="text-xl font-semibold text-zinc-900">{t("boards.title")}</h1>
-      <p className="mt-1 text-sm text-zinc-500">{t("boards.subtitle")}</p>
+      {viewRole ? (
+        <p className="mt-1 text-sm font-medium text-zinc-700">
+          {shellRoleProfileLabel(viewRole, t)}
+        </p>
+      ) : null}
+      <p className="mt-1 text-sm text-zinc-500">
+        {viewRole ? t(`shell.selections.lead.${viewRole}`) : t("boards.subtitle")}
+      </p>
 
       <div className="mt-5">
         <div className="flex gap-2">

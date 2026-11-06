@@ -11,6 +11,7 @@ import { ProfileBootstrap } from "@/components/ProfileBootstrap";
 import { RandomIdBanner } from "@/components/RandomIdBanner";
 import { BackToTopFab } from "@/components/ui/BackToTopFab";
 import { ActingAsProvider } from "@/context/ActingAsContext";
+import { RoleModeProvider } from "@/context/RoleModeContext";
 import { TourProvider } from "@/components/tour";
 import { IrDemoBanner } from "@/components/irDemo/IrDemoBanner";
 import { ListScrollRestorer } from "@/components/list/ListScrollRestorer";
@@ -118,6 +119,7 @@ export default async function RootLayout({
           <MigrationGuard />
           <ProfileBootstrap />
           <ActingAsProvider>
+            <RoleModeProvider>
             <TourProvider>
               <IrDemoBanner />
               <Header />
@@ -132,6 +134,7 @@ export default async function RootLayout({
                   menus and modal scrims. */}
               <BackToTopFab />
             </TourProvider>
+            </RoleModeProvider>
           </ActingAsProvider>
         </LocaleProvider>
       </body>

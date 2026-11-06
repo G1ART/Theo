@@ -1,6 +1,17 @@
 # Abstract MVP — HANDOFF (Single Source of Truth)
 
-Last updated: 2026-11-04
+Last updated: 2026-11-06
+
+## 2026-11-06 — 데스크톱 왼쪽 메뉴
+
+> **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.**
+
+- 넓은 화면 왼쪽만 바꾼다. 위부터 로고(피드), `+ 업로드`, 네트워크, Theo 게시판, 메시지, 알림, `MY THEO`, 대시보드, 셀렉션. 업로드는 지금 업로드로 가는 버튼 하나이고 역할 메뉴가 없다. 둘러보기·저장·위임은 이 메뉴에서 뺐다.
+- 화면 이름: 워크스페이스는 대시보드, 저장 보드는 셀렉션, 오른쪽 Theo Board는 Theo 게시판. 그 화면으로 돌아가는 버튼도 같은 이름. 휴대폰 햄버거 목록은 그대로라 거기에는 둘러보기·워크스페이스·저장·보드가 남아 있다.
+- 계정 줄의 셰브론이 프로필 전환이다. 그 계정이 가진 역할만 알약으로 보이고, 고르면 이 브라우저에만 기억한다. `main_role`은 쓰지 않는다. 대시보드 타일과 셀렉션 문구, 계정 줄의 ‘아티스트 프로필’이 그 모드를 따른다. 셀렉션 목록은 역할 열이 없어 같은 목록이다. 위임은 설정 위쪽 ‘위임’ 버튼으로 연다. 위임 기능은 그대로다.
+- 게시판 점은 새 글이 있고 아직 그 글을 열지 않았을 때만. 메시지·알림 숫자는 안 읽은 수가 있을 때만, 지금 쓰는 emerald.
+
+**Verified:** `npx tsc --noEmit`. `tests/shell-desktop-nav.test.ts`, `tests/feed-tab-entry.test.ts`, `tests/upload-nav-always-clickable.test.ts`, `tests/entry-trail.test.ts`, `tests/sprint6-2-network-hub.test.ts` 통과. 로그인 없이 로컬 `/feed`. 폭 1440에서 영문은 Logo, + Upload, Network, Theo Bulletin, Messages, Notifications, MY THEO, Dashboard, Selections. 업로드는 링크 하나이고 역할 메뉴가 없다. 한글은 + 업로드, 네트워크, Theo 게시판, 메시지, 알림, MY THEO, 대시보드, 셀렉션. 오른쪽 제목도 Theo 게시판. 폭 390에서 왼쪽 사이드는 숨고 햄버거는 Explore, Messages, Workspace, Saved, Upload. 로그인한 계정 줄·역할 알약·숫자 뱃지·설정의 위임 버튼은 보지 못했다. 게시판에 라이브 글이 없어 초록 점은 켜지지 않았다.
 
 ## 2026-11-04 — 모바일 피드 블록은 2×2로 4개
 

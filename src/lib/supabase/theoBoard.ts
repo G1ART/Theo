@@ -98,6 +98,21 @@ export async function getTheoBoardRail(
   return { data: asPosts(data), error: null };
 }
 
+/** Newest live post time. Pinned order is ignored so the unread dot tracks a new post. */
+export async function getLatestTheoBoardPublishedAt(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("theo_board_posts")
+    .select("published_at")
+    .is("hidden_at", null)
+    .not("published_at", "is", null)
+    .order("published_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const at = (data as { published_at?: string | null }).published_at;
+  return typeof at === "string" && at.length > 0 ? at : null;
+}
+
 export async function getTheoBoardPage(options: {
   offset?: number;
   limit?: number;
