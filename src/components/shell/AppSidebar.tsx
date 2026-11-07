@@ -78,59 +78,71 @@ function sideActive(key: SideKey, pathname: string): boolean {
 }
 
 function RowIcon({ name }: { name: SideKey }) {
-  const common = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", "aria-hidden": true as const };
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    "aria-hidden": true as const,
+  };
+  const stroke = {
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
   if (name === "network") {
     return (
       <svg {...common}>
-        <circle cx="7" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.6" />
-        <circle cx="17" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.6" />
-        <circle cx="12" cy="17" r="2.2" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M9 9.2 11 15.2M15 9.2 13 15.2M9.2 8h5.6" stroke="currentColor" strokeWidth="1.6" />
+        <circle cx="6.5" cy="7.5" r="2" {...stroke} />
+        <circle cx="17.5" cy="7.5" r="2" {...stroke} />
+        <circle cx="12" cy="17" r="2" {...stroke} />
+        <path d="M8.5 7.5h7M8 9.1 10.4 15.3M16 9.1 13.6 15.3" {...stroke} />
       </svg>
     );
   }
   if (name === "bulletin") {
     return (
       <svg {...common}>
-        <rect x="5" y="4" width="14" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <rect x="6" y="3.5" width="12" height="17" rx="1.6" {...stroke} />
+        <path d="M9 8.5h6M9 12h6M9 15.5h4" {...stroke} />
       </svg>
     );
   }
   if (name === "messages") {
     return (
       <svg {...common}>
-        <rect x="4" y="5" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
-        <path d="m4 7 8 6 8-6" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <path
+          d="M6 5.5h11a2 2 0 0 1 2 2V14a2 2 0 0 1-2 2h-6.8L7.2 18.8V16H6a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2Z"
+          {...stroke}
+        />
       </svg>
     );
   }
   if (name === "notifications") {
     return (
       <svg {...common}>
-        <path d="M6 16h12l-1.2-2.2V11a4.8 4.8 0 0 0-9.6 0v2.8L6 16Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M10 16.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" />
+        <path
+          d="M12 4.2a4.6 4.6 0 0 0-4.6 4.6v2.4L6 14.8h12l-1.4-3.6V8.8A4.6 4.6 0 0 0 12 4.2Z"
+          {...stroke}
+        />
+        <path d="M10 15.2a2 2 0 0 0 4 0" {...stroke} />
       </svg>
     );
   }
   if (name === "dashboard") {
     return (
       <svg {...common}>
-        <rect x="4" y="4" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
-        <rect x="13" y="4" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
-        <rect x="4" y="13" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
-        <rect x="13" y="13" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+        <rect x="4" y="4" width="6.8" height="6.8" rx="1.4" {...stroke} />
+        <rect x="13.2" y="4" width="6.8" height="6.8" rx="1.4" {...stroke} />
+        <rect x="4" y="13.2" width="6.8" height="6.8" rx="1.4" {...stroke} />
+        <rect x="13.2" y="13.2" width="6.8" height="6.8" rx="1.4" {...stroke} />
       </svg>
     );
   }
   return (
     <svg {...common}>
-      <path
-        d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-3.2L6 20V5.5a1 1 0 0 1 1-1Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
+      <path d="M7 3.8h10a.8.8 0 0 1 .8.8v15.2L12 16.2 6.2 19.8V4.6a.8.8 0 0 1 .8-.8Z" {...stroke} />
     </svg>
   );
 }
