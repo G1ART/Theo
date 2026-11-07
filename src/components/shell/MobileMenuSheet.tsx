@@ -292,6 +292,13 @@ export function MobileMenuSheet({
               >
                 {t("shell.settings")}
               </ShellNavLink>
+              <ShellNavLink
+                href="/settings/billing"
+                onClick={onNavigate}
+                className="py-2 text-sm text-zinc-800"
+              >
+                {t("shell.billing")}
+              </ShellNavLink>
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-zinc-800">{t("shell.language")}</span>
                 <span className="flex items-center gap-1">

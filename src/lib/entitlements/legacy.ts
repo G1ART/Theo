@@ -63,15 +63,10 @@ export function hasFeature(plan: Plan, feature: string): boolean {
   return allowed.includes(plan as PlanKey);
 }
 
-export async function ensureFreeEntitlement(userId: string): Promise<void> {
-  await supabase.from("entitlements").upsert(
-    {
-      user_id: userId,
-      plan: "free",
-      status: "free",
-      plan_source: "beta_override",
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id", ignoreDuplicates: false }
-  );
+/**
+ * Missing entitlement row means free. The browser must not insert or raise a plan.
+ * Paid state is written by the service role from the signed Stripe webhook.
+ */
+export async function ensureFreeEntitlement(_userId: string): Promise<void> {
+  return;
 }

@@ -1207,6 +1207,9 @@ export default function SettingsPage() {
               <Link href="/my/delegations" className={chipButton}>
                 {t("nav.delegations")}
               </Link>
+              <Link href="/settings/billing" className={chipButton}>
+                {t("shell.billing")}
+              </Link>
               {username && (
                 <Link href={`/u/${username}`} className={chipButton}>
                   {t("settings.cta.publicProfileTabs")}

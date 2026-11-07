@@ -22,6 +22,7 @@ const STATIC_ROUTES = new Set<string>([
   "/",
   "/feed",
   "/settings",
+  "/settings/billing",
   "/me",
   "/my",
   "/my/claims",

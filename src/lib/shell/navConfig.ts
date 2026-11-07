@@ -119,6 +119,7 @@ export const SECONDARY_NAV: NavItem[] = [
     href: "/settings",
     labelKey: "nav.setting",
     matchExact: ["/settings"],
+    matchPatterns: ["/settings/billing"],
   },
   {
     key: "delegations",

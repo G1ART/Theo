@@ -2,6 +2,27 @@
 
 Last updated: 2026-11-06
 
+## 2026-11-06 — 카드 구독 연결 준비
+
+> **Supabase SQL:** `supabase/migrations/20261106180000_billing_subscription_state.sql` 적용됨. `schema_migrations.version` = `20261106180000`.
+>
+> **환경 변수:** 이름만 추가. 값은 비움. Vercel에 지금 넣지 않아도 청구되지 않는다. 로컬·Preview는 나중에 테스트 값, Production만 나중에 라이브 값. 같은 이름. `.env.example`, `docs/03_RUNBOOK.md` 갱신.
+> - `STRIPE_SECRET_KEY`
+> - `STRIPE_WEBHOOK_SECRET`
+> - `STRIPE_PRICE_ARTIST_PRO_MONTH_USD` / `STRIPE_PRICE_ARTIST_PRO_MONTH_KRW` / `STRIPE_PRICE_ARTIST_PRO_YEAR_USD` / `STRIPE_PRICE_ARTIST_PRO_YEAR_KRW`
+> - `STRIPE_PRICE_DISCOVERY_PRO_MONTH_USD` / `STRIPE_PRICE_DISCOVERY_PRO_MONTH_KRW` / `STRIPE_PRICE_DISCOVERY_PRO_YEAR_USD` / `STRIPE_PRICE_DISCOVERY_PRO_YEAR_KRW`
+> - `STRIPE_PRICE_HYBRID_PRO_MONTH_USD` / `STRIPE_PRICE_HYBRID_PRO_MONTH_KRW` / `STRIPE_PRICE_HYBRID_PRO_YEAR_USD` / `STRIPE_PRICE_HYBRID_PRO_YEAR_KRW`
+> - `STRIPE_PRICE_GALLERY_WORKSPACE_MONTH_USD` / `STRIPE_PRICE_GALLERY_WORKSPACE_MONTH_KRW` / `STRIPE_PRICE_GALLERY_WORKSPACE_YEAR_USD` / `STRIPE_PRICE_GALLERY_WORKSPACE_YEAR_KRW`
+> - publishable 키는 없음. 카드 번호 컬럼 없음.
+
+- `/settings/billing`에서 월간·연간과 네 플랜을 고른다. `artist_pro`, `discovery_pro`, `hybrid_pro`, `gallery_workspace`. `collector_pro`는 상품이 아니다. 한국 IP(`x-vercel-ip-country` = KR)는 원화, 그 밖과 국가를 모를 때는 달러. 화면 언어로 나누지 않는다. 구독 전에 원화/달러를 바꿀 수 있고, 구독이 열려 있는 동안 그 통화는 유지된다.
+- 결제 페이지는 Stripe Checkout, 카드 변경·영수증·해지는 Customer Portal이다. 해지는 기간 끝(`cancel_at_period_end`). 성공 주소만으로 플랜이 올라가지 않는다. 웹훅이 `invoice.paid`일 때 `active`, 실패는 `past_due`, 구독이 삭제되면 `free` / `canceled`. 같은 이벤트 id는 한 번만.
+- 대리 작업 중에는 플랜·카드·영수증을 열지 않고 본인 계정으로 돌아오라고 한다. `BETA_ALL_PAID`는 그대로 `true`다. 업그레이드 힌트는 베타에서 숨고, 보일 때는 `/settings/billing`로만 간다.
+- 로그인한 사용자의 `entitlements` insert/update 정책을 내렸다. anon·authenticated의 insert/update/delete/truncate도 거뒀다. 본인 행 읽기는 남는다. 플랜 변경은 서비스 롤과 서명된 웹훅만.
+- 대표님이 Stripe 대시보드에서 할 일: 테스트 모드 계정을 지원 국가 사업자로 연다. 금액이 정해진 뒤에 네 플랜 × 월/연 × USD/KRW 가격을 만들고, 그 price id만 테스트 환경 변수에 넣는다. 웹훅은 `https://withtheo.art/api/billing/webhook` 에 `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`. 카드와, 원화에 쓸 국내 카드(`kr_card`)를 켠다. 라이브 키와 라이브 가격은 그때까지 비운다.
+
+**Verified:** `npx tsc --noEmit`. `tests/billing-stripe.test.ts`에서 웹훅 서명 실패는 400이고 claim이 돌지 않으며, 같은 이벤트는 한 번만 적용된다. `tests/ai-action-href-sanitize.test.ts`, `tests/shell-desktop-nav.test.ts` 통과. 브라우저에서 로그인 세션으로 Checkout·Portal을 끝까지 타지는 못했다. 테스트 키와 가격 id가 비어 있어 실결제도 없다.
+
 ## 2026-11-06 — 왼쪽 사이드 아이콘을 와이어에 맞춤
 
 > **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.**

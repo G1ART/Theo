@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import type { EntitlementDecision } from "@/lib/entitlements";
 import { recordUsageEvent } from "@/lib/metering/recordUsageEvent";
 import { logBetaEventSync } from "@/lib/beta/logEvent";
+import { useT } from "@/lib/i18n/useT";
 
 type Props = {
   decision: EntitlementDecision | null;
@@ -15,33 +17,16 @@ type Props = {
   className?: string;
 };
 
-const PLAN_COPY: Record<NonNullable<EntitlementDecision["paywallHint"]>, { label: string; blurb: string }> = {
-  artist_pro: {
-    label: "Artist Pro",
-    blurb: "Unlock artist-side audience insights and unlimited studio AI.",
-  },
-  discovery_pro: {
-    label: "Discovery Pro",
-    blurb: "Unlock advanced boards, room analytics and discovery alerts.",
-  },
-  hybrid_pro: {
-    label: "Hybrid Pro",
-    blurb: "Every Artist Pro + Discovery Pro capability in a single plan.",
-  },
-  gallery_workspace: {
-    label: "Gallery Workspace",
-    blurb: "Multi-seat access, bulk operations and organization billing.",
-  },
-};
-
 /**
  * Compact paywall hint. During closed beta it is suppressed by default so
  * users don't see teaser copy for features that are already unlocked; set
  * `showInBeta` on diagnostic pages to inspect what the post-beta UI will
- * look like. The impression is metered both times so we can later compare
- * paywall surfacing vs. conversion.
+ * look like. The button opens plan and billing. It does not lock a feature
+ * while beta is on, because the hint stays hidden.
  */
 export function UpgradeHint({ decision, headline, showInBeta = false, onUpgradeClick, className = "" }: Props) {
+  const { t } = useT();
+  const router = useRouter();
   const shownFor = useRef<string | null>(null);
 
   useEffect(() => {
@@ -70,9 +55,9 @@ export function UpgradeHint({ decision, headline, showInBeta = false, onUpgradeC
   if (decision.uiState === "beta_granted" && !showInBeta) return null;
   if (decision.uiState === "available") return null;
 
-  const hint = decision.paywallHint ? PLAN_COPY[decision.paywallHint] : null;
-  const line = headline ?? hint?.blurb ?? "Upgrade to unlock this capability.";
-  const cta = hint ? `Upgrade to ${hint.label}` : "Upgrade";
+  const hint = decision.paywallHint;
+  const line = headline ?? (hint ? t(`billing.plan.${hint}.blurb`) : t("billing.lead"));
+  const cta = t("billing.open");
 
   return (
     <div
@@ -104,6 +89,7 @@ export function UpgradeHint({ decision, headline, showInBeta = false, onUpgradeC
             paywall_hint: decision.paywallHint ?? null,
           });
           onUpgradeClick?.();
+          router.push("/settings/billing");
         }}
         className="shrink-0 rounded-lg bg-amber-900 px-3 py-1.5 text-xs font-medium text-amber-50 hover:bg-amber-950"
       >

@@ -19,6 +19,7 @@
   - `NEXT_PUBLIC_PHOTOROOM_ENABLED` — Space Editor 의 "고급 배경 분리 (Pro)" 버튼 노출 여부. 초기값 `false` (버튼 완전히 숨김). `PHOTOROOM_API_KEY` 를 서버에 설정한 다음에만 `true` 로 뒤집는다. false 인데 true 로 두면 UI 는 뜨지만 클릭 시 501 토스트만 뜨므로 사용자가 "기능 고장" 으로 오인함. 두 환경변수는 항상 함께 뒤집는다.
   - Theo Board 발행 시: `THEO_BOARD_PUBLISH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` (서버 전용). 발행: `THEO_BOARD_PUBLISH_TOKEN=... npm run publish:theo -- --title "..." --type announcement`
   - **IR demo room (Preview 전용, Production에 넣지 말 것):** `NEXT_PUBLIC_IR_DEMO=true`, `IR_DEMO_SECRET` (쿠키 서명, 입장 암호 아님), `IR_DEMO_PASSWORD`, `IR_DEMO_ASSET_ORIGIN` (프로덕션 Storage origin). Preview의 `NEXT_PUBLIC_SUPABASE_URL` / `ANON` / `SUPABASE_SERVICE_ROLE_KEY` 는 **클론 프로젝트** 값이어야 한다. `SENDGRID_API_KEY` 는 데모에 넣지 않는다. 공개 호스트: `demo.withtheo.art` (git branch `ir-demo`). Porkbun에 `demo` CNAME → `cname.vercel-dns.com` (또는 Vercel이 준 `*.vercel-dns-016.com`). 페르소나 시드: `IR_DEMO_SUPABASE_URL` + `IR_DEMO_SERVICE_ROLE_KEY` + `IR_DEMO_PASSWORD` 로 `npm run seed:ir-demo` (프로덕션 ref `sgufonscldvdwfgzltfw` 거부). 상세는 `docs/HANDOFF.md`.
+  - Billing: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, 그리고 플랜·월/연·USD/KRW별 `STRIPE_PRICE_*` 16개. 이름은 `.env.example`과 Vercel 절과 같다. 값은 비운다. 금액과 publishable 키는 넣지 않는다.
 
 3) Run
 - npm run dev
@@ -80,6 +81,27 @@
 - **THEO_BOARD_PUBLISH_TOKEN** — CLI(및 향후 Slack)가 `POST /api/theo-board/*` 에 보내는 Bearer 시크릿. 긴 랜덤 문자열.
 - **SUPABASE_SERVICE_ROLE_KEY** — 보드 글 INSERT/숨김/핀. RLS를 우회한다. 브라우저·`NEXT_PUBLIC_` 금지.
 - 발행 한 줄: `THEO_BOARD_PUBLISH_TOKEN=... npm run publish:theo -- --title "..." --type announcement` (로컬은 `.env.local` 또는 export. 앱이 떠 있어야 함. SQL 미적용 시 insert는 실패하고 rail은 placeholder 유지.)
+
+  Billing (2026-11-06) — Stripe Checkout / Customer Portal. **서버 전용.** 값은 비운다. 금액은 넣지 않는다. `NEXT_PUBLIC_` publishable 키는 없다. 카드 입력은 Stripe 화면이다. 이름만 같고, 로컬·Preview는 나중에 테스트 값, Production만 나중에 라이브 값이다.
+- **STRIPE_SECRET_KEY**
+- **STRIPE_WEBHOOK_SECRET** — `POST /api/billing/webhook` 서명
+- **STRIPE_PRICE_ARTIST_PRO_MONTH_USD**
+- **STRIPE_PRICE_ARTIST_PRO_MONTH_KRW**
+- **STRIPE_PRICE_ARTIST_PRO_YEAR_USD**
+- **STRIPE_PRICE_ARTIST_PRO_YEAR_KRW**
+- **STRIPE_PRICE_DISCOVERY_PRO_MONTH_USD**
+- **STRIPE_PRICE_DISCOVERY_PRO_MONTH_KRW**
+- **STRIPE_PRICE_DISCOVERY_PRO_YEAR_USD**
+- **STRIPE_PRICE_DISCOVERY_PRO_YEAR_KRW**
+- **STRIPE_PRICE_HYBRID_PRO_MONTH_USD**
+- **STRIPE_PRICE_HYBRID_PRO_MONTH_KRW**
+- **STRIPE_PRICE_HYBRID_PRO_YEAR_USD**
+- **STRIPE_PRICE_HYBRID_PRO_YEAR_KRW**
+- **STRIPE_PRICE_GALLERY_WORKSPACE_MONTH_USD**
+- **STRIPE_PRICE_GALLERY_WORKSPACE_MONTH_KRW**
+- **STRIPE_PRICE_GALLERY_WORKSPACE_YEAR_USD**
+- **STRIPE_PRICE_GALLERY_WORKSPACE_YEAR_KRW**
+- 로컬 Env도 같은 이름. `.env.example`과 같다. 비어 있으면 구독 버튼은 막히고 청구하지 않는다.
 
 3) Root Directory
 - Must be folder containing package.json for Next.js app (usually ".")

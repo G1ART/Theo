@@ -12,6 +12,7 @@ import { sanitizeActionHref } from "../src/lib/ai/sanitizeActionHref";
 for (const ok of [
   "/settings",
   "/settings/",
+  "/settings/billing",
   "/my/exhibitions/new",
   "/upload/bulk",
   "/my/network",

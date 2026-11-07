@@ -173,6 +173,10 @@ function AccountMenuCard({
         <span>{t("shell.settings")}</span>
         <ChevronRight />
       </ShellNavLink>
+      <ShellNavLink href="/settings/billing" onClick={onClose} className={rowCls}>
+        <span>{t("shell.billing")}</span>
+        <ChevronRight />
+      </ShellNavLink>
 
       <div className="mt-1 flex items-center justify-between gap-3 py-1.5">
         <span className="text-sm text-zinc-800">{t("shell.language")}</span>
