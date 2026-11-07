@@ -59,9 +59,10 @@ const uploadBlock = sidebar.slice(
 );
 assert.equal(/aria-haspopup|dropdown|<select/i.test(uploadBlock), false);
 
-assert.match(header, /PRIMARY_NAV\.map/);
 assert.match(header, /SECONDARY_NAV/);
 assert.match(header, /AccountSwitcher/);
+assert.match(header, /MobileMenuSheet/);
+assert.equal(header.includes("PRIMARY_NAV"), false);
 assert.match(navConfig, /key: "explore"/);
 assert.match(navConfig, /key: "delegations"/);
 assert.equal(menu.includes("updateMyProfile"), false);
@@ -99,8 +100,32 @@ const accountBlock = sidebar.slice(
   sidebar.indexOf("<DesktopAccountMenu"),
 );
 assert.equal(accountBlock.includes("href="), false);
-assert.match(header, /Locale switcher — sidebar parity for mobile/);
-assert.match(header, /onClick=\{\(\) => setLocale\("ko"\)\}/);
+const mobile = read("src/components/shell/MobileMenuSheet.tsx");
+const mobileOrder = [
+  ...mobile.matchAll(/data-mobile-item="upload"|renderRow\("([^"]+)"\)/g),
+].map((match) => match[1] || "upload");
+assert.deepEqual(mobileOrder, [
+  "upload",
+  "network",
+  "bulletin",
+  "messages",
+  "notifications",
+  "dashboard",
+  "selections",
+]);
+assert.match(mobile, /MY THEO/);
+assert.match(mobile, /data-mobile-account/);
+assert.match(mobile, /data-mobile-account-panel/);
+assert.match(mobile, /setAccountOpen\(\(open\) => !open\)/);
+assert.match(mobile, /setLocale\("ko"\)/);
+assert.match(mobile, /한국어/);
+assert.equal(mobile.includes("nav.explore"), false);
+assert.equal(mobile.includes("nav.saved"), false);
+assert.equal(mobile.includes("/my/delegations"), false);
+assert.equal(mobile.includes("<select"), false);
+assert.equal(mobile.includes("DesktopAccountMenu"), false);
+assert.match(sidebar, /DesktopAccountMenu/);
+assert.equal(sidebar.includes("MobileMenuSheet"), false);
 
 const beside = placeAccountMenu(
   { left: 24, right: 200, top: 700, bottom: 748 },

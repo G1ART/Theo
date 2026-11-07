@@ -2,6 +2,16 @@
 
 Last updated: 2026-11-06
 
+## 2026-11-06 — 모바일 햄버거를 사이드와 같은 순서로
+
+> **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.**
+
+- 폭 1024px 미만 햄버거 시트는 위에서 `+ 업로드`, 네트워크, Theo 게시판, 메시지, 알림, `MY THEO`, 대시보드, 셀렉션이다. 둘러보기·저장·위임은 없다. 업로드는 검은 알약 버튼 하나다. 글꼴·색·여백은 기존 시트다.
+- 로그인한 계정 줄은 시트 맨 아래에 있다. 누르면 같은 시트 안에서 프로필 전환, 공개 프로필, 설정, EN·한국어, 로그아웃이 펼쳐지고, 다시 누르면 접힌다. 화면 밖 작은 팝업은 쓰지 않는다. 항목은 그 페이지로 가고 시트가 닫힌다. 언어만 페이지를 유지한다. 로그인하지 않으면 그 자리에 언어와 시작하기·로그인이 있다.
+- 넓은 화면 왼쪽 사이드와 계정 카드는 그대로다.
+
+**Verified:** `npx tsc --noEmit`. `tests/shell-desktop-nav.test.ts`, `tests/feed-tab-entry.test.ts`, `tests/upload-nav-always-clickable.test.ts`, `tests/mobile-header-search.test.ts`, `tests/header-sticky.test.ts`, `tests/upload-refresh-not-blank.test.ts`, `tests/shell-layers.test.ts`, `tests/entry-trail.test.ts` 통과. 로그인 없이 로컬 `/feed`. 폭 390에서 시트 순서는 + 업로드, 네트워크, Theo 게시판, 메시지, 알림, MY THEO, 대시보드, 셀렉션, EN·한국어, 시작하기, 로그인. 둘러보기·저장·위임·계정 줄은 없었다. 폭 1440 왼쪽 사이드는 같은 메뉴 순서이고 헤더는 숨었다. 로그인한 계정 줄이 펼쳐지는 것과 데스크톱 계정 카드가 열리는 것은 세션이 없어 보지 못했다. 코드에서 로그인 줄은 시트 안 펼침이고, 데스크톱은 기존 카드다.
+
 ## 2026-11-06 — 계정 줄 팝업과 언어
 
 > **Supabase SQL:** 없음. **환경 변수 추가·변경 없음.**

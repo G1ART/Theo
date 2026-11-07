@@ -22,24 +22,12 @@ import {
   listMyDelegations,
   type DelegationWithDetails,
 } from "@/lib/supabase/delegations";
-import {
-  feedHomeHref,
-  loginUrlWithNext,
-  onboardingUrlWithNext,
-} from "@/lib/identity/routing";
-import {
-  PRIMARY_NAV,
-  SECONDARY_NAV,
-  type NavItem,
-  isNavItemActive,
-  navItemHref,
-} from "@/lib/shell/navConfig";
+import { feedHomeHref, loginUrlWithNext } from "@/lib/identity/routing";
+import { SECONDARY_NAV } from "@/lib/shell/navConfig";
 import { AccountSwitcher } from "@/components/shell/AccountSwitcher";
+import { MobileMenuSheet } from "@/components/shell/MobileMenuSheet";
 import { layer } from "@/lib/ui/layers";
-import {
-  HamburgerContextPeek,
-  useFollowInviteCount,
-} from "@/components/shell/HamburgerContextPeek";
+import { useFollowInviteCount } from "@/components/shell/HamburgerContextPeek";
 import { hitTarget } from "@/components/ds/buttonStyles";
 import { captureFeedDocumentNavigation } from "@/lib/feed/scrollRestore";
 import { disarmListScrollReturn } from "@/lib/list/scrollRestore";
@@ -72,9 +60,10 @@ installProfileScrollPopListener();
  *     (`/u/{username}` or `/onboarding/identity` if the handle is
  *     placeholder/missing). The dropdown menu is not rendered —
  *     the hamburger owns the full menu surface.
- *   - Hamburger panel renders PRIMARY_NAV + SECONDARY_NAV +
- *     AccountSwitcher (via the shared component) + locale switcher
- *     + anonymous "Get started"/"Login" footer.
+ *   - Hamburger panel renders the same destinations as the desktop
+ *     sidebar (upload, network, bulletin, messages, notifications,
+ *     MY THEO, dashboard, selections). The account row expands inside
+ *     the sheet. Anonymous visitors get language plus get started / login.
  *   - Panel is a `role="dialog"` / `aria-modal="true"` with Escape
  *     close, focus trap, and `aria-controls` linkage on the trigger.
  *
@@ -288,17 +277,8 @@ export function Header() {
     }
   }, [avatarOpen, session, fetchUnread, loadActiveAccountDelegations]);
 
-  // Mobile parity: when the hamburger menu opens, also lazy-load the
-  // active account delegations so the mobile switcher reflects the same
-  // state as the desktop dropdown without requiring a separate fetch.
-  useEffect(() => {
-    if (mobileOpen && session) {
-      loadActiveAccountDelegations();
-    }
-  }, [mobileOpen, session, loadActiveAccountDelegations]);
-
-  // Load pending count without opening any menu, so the hamburger row
-  // shows its badge without waiting for a first tap.
+  // Load pending count without opening any menu, so the desktop account
+  // menu can show a delegations badge without waiting for a first tap.
   useEffect(() => {
     if (!loggedIn) return;
     loadActiveAccountDelegations();
@@ -496,40 +476,11 @@ export function Header() {
     setMobileQuery(q);
   }, []);
 
-  function resolveBadge(item: NavItem): number {
+  function resolveBadge(item: { badge?: "delegationsPending" | "unread" | null }): number {
     if (item.badge === "delegationsPending") return pendingDelegations;
     if (item.badge === "unread") return unreadCount;
     return 0;
   }
-
-  function renderMobileRow(item: NavItem) {
-    const href = navItemHref(item, loggedIn);
-    const badgeCount = resolveBadge(item);
-    const active = isNavItemActive(item, pathname ?? "");
-    return (
-      <ShellNavLink
-        key={item.key}
-        href={href}
-        onClick={closeMobile}
-        className={`flex items-center justify-between py-2 px-1 text-sm transition-colors ${
-          active
-            ? "font-semibold text-zinc-900"
-            : "text-zinc-600 hover:text-zinc-900"
-        }`}
-      >
-        <span>{t(item.labelKey)}</span>
-        {badgeCount > 0 && (
-          <span className="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-            {badgeCount > 99 ? "99+" : badgeCount}
-          </span>
-        )}
-      </ShellNavLink>
-    );
-  }
-
-  const hamburgerSecondary = SECONDARY_NAV.filter(
-    (item) => item.key !== "network" && item.key !== "board",
-  );
 
   const accountMenuLabel = t("nav.accountMenu");
   const avatarAriaLabel =
@@ -938,76 +889,18 @@ export function Header() {
             role="dialog"
             aria-modal="true"
             aria-labelledby={mobilePanelHeadingId}
-            className={`lg:hidden absolute top-full left-0 right-0 ${layer.menu} border-b border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-sm`}
+            className={`lg:hidden absolute top-full left-0 right-0 max-h-[calc(100dvh-3.5rem)] overflow-y-auto ${layer.menu} border-b border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-sm`}
           >
             <h2 id={mobilePanelHeadingId} className="sr-only">
               {t("nav.menu")}
             </h2>
-            <nav className="flex flex-col p-4 gap-1">
-              {PRIMARY_NAV.map((item) => renderMobileRow(item))}
-
-              <div className="my-2 border-t border-zinc-100" />
-              <HamburgerContextPeek
-                loggedIn={loggedIn}
-                onNavigate={closeMobile}
-              />
-
-              {loggedIn &&
-                hamburgerSecondary.map((item) => renderMobileRow(item))}
-
-              {loggedIn && (
-                <div data-tour="account-switcher">
-                  <AccountSwitcher
-                    layout="hamburger"
-                    username={profileUsername}
-                    avatarUrl={avatarUrl}
-                    accounts={activeAccountDelegations}
-                    accountsLoaded={accountsLoaded}
-                    onNavigate={closeMobile}
-                  />
-                </div>
-              )}
-
-              {/* Locale switcher — sidebar parity for mobile. Placed
-                  after the switcher (or after primary nav for anonymous)
-                  so it's the last chrome before the auth CTA. */}
-              <div className="mt-3 flex items-center gap-3 px-1 text-xs text-zinc-400">
-                <button
-                  type="button"
-                  onClick={() => setLocale("en")}
-                  className={locale === "en" ? "font-semibold text-zinc-900" : "hover:text-zinc-700"}
-                >
-                  EN
-                </button>
-                <span>/</span>
-                <button
-                  type="button"
-                  onClick={() => setLocale("ko")}
-                  className={locale.startsWith("ko") ? "font-semibold text-zinc-900" : "hover:text-zinc-700"}
-                >
-                  KO
-                </button>
-              </div>
-
-              {!loggedIn && (
-                <div className="mt-3 flex flex-col gap-2 px-1">
-                  <ShellNavLink
-                    href={onboardingUrlWithNext({ nextPath: pathname || null })}
-                    onClick={closeMobile}
-                    className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
-                  >
-                    {t("nav.getStarted")}
-                  </ShellNavLink>
-                  <ShellNavLink
-                    href={loginUrlWithNext({ nextPath: pathname || null })}
-                    onClick={closeMobile}
-                    className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
-                  >
-                    {t("nav.login")}
-                  </ShellNavLink>
-                </div>
-              )}
-            </nav>
+            <MobileMenuSheet
+              loggedIn={loggedIn}
+              username={profileUsername}
+              avatarUrl={avatarUrl}
+              notificationUnread={unreadCount}
+              onNavigate={closeMobile}
+            />
           </div>
         )}
       </header>
