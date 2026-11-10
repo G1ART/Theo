@@ -79,10 +79,10 @@ function sideActive(key: SideKey, pathname: string): boolean {
 
 function RowIcon({ name }: { name: SideKey }) {
   // Traced from the sidebar wire, in that drawing's pixel proportions.
-  // A square 16px slot matches the menu type; meet keeps each drawing's ratio.
+  // A square 14px slot matches the menu type; meet keeps each drawing's ratio.
   const frame = {
-    width: 16,
-    height: 16,
+    width: 14,
+    height: 14,
     fill: "none" as const,
     "aria-hidden": true as const,
     className: "shrink-0",
@@ -297,7 +297,7 @@ export function AppSidebar({
   }, [pathname]);
 
   const activeAccent =
-    "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:bg-zinc-900 before:content-['']";
+    "bg-zinc-100 before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:bg-zinc-900 before:content-['']";
 
   function hrefFor(path: string, gated: boolean): string {
     if (!gated || loggedIn) return path;
@@ -305,8 +305,8 @@ export function AppSidebar({
   }
 
   const rowCls = (active: boolean) =>
-    `relative flex items-center justify-between gap-2 rounded-md py-1.5 pl-3 pr-2 text-[15px] transition-colors ${
-      active ? `font-bold text-zinc-900 ${activeAccent}` : "text-zinc-600 hover:text-zinc-900"
+    `relative flex h-[30px] items-center justify-between gap-2 rounded-md pl-3 pr-2.5 text-[12px] font-medium leading-none transition-colors ${
+      active ? `text-zinc-900 ${activeAccent}` : "text-zinc-600 hover:text-zinc-900"
     }`;
 
   function renderRow(key: SideKey) {
@@ -314,7 +314,7 @@ export function AppSidebar({
     if (!item) return null;
     const active = sideActive(key, pathname);
     const label = (
-      <span className="flex min-w-0 items-center gap-2">
+      <span className="flex min-w-0 items-center gap-2.5">
         <RowIcon name={key} />
         <span className="truncate">{t(item.labelKey)}</span>
       </span>
@@ -344,7 +344,7 @@ export function AppSidebar({
         {label}
         {key === "messages" ? <CountBadge count={messageUnread} /> : null}
         {key === "bulletin" && bulletinUnread ? (
-          <span aria-hidden className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-600" />
+          <span aria-hidden className="ml-auto size-[7px] shrink-0 rounded-full bg-emerald-600" />
         ) : null}
       </ShellNavLink>
     );
@@ -380,32 +380,32 @@ export function AppSidebar({
         href={feedHomeHref(loggedIn)}
         data-side-item="logo"
         aria-label="Theo"
-        className="inline-block text-zinc-900 transition-opacity hover:opacity-80"
+        className="inline-block leading-none text-zinc-900 transition-opacity hover:opacity-80"
       >
-        <TheoLogo className="h-12" size="md" priority />
+        <TheoLogo className="h-[31px]" size="md" priority />
       </ShellNavLink>
 
       <ShellNavLink
         data-side-item="upload"
         href={hrefFor("/upload", true)}
-        className="mt-6 inline-flex w-full items-center justify-start gap-1 rounded-full bg-zinc-900 py-2.5 pl-3 pr-4 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+        className="mt-5 inline-flex h-[38px] w-full items-center justify-start gap-3 rounded-lg bg-zinc-900 pl-3 pr-4 text-[16px] font-bold leading-none text-white transition-colors hover:bg-zinc-800"
       >
         <span aria-hidden>+</span>
         {t("nav.upload")}
       </ShellNavLink>
 
-      <div className="mt-5 flex flex-col gap-0.5">
+      <div className="mt-2.5 flex flex-col">
         {renderRow("network")}
         {renderRow("bulletin")}
         {renderRow("messages")}
         {renderRow("notifications")}
       </div>
 
-      <div className="mt-4 border-t border-zinc-200 pt-4">
-        <p className="px-3 pb-1 text-[11px] font-medium tracking-[0.16em] text-zinc-400">
+      <div className="mt-7 border-t border-zinc-300 pt-5">
+        <p className="px-2.5 pb-2 text-[10px] font-medium tracking-[0.04em] text-zinc-400">
           MY THEO
         </p>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col">
           {renderRow("dashboard")}
           {renderRow("selections")}
         </div>
