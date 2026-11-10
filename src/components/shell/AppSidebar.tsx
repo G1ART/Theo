@@ -388,7 +388,7 @@ export function AppSidebar({
       <ShellNavLink
         data-side-item="upload"
         href={hrefFor("/upload", true)}
-        className="mt-5 inline-flex h-[38px] w-full items-center justify-start gap-3 rounded-lg bg-zinc-900 pl-3 pr-4 text-[16px] font-bold leading-none text-white transition-colors hover:bg-zinc-800"
+        className="mt-5 inline-flex h-[44px] w-full items-center justify-start gap-3 rounded-lg bg-zinc-900 pl-3 pr-4 text-[14px] font-bold leading-none text-white transition-colors hover:bg-zinc-800"
       >
         <span aria-hidden>+</span>
         {t("nav.upload")}
